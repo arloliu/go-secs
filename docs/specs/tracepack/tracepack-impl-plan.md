@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-12) — phases 0 to 6b2 and phase 9, the simplification of tracepack v0.4.0, done; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206); phase 8 (v0.5.0, format 1.1, spec v2.33) comes next, then the minimal CLI of 6c.
+Status: active (2026-10-12) — phases 0 to 6b2, phase 9, the simplification of tracepack v0.4.0, and phase 8, format 1.1 in tracepack v0.5.0 (spec v2.33), done; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206); the minimal CLI of 6c comes next.
 Implements: tracepack v2.33 (format 1.1) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -31,10 +31,14 @@ Nested module `github.com/arloliu/go-secs/tracepack` (own `go.mod` in `tracepack
 |---|---|---|
 | `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Merge`, `MergeIterate`, `FindTransaction`, `ExportJSONL` | yes |
 | `tracepack/classify` | go-secs-based `decode_status` classifier | yes |
+| `tracepack/redact` | masking at write under a redaction policy, digests, the encryption of originals and their restore (phase 8); imports `tracepack`, which never imports it | yes |
+| `tracepack/internal/marking` | the Marking checks of [SEM §8] as pure functions over plain values, shared by the readers, the `Writer`, `Merge` and `redact` | no |
+| `tracepack/internal/siv` | AES-SIV-CMAC-512 over Tink's `daead/subtle`, and the associated data of [SEM §8]; the only importer of tink-go | no |
+| `tracepack/internal/secsitem` | the SECS-II item walk `redact` masks by: leaf content ranges, the item predicate of [SEM §3], item paths | no |
 | `tracepack/internal/format` | byte layouts: file header, envelope, record header, trailer, F-1, F-2; CRC; UUID byte order | no |
 | `tracepack/internal/tlv` | TLV entry encoding, value types, tag registries, validation | no |
 | `tracepack/internal/codec` | `none`, `zstd` | no |
-| `tracepack/internal/corpus` | conformance corpus: the [CORPUS] schemas, byte surgery on packs, the vector recipes, the generator and the conformance test; imports `tracepack` and the other internal packages, never `classify` or go-secs | no |
+| `tracepack/internal/corpus` | conformance corpus: the [CORPUS] schemas, byte surgery on packs, the vector recipes, the generator and the conformance test; imports `tracepack`, `redact` and the other internal packages, never `classify` or go-secs | no |
 | `tracepack/cmd/tracepack` | CLI | binary |
 
 Rules from the repo apply: internal packages never appear in public signatures;
@@ -79,7 +83,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 6b1 — conformance corpus, part 1 | done | |
 | 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | done | |
 | 6c — CLI | pending | minimal, after phase 8 (G5-206) |
-| 8 — Producer API for a durable-bus capture | pending | v0.5.0, format 1.1; takes phase 7's reader obligation (G5-207) |
+| 8 — Producer API for a durable-bus capture | done | v0.5.0, format 1.1; took phase 7's reader obligation (G5-207) |
 | 9 — Simplification (tracepack v0.4.0) | done | before phase 8 |
 
 Closed phases, never done and not in the table:
@@ -765,7 +769,74 @@ No stand-alone clock-step detector is exported; the clock-anchor code stays in `
 Resolved by spec v2.23: a Go producer writes `capture_origin_mono_ns` = 0 (G5-151),
 and a `stop` boundary carries no seq range, so it need not name its seq in advance (G5-149).
 
-Tests and done criteria are set with the v0.5.0 task plan, kept outside the repository, which the owner approves before its first task.
+Plan: the v0.5.0 task plan, kept outside the repository (approved after plan reviews r1–r4, a precision pass and its fact check);
+its three follow-up rulings are G5-252..G5-254, and a fourth, found during the work, G5-255.
+It decided the API shapes [STO §4] and go.md §3 leave open:
+classification happens before masking, outside the `Writer`, as part of the bus record's derivation;
+a pack masked at write is written with given seqs only;
+`Close` returns a `Continuation`, never a seq a caller could take for a start after the last one;
+and the masking engine is the package `redact`, which the root package never imports.
+
+Done when: `make lint-tracepack`, `make test-tracepack` and `make test-tracepack-386` pass and `go fix -diff ./...` is clean;
+the corpus regenerates byte-identically, in one process and in two, and every earlier vector keeps its `pack.tpk` and `export.jsonl` byte for byte;
+`ExportJSONL` of every pack of the v0.4.0 and v0.3.0 corpora, truncated packs included, is byte for byte as v0.4.0 wrote it;
+the outcomes of tracepack v0.4.0 reading and merging the format 1.1 fixtures are recorded;
+`gorelease` against v0.4.0 reports no incompatible change the module's changelog does not name;
+every `Fuzz*` target runs without failure, the new masking, bus, descriptor and merge targets among them for longer;
+the benchmarks of format 1.0 packs stay within noise of v0.4.0;
+every implementation test of the spec plan's §2.11 passes or is marked as outside the module;
+the external post-implementation review is clean.
+
+Done (2026-10-12): the tests below pass.
+- AES-SIV (G5-228..G5-230, G5-234, G5-245): `TestWycheproof512` over Wycheproof's 147 cases with 512-bit keys, `TestAssociatedData`, `TestOpenRejectsADVariants`, `TestSealDeterministic`, `TestSealDoesNotAliasInputs`, `TestKeyLength` and `FuzzSIVOpen`;
+  tink-go v2.8.0 is imported by `internal/siv` alone.
+- Version-aware decoding and the format 1.1 types ([FMT §5], [FMT §14]): `TestValidateMinor`, `TestRegistryAtMinor`, `TestFormatMinorSince`, `TestThinningRegistry`, `TestUnmarshalPackMetaMinor`, `TestPackMetaFormat11RoundTrip`,
+  `TestRedactionEntryRawMaskedRanges`, `TestReaderVersionAware`, `TestEncryptionAlgorithm_String` and `TestExportMinor0NewNumbers`,
+  the last comparing the export of a minor-0 pack holding the new numbers with the bytes tracepack v0.4.0 wrote of it.
+- The `Writer`'s minor, profile and unobserved records (G5-232, G5-243, G5-250): `TestWriterFormatMinor`, `TestFormatMinorOfEachFeature`, `TestWriterEncryptionTags`, `TestWriterMaskedAtWriteProfile`, `TestWriterMaskedGivenSeq`,
+  `TestWriterMaskedRawBlocks`, `TestWriterRedactedOutsideExtract`, `TestRedactionPresence`, `TestWriterUnobserved`, `TestWriterThinningRange`, `TestUnobservedRecordBytes` and `TestUnobservedDistinguishable`.
+- The export schema `tracepack-jsonl/2`: `TestExportSchemaByMinor`, `TestExportV2Names`, `TestExportV2NestedOrder` and `TestExportV2Unobserved`.
+- Reader redaction checks (the reader obligation of phase 7, [SEM §8]): `TestMarkingPure`, `TestRedactionBootstrapDefects`, `TestRedactionRecordDefects`, `TestRedactionIsolation`, `TestRedactionEncryptionTags`, `TestRedactionAdjacentEncrypted`,
+  `TestRedactionLegacyZeroOverlap`, `TestRedactionUnmaskableKinds`, `TestRedactionWithoutPayloads`, `TestRedactionExportEmptySIV`, `TestMergeIterateRedaction` and `TestMergeIterateRedactionRepresentative`;
+  `Open` fails on no recoverable defect.
+- `redact` (G5-236..G5-238, G5-247): `TestCompileRules`, `TestCompileDomains`, `TestCompileOverlap`, `TestPackPolicy`, `TestMaskItem`, `TestMaskWholeText`, `TestMaskAnnotation`, `TestMaskUnobserved`, `TestMaskNeverMasked`,
+  `TestMaskCannotScreen`, `TestMaskDeterministic`, `TestMaskOverlappingZeroMasks`, `TestDigest`, `TestDigestAcrossCaptures`, `TestRestore`, `TestRestoreUntrustedInput`, `FuzzMaskRestore` and `FuzzMaskZero`;
+  the item walk: `TestWalkAgainstClassify`, which checks the walker against `classify` on the 53 data frames of the classifier vectors that reach the item predicate, `TestScreen`, `TestSelect`, `TestParsePattern` and `TestOverlaps`.
+- Bus and descriptor codecs (G5-216, G5-217, G5-226, G5-241, G5-249, G5-251, G5-252, G5-254): `TestBusBodyRoundTrip`, `TestBusNormalization`, `TestCheckBusMessage`, `TestBusMsgID`, `TestBusToolToken`, `TestBusSizing`,
+  `TestBusPayloadCheck`, `TestBusLargeClaimCheck`, `TestBusLargeClaimCheckAllocs`, `TestBusClaimCheckStartRoundTrip`, `TestBusClaimCheckStartDescriptor`, `TestBusDescriptorHeader`, `TestEncodeBusBodyRefuses`, `TestDeriveBusRecordRefuses`,
+  `TestDescriptorRoundTrip`, `TestDescriptorRoundTripMinimal`, `TestDescriptorScope`, `TestDecodeDescriptorReordered`, `TestDecodeDescriptorKeepsNonzeroReservedByte`, `TestEncodeDescriptorRefuses`, `TestEncodeDescriptorOmitsConsumerValues`,
+  `FuzzCheckBusMessage` and `FuzzDecodeDescriptor`.
+- Marking at write, the masked pipeline and the terminal `Close` (G5-231, G5-240, G5-246): `TestWriterMarkingAtAppend`, `TestWriterMarkingRawBlocks`, `TestWriterMetadataCopied`, `TestConsumerPipeline`, `TestRedeliveryAcrossBatches`,
+  `TestWriterTerminalClose`, `TestSegmentWriterLastSeq`, `TestWriteClose`, `TestWriterCommitBoundary`, `TestCloseReadSemantics` and `TestNewNamed`.
+- `Merge` of format 1.1 packs (G5-232, G5-235, G5-239, G5-250, G5-253): `TestMergeMasked`, `TestMergeMaskedRefusals`, `TestMergeEncryptionTags`, `TestMergeUnmaskedClassifiers`, `TestMergeMinor`, `TestMergeMinor0V040`,
+  `TestMergeThinning`, `TestMergeUnobservedCommitment` and `TestMergeClose`.
+- Coverage of another capture (G5-215, G5-255): `TestCoverageOtherCapture`, `TestFindTransactionCoverageOtherCapture` and `TestFindTransactionCoverageAcrossHours`.
+  `TestBlockSummaryEpochsScaleLinearly`, which failed on 386 at a 20.5× ratio of a linear summary, now takes the fastest of 9 runs and bounds the ratio at 40×, 2.5 times below a quadratic search.
+- The corpus, `tracepack-corpus/4` ([CORPUS] v2.33): `TestManifestGroups`, `TestPrimitiveKeys`, `TestFooterProjectionOrder`, `TestVersionVectorsKeepTheirStatus`, `TestEncryptedSegmentRestores`, `TestEncryptedArchiveRestores`,
+  `TestEncryptedCasesClassify`, `TestCaptureVectorsCompare`, `TestDefectVectorsMasked`, `TestDamagedVectorsMaskedAndThinned`, `TestThinFDCPolls` and `TestCloseVectors`;
+  `TestRecipeIDsAreCatalogued` binds every catalogued id with no pending recipe left.
+  It gains 24 vectors, 14 of them exported under `tracepack-jsonl/2`, and holds 121 vectors in 267 files and about 674,000 bytes:
+
+| Group | New vectors | Vectors | Files | Bytes |
+|---|---:|---:|---:|---:|
+| `redact-` | 11 | 11 | 23 | 91,609 |
+| `basic-` | 5 | 21 | 42 | 94,657 |
+| `close-` | 4 | 4 | 11 | 18,847 |
+| `footer-` | 2 | 30 | 70 | 163,959 |
+| `bootstrap-` | 1 | 17 | 34 | 8,355 |
+| `thin-` | 1 | 1 | 2 | 4,471 |
+
+Measured on one AMD Ryzen 9 9950X3D, Go 1.26.8, `GOMAXPROCS=16`:
+
+| Benchmark | Result |
+|---|---:|
+| `BenchmarkMaskPPBODY`, a 4 KiB PPBODY under encryption | about 8,060 ns, 500–518 MB/s, 17,056 bytes and 38 allocations |
+| `BenchmarkMaskPPBODY`, a 1 MiB PPBODY | about 1.71 ms, 607–622 MB/s, 3,165,345 bytes and 38 allocations |
+| `BenchmarkWriterAppendFrame`, 4 KiB frames, zstd and validation: one payload copy | about 10 of 883 ns, 1.2 % |
+| `BenchmarkWriterAppendFrame`, no codec and no validation: one payload copy | about 18 of 310 ns, 6.2 % |
+| `BenchmarkMergeCoalesce/idle` and `BenchmarkMergeSegments/idle`, format 1.0 packs, before and after the merge of format 1.1 | within 3 % |
+
+The second payload copy at `Append` stays below 10 % of append time on both paths, so no owning append is added.
 
 ### Phase 9 — Simplification (tracepack v0.4.0)
 

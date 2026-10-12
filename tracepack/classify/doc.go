@@ -11,4 +11,6 @@
 // it is derived once, at package initialization, from the go-secs/v2 module version reported by runtime/debug.ReadBuildInfo.
 //
 // [New] returns the same classifier as a tracepack.Classifier, with a uint64 ceiling, for a writer that takes one.
+// [NewNamed] returns it under a name the caller gives, for a consumer of a durable bus,
+// which writes one classifier name in every pack of a capture whatever binary writes it.
 package classify

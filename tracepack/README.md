@@ -29,6 +29,12 @@ This page is a map by audience; the Godoc states each contract in full.
   `staging/` for segments and `archive/` for every other pack.
   A directory written by `NewDirSink` is laid out as such a bucket.
   Which packs a read or a merge takes is always its caller's choice.
+- Format 1.1, a pack's `format_minor` 1, adds packs **masked at write**,
+  whose records are masked under a redaction policy that encrypts the originals of data records (the semantics specification §8),
+  and records **unobserved by design**, data records whose message text the producer did not capture,
+  of the streams and functions the pack's `thinning` entries declare.
+  A `Writer` writes minor 0 for a pack holding neither, as for every pack before format 1.1;
+  a pack of minor 1 holding neither is still read as minor 1, and `Merge` keeps its minor.
 
 ## Recording a capture
 
@@ -171,6 +177,68 @@ It writes block bodies and the footer with zstd, as the format specification §2
 `Merge` does the same unless `MergeOptions.Uncompressed` is set.
 It validates each block before writing it unless `WriterOptions.SkipValidation` is set.
 For every pack but an extract it refuses a period not inside one UTC hour, and a record of another hour, with `ErrScopeBreach`.
+It writes `format_minor` 1 exactly when the pack metadata holds a feature of format 1.1, and 0 otherwise.
+`Close` writes the footer and trailer and returns a `Continuation`:
+`next, ok := cont.Next()` gives the seq the capture's next pack starts at,
+and `ok` is false after a pack whose last record has seq 2^63 − 1, the last seq of a capture, since no pack follows it.
+
+## Publishing a capture over a durable bus
+
+For a producer, such as an equipment gateway, that publishes each record of a capture as one bus message (the storage specification §4):
+the bus codec and the descriptor codec.
+The module imports no NATS client; it encodes and checks what a message carries.
+
+- The producer assigns `capture_id`, `recorder_instance_id` and every `seq`; seq 2^63 − 1 is reserved for the consumer's close.
+- `EncodeDescriptor(meta)` encodes the producer-owned entries of the capture's pack metadata, its `thinning` entries included, with no default applied.
+  Publish it in the `Tpk-Capture-Descriptor` header of the capture's `start`, in standard base64 with padding (`base64.StdEncoding`).
+- `NewBusRecord(r)` and `EncodeBusBody(&br)` encode one record as the body of layout 1: the 44-byte record header, then the payload.
+  A record whose body is too large to travel inline, as `BusInline(bodyLen, maxPayload)` says, travels by claim-check:
+  set `ClaimCheck`, `Bucket` and `Digest`, the payload's SHA-256 digest, and keep `PayloadLen`;
+  the body is then the header alone, and the `Tpk-Payload-Digest` header carries `BusPayloadDigest(payload)`.
+  The body holds `decode_status`, `trailing_bytes` and `field_validity` as zero, since the consumer derives them,
+  and the encoder refuses a record carrying `redacted` or seq 2^63 − 1.
+- `BusSubject(prefix, toolID, capture)` and `BusMsgID(capture, seq)` give the subject and the `Nats-Msg-Id`, and constants such as `BusHeaderPayloadRef` name the headers.
+- `CheckBusStart(headerBlockLen, bodyLen, maxPayload)` is the preflight:
+  the header block, as your client encodes it, holds at most `BusHeaderBlockLimit` bytes on every message,
+  and the message fits the deployment's `max_payload`, itself at least `BusMinMaxPayload`.
+- A data record of a stream and function the descriptor's `thinning` declares may be left unobserved by design:
+  it carries `QualityUnobserved`, and its message text is zero-filled.
+
+## Writing the packs of a bus capture
+
+For the log service, the consumer that writes a durable-bus capture's packs:
+`CheckBusMessage`, `DeriveBusRecord`, the package `redact`, the `Writer`'s masked-at-write path, `WriteClose` and `Merge`.
+
+- `CheckBusMessage(env, body)` checks one message and returns its `BusRecord`, normalized.
+  `ErrBusMalformed` means the message is never written and its seq is a seq gap;
+  `ErrBusNotAccepted` means a `start` whose descriptor cannot be accepted: alert, and defer the capture's later records.
+  For a claim-check record, fetch the object and check it with `CheckBusPayload`; on `ErrBusPayloadMismatch` defer the message.
+  `DecodeDescriptor` gives the producer's values from a `start`, to which you add the values you own.
+- `DeriveBusRecord(&br.Record, cls)` sets the values you derive by kind:
+  `field_validity`, and `decode_status` and `trailing_bytes` from the capture's classifier, or `not-attempted` for an unobserved record.
+  Classify before masking, since the classification describes the payload as received.
+  `classify.NewNamed(name, maxFrameLen)` gives the classifier the name of its configuration, which stays fixed for the capture.
+- Under a redaction policy, compile it once with `redact.Compile`, then mask every record of a flush batch with `(*Compiled).Mask(capture, r, unobserved, keys)`;
+  `unobserved` is true for a record carrying bit 7, which is never masked.
+  Your `redact.Keys` hands out the digest and encryption keys, whose custody stays yours.
+  A record that cannot be screened, `redact.ErrCannotScreen`, is deferred, never written unscreened.
+  Collect the entries into `PackMeta.Redaction`, ordered by seq, then by first masked offset,
+  set `RedactionPolicy` to `(*Compiled).PackPolicy()`, and only then call `NewWriter`, which writes the pack metadata first.
+  See the `redact` package's example.
+- Such a pack, one that is not an extract and carries `redaction_policy`, is masked at write:
+  its policy carries both encryption tags, its metadata exactly one `classifier` and at most one `max_frame_len`,
+  each breach refused by `NewWriter` with a `*FieldError` wrapping `ErrMetadataCommitment`;
+  it is written with the seqs you give, and `NewWriter` refuses `AssignSeq` for it with a plain error.
+  `NewWriter` checks the entries, and `Append` and `Close` every record's Marking against them,
+  each refusing a mismatch with a `*FieldError` wrapping both `ErrMetadataCommitment` and `ErrRedactionDefect`.
+  A record refused by an earlier commitment check, such as a redacted record when the file header does not set `redaction-present`,
+  wraps `ErrMetadataCommitment` alone, so test refusals with `errors.Is(err, ErrMetadataCommitment)`.
+- An unobserved record needs the pack metadata's `thinning` entry of its stream and function;
+  `Append` refuses any other record carrying bit 7, with `ErrInvalidRecord` for its own fields.
+- `WriteClose(w, opts)` writes the close of a capture its producer left open:
+  one `stop-unclean` record at seq 2^63 − 1, alone in a segment, from the `CloseOptions` you give.
+  A retry with the same `PackID` and `Now` writes the same bytes, and the pack id is returned with an error once the options are valid.
+- `redact.Restore` gives the holder of a capture's encryption key the original payload of a masked data record, all or nothing.
 
 ## Reading packs
 
@@ -195,6 +263,13 @@ For readers and troubleshooters working on local files:
   whatever its outcome, it waits for every call it issued before it returns.
   See `ExampleMergeIterate`.
 - An `Item` is valid only during the callback that receives it; clone what you keep.
+- Readers decode the pack metadata under the pack's `format_minor`, so a number of format 1.1 means nothing in a pack of minor 0.
+  `Reader.Unobserved(r)` says whether a record is unobserved by design, its bit 7 meaning `unobserved` only in a pack of minor 1 or later;
+  with `len(r.Payload)` and `r.DecodeStatus` it tells such a record from an empty message text and from an abnormal reply.
+- A record that carries `quality.redacted` or that a redaction entry names has its Marking in `Item.Redaction`:
+  copies of its entries, its defects, and whether it is wholly masked, the same with or without `Query.Payloads`.
+  `PackHeader.RedactionDefects` lists the defects of the entries found at bootstrap.
+  A defect never fails `Open` or a read and never makes it incomplete; the records it concerns read as wholly masked.
 - A read reports a **crash gap**, a `ReasonCrashGap` defect whose `Defect.Boundary` holds the boundary,
   for every `stop-unclean` capture boundary whose gap meets the query's time range (the semantics specification §7.4):
   records of that time may be missing.
@@ -207,8 +282,10 @@ For readers and troubleshooters working on local files:
   `TxNotFound` states nothing about records outside the packs it read.
   See `ExampleFindTransaction`.
 - `ExportJSONL(ctx, r, w)` writes the canonical JSONL export of one pack,
-  schema `tracepack-jsonl/1` of the [JSONL specification](../docs/specs/tracepack/tracepack-jsonl.md):
+  as the [JSONL specification](../docs/specs/tracepack/tracepack-jsonl.md) defines it:
   a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
+  A pack of format minor 0 exports schema `tracepack-jsonl/1`, byte for byte as earlier versions wrote it,
+  and any other pack `tracepack-jsonl/2`, which names the additions of format 1.1.
   A damaged pack exports the records of its validated blocks, and the returned `Result` reports what was lost exactly as `Iterate`'s does:
   a failed block or a crash gap makes it incomplete, while a footer that is not used, with every block found by the forward walk, only sets `FooterErr`.
   A reader budget that keeps part of the pack out fails the export with an error wrapping `ErrReadLimit` instead;
@@ -244,6 +321,16 @@ For the storage service:
   It refuses with `ErrMergeInput`, before writing anything, an input whose role is neither `segment` nor `archive`, and an input of another capture or hour.
   Which packs a merge takes, and when a merged pack may be deleted, is yours to decide (the storage specification §4);
   publish the archive only after `Merge` returned nil.
+- `Merge` merges packs of format 1.1: it carries the inputs' redaction policy, their redaction entries and their `thinning`,
+  and writes the largest `format_minor` of its inputs.
+  Before it writes anything, it refuses with `ErrMergeInput` an input of a newer minor, a policy without both encryption tags,
+  inputs carrying `redaction_policy` that differ in policy, `classifier` or `max_frame_len`, a masked input beside an unmasked one,
+  and defective redaction entries;
+  inputs without a policy still merge with differing `classifier` and `max_frame_len` values, the archive carrying their union.
+  Differing entries for one seq fail with `ErrMergeConflict`, also before anything is written.
+  A record that fails a Marking or unobserved check is found only once its block is read, after the archive's header,
+  and its `ErrMergeInput` leaves partial output in `dst`, which you discard, as after any error.
+  Merge packs of format 1.1 only with this version or later, since an earlier one does not carry what format 1.1 adds.
 
 ## Specification
 
@@ -252,6 +339,8 @@ the format, the record semantics, the storage profile, the canonical JSONL expor
 
 The conformance corpus in [testdata/corpus/](testdata/corpus/) holds packs and what a conforming reader produces from them:
 exports, bootstrap rejections, header fields, footer checks and truncation tables.
+Its packs are of format 1.0 and 1.1, masked, encrypted and thinned packs and a consumer's close among them,
+and its `primitives.json` publishes test keys with known-answer cases for the digests and AES-SIV.
 An implementation in any language checks itself against the committed files, without Go;
 its [README](testdata/corpus/README.md) says how,
 and the [corpus specification](../docs/specs/tracepack/tracepack-corpus.md) defines every file.

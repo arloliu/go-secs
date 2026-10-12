@@ -45,6 +45,21 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   `Open` decodes the metadata by the pack's minor and reports recoverable redaction defects without failing;
   `Merge` carries masks and `thinning` with the refusals of [STO §4]; `SegmentWriter` is the standalone recorder; the `Recover` bullet is removed (G5-227).
   §7 drops `recover` from the commands whose return is open.
+- 2026-10-12: §3 follows tracepack v0.5.0, naming the exported identifiers in place of the shapes the v0.5.0 implementation plan was to set.
+  The `Writer` bullets: `Close` returns a `Continuation`, whose `Next() (seq, ok)` reports no continuation after seq 2^63 − 1 (G5-231);
+  classification happens before masking, outside the `Writer`, through `DeriveBusRecord` and the capture's `Classifier`,
+  so the sketched classification option for given-seq records is dropped;
+  a pack masked at write is written with given seqs only, its profile rules and the checks of unobserved records stated.
+  The bus codec and descriptor codec bullets name their constants, `BusEnvelope`, `BusRecord`, `CheckBusMessage`, `EncodeBusBody` and the helpers,
+  and the descriptor refusals of G5-252 and G5-254;
+  masking preparation and restore name `redact.Policy`, `Compile`, `(*Compiled).Mask`, `Keys`, `PackPolicy` and `redact.Restore`, with what `Restore` refuses;
+  the close writer is `WriteClose` with `CloseOptions`.
+  The `Reader` bullet names `UnmarshalPackMetaMinor`, `NewPackInfoMinor`, `PackHeader.RedactionDefects`, `Item.Redaction` and `Reader.Unobserved`,
+  replacing per-record `Redacted` and `Unobserved` fields that do not exist;
+  `Merge` lists its format 1.1 refusals, G5-253 included, and its entry conflicts;
+  `ExportJSONL` its schema by minor; the documentation bullet the new audiences and the `redact` example;
+  §1 says only `redact` links Tink, and §4 adds `classify.NewNamed` (G5-250).
+  No rule changed.
 
 ## Changes vs v1 (summary)
 
