@@ -220,7 +220,10 @@ The conformance corpus, now `tracepack-corpus/4`, gains 24 vectors.
   takes about 8 µs for a 4 KiB PPBODY and 1.7 ms for 1 MiB, about 500 and 610 MB/s, with 38 allocations and about three payloads of bytes.
 - The copy `Writer.Append` makes of a payload a producer has already copied costs about 1.2 % of the append time of a 4 KiB frame with zstd and validation,
   and about 6.2 % without either, so no appending API that takes ownership of the payload is added.
-- `Merge` of format 1.0 packs is unchanged within about 3 %: the per-record checks of format 1.1 run only on blocks whose summary shows a redacted or unobserved record or an entry's seq.
+- `Open` and `Merge` of format 1.0 packs cost what they did in v0.4.0, within noise, and a format 1.0 `Open` makes as many allocations:
+  validating an entry list looks up only the registry fields of missing tags, and the per-record checks of format 1.1 run only on blocks
+  whose summary shows a redacted or unobserved record or an entry's seq.
+  `Merge` without coalescing measures about 3 % slower in its benchmark, which follows the stack offset of its block-summary loop, not added work.
 
 ## [0.4.0] - 2026-10-11
 
