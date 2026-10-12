@@ -1,6 +1,6 @@
 # tracepack — decision log
 
-Status: current (2026-10-11)
+Status: current (2026-10-12)
 Owner decisions for tracepack; append-only under `.agents/rules/450-doc-lifecycle.md`.
 Entries up to G5-79 were recorded in the design notes before the repository became the source of truth;
 they are copied here verbatim under their original headings, and later entries are added only here.
@@ -1591,3 +1591,14 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rationale *(editorial)*: nothing is lost silently, and the producer's preflight of the descriptor makes the case a configuration error.
   Rejected *(editorial)*: acknowledging the capture's records so their seqs read as gaps, at once or after a configured time.
   Spec: [STO §4], pending (v2.33).
+
+## 2026-10-12 v0.5.0 task plan (owner accepted the recommendation)
+
+- G5-252 A descriptor holding an entry the consumer does not know is not accepted (2026-10-12, the scope of G5-251):
+  a capture descriptor holding a top-level tag the consumer does not know, single or repeated, or an unknown nested tag inside `thinning`, does not decode;
+  its `start` is not accepted (G5-251): nothing is written, an alert is raised, and the capture's later records stay deferred until an operator acts.
+  Rationale *(editorial)*: an entry the consumer copied without knowing it would vanish at the first merge, which keeps no unknown top-level entry ([STO §4] Merge),
+  so the segments and archives of one capture would describe it differently;
+  refusing the `start` makes a producer newer than its consumers visible while it can still be fixed.
+  Rejected *(editorial)*: keeping unknown entries raw and copying them into every segment, to be dropped by the merge.
+  Spec: [STO §4], v2.33.
