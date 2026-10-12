@@ -3,6 +3,8 @@ package corpus
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,8 +17,9 @@ import (
 
 // closurePack returns a finalized pack of two blocks whose records end epochs and mark boundaries:
 // block 0 ends epoch 1 by a socket-close at seq 1 and again by a clean stop at seq 2;
-// block 1 holds epoch 2's gap boundary at seq 5 and its socket-close at seq 6, a boundary without a kind at seq 7,
-// an unclean stop at seq 8, which ends no epoch, and at seq 9 a socket-close whose body is not valid, which ends nothing.
+// block 1 holds epoch 2's gap boundary at seq 5, with a gap_start only, and its socket-close at seq 6, a boundary without a kind at seq 7,
+// an unclean stop at seq 8 with both bounds, which ends no epoch,
+// and at seq 9 a socket-close whose body is not valid, which ends nothing.
 func closurePack(t *testing.T) []byte {
 	t.Helper()
 
@@ -24,6 +27,10 @@ func closurePack(t *testing.T) []byte {
 		return &tracepack.TransportEvent{Event: tracepack.EventCaptureBoundary, BoundaryKind: &k}
 	}
 	closeEv := &tracepack.TransportEvent{Event: tracepack.EventSocketClose}
+	gap := kind(tracepack.BoundaryKindGap)
+	gap.GapStart = new(int64(-5))
+	unclean := kind(tracepack.BoundaryKindStopUnclean)
+	unclean.GapStart, unclean.GapEnd = new(int64(math.MinInt64)), new(int64(math.MaxInt64))
 	invalid := eventRecord(t, 9, 3, closeEv)
 	// A second event entry: the tag is not repeatable, so the body is not a valid TLV body.
 	invalid.Payload = tlv.AppendEntry(invalid.Payload, tlv.U8Entry(0x0001, uint8(tracepack.EventSocketClose)))
@@ -31,9 +38,9 @@ func closurePack(t *testing.T) []byte {
 	blocks := [][]tracepack.Record{
 		{dataRecord(0, 1, nil), eventRecord(t, 1, 1, closeEv), eventRecord(t, 2, 1, kind(tracepack.BoundaryKindStop)), dataRecord(3, 2, nil)},
 		{
-			dataRecord(4, 2, nil), eventRecord(t, 5, 2, kind(tracepack.BoundaryKindGap)), eventRecord(t, 6, 2, closeEv),
+			dataRecord(4, 2, nil), eventRecord(t, 5, 2, gap), eventRecord(t, 6, 2, closeEv),
 			eventRecord(t, 7, 3, &tracepack.TransportEvent{Event: tracepack.EventCaptureBoundary}),
-			eventRecord(t, 8, 3, kind(tracepack.BoundaryKindStopUnclean)), invalid,
+			eventRecord(t, 8, 3, unclean), invalid,
 		},
 	}
 
@@ -69,7 +76,8 @@ const closureProjection = `{
       "boundaries": [
         {
           "seq": "5",
-          "kind": "gap"
+          "kind": "gap",
+          "gap_start": "-5"
         },
         {
           "seq": "7",
@@ -77,7 +85,9 @@ const closureProjection = `{
         },
         {
           "seq": "8",
-          "kind": "stop-unclean"
+          "kind": "stop-unclean",
+          "gap_start": "-9223372036854775808",
+          "gap_end": "9223372036854775807"
         }
       ]
     }
@@ -103,7 +113,8 @@ const closureProjection = `{
       },
       {
         "seq": "5",
-        "kind": "gap"
+        "kind": "gap",
+        "gap_start": "-5"
       },
       {
         "seq": "7",
@@ -111,7 +122,15 @@ const closureProjection = `{
       },
       {
         "seq": "8",
-        "kind": "stop-unclean"
+        "kind": "stop-unclean",
+        "gap_start": "-9223372036854775808",
+        "gap_end": "9223372036854775807"
+      }
+    ],
+    "seq_ranges": [
+      {
+        "first": "0",
+        "last": "9"
       }
     ]
   }
@@ -176,11 +195,53 @@ func TestFooterStoredApartFromValidation(t *testing.T) {
           "epoch": 1
         }
       ],
-      "boundaries": []
+      "boundaries": [],
+      "seq_ranges": [
+        {
+          "first": "0",
+          "last": "0"
+        }
+      ]
     }
   }
 }
 `, marshalJSON(t, &f))
+}
+
+// TestReadStoredFooterSeqRangeAboveLimit checks that an F-5 seq_range of 16 bytes is readable
+// whatever its endpoints hold (the tracepack corpus specification §5.8 checks its length alone):
+// with an endpoint above 2^63-1 the stored projection states it, while footer validation rejects the footer.
+func TestReadStoredFooterSeqRangeAboveLimit(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name        string
+		first, last uint64
+	}{
+		{"last above 2^63-1", 0, 1 << 63},
+		{"both above 2^63-1", math.MaxUint64 - 1, math.MaxUint64},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			pack := must(PatchFooter(closurePack(t), func(d []byte) ([]byte, error) {
+				at := must(EntryOffset(d, must(F5List(d))(t), seqRangeTag, 0))(t) + tlv.HeaderLen
+				binary.LittleEndian.PutUint64(d[at:], tt.first)
+				binary.LittleEndian.PutUint64(d[at+8:], tt.last)
+
+				return d, nil
+			}))(t)
+			stored, err := ReadStoredFooter(pack)
+			require.NoError(t, err)
+			require.Equal(t, []SeqRange{{First: U64(tt.first), Last: U64(tt.last)}}, stored.F5.SeqRanges)
+
+			f, err := FooterOf(t.Context(), pack)
+			require.NoError(t, err)
+			require.NotNil(t, f.Stored, "the footer stays structurally readable")
+			require.Equal(t, stored, *f.Stored)
+			require.False(t, f.Accepted)
+		})
+	}
 }
 
 func TestReadStoredFooterReadsWhatValidationRejects(t *testing.T) {
@@ -286,6 +347,37 @@ func TestReadStoredFooterUnreadable(t *testing.T) {
 		{"boundary_kind not u8", func(t *testing.T, d []byte) []byte {
 			at := must(NestedValueOffset(d, must(F5List(d))(t), f5BoundaryTag, 3, boundaryKindTag))(t)
 			d[at-tlv.HeaderLen+2] = byte(tlv.TypeBool)
+			return d
+		}},
+		{"two gap_starts", func(t *testing.T, d []byte) []byte {
+			at := must(NestedValueOffset(d, must(F5List(d))(t), f5BoundaryTag, 3, boundaryGapEndTag))(t)
+			binary.LittleEndian.PutUint16(d[at-tlv.HeaderLen:], boundaryGapStartTag)
+			return d
+		}},
+		{"two gap_ends", func(t *testing.T, d []byte) []byte {
+			at := must(NestedValueOffset(d, must(F3List(d, 1))(t), f3BoundaryTag, 2, boundaryGapStartTag))(t)
+			binary.LittleEndian.PutUint16(d[at-tlv.HeaderLen:], boundaryGapEndTag)
+			return d
+		}},
+		{"gap_start not i64", func(t *testing.T, d []byte) []byte {
+			at := must(NestedValueOffset(d, must(F3List(d, 1))(t), f3BoundaryTag, 0, boundaryGapStartTag))(t)
+			d[at-tlv.HeaderLen+2] = byte(tlv.TypeU64)
+			return d
+		}},
+		{"seq_range of 15 bytes", func(t *testing.T, d []byte) []byte {
+			s := must(F5List(d))(t)
+			entries := must(tlv.Decode(d[s.Off : s.Off+s.Len]))(t)
+			var list []byte
+			for _, e := range entries {
+				if e.Tag == seqRangeTag {
+					e.Value = e.Value[:15]
+				}
+				list = tlv.AppendEntry(list, e)
+			}
+			require.Equal(t, len(d), s.Off+s.Len, "F-5 ends the footer")
+			d = append(d[:s.Off], list...)
+			binary.LittleEndian.PutUint64(d[prologueF5LenOff:], uint64(len(list)))
+
 			return d
 		}},
 	}
@@ -408,6 +500,12 @@ func TestFooterOfEpochClosedInTwoBlocks(t *testing.T) {
         "seq": "3",
         "kind": "stop"
       }
+    ],
+    "seq_ranges": [
+      {
+        "first": "0",
+        "last": "3"
+      }
     ]
   }
 }
@@ -416,4 +514,54 @@ func TestFooterOfEpochClosedInTwoBlocks(t *testing.T) {
 	require.NotNil(t, f.Stored)
 	require.Equal(t, projection, marshalJSON(t, f.Stored))
 	require.Equal(t, projection, marshalJSON(t, &f.Recomputed))
+}
+
+// TestFooterProjectionOrder checks the orders of the tracepack corpus specification §5.8 on entries equal in their leading keys:
+// boundaries by seq, then numeric boundary_kind, then gap_start, then gap_end, an absent bound before every present one
+// and present bounds compared as i64; seq ranges by first, then last.
+func TestFooterProjectionOrder(t *testing.T) {
+	t.Parallel()
+
+	bound := func(v int64) *int64 { return &v }
+	p := projection{
+		f5Boundary: []boundaryEntry{
+			{seq: 4, kind: 3, gapStart: bound(1), gapEnd: bound(2)},
+			{seq: 4, kind: 3, gapStart: bound(1)},
+			{seq: 4, kind: 3, gapStart: bound(-1), gapEnd: bound(9)},
+			{seq: 4, kind: 3, gapEnd: bound(0)},
+			{seq: 4, kind: 2, gapStart: bound(7)},
+			{seq: 3, kind: 4},
+			{seq: 4, kind: 3, gapStart: bound(1), gapEnd: bound(-2)},
+		},
+		f5SeqRanges: []tlv.SeqRange{{First: 5, Last: 9}, {First: 0, Last: 3}, {First: 5, Last: 6}},
+	}
+	got := p.sorted().F5
+	type b struct {
+		seq      uint64
+		kind     string
+		from, to string
+	}
+	bs := make([]b, 0, len(got.Boundaries))
+	for _, x := range got.Boundaries {
+		e := b{seq: uint64(x.Seq), kind: x.Kind, from: "-", to: "-"}
+		if x.GapStart != nil {
+			e.from = strconv.FormatInt(int64(*x.GapStart), 10)
+		}
+		if x.GapEnd != nil {
+			e.to = strconv.FormatInt(int64(*x.GapEnd), 10)
+		}
+		bs = append(bs, e)
+	}
+	require.Equal(t, []b{
+		{3, "stop-unclean", "-", "-"},
+		{4, "stop", "7", "-"},
+		{4, "gap", "-", "0"},
+		{4, "gap", "-1", "9"},
+		{4, "gap", "1", "-"},
+		{4, "gap", "1", "-2"},
+		{4, "gap", "1", "2"},
+	}, bs)
+	require.Equal(t, []SeqRange{{First: 0, Last: 3}, {First: 5, Last: 6}, {First: 5, Last: 9}}, got.SeqRanges)
+	require.Equal(t, "{\n  \"epochs\": [],\n  \"boundaries\": [],\n  \"seq_ranges\": []\n}\n",
+		marshalJSON(t, (&projection{}).sorted().F5), "seq_ranges is present when empty")
 }

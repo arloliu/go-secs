@@ -1,0 +1,35 @@
+{
+  "size": "2861",
+  "rows": [
+    {
+      "from": "0",
+      "to": "79",
+      "rejection": "short-object"
+    },
+    {
+      "from": "80",
+      "to": "1044",
+      "rejection": "metadata-past-object"
+    },
+    {
+      "from": "1045",
+      "to": "1234",
+      "exported_records": "0"
+    },
+    {
+      "from": "1235",
+      "to": "1424",
+      "exported_records": "2"
+    },
+    {
+      "from": "1425",
+      "to": "1592",
+      "exported_records": "4"
+    },
+    {
+      "from": "1593",
+      "to": "2860",
+      "exported_records": "6"
+    }
+  ]
+}

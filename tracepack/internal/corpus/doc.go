@@ -25,7 +25,12 @@
 //
 // Generate builds the corpus from the recipes of the vectors_<group>.go files.
 // Each recipe writes its pack with the public Writer under the corpus clock and identifiers derived from an identity seed,
-// then edits it where the vector needs bytes a Writer does not write;
+// then edits it where the vector needs bytes a Writer does not write.
+// A pack masked at write is masked first, record by record, with the redact package
+// under the published test keys of primitives.json, as a consumer of a durable bus masks its flush batch;
+// a consumer's close is written with WriteClose, and an archive with Merge, each with fixed identifiers and clock.
+// A recipe that needs redaction entries a Writer refuses writes a padding entry it later shortens,
+// so the edited pack metadata keeps its length;
 // the generator reads the pack as a reader of the corpus does
 // and checks every read against the recipe's expectation, written by hand from the specification,
 // before it returns any file.

@@ -290,7 +290,7 @@ func normalFooter(f *Footer) *Footer {
 		return nil
 	}
 	proj := func(p FooterProjection) FooterProjection {
-		out := FooterProjection{Blocks: []FooterBlock{}, F5: FooterF5{Epochs: nonNil(p.F5.Epochs), Boundaries: nonNil(p.F5.Boundaries)}}
+		out := FooterProjection{Blocks: []FooterBlock{}, F5: FooterF5{Epochs: nonNil(p.F5.Epochs), Boundaries: nonNil(p.F5.Boundaries), SeqRanges: nonNil(p.F5.SeqRanges)}}
 		for _, b := range p.Blocks {
 			out.Blocks = append(out.Blocks, FooterBlock{Block: b.Block, CloseSeqs: nonNil(b.CloseSeqs), Boundaries: nonNil(b.Boundaries)})
 		}

@@ -3,6 +3,7 @@ package corpus
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -27,8 +28,6 @@ const (
 	f3DirCountsTag          uint16 = 0x0002
 	f3DecodeStatusCountsTag uint16 = 0x0003
 	f3QualityUnionTag       uint16 = 0x0005
-	// seqRangeTag is the tag of seq_range in F-3 and in F-5.
-	seqRangeTag uint16 = 0x0009
 	// retiredF3Tag and retiredF3TagLen are the retired F-3 tags 0x0004 and 0x0006, which a reader treats as unknown.
 	retiredF3Tag    uint16 = 0x0004
 	retiredF3TagLen uint16 = 0x0006
@@ -55,7 +54,7 @@ var footerBaseSeqs = []uint64{0, 1, 3, 4, 5, 6, 7}
 
 // footerVectors returns the recipes of the footer group (the tracepack corpus specification §9.4).
 func footerVectors() []Recipe {
-	out := invalidFooterVectors()
+	out := append(invalidFooterVectors(), footerTieVectors()...)
 
 	return append(out,
 		Recipe{
@@ -161,7 +160,7 @@ func footerVectors() []Recipe {
 				Footer: &Footer{
 					Stored: &FooterProjection{
 						Blocks: []FooterBlock{{Block: 0, CloseSeqs: []CloseSeq{{Epoch: 1, Seq: 3}}, Boundaries: closingStop()}},
-						F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1, CloseSeq: new(U64(3))}}, Boundaries: closingStop()},
+						F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1, CloseSeq: new(U64(3))}}, Boundaries: closingStop(), SeqRanges: seqRanges03()},
 					},
 					Accepted:   true,
 					Recomputed: closeOnceProjection(),
@@ -195,7 +194,7 @@ func footerVectors() []Recipe {
 				Footer: &Footer{
 					Stored: &FooterProjection{
 						Blocks: closeAcrossProjection().Blocks,
-						F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1, CloseSeq: new(U64(3))}}, Boundaries: closingStop()},
+						F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1, CloseSeq: new(U64(3))}}, Boundaries: closingStop(), SeqRanges: seqRanges03()},
 					},
 					Recomputed: closeAcrossProjection(),
 				},
@@ -224,7 +223,7 @@ func footerVectors() []Recipe {
 				bounds := []Boundary{{Seq: 0, Kind: "start"}, {Seq: 2, Kind: "stop-unclean"}}
 				p := FooterProjection{
 					Blocks: []FooterBlock{{Block: 0, Boundaries: bounds}},
-					F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1}}, Boundaries: bounds},
+					F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1}}, Boundaries: bounds, SeqRanges: []SeqRange{{First: 0, Last: 2}}},
 				}
 
 				return &Expectation{
@@ -286,7 +285,7 @@ func footerVectors() []Recipe {
 				return &Built{Pack: pack, Footer: true}, err
 			},
 			Expect: func() *Expectation {
-				p := FooterProjection{Blocks: []FooterBlock{{Block: 0}}, F5: FooterF5{Epochs: []F5Epoch{{Epoch: 1}}}}
+				p := FooterProjection{Blocks: []FooterBlock{{Block: 0}}, F5: FooterF5{Epochs: []F5Epoch{{Epoch: 1}}, SeqRanges: []SeqRange{{First: 0, Last: 2}}}}
 
 				return &Expectation{
 					Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
@@ -750,7 +749,7 @@ func closeOncePack(seed string) ([]byte, error) {
 func closeOnceProjection() FooterProjection {
 	return FooterProjection{
 		Blocks: []FooterBlock{{Block: 0, CloseSeqs: []CloseSeq{{Epoch: 1, Seq: 2}}, Boundaries: closingStop()}},
-		F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1, CloseSeq: new(U64(2))}}, Boundaries: closingStop()},
+		F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1, CloseSeq: new(U64(2))}}, Boundaries: closingStop(), SeqRanges: seqRanges03()},
 	}
 }
 
@@ -790,8 +789,13 @@ func closeAcrossProjection() FooterProjection {
 			{Block: 0, CloseSeqs: []CloseSeq{{Epoch: 1, Seq: 2}}},
 			{Block: 1, CloseSeqs: []CloseSeq{{Epoch: 1, Seq: 3}}, Boundaries: closingStop()},
 		},
-		F5: FooterF5{Epochs: []F5Epoch{{Epoch: 1, CloseSeq: new(U64(2))}}, Boundaries: closingStop()},
+		F5: FooterF5{Epochs: []F5Epoch{{Epoch: 1, CloseSeq: new(U64(2))}}, Boundaries: closingStop(), SeqRanges: seqRanges03()},
 	}
+}
+
+// seqRanges03 is the F-5 seq range of a pack holding seqs 0 to 3.
+func seqRanges03() []SeqRange {
+	return []SeqRange{{First: 0, Last: 3}}
 }
 
 // closingRecords returns the records of epoch 1 that end it twice: a socket-connect (seq 0), data (seq 1),
@@ -848,7 +852,7 @@ func invalidBodyBuild(payload []byte) func(seed string) (*Built, error) {
 // the record at seq 2 is not a capture-boundary record and ends no epoch, so it adds no boundary and no close_seq,
 // and verify reports its payload as a writer defect, which leaves the outcome alone.
 func invalidBodyExpect() *Expectation {
-	p := FooterProjection{Blocks: []FooterBlock{{Block: 0}}, F5: FooterF5{Epochs: []F5Epoch{{Epoch: 1}}}}
+	p := FooterProjection{Blocks: []FooterBlock{{Block: 0}}, F5: FooterF5{Epochs: []F5Epoch{{Epoch: 1}}, SeqRanges: seqRanges03()}}
 
 	return &Expectation{
 		Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
@@ -1097,4 +1101,216 @@ func replaceSeqRanges(list []byte, r tlv.SeqRange) ([]byte, error) {
 	}
 
 	return out, nil
+}
+
+// gapBounds are the gap_start and gap_end of a boundary entry, nil when absent.
+type gapBounds struct {
+	start, end *int64
+}
+
+// tieBounds are the bounds footer-boundary-ties gives the boundary entries of seq 1 in F-3 and F-5, in stored order:
+// the record's own bounds first, then entries equal to it in seq and kind but not in their bounds,
+// none of them in footer.json's order, which takes an absent bound first and compares present bounds as i64.
+func tieBounds() []gapBounds {
+	return []gapBounds{
+		{start: new(msAt(0)), end: new(msAt(1))},
+		{},
+		{start: new(msAt(0))},
+		{start: new(int64(math.MinInt64)), end: new(int64(5))},
+		{start: new(msAt(0)), end: new(msAt(0))},
+	}
+}
+
+// tieRanges are the F-5 seq ranges footer-seq-range-ties states, in stored order: equal in first, not in last.
+var tieRanges = []tlv.SeqRange{{First: 0, Last: 3}, {First: 0, Last: 1}, {First: 0, Last: 2}}
+
+// footerTieVectors returns the vectors of footers whose entries are equal in the leading keys of footer.json's order
+// (the tracepack corpus specification §5.8): boundaries equal in seq and kind, and F-5 seq ranges equal in first.
+func footerTieVectors() []Recipe {
+	gap := []Boundary{{Seq: 1, Kind: "gap", GapStart: new(I64(msAt(0))), GapEnd: new(I64(msAt(1)))}}
+	ties := []Boundary{
+		{Seq: 1, Kind: "gap"},
+		{Seq: 1, Kind: "gap", GapStart: new(I64(math.MinInt64)), GapEnd: new(I64(5))},
+		{Seq: 1, Kind: "gap", GapStart: new(I64(msAt(0)))},
+		{Seq: 1, Kind: "gap", GapStart: new(I64(msAt(0))), GapEnd: new(I64(msAt(0)))},
+		{Seq: 1, Kind: "gap", GapStart: new(I64(msAt(0))), GapEnd: new(I64(msAt(1)))},
+	}
+	gapRecords := FooterProjection{
+		Blocks: []FooterBlock{{Block: 0, Boundaries: gap}},
+		F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1}}, Boundaries: gap, SeqRanges: []SeqRange{{First: 0, Last: 2}}},
+	}
+	plain := FooterProjection{
+		Blocks: []FooterBlock{{Block: 0}},
+		F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1}}, SeqRanges: seqRanges03()},
+	}
+	tieStats := make([]BoundaryWant, len(ties))
+	for i := range tieStats {
+		tieStats[i] = BoundaryWant{Seq: 1, Kind: tracepack.BoundaryKindGap}
+	}
+
+	return []Recipe{
+		{
+			ID: "footer-boundary-ties", Title: "a footer whose boundary entries are equal in seq and kind but differ in their bounds",
+			Cites: []string{"CORPUS §5.8", "FMT §10"}, Class: ClassRead, Labels: []string{LabelNonconformingWriter},
+			Build: boundaryTiesBuild,
+			// F-3 and F-5 agree with each other, so the footer is valid and its statistics list every entry;
+			// the block's records give one boundary, so they disagree with its F-3 summary.
+			Expect: &Expectation{
+				Outcome: tracepack.OutcomeFinalizedInconsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+				Disagreeing: []int{0},
+				Stats:       &StatsWant{Available: true, Epochs: []EpochWant{{Epoch: 1}}, Boundaries: tieStats},
+				Footer: &Footer{
+					Stored: &FooterProjection{
+						Blocks: []FooterBlock{{Block: 0, Boundaries: ties}},
+						F5:     FooterF5{Epochs: []F5Epoch{{Epoch: 1}}, Boundaries: ties, SeqRanges: []SeqRange{{First: 0, Last: 2}}},
+					},
+					Accepted:   true,
+					Recomputed: gapRecords,
+				},
+			},
+		},
+		{
+			ID: "footer-seq-range-ties", Title: "a footer whose F-5 seq ranges are equal in first but differ in last",
+			Cites: []string{"CORPUS §5.8", "FMT §10"}, Class: ClassRead, Labels: []string{LabelNonconformingWriter},
+			Build: seqRangeTiesBuild,
+			// F-5 is not the aggregate of F-2 and F-3, so the footer is invalid; the forward walk reads the one block.
+			Expect: &Expectation{
+				Outcome: tracepack.OutcomeFinalizedInconsistent, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(), Stats: &StatsWant{},
+				Footer: &Footer{
+					Stored: &FooterProjection{
+						Blocks: []FooterBlock{{Block: 0}},
+						F5: FooterF5{Epochs: []F5Epoch{{Epoch: 1}}, SeqRanges: []SeqRange{
+							{First: 0, Last: 1}, {First: 0, Last: 2}, {First: 0, Last: 3},
+						}},
+					},
+					Recomputed: plain,
+				},
+			},
+		},
+	}
+}
+
+// boundaryTiesBuild builds footer-boundary-ties: one block of epoch 1, data (seq 0), a gap boundary (seq 1)
+// bounded by the timestamps of seqs 0 and 1, and data (seq 2);
+// the boundary entry of the block's F-3 list and of F-5 is replaced by one entry per tieBounds, in its order.
+func boundaryTiesBuild(seed string) (*Built, error) {
+	k := tracepack.BoundaryKindGap
+	b := tieBounds()[0]
+	gap, err := newEvent(1, 1, &tracepack.TransportEvent{
+		Event: tracepack.EventCaptureBoundary, BoundaryKind: &k, GapStart: b.start, GapEnd: b.end,
+	})
+	if err != nil {
+		return nil, err
+	}
+	pack, err := writeSpec(&packSpec{seed: seed, meta: segmentMeta(seed), blocks: [][]tracepack.Record{
+		{footerData(0, 1), gap, footerData(2, 1)},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	pack, err = PatchFooter(pack, func(d []byte) ([]byte, error) {
+		parts, err := SplitFooter(d)
+		if err != nil {
+			return nil, err
+		}
+		f3, err := F3List(d, 0)
+		if err != nil {
+			return nil, err
+		}
+		list, err := f3.of(d)
+		if err != nil {
+			return nil, err
+		}
+		if list, err = repeatBoundary(list, f3BoundaryTag, tieBounds()); err != nil {
+			return nil, err
+		}
+		if err := parts.SetF3List(0, list); err != nil {
+			return nil, err
+		}
+		if parts.F5, err = repeatBoundary(parts.F5, f5BoundaryTag, tieBounds()); err != nil {
+			return nil, err
+		}
+
+		return parts.Join()
+	})
+
+	return &Built{Pack: pack, Footer: true}, err
+}
+
+// repeatBoundary returns the entry list list with its one boundary entry, of tag tag, replaced, at its place,
+// by one copy per element of bounds: its nested entries other than gap_start and gap_end, then the element's bounds.
+func repeatBoundary(list []byte, tag uint16, bounds []gapBounds) ([]byte, error) {
+	entries, err := tlv.Decode(list)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrPackEdit, err)
+	}
+	var out []byte
+	replaced := 0
+	for _, e := range entries {
+		if e.Tag != tag {
+			out = tlv.AppendEntry(out, e)
+			continue
+		}
+		nested, err := tlv.Decode(e.Value)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrPackEdit, err)
+		}
+		for _, b := range bounds {
+			var kept []tlv.Entry
+			for _, n := range nested {
+				if n.Tag != boundaryGapStartTag && n.Tag != boundaryGapEndTag {
+					kept = append(kept, n)
+				}
+			}
+			if b.start != nil {
+				kept = append(kept, tlv.I64Entry(boundaryGapStartTag, *b.start))
+			}
+			if b.end != nil {
+				kept = append(kept, tlv.I64Entry(boundaryGapEndTag, *b.end))
+			}
+			out = tlv.AppendEntry(out, tlv.NestedEntry(tag, kept))
+		}
+		replaced++
+	}
+	if replaced != 1 {
+		return nil, fmt.Errorf("%w: the list holds %d boundary entries, not 1", ErrPackEdit, replaced)
+	}
+
+	return out, nil
+}
+
+// seqRangeTiesBuild builds footer-seq-range-ties: one block of data of epoch 1 (seqs 0 to 3),
+// whose F-5 seq range is replaced by the ranges of tieRanges, in their order.
+func seqRangeTiesBuild(seed string) (*Built, error) {
+	pack, err := writeSpec(&packSpec{seed: seed, meta: segmentMeta(seed), blocks: [][]tracepack.Record{
+		{footerData(0, 1), footerData(1, 1), footerData(2, 1), footerData(3, 1)},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	pack, err = PatchFooter(pack, func(d []byte) ([]byte, error) {
+		parts, err := SplitFooter(d)
+		if err != nil {
+			return nil, err
+		}
+		entries, err := tlv.Decode(parts.F5)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrPackEdit, err)
+		}
+		var f5 []byte
+		for _, e := range entries {
+			if e.Tag != seqRangeTag {
+				f5 = tlv.AppendEntry(f5, e)
+				continue
+			}
+			for _, r := range tieRanges {
+				f5 = tlv.AppendEntry(f5, tlv.Entry{Tag: seqRangeTag, Type: e.Type, Value: tlv.AppendSeqRange(nil, r)})
+			}
+		}
+		parts.F5 = f5
+
+		return parts.Join()
+	})
+
+	return &Built{Pack: pack, Footer: true}, err
 }

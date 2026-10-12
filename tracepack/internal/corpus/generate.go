@@ -48,6 +48,10 @@ var groups = []func() []Recipe{
 	semVectors,
 	validationVectors,
 	verifyVectors,
+	versionVectors,
+	thinVectors,
+	redactVectors,
+	closeVectors,
 }
 
 // Recipe describes one vector of the corpus and how the generator makes it (the tracepack corpus specification §3).
@@ -260,14 +264,16 @@ type readInputs struct {
 type readOutputs struct {
 	files     []file
 	rejection string
-	verify    Verify
-	export    []byte
-	seqs      []uint64
-	queries   []QueryVector
-	stats     tracepack.PackStats
-	statsOK   bool
-	fields    FieldRows
-	footer    *Footer
+	// jsonlSchema is the export schema of a pack that opens, by its format_minor.
+	jsonlSchema string
+	verify      Verify
+	export      []byte
+	seqs        []uint64
+	queries     []QueryVector
+	stats       tracepack.PackStats
+	statsOK     bool
+	fields      FieldRows
+	footer      *Footer
 	// cuts are the expectations of every run of cuts of a truncation vector, before truncation.json merges them.
 	cuts []CutRow
 }
@@ -457,6 +463,9 @@ func generateRecipes(ctx context.Context, recipes []Recipe, encoder string) (map
 	if err != nil {
 		return nil, err
 	}
+	if err := prim.AddKeys(); err != nil {
+		return nil, err
+	}
 	if files[FilePrimitives], err = prim.Marshal(); err != nil {
 		return nil, err
 	}
@@ -531,7 +540,8 @@ func (rec *Recipe) vector(out *readOutputs) (Vector, *readOutputs, error) {
 
 	vec := Vector{
 		ID: rec.ID, Title: rec.Title, Cites: rec.Cites, Class: rec.Class, Labels: nonNil(rec.Labels),
-		Codec: cmp.Or(rec.Codec, CodecNone), Source: cmp.Or(rec.Source, SourceGenerated), Cases: rec.Cases,
+		Codec: cmp.Or(rec.Codec, CodecNone), JSONLSchema: out.jsonlSchema, Source: cmp.Or(rec.Source, SourceGenerated),
+		Cases: rec.Cases,
 	}
 	for _, f := range out.files {
 		vec.Files = append(vec.Files, f.name)
@@ -628,6 +638,10 @@ func readVector(ctx context.Context, pack []byte, in *readInputs) (*readOutputs,
 	if out.export, out.seqs, err = exportPack(ctx, r); err != nil {
 		return nil, err
 	}
+	out.jsonlSchema = JSONLSchemaOf(r.Header().FormatMinor)
+	if err := checkExportSchema(out.export, out.jsonlSchema); err != nil {
+		return nil, err
+	}
 	out.files = append(out.files, file{FileExport, out.export})
 	if out.verify, err = verifyBytes(ctx, pack); err != nil {
 		return nil, err
@@ -711,7 +725,7 @@ func (out *readOutputs) checkFooter(f *Footer) error {
 		return errors.New("an accepted footer without its stored part or its statistics")
 	}
 
-	stats := FooterF5{Epochs: []F5Epoch{}, Boundaries: []Boundary{}}
+	stats := FooterF5{Epochs: []F5Epoch{}, Boundaries: []Boundary{}, SeqRanges: []SeqRange{}}
 	for _, e := range out.stats.Epochs {
 		fe := F5Epoch{Epoch: e.Epoch}
 		if e.CloseSeq != nil {
@@ -719,10 +733,20 @@ func (out *readOutputs) checkFooter(f *Footer) error {
 		}
 		stats.Epochs = append(stats.Epochs, fe)
 	}
+	bs := make([]boundaryEntry, 0, len(out.stats.Boundaries))
 	for _, b := range out.stats.Boundaries {
-		stats.Boundaries = append(stats.Boundaries, Boundary{Seq: U64(b.Seq), Kind: b.Kind.String()})
+		bs = append(bs, boundaryEntry{seq: b.Seq, kind: uint8(b.Kind), gapStart: b.GapStart, gapEnd: b.GapEnd})
 	}
-	if !reflect.DeepEqual(stats, f.Stored.F5) {
+	// The statistics list the boundaries of one seq in the footer's order, which footer.json sorts.
+	stats.Boundaries = namedBoundaries(bs)
+	for _, r := range out.stats.SeqRanges {
+		stats.SeqRanges = append(stats.SeqRanges, SeqRange{First: U64(r.First), Last: U64(r.Last)})
+	}
+	stored := f.Stored.F5
+	if stored.SeqRanges == nil {
+		stored.SeqRanges = []SeqRange{}
+	}
+	if !reflect.DeepEqual(stats, stored) {
 		return fmt.Errorf("the statistics %+v are not the stored F-5 %+v", stats, f.Stored.F5)
 	}
 
@@ -776,6 +800,29 @@ func exportPack(ctx context.Context, r *tracepack.Reader) ([]byte, []uint64, err
 	}
 
 	return buf.Bytes(), seqs, nil
+}
+
+// exportHeader is the schema of an export's header line.
+type exportHeader struct {
+	Schema string `json:"schema"`
+}
+
+// checkExportSchema checks that the header line of export names schema, the export schema its pack's format_minor gives
+// (the tracepack JSONL specification §5).
+func checkExportSchema(export []byte, schema string) error {
+	lines, err := exportLines(export)
+	if err != nil {
+		return err
+	}
+	var h exportHeader
+	if err := json.Unmarshal(lines[0], &h); err != nil {
+		return fmt.Errorf("export header line: %w", err)
+	}
+	if h.Schema != schema {
+		return fmt.Errorf("the export names schema %q, the pack's format_minor gives %q", h.Schema, schema)
+	}
+
+	return nil
 }
 
 // exportRecords returns the seq and ts_utc_ns of each record line of export, in order.

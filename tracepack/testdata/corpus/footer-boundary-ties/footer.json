@@ -1,0 +1,119 @@
+{
+  "stored": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [],
+        "boundaries": [
+          {
+            "seq": "1",
+            "kind": "gap"
+          },
+          {
+            "seq": "1",
+            "kind": "gap",
+            "gap_start": "-9223372036854775808",
+            "gap_end": "5"
+          },
+          {
+            "seq": "1",
+            "kind": "gap",
+            "gap_start": "1791000000000000000"
+          },
+          {
+            "seq": "1",
+            "kind": "gap",
+            "gap_start": "1791000000000000000",
+            "gap_end": "1791000000000000000"
+          },
+          {
+            "seq": "1",
+            "kind": "gap",
+            "gap_start": "1791000000000000000",
+            "gap_end": "1791000000001000000"
+          }
+        ]
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 1
+        }
+      ],
+      "boundaries": [
+        {
+          "seq": "1",
+          "kind": "gap"
+        },
+        {
+          "seq": "1",
+          "kind": "gap",
+          "gap_start": "-9223372036854775808",
+          "gap_end": "5"
+        },
+        {
+          "seq": "1",
+          "kind": "gap",
+          "gap_start": "1791000000000000000"
+        },
+        {
+          "seq": "1",
+          "kind": "gap",
+          "gap_start": "1791000000000000000",
+          "gap_end": "1791000000000000000"
+        },
+        {
+          "seq": "1",
+          "kind": "gap",
+          "gap_start": "1791000000000000000",
+          "gap_end": "1791000000001000000"
+        }
+      ],
+      "seq_ranges": [
+        {
+          "first": "0",
+          "last": "2"
+        }
+      ]
+    }
+  },
+  "accepted": true,
+  "recomputed": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [],
+        "boundaries": [
+          {
+            "seq": "1",
+            "kind": "gap",
+            "gap_start": "1791000000000000000",
+            "gap_end": "1791000000001000000"
+          }
+        ]
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 1
+        }
+      ],
+      "boundaries": [
+        {
+          "seq": "1",
+          "kind": "gap",
+          "gap_start": "1791000000000000000",
+          "gap_end": "1791000000001000000"
+        }
+      ],
+      "seq_ranges": [
+        {
+          "first": "0",
+          "last": "2"
+        }
+      ]
+    }
+  }
+}

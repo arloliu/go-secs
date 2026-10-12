@@ -26,5 +26,107 @@
       "string": "0f1e2d3c-4b5a-7968-8796-a5b4c3d2e1f0",
       "pack": "basic-uuid-byte-order"
     }
+  ],
+  "digest_keys": [
+    {
+      "key_id": "test-digest-1",
+      "key": "0jrCtUX/6q0S3QeZKm7PXaqaXJcKhgU8jrHLxRip01w="
+    },
+    {
+      "key_id": "test-digest-2",
+      "key": "F2BNWBxABSO3BmkVcuqOb8DTzdkScr94qwHLMmSmoTE="
+    }
+  ],
+  "encryption_keys": [
+    {
+      "key_id": "test-enc-1",
+      "key": "2DoohVjbVM7JVb+Bhp67hyJ3dh7FJ+rYEk7nYbDcWAVVunqN4zlsI5DTjpi9LWL3ry7nRwIHL+blCYYo+BTx1w=="
+    },
+    {
+      "key_id": "test-enc-2",
+      "key": "l71FllkEZp2AGoL9chxDBGkNc2KvmIsHMKW+283SySe9UXBSwuZRdfEuvk2PkNNYQ2GhG99mtAB1xoUddZuS9A=="
+    }
+  ],
+  "hmac": [
+    {
+      "name": "message-text",
+      "key_id": "test-digest-1",
+      "domain": "message-text",
+      "input": "IQVhYg==",
+      "digest": "8gj56jPhG7HBLCYj6gHiec+4Tx6mATGi+EcXoGYXdZg="
+    },
+    {
+      "name": "ppbody",
+      "key_id": "test-digest-1",
+      "domain": "ppbody",
+      "input": "IRByZWNpcGUgYm9keSAwMDAx",
+      "digest": "rQetbDtWD1Qgo7SSAF3FQVMao5c3m3cVSOawbtdQG+g="
+    },
+    {
+      "name": "ppbody-second-key",
+      "key_id": "test-digest-2",
+      "domain": "ppbody",
+      "input": "IRByZWNpcGUgYm9keSAwMDAx",
+      "digest": "V3tDSSsh7vWPC/BLTd/dLGqd284d/bFpMoxYmg+hlos="
+    },
+    {
+      "name": "source-text",
+      "key_id": "test-digest-1",
+      "domain": "source-text",
+      "input": "dW5wYXJzZWQgc291cmNlIGxpbmU=",
+      "digest": "3UqIBNnJ2JQDGPWPXdbNLeAAw38BD+pSOS+KTIK5GuY="
+    }
+  ],
+  "aes_siv": [
+    {
+      "name": "label",
+      "key_id": "test-enc-1",
+      "capture_id": "00112233-4455-6677-8899-aabbccddeeff",
+      "seq": "1",
+      "first_offset": "24",
+      "associated_data": "dHJhY2VwYWNrLW9yaWdpbmFsLXYxABEiM0RVZneImaq7zN3u/wEAAAAAAAAAGAAAAAAAAAA=",
+      "plaintext": "Ym9keSE=",
+      "output": "VbdfZ+QtBRY5IVA1F0xAevcsRIzv"
+    },
+    {
+      "name": "ppbody-capture-a",
+      "key_id": "test-enc-1",
+      "capture_id": "01a0ffeb-3600-79ed-9c24-7255b2bf44b4",
+      "seq": "1",
+      "first_offset": "24",
+      "associated_data": "dHJhY2VwYWNrLW9yaWdpbmFsLXYxAaD/6zYAee2cJHJVsr9EtAEAAAAAAAAAGAAAAAAAAAA=",
+      "plaintext": "cmVjaXBlIGJvZHkgMDAwMQ==",
+      "output": "1f+x0Zs7UBnqnLK+Wku+qb/h2rgLxLYyGPd1PRptK/k="
+    },
+    {
+      "name": "ppbody-capture-b",
+      "key_id": "test-enc-1",
+      "capture_id": "01a0ffeb-3600-7815-88a3-e5ff914b409c",
+      "seq": "1",
+      "first_offset": "24",
+      "associated_data": "dHJhY2VwYWNrLW9yaWdpbmFsLXYxAaD/6zYAeBWIo+X/kUtAnAEAAAAAAAAAGAAAAAAAAAA=",
+      "plaintext": "cmVjaXBlIGJvZHkgMDAwMQ==",
+      "output": "H6+1xA1rfsInorZvLdwLOsG/yWMo2ohAF6IjyCLvFpU="
+    },
+    {
+      "name": "ppbody-segment",
+      "key_id": "test-enc-1",
+      "capture_id": "01a0ffeb-3600-70b0-a38f-6d722ff8cc08",
+      "seq": "0",
+      "first_offset": "24",
+      "associated_data": "dHJhY2VwYWNrLW9yaWdpbmFsLXYxAaD/6zYAcLCjj21yL/jMCAAAAAAAAAAAGAAAAAAAAAA=",
+      "plaintext": "cmVjaXBlIGJvZHkgMDAwMQ==",
+      "output": "TwQKiHuvE/9MlVeRRM6jvQ/8x8GqjfoQMMaZTMN1LfA="
+    },
+    {
+      "name": "second-key",
+      "key_id": "test-enc-2",
+      "capture_id": "00112233-4455-6677-8899-aabbccddeeff",
+      "seq": "1",
+      "first_offset": "24",
+      "associated_data": "dHJhY2VwYWNrLW9yaWdpbmFsLXYxABEiM0RVZneImaq7zN3u/wEAAAAAAAAAGAAAAAAAAAA=",
+      "plaintext": "Ym9keSE=",
+      "output": "V40XJEu/t1fcdolaMzz9RQ8qp5Hz"
+    }
   ]
 }

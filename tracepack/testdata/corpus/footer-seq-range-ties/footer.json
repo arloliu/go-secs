@@ -1,0 +1,57 @@
+{
+  "stored": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [],
+        "boundaries": []
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 1
+        }
+      ],
+      "boundaries": [],
+      "seq_ranges": [
+        {
+          "first": "0",
+          "last": "1"
+        },
+        {
+          "first": "0",
+          "last": "2"
+        },
+        {
+          "first": "0",
+          "last": "3"
+        }
+      ]
+    }
+  },
+  "accepted": false,
+  "recomputed": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [],
+        "boundaries": []
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 1
+        }
+      ],
+      "boundaries": [],
+      "seq_ranges": [
+        {
+          "first": "0",
+          "last": "3"
+        }
+      ]
+    }
+  }
+}

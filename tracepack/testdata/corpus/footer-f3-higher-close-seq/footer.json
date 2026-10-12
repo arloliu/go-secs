@@ -29,6 +29,12 @@
           "seq": "3",
           "kind": "stop"
         }
+      ],
+      "seq_ranges": [
+        {
+          "first": "0",
+          "last": "3"
+        }
       ]
     }
   },
@@ -62,6 +68,12 @@
         {
           "seq": "3",
           "kind": "stop"
+        }
+      ],
+      "seq_ranges": [
+        {
+          "first": "0",
+          "last": "3"
         }
       ]
     }
