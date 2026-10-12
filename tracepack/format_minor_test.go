@@ -2,6 +2,7 @@ package tracepack
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"testing"
 
@@ -252,7 +253,11 @@ func TestWriterFormatMinor(t *testing.T) {
 			var export bytes.Buffer
 			_, err = ExportJSONL(t.Context(), mustOpen(t, file, ReaderOptions{}), &export)
 			require.NoError(t, err)
-			assert.Contains(t, export.String(), `{"schema":"tracepack-jsonl/1","format_major":1,"format_minor":`+string('0'+rune(tt.minor))+`,`)
+			schema := "tracepack-jsonl/1"
+			if tt.minor != 0 {
+				schema = "tracepack-jsonl/2"
+			}
+			assert.Contains(t, export.String(), fmt.Sprintf(`{"schema":%q,"format_major":1,"format_minor":%d,`, schema, tt.minor))
 		})
 	}
 

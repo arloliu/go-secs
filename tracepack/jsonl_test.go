@@ -875,7 +875,7 @@ func TestExportJSONL_RenderingWorkspace(t *testing.T) {
 			jw := newJSONLWriter(discardWriter{})
 			render := func() {
 				for j := range d.count() {
-					_ = writeJSONLRecord(jw, d, j)
+					_ = writeJSONLRecord(jw, jsonlSchemaV1, d, j)
 				}
 			}
 			assert.Zero(t, testing.AllocsPerRun(5, render), "wide %v, %d-byte payloads", wide, n)

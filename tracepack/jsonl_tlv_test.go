@@ -155,8 +155,10 @@ func jsonlEveryTagMeta() []byte {
 			tlv.UTF8Entry(0x0001, "p"),
 			tlv.U64Entry(0x0002, 2),
 			tlv.BytesEntry(0x0010, nil),
+			tlv.UTF8Entry(0x0006, "e1"),
 			tlv.UTF8Entry(0x0003, "k1"),
 			tlv.U8Entry(0x0004, 1),
+			tlv.U8Entry(0x0005, 1),
 		}),
 		tlv.NestedEntry(0x0032, []tlv.Entry{
 			tlv.U64Entry(0x0001, 5),
@@ -164,7 +166,14 @@ func jsonlEveryTagMeta() []byte {
 			tlv.BytesEntry(0x0003, u64s(14, 4)),
 			tlv.UTF8Entry(0x0004, "d"),
 			tlv.BytesEntry(0x0005, []byte{0xAB, 0xCD, 0xEF}),
+			tlv.BytesEntry(0x0006, bytes.Repeat([]byte{0xFF}, 16)),
 			{Tag: 0x0007, Type: tlv.TypeBool, Value: []byte{2}},
+		}),
+		tlv.NestedEntry(0x0033, []tlv.Entry{
+			tlv.UTF8Entry(0x0003, "s"),
+			tlv.U64Entry(0x0002, 3),
+			tlv.U64Entry(0x0001, 1),
+			tlv.UTF8Entry(0x0004, "x"),
 		}),
 		tlv.Entry{Tag: 0x0040, Type: 9, Value: []byte("zz")},
 	)
@@ -186,7 +195,7 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 	}
 
 	// Written by hand from the tracepack JSONL specification §3–§5.
-	want := `{"schema":"tracepack-jsonl/1","format_major":1,"format_minor":3,"flags":["redaction-present","bit(31)"],` +
+	want := `{"schema":"tracepack-jsonl/2","format_major":1,"format_minor":3,"flags":["redaction-present","bit(31)"],` +
 		`"writer_start_utc_ns":"1791000000000000000",` +
 		`"pack_id":"00010203-0405-0607-0809-0a0b0c0d0e0f","capture_id":"abababab-abab-abab-abab-abababababab",` +
 		`"metadata":{` +
@@ -207,9 +216,10 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 		`"replacement_set_size":"1","replacement_set_index":"0","flush_interval_ns":"5000000000","scope_generation":"1",` +
 		`"publisher_epoch":"7","patch_base":"66666666-6666-6666-6666-666666666666",` +
 		`"redaction_policy":{"policy_id":"p","policy_version":"2","key_id":"k1","digest_algorithm":"hmac-sha256",` +
-		`"unknown":[{"tag":16,"value_type":7,"value":""}]},` +
+		`"encryption_algorithm":"aes-siv-cmac-512","encryption_key_id":"e1","unknown":[{"tag":16,"value_type":7,"value":""}]},` +
 		`"redaction":[{"seq":"5","item_path":"","masked_ranges":"DgAAAAAAAAAEAAAAAAAAAA==","domain":"d","digest":"q83v",` +
-		`"unknown":[{"tag":7,"value_type":2,"value":"Ag=="}]}],` +
+		`"siv":"/////////////////////w==","unknown":[{"tag":7,"value_type":2,"value":"Ag=="}]}],` +
+		`"thinning":[{"stream":"1","function":"3","source":"s","unknown":[{"tag":4,"value_type":6,"value":"eA=="}]}],` +
 		`"unknown":[{"tag":20,"value_type":4,"value":"AQAAAAAAAAA="},{"tag":32769,"value_type":7,"value":"AQID"},` +
 		`{"tag":64,"value_type":9,"value":"eno="}]` +
 		"}}\n"
@@ -219,7 +229,7 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 	require.Equal(t, want, got)
 	require.True(t, json.Valid([]byte(got)))
 
-	keys := slices.Sorted(maps.Keys(tlv.PackMetadata.AtMinor(0)))
+	keys := slices.Sorted(maps.Keys(tlv.PackMetadata.AtMinor(hdr.FormatMinor)))
 	var obj struct {
 		Metadata map[string]json.RawMessage `json:"metadata"`
 	}
@@ -317,6 +327,18 @@ func TestJSONLRender_UnknownAndZeroEnums(t *testing.T) {
 				`"seq_start":"0","redaction_policy":{"policy_id":"p","policy_version":"1","key_id":"k","digest_algorithm":"unknown"}}`,
 		},
 		{
+			"redaction_policy /2, unknown values", jsonlRedactionPolicyRegistryV2,
+			jsonlTLV(append(policy(2), tlv.U8Entry(5, 2), tlv.UTF8Entry(6, "e"))...),
+			`{"policy_id":"p","policy_version":"1","key_id":"k","digest_algorithm":"unknown(2)",` +
+				`"encryption_algorithm":"unknown(2)","encryption_key_id":"e"}`,
+		},
+		{
+			"redaction_policy /2, zero values", jsonlRedactionPolicyRegistryV2,
+			jsonlTLV(append(policy(0), tlv.U8Entry(5, 0), tlv.UTF8Entry(6, ""))...),
+			`{"policy_id":"p","policy_version":"1","key_id":"k","digest_algorithm":"unknown",` +
+				`"encryption_algorithm":"unknown","encryption_key_id":""}`,
+		},
+		{
 			"transport-event, unknown event, timer and boundary_kind", jsonlTransportEventRegistry,
 			jsonlTLV(tlv.U8Entry(0x0001, 8), tlv.U8Entry(0x0006, 9), tlv.U8Entry(0x000D, 5)),
 			`{"event":"unknown(8)","timer":"unknown(9)","boundary_kind":"unknown(5)"}`,
@@ -337,29 +359,34 @@ func TestJSONLRender_UnknownAndZeroEnums(t *testing.T) {
 	}
 }
 
-// FuzzJSONLPackMetadata checks that the validity walk accepts exactly the pack metadata
-// tlv.ValidateMinor accepts at minor 0, the registry view schema tracepack-jsonl/1 renders,
+// FuzzJSONLPackMetadata checks that, under each schema, the validity walk accepts exactly the pack metadata
+// tlv.ValidateMinor accepts at the minor of a pack the schema is written for
+// (0 for tracepack-jsonl/1, 1 for tracepack-jsonl/2),
 // and that a valid pack metadata renders as one valid JSON object.
 func FuzzJSONLPackMetadata(f *testing.F) {
 	plain, err := readerTestMeta().MarshalBinary()
 	require.NoError(f, err)
 	f.Add(jsonlEveryTagMeta())
 	f.Add(plain)
+	f.Add(jsonlV2Meta())
 
 	f.Fuzz(func(t *testing.T, b []byte) {
-		_, got := jsonlPackMetadataRegistry.valid(b, 0)
-		entries, err := tlv.Decode(b)
-		want := err == nil && tlv.ValidateMinor(entries, tlv.PackMetadata, 0) == nil
-		require.Equal(t, want, got)
-		if !got {
-			return
-		}
+		entries, decodeErr := tlv.Decode(b)
+		for _, minor := range []uint16{0, 1} {
+			reg := jsonlSchemaOf(minor).meta
+			_, got := reg.valid(b, 0)
+			want := decodeErr == nil && tlv.ValidateMinor(entries, tlv.PackMetadata, minor) == nil
+			require.Equal(t, want, got, "minor %d", minor)
+			if !got {
+				continue
+			}
 
-		var out bytes.Buffer
-		jw := newJSONLWriter(&out)
-		jsonlPackMetadataRegistry.render(jw, b)
-		require.NoError(t, jw.endLine())
-		require.True(t, json.Valid(out.Bytes()), "%q", out.Bytes())
+			var out bytes.Buffer
+			jw := newJSONLWriter(&out)
+			reg.render(jw, b)
+			require.NoError(t, jw.endLine())
+			require.True(t, json.Valid(out.Bytes()), "minor %d: %q", minor, out.Bytes())
+		}
 	})
 }
 
@@ -655,8 +682,10 @@ func TestJSONLValid_NestingDepthLimit(t *testing.T) {
 	}
 }
 
-// The validity walk rejects what tlv.ValidateMinor rejects at minor 0 in nested values, and accepts what it accepts:
-// the numbers format 1.1 assigns are unknown to it, whatever their value types.
+// Under each schema, the validity walk rejects what tlv.ValidateMinor rejects in nested values,
+// and accepts what it accepts, at the minor of a pack the schema is written for:
+// under tracepack-jsonl/1 the numbers format 1.1 assigns are unknown, whatever their value types,
+// and under tracepack-jsonl/2 they are checked as format 1.1 defines them.
 func TestJSONLValid_AgreesWithValidate(t *testing.T) {
 	t.Parallel()
 
@@ -668,39 +697,52 @@ func TestJSONLValid_AgreesWithValidate(t *testing.T) {
 		tlv.U8Entry(0x0019, 0), tlv.UUIDEntry(0x001B, jsonlUUID(1)), tlv.U64Entry(0x0027, 0),
 	}
 	with := func(extra ...tlv.Entry) []tlv.Entry { return append(slices.Clone(required), extra...) }
+	thinning := []tlv.Entry{tlv.U64Entry(1, 1), tlv.U64Entry(2, 3), tlv.UTF8Entry(3, "s")}
+	entry := []tlv.Entry{tlv.U64Entry(1, 0), tlv.BytesEntry(3, nil), tlv.UTF8Entry(4, "d"), tlv.BytesEntry(5, nil)}
 
 	tests := []struct {
 		name    string
 		entries []tlv.Entry
-		valid   bool
+		// valid1 and valid2 are the walk's verdicts under tracepack-jsonl/1 and tracepack-jsonl/2.
+		valid1, valid2 bool
 	}{
-		{"required tags", with(), true},
-		{"a required tag missing", required[1:], false},
-		{"a non-repeatable tag repeated", with(tlv.UTF8Entry(0x0017, "a"), tlv.UTF8Entry(0x0017, "a")), false},
-		{"a repeatable tag repeated", with(tlv.UTF8Entry(0x0008, "a"), tlv.UTF8Entry(0x0008, "a")), true},
-		{"a retired tag repeated", with(tlv.UTF8Entry(0x0001, "a"), tlv.U64Entry(0x0001, 1<<63)), true},
-		{"redaction_policy complete", with(tlv.NestedEntry(0x0031, policy)), true},
-		{"redaction_policy missing a nested required tag", with(tlv.NestedEntry(0x0031, policy[1:])), false},
-		{"redaction_policy with a nested bad value", with(tlv.NestedEntry(0x0031, append(slices.Clone(policy), tlv.U64Entry(2, 1<<63)))), false},
-		{"coverage holding a malformed list", with(tlv.Entry{Tag: 0x0016, Type: tlv.TypeTLV, Value: []byte{1, 2}}), false},
-		{"coverage with a nested known tag of the wrong type", with(tlv.NestedEntry(0x0016, []tlv.Entry{tlv.U8Entry(2, 1)})), false},
-		{"hsms_timers with a repeated timer", with(tlv.NestedEntry(0x0026, []tlv.Entry{tlv.U64Entry(1, 1), tlv.U64Entry(1, 1)})), false},
-		{"hsms_timers with unknown nested tags", with(tlv.NestedEntry(0x0026, []tlv.Entry{tlv.U64Entry(9, 1<<63), tlv.U64Entry(9, 1)})), true},
-		{"a known tlv tag of another type", with(tlv.BytesEntry(0x0026, nil)), false},
-		{"thinning as bytes, repeated", with(tlv.BytesEntry(0x0033, nil), tlv.BytesEntry(0x0033, nil)), true},
+		{"required tags", with(), true, true},
+		{"a required tag missing", required[1:], false, false},
+		{"a non-repeatable tag repeated", with(tlv.UTF8Entry(0x0017, "a"), tlv.UTF8Entry(0x0017, "a")), false, false},
+		{"a repeatable tag repeated", with(tlv.UTF8Entry(0x0008, "a"), tlv.UTF8Entry(0x0008, "a")), true, true},
+		{"a retired tag repeated", with(tlv.UTF8Entry(0x0001, "a"), tlv.U64Entry(0x0001, 1<<63)), true, true},
+		{"redaction_policy complete", with(tlv.NestedEntry(0x0031, policy)), true, true},
+		{"redaction_policy missing a nested required tag", with(tlv.NestedEntry(0x0031, policy[1:])), false, false},
+		{"redaction_policy with a nested bad value", with(tlv.NestedEntry(0x0031, append(slices.Clone(policy), tlv.U64Entry(2, 1<<63)))), false, false},
+		{"coverage holding a malformed list", with(tlv.Entry{Tag: 0x0016, Type: tlv.TypeTLV, Value: []byte{1, 2}}), false, false},
+		{"coverage with a nested known tag of the wrong type", with(tlv.NestedEntry(0x0016, []tlv.Entry{tlv.U8Entry(2, 1)})), false, false},
+		{"hsms_timers with a repeated timer", with(tlv.NestedEntry(0x0026, []tlv.Entry{tlv.U64Entry(1, 1), tlv.U64Entry(1, 1)})), false, false},
+		{"hsms_timers with unknown nested tags", with(tlv.NestedEntry(0x0026, []tlv.Entry{tlv.U64Entry(9, 1<<63), tlv.U64Entry(9, 1)})), true, true},
+		{"a known tlv tag of another type", with(tlv.BytesEntry(0x0026, nil)), false, false},
+		{"thinning as bytes, repeated", with(tlv.BytesEntry(0x0033, nil), tlv.BytesEntry(0x0033, nil)), true, false},
 		{"redaction_policy with encryption tags as bytes", with(tlv.NestedEntry(0x0031,
-			append(slices.Clone(policy), tlv.BytesEntry(5, nil), tlv.BytesEntry(6, nil), tlv.BytesEntry(6, nil)))), true},
+			append(slices.Clone(policy), tlv.BytesEntry(5, nil), tlv.BytesEntry(6, nil), tlv.BytesEntry(6, nil)))), true, false},
+		{"thinning, repeated", with(tlv.NestedEntry(0x0033, thinning), tlv.NestedEntry(0x0033, thinning)), true, true},
+		{"thinning missing a nested required tag", with(tlv.NestedEntry(0x0033, thinning[1:])), true, false},
+		{"thinning with a nested bad value", with(tlv.NestedEntry(0x0033, append(slices.Clone(thinning), tlv.U64Entry(1, 1<<63)))), true, false},
+		{"redaction_policy with both encryption tags", with(tlv.NestedEntry(0x0031,
+			append(slices.Clone(policy), tlv.U8Entry(5, 1), tlv.UTF8Entry(6, "e")))), true, true},
+		{"redaction with a siv of any length", with(tlv.NestedEntry(0x0032, append(slices.Clone(entry), tlv.BytesEntry(6, []byte{1})))), true, true},
+		{"redaction with a siv repeated", with(tlv.NestedEntry(0x0032,
+			append(slices.Clone(entry), tlv.BytesEntry(6, nil), tlv.BytesEntry(6, nil)))), true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := jsonlTLV(tt.entries...)
-			_, ok := jsonlPackMetadataRegistry.valid(b, 0)
-			assert.Equal(t, tt.valid, ok)
 			entries, err := tlv.Decode(b)
 			require.NoError(t, err)
-			assert.Equal(t, tlv.ValidateMinor(entries, tlv.PackMetadata, 0) == nil, ok,
-				"the walk agrees with tlv.ValidateMinor at minor 0")
+			for minor, want := range []bool{tt.valid1, tt.valid2} {
+				_, ok := jsonlSchemaOf(uint16(minor)).meta.valid(b, 0)
+				assert.Equal(t, want, ok, "minor %d", minor)
+				assert.Equal(t, tlv.ValidateMinor(entries, tlv.PackMetadata, uint16(minor)) == nil, ok,
+					"the walk agrees with tlv.ValidateMinor at minor %d", minor)
+			}
 		})
 	}
 }
@@ -759,6 +801,12 @@ func TestJSONLRender_NoAllocations(t *testing.T) {
 		_ = writeJSONLHeader(jw, r)
 	})
 	assert.Zero(t, allocs, "a header line with many repeated classifier values")
+
+	r = jsonlTestReader(t, format.FileHeader{FormatMajor: 1, FormatMinor: 1}, jsonlV2Meta())
+	allocs = testing.AllocsPerRun(5, func() {
+		_ = writeJSONLHeader(jw, r)
+	})
+	assert.Zero(t, allocs, "a header line of schema tracepack-jsonl/2")
 }
 
 // discardWriter accepts every Write, like io.Discard, but is a distinct type so no fast path applies.
@@ -787,6 +835,17 @@ type jsonlPinRow struct {
 	nested     *jsonlRegistry
 }
 
+// jsonlPinRegistry is a registry of the export and the rows it must hold.
+type jsonlPinRegistry struct {
+	name string
+	reg  *jsonlRegistry
+	rows []jsonlPinRow
+}
+
+// pinEncryptionAlgorithm holds the names of the encryption_algorithm enum, which only schema tracepack-jsonl/2 names,
+// written from the tracepack format specification §9 and the JSONL specification §3.1.
+var pinEncryptionAlgorithm = []string{"unknown", "aes-siv-cmac-512"}
+
 // Enum names of schema tracepack-jsonl/1, written from the tracepack format specification §9 and the JSONL specification §3.1.
 var (
 	pinTransport         = []string{"unknown", "hsms-ss", "secs1-normalised"}
@@ -808,9 +867,10 @@ var (
 	pinAnnotationKind = []string{"unknown", "note", "unparsed-entry", "skipped-bytes", "unrecognised-line"}
 )
 
-// Every registry the export uses, every enum it names and every bit name are those of schema tracepack-jsonl/1:
+// Every registry the export uses, every enum it names and every bit name are those of its schema:
 // a registry change fails this test until the schema value and the JSONL specification change with it.
-// The export renders the format 1.0 view of the registries, so the tags of format 1.1 are not among them.
+// Schema tracepack-jsonl/1 renders the format 1.0 view of the registries, so the tags of format 1.1 are not among them;
+// schema tracepack-jsonl/2 renders the format 1.1 view, which adds them.
 func TestJSONLRegistriesPinned(t *testing.T) {
 	t.Parallel()
 
@@ -818,11 +878,7 @@ func TestJSONLRegistriesPinned(t *testing.T) {
 		u8, boolean, i64, u64 = tlv.TypeU8, tlv.TypeBool, tlv.TypeI64, tlv.TypeU64
 		uuid, utf8, raw, list = tlv.TypeUUID, tlv.TypeUTF8, tlv.TypeBytes, tlv.TypeTLV
 	)
-	registries := []struct {
-		name string
-		reg  *jsonlRegistry
-		rows []jsonlPinRow
-	}{
+	registries := []jsonlPinRegistry{
 		{"pack metadata", jsonlPackMetadataRegistry, []jsonlPinRow{
 			{0x0002, "tool_id", utf8, false, true, nil, nil},
 			{0x0003, "transport", u8, false, true, pinTransport, nil},
@@ -935,7 +991,43 @@ func TestJSONLRegistriesPinned(t *testing.T) {
 			{0x0009, "source_len", u64, false, false, nil, nil},
 		}},
 	}
-	for _, rr := range registries {
+	rowsOf := func(name string) []jsonlPinRow {
+		i := slices.IndexFunc(registries, func(r jsonlPinRegistry) bool { return r.name == name })
+		require.GreaterOrEqual(t, i, 0, name)
+
+		return slices.Clone(registries[i].rows)
+	}
+
+	// Schema tracepack-jsonl/2 knows every tag of tracepack-jsonl/1, the bodies' registries unchanged,
+	// and the tags format 1.1 adds.
+	meta2 := rowsOf("pack metadata")
+	for i := range meta2 {
+		switch meta2[i].tag {
+		case 0x0031:
+			meta2[i].nested = jsonlRedactionPolicyRegistryV2
+		case 0x0032:
+			meta2[i].nested = jsonlRedactionRegistryV2
+		default:
+		}
+	}
+	meta2 = append(meta2, jsonlPinRow{0x0033, "thinning", list, true, false, nil, jsonlThinningRegistry})
+	policy2 := append(rowsOf("redaction_policy"),
+		jsonlPinRow{0x0005, "encryption_algorithm", u8, false, false, pinEncryptionAlgorithm, nil},
+		jsonlPinRow{0x0006, "encryption_key_id", utf8, false, false, nil, nil},
+	)
+	redaction2 := append(rowsOf("redaction"), jsonlPinRow{0x0006, "siv", raw, false, false, nil, nil})
+	thinning := []jsonlPinRow{
+		{0x0001, "stream", u64, false, true, nil, nil},
+		{0x0002, "function", u64, false, true, nil, nil},
+		{0x0003, "source", utf8, false, true, nil, nil},
+	}
+	v2 := []jsonlPinRegistry{
+		{"pack metadata /2", jsonlPackMetadataRegistryV2, meta2},
+		{"redaction_policy /2", jsonlRedactionPolicyRegistryV2, policy2},
+		{"redaction /2", jsonlRedactionRegistryV2, redaction2},
+		{"thinning /2", jsonlThinningRegistry, thinning},
+	}
+	for _, rr := range slices.Concat(registries, v2) {
 		t.Run(rr.name, func(t *testing.T) {
 			t.Parallel()
 			requireJSONLRegistry(t, rr.reg, rr.rows)
@@ -978,8 +1070,8 @@ func requireJSONLRegistry(t *testing.T, reg *jsonlRegistry, rows []jsonlPinRow) 
 	assert.Len(t, reg.nested, nested, "no other tag nests a registry")
 }
 
-// The enum and bit names of schema tracepack-jsonl/1 are those the tracepack format specification §9
-// and the JSONL specification §3.1 and §3.2 give.
+// The enum and bit names of schemas tracepack-jsonl/1 and tracepack-jsonl/2
+// are those the tracepack format specification §9 and the JSONL specification §3.1 and §3.2 give.
 func TestJSONLNameTablesPinned(t *testing.T) {
 	t.Parallel()
 
@@ -1013,6 +1105,10 @@ func TestJSONLNameTablesPinned(t *testing.T) {
 		{"quality", jsonlQualityNames, []string{"capture-boundary", "ordering-uncertain", "correlation-incomplete", "", "direction-inferred", "redacted"}},
 		{"field_validity", jsonlFieldValidityNames, []string{"session_id", "stream_and_w", "function", "ptype", "stype", "system_bytes"}},
 		{"record_flags", jsonlRecordFlagNames, []string{"", "mono_present"}},
+		{"encryption_algorithm /2", jsonlEncryptionAlgorithmNames, pinEncryptionAlgorithm},
+		{"quality /2", jsonlQualityNamesV2, []string{
+			"capture-boundary", "ordering-uncertain", "correlation-incomplete", "", "direction-inferred", "redacted", "", "unobserved",
+		}},
 	}
 	for _, tt := range tests {
 		assert.Equal(t, tt.want, tt.got, tt.name)

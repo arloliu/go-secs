@@ -7,21 +7,25 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
-// jsonlSchema is the schema value the export writes in its header line (the tracepack JSONL specification §5 and §9).
-const jsonlSchema = "tracepack-jsonl/1"
-
 // jsonlTagLimit bounds the known tags of the registries the export uses:
 // every one is below it, so the known tags of an entry list fit a jsonlTagSet.
 const jsonlTagLimit = 256
 
 // jsonlPackMetadata10 is the format 1.0 view of the pack metadata registry, the one schema tracepack-jsonl/1 renders:
 // a tag a later minor defines is unknown in it, at every nesting level,
-// so every pack, whatever its minor, exports as a reader of format 1.0 sees it.
+// so a pack of minor 0 exports as a reader of format 1.0 sees it.
 var jsonlPackMetadata10 = tlv.PackMetadata.AtMinor(0)
+
+// jsonlPackMetadata11 is the format 1.1 view of the pack metadata registry, the one schema tracepack-jsonl/2 renders:
+// a tag a minor after 1 defines is unknown in it, whatever this package knows,
+// since naming it would change the output of the schema (the tracepack JSONL specification §3.1 and §9).
+var jsonlPackMetadata11 = tlv.PackMetadata.AtMinor(1)
 
 // Registries of the entry lists the export renders, with the enum each enum-typed tag holds
 // (the tracepack JSONL specification §3.1) and the registry of each known tlv tag.
-// Each nested registry is the one jsonlPackMetadata10 names, so the walk descends with the registry its validation uses.
+// Each nested registry is the one its schema's view of the pack metadata names,
+// so the walk descends with the registry its validation uses.
+// No later minor extends coverage or hsms_timers, so their registries serve both schemas.
 var (
 	jsonlCoverageRegistry        = &jsonlRegistry{reg: *jsonlPackMetadata10[tagCoverage].Nested}
 	jsonlHSMSTimersRegistry      = &jsonlRegistry{reg: *jsonlPackMetadata10[tagHSMSTimers].Nested}
@@ -31,22 +35,47 @@ var (
 	}
 	jsonlRedactionRegistry = &jsonlRegistry{reg: *jsonlPackMetadata10[tagRedaction].Nested}
 
+	// jsonlPackMetadataEnums holds the enum of each enum-typed tag of the pack metadata, the same under both schemas.
+	jsonlPackMetadataEnums = map[uint16][]string{
+		tagTransport:            jsonlTransportNames,
+		tagCaptureMethod:        jsonlCaptureMethodNames,
+		tagVantage:              jsonlVantageNames,
+		tagTimeSource:           jsonlTimeSourceNames,
+		tagLifecycleCoverage:    jsonlLifecycleCoverageNames,
+		tagPackRole:             jsonlPackRoleNames,
+		tagEquipmentConnectMode: jsonlSocketRoleNames,
+	}
+
 	jsonlPackMetadataRegistry = &jsonlRegistry{
-		reg: jsonlPackMetadata10,
-		enums: map[uint16][]string{
-			tagTransport:            jsonlTransportNames,
-			tagCaptureMethod:        jsonlCaptureMethodNames,
-			tagVantage:              jsonlVantageNames,
-			tagTimeSource:           jsonlTimeSourceNames,
-			tagLifecycleCoverage:    jsonlLifecycleCoverageNames,
-			tagPackRole:             jsonlPackRoleNames,
-			tagEquipmentConnectMode: jsonlSocketRoleNames,
-		},
+		reg:   jsonlPackMetadata10,
+		enums: jsonlPackMetadataEnums,
 		nested: map[uint16]*jsonlRegistry{
 			tagCoverage:        jsonlCoverageRegistry,
 			tagHSMSTimers:      jsonlHSMSTimersRegistry,
 			tagRedactionPolicy: jsonlRedactionPolicyRegistry,
 			tagRedaction:       jsonlRedactionRegistry,
+		},
+	}
+
+	jsonlRedactionPolicyRegistryV2 = &jsonlRegistry{
+		reg: *jsonlPackMetadata11[tagRedactionPolicy].Nested,
+		enums: map[uint16][]string{
+			tagRedactionPolicyDigestAlgorithm:     jsonlDigestAlgorithmNames,
+			tagRedactionPolicyEncryptionAlgorithm: jsonlEncryptionAlgorithmNames,
+		},
+	}
+	jsonlRedactionRegistryV2 = &jsonlRegistry{reg: *jsonlPackMetadata11[tagRedaction].Nested}
+	jsonlThinningRegistry    = &jsonlRegistry{reg: *jsonlPackMetadata11[tagThinning].Nested}
+
+	jsonlPackMetadataRegistryV2 = &jsonlRegistry{
+		reg:   jsonlPackMetadata11,
+		enums: jsonlPackMetadataEnums,
+		nested: map[uint16]*jsonlRegistry{
+			tagCoverage:        jsonlCoverageRegistry,
+			tagHSMSTimers:      jsonlHSMSTimersRegistry,
+			tagRedactionPolicy: jsonlRedactionPolicyRegistryV2,
+			tagRedaction:       jsonlRedactionRegistryV2,
+			tagThinning:        jsonlThinningRegistry,
 		},
 	}
 
@@ -69,6 +98,24 @@ var (
 	}
 )
 
+// The schemas of the export (the tracepack JSONL specification §9).
+// They differ only in the registry of the pack metadata and the names of the quality bits:
+// the record bodies, the enums of the record header and the other bit sets are named alike under both.
+var (
+	jsonlSchemaV1 = &jsonlSchema{name: "tracepack-jsonl/1", meta: jsonlPackMetadataRegistry, quality: jsonlQualityNames}
+	jsonlSchemaV2 = &jsonlSchema{name: "tracepack-jsonl/2", meta: jsonlPackMetadataRegistryV2, quality: jsonlQualityNamesV2}
+)
+
+// jsonlSchema is one schema of the export with the names it renders (the tracepack JSONL specification §3.1 and §3.2).
+type jsonlSchema struct {
+	// name is the schema value the header line writes.
+	name string
+	// meta is the registry of the pack metadata.
+	meta *jsonlRegistry
+	// quality holds the names of the quality bits.
+	quality []string
+}
+
 // jsonlRegistry is the registry of one kind of entry list as the export uses it.
 type jsonlRegistry struct {
 	// reg names the known tags with their value types and repeatable and required flags.
@@ -82,14 +129,27 @@ type jsonlRegistry struct {
 // jsonlTagSet is a set of known tags, each below jsonlTagLimit.
 type jsonlTagSet [jsonlTagLimit / 64]uint64
 
+// jsonlSchemaOf returns the schema of the export of a pack of the format minor
+// (the tracepack JSONL specification §5 and §9):
+// tracepack-jsonl/1 for minor 0, and tracepack-jsonl/2 for every other minor, one this package does not know included.
+func jsonlSchemaOf(minor uint16) *jsonlSchema {
+	if minor == 0 {
+		return jsonlSchemaV1
+	}
+
+	return jsonlSchemaV2
+}
+
 // writeJSONLHeader writes the header line of the export of the pack r reads (the tracepack JSONL specification §5)
 // and returns the first write error of jw.
+// The schema follows from the pack's format minor.
 // The pack metadata is rendered from the bytes Open validated, not from the decoded PackMeta,
 // so absent and present-but-zero values stay distinct and unknown entries keep their raw bytes.
 func writeJSONLHeader(jw *jsonlWriter, r *Reader) error {
+	schema := jsonlSchemaOf(r.hdr.FormatMinor)
 	jw.beginObject()
 	jw.key("schema")
-	writeString(jw, jsonlSchema)
+	writeString(jw, schema.name)
 	jw.key("format_major")
 	jw.num(uint32(r.hdr.FormatMajor))
 	jw.key("format_minor")
@@ -103,7 +163,7 @@ func writeJSONLHeader(jw *jsonlWriter, r *Reader) error {
 	jw.key("capture_id")
 	jw.uuid([16]byte(r.hdr.CaptureID))
 	jw.key("metadata")
-	jsonlPackMetadataRegistry.render(jw, r.metaRaw)
+	schema.meta.render(jw, r.metaRaw)
 	jw.endObject()
 
 	return jw.endLine()

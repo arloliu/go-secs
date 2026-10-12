@@ -23,6 +23,12 @@ import (
 // A record whose payload is not a valid body is written without it and adds nothing to the Result.
 // The output depends on the pack's bytes alone: two exports of one pack are byte-identical.
 //
+// The header line names the schema, which follows from the pack's format minor:
+// tracepack-jsonl/1 for a pack of minor 0, so the export of a format 1.0 pack is the one earlier versions wrote,
+// and tracepack-jsonl/2 for any other minor, which names the additions of format 1.1
+// (thinning, the encryption tags of redaction_policy, the siv of a redaction entry, the quality bit unobserved)
+// and keeps unknown whatever a later minor adds.
+//
 // The Result is the one that Iterate call returns:
 // the defects Open found, the coverage entries of the pack metadata that intersect the query,
 // a crash gap for every stop-unclean boundary of the pack, from its footer or from the records of its walked blocks,
@@ -84,10 +90,10 @@ func jsonlBodyRegistry(kind Kind) *jsonlRegistry {
 	return nil
 }
 
-// writeJSONLRecord writes the record line of record j of the block d (the tracepack JSONL specification §6)
+// writeJSONLRecord writes the record line of record j of the block d under schema (the tracepack JSONL specification §6)
 // and returns the first write error of jw.
 // The fields come from the gathered record header as stored, so reserved and retired bits survive.
-func writeJSONLRecord(jw *jsonlWriter, d *decodedBlock, j int) error {
+func writeJSONLRecord(jw *jsonlWriter, schema *jsonlSchema, d *decodedBlock, j int) error {
 	h := d.header(j)
 	payload := d.payload(j)
 
@@ -105,7 +111,7 @@ func writeJSONLRecord(jw *jsonlWriter, d *decodedBlock, j int) error {
 	jw.key("trailing_bytes")
 	jw.num(h.TrailingBytes)
 	jw.key("quality")
-	jw.bitSet(jsonlQualityNames, uint32(h.Quality))
+	jw.bitSet(schema.quality, uint32(h.Quality))
 	jw.key("kind")
 	jw.enum(jsonlKindNames, h.Kind)
 	jw.key("dir")
@@ -142,6 +148,7 @@ func writeJSONLRecord(jw *jsonlWriter, d *decodedBlock, j int) error {
 // It checks ctx before each block, and fails at a block over MaxBlockLen instead of listing it.
 func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, res Result) (Result, error) {
 	var buf blockBuf
+	schema := jsonlSchemaOf(r.hdr.FormatMinor)
 	capture := UUID(r.hdr.CaptureID)
 	gaps := crashGaps{from: f.TimeFrom, to: f.TimeTo}
 	for i := range r.blocks {
@@ -170,7 +177,7 @@ func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, r
 			res.Incomplete = gaps.flush(res.Incomplete)
 		}
 		for j := range d.count() {
-			if err := writeJSONLRecord(jw, d, j); err != nil {
+			if err := writeJSONLRecord(jw, schema, d, j); err != nil {
 				return res, err
 			}
 		}
