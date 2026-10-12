@@ -1496,3 +1496,6 @@ Review rounds (amendment plan, kept outside the repository):
 
 After ratification, the v0.5.0 task plan added G5-252 (2026-10-12):
 [STO §4] *Capture descriptor and pack metadata* states that a descriptor holding a tag the consumer does not know does not decode, so its `start` is not accepted (G5-251).
+Its fact check added G5-253 and G5-254 (2026-10-12):
+[STO §4] Merge and [FMT §5] refuse an input outside extracts whose policy lacks either encryption tag, whatever its minor,
+and [STO §4] states that a `thinning` entry with a stream above 127 or a function above 255 makes its descriptor undecodable.

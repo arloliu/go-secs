@@ -215,7 +215,8 @@ Which packs to give is the caller's choice; tracepack defines no view.
     `previous_capture_id` and the optional site and equipment tags when it has them;
     and the `thinning` entries when it thins records ([FMT §5], *Unobserved records*).
     The consumer copies these values as decoded, applying no default: a `capture_origin_mono_ns` other than 0 and a `clock_step_tolerance_ns` of 0 are kept.
-    A descriptor holding a top-level tag the consumer does not know, or an unknown nested tag inside `thinning`, does not decode, and its `start` is not accepted (G5-251, G5-252).
+    A descriptor holding a top-level tag the consumer does not know, an unknown nested tag inside `thinning`, or a `thinning` entry whose stream is above 127 or whose function is above 255,
+    does not decode, and its `start` is not accepted (G5-251, G5-252, G5-254).
     The consumer owns `writer`, `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`, `pack_role`, `compaction_level`, `scope_generation`, `flush_interval_ns` and `redaction_policy`.
     The traffic stream is configured so that an accepted message is removed only by acknowledgement, never by a size or age limit,
     so an unacknowledged `start` stays available until its descriptor is registered and a deferred record until its descriptor exists.
@@ -300,7 +301,8 @@ Which packs to give is the caller's choice; tracepack defines no view.
   for `thinning`, the same ordered list of entries (G5-239).
   Otherwise the merge fails.
   Inputs that carry `redaction_policy` carry equal values of it, the same single `classifier`, and the same `max_frame_len` value or its absence in all (G5-222, G5-232, G5-250);
-  an input with `redaction_policy` beside one without, of the same capture, fails the merge (G5-235).
+  an input with `redaction_policy` beside one without, of the same capture, fails the merge (G5-235);
+  and an input whose role is not `extract` and whose `redaction_policy` lacks either encryption tag fails the merge, whatever its minor (G5-253).
   **Overlaps.** Taking every input block by its F-2 seq range [`first_seq`, `last_seq`],
   a **cluster** is a maximal set of blocks connected by overlaps, each overlapping another member directly or through a chain of overlapping ranges;
   two ranges overlap when they share at least one seq, so containment and a shared endpoint are overlaps,
