@@ -136,6 +136,7 @@ func newMergeIteratePlan(opts MergeIterateOptions) *mergeIteratePlan {
 // It never modifies a Reader, since Readers are shared across concurrent reads.
 // First it adds to the result, in reader order,
 // each reader's defects of every read and its coverage defects for the query, as Reader.Iterate does,
+// except that an entry counts when its capture is the capture of any of the readers (readCaptures),
 // with Pack set to the reader's index,
 // and its footer error to FooterErrs when its footer was not used;
 // it gathers the crash gaps of every footer it uses into p.gaps.
@@ -155,13 +156,14 @@ func (p *mergeIteratePlan) build(ctx context.Context, readers []*Reader, q *Quer
 	p.readers = readers
 	f := &q.Filter
 	p.gaps = crashGaps{from: f.TimeFrom, to: f.TimeTo}
+	captures := readCaptures(readers)
 	for i, r := range readers {
 		for _, d := range r.openDefects {
 			d.Pack = i
 			p.res.Incomplete = append(p.res.Incomplete, d)
 		}
 		n := len(p.res.Incomplete)
-		p.res.Incomplete = r.appendCoverageDefects(p.res.Incomplete, f)
+		p.res.Incomplete = r.appendCoverageDefects(p.res.Incomplete, f, captures)
 		for k := n; k < len(p.res.Incomplete); k++ {
 			p.res.Incomplete[k].Pack = i
 		}
@@ -210,6 +212,20 @@ func (p *mergeIteratePlan) build(ctx context.Context, readers []*Reader, q *Quer
 	}
 
 	return nil
+}
+
+// readCaptures returns the distinct capture_ids of readers, in reader order:
+// the captures whose coverage entries a read of readers reports, whichever pack holds them
+// (the tracepack semantics specification §7.4).
+func readCaptures(readers []*Reader) []UUID {
+	out := make([]UUID, 0, len(readers))
+	for _, r := range readers {
+		if id := UUID(r.hdr.CaptureID); !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+
+	return out
 }
 
 // preRead reads walked block i of r, the Reader at index pack, once before the read yields anything,

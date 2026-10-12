@@ -484,12 +484,16 @@ func (ref *mergeIterateReference) captureRead() ([]iterItem, []Conflict) {
 }
 
 // packDefects returns the defects every read of the readers carries,
-// those Open found and the coverage defects for the query,
+// those Open found and the coverage defects for the query of every capture the readers hold,
 // in reader order, each with Pack set to its reader's index.
 func (ref *mergeIterateReference) packDefects() []defectKey {
+	captures := make([]UUID, len(ref.readers))
+	for i, r := range ref.readers {
+		captures[i] = r.Header().CaptureID
+	}
 	var out []defectKey
 	for i, r := range ref.readers {
-		for _, d := range r.appendCoverageDefects(slices.Clone(r.openDefects), &ref.q.Filter) {
+		for _, d := range r.appendCoverageDefects(slices.Clone(r.openDefects), &ref.q.Filter, captures) {
 			out = append(out, defectKey{reason: d.Reason, pack: i, block: d.Block, offset: d.Offset})
 		}
 	}
