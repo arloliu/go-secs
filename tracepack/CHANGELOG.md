@@ -5,7 +5,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
-## [0.5.0] - YYYY-MM-DD
+## [0.5.0] - 2026-10-13
 
 This release implements spec v2.33, format 1.1, and keeps every format 1.0 pack and its canonical export unchanged.
 A pack of format 1.1 can be masked at write under a redaction policy that encrypts the originals of data records in place with AES-SIV,
