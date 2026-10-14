@@ -178,6 +178,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
     and only when no unacknowledged message still names it or every such message will be acknowledged as already staged.
     Uploading the object again before a retry does not meet it, since an earlier consumer may delete the object meanwhile.
     A claim-check message whose `Tpk-Payload-Ref` or `Tpk-Payload-Digest` is missing, names another object, has another prefix, or does not decode to 32 bytes is malformed: it is never written (G5-241).
+    A message whose `Tpk-Payload-Ref` is absent or empty and whose `Tpk-Payload-Digest` is not empty is malformed as well, the two headers travelling together (G5-258).
     The object bucket has no `max_age`, `max_bytes` or `max_msgs` limit, as the traffic stream (G5-213), and *Clear-text protection* applies to it.
     The seq of an object never published is a seq gap; the record of an object left after its acknowledgement is staged; removing either is the log service's.
     `max_payload` is a deployment setting, not a tracepack value.

@@ -1643,3 +1643,9 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   inline and claim-check `start`s are judged by one rule, never on an unverified object.
   Rejected *(editorial)*: treating a missing or ill-encoded header as a malformed message, its seq a gap; refusing a message that carries the header on another record.
   Spec: [STO §4] *Bus message*, v2.34.
+- G5-258 The claim-check headers travel together (2026-10-14, the scope of G5-241):
+  a message whose `Tpk-Payload-Ref` is absent or empty and whose `Tpk-Payload-Digest` is not empty is malformed: it is never written, its seq a seq gap.
+  Rationale *(editorial)*: the digest asserts that a claim-check object is verified;
+  a consumer that ignored it on an inline message would let a producer believe an integrity check took place that never did.
+  Rejected *(editorial)*: ignoring the digest on an inline message.
+  Spec: [STO §4] *Large records*, v2.34.
