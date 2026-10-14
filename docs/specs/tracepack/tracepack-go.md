@@ -104,8 +104,9 @@ The query service, its catalog database and the live-tail interface are designed
   which returns the record normalized, `decode_status`, `trailing_bytes` and `field_validity` zero whatever the producer wrote:
   `ErrBusMalformed` marks a message never written, its seq a seq gap,
   and `ErrBusNotAccepted` a `start` whose `Tpk-Capture-Descriptor` is missing, not padded standard base64 or does not decode,
-  on which the consumer alerts and defers the capture's later records.
-  `CheckBusPayload` checks a fetched claim-check object (`ErrBusPayloadMismatch`, deferred),
+  on which the consumer alerts and defers the capture's later records; the header on another record is ignored (G5-257).
+  `CheckBusPayload` checks a fetched claim-check object (`ErrBusPayloadMismatch`, deferred)
+  and, when its record is a `start`, the message's descriptor header (`ErrBusNotAccepted`),
   and `DeriveBusRecord(*Record, Classifier)` sets the values the consumer derives by kind, an unobserved data record's included.
   Both directions refuse a producer seq of 2^63 − 1, which only a consumer's close carries.
   `EncodeBusBody` also refuses a record carrying `redacted`, which a producer never sets,
