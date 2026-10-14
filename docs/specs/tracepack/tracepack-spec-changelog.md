@@ -1531,3 +1531,15 @@ Summary:
 - A capture descriptor carries only the producer-owned tags: a known pack-metadata tag the consumer owns, or one a durable bus does not use, makes it undecodable as an unknown tag does ([STO §4], G5-259).
 - Which records a bootstrap redaction defect masks: those an entry failing its own checks names, those both entries of an out-of-order consecutive pair name, and none for a disagreeing `redaction-present` ([SEM §8] *Marking*, G5-260).
 - A merge refuses, in any input whatever its minor, a `redaction` entry without `redaction_policy`, a bootstrap defect of the entries or of `redaction-present`, and an entry naming a seq the input holds no record of ([STO §4] Merge, G5-261).
+- A policy's item rule with a stream above 127 makes the policy invalid, and a record to be screened that already carries `redacted` cannot be screened, so a bus consumer defers it ([SEM §8], G5-262).
+
+Review rounds (amendment plan, kept outside the repository):
+
+| Round | Finding | Resolution |
+|---|---|---|
+| plan precision pass P2 | the refusal of a redacted record omitted the unobserved bypass | the refusal concerns records to be screened; [GO §3] keeps the unobserved exception |
+| plan precision pass P2 | the paired-header rule counted an empty digest | an absent or empty reference with a non-empty digest is malformed |
+| plan precision pass P2 | the claim-check `start` check named every error of `CheckBusMessage` | it names `ErrBusNotAccepted` |
+| plan precision pass P2 | two line anchors were off by one | corrected before applying |
+| plan precision pass P2 | the descriptor and merge sentences read awkwardly in place | the aside parenthesized; the antecedent of "with it" spelled out |
+| plan precision pass | — | fix-then-ready, all applied |

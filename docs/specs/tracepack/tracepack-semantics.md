@@ -530,6 +530,7 @@ A consumer that is not privileged receives an `extract` ([STO §2]) written unde
 **Policy.**
 A policy has an id, a version, a digest key id and, from format 1.1, an encryption algorithm and an encryption key id (Encryption), recorded in `redaction_policy` ([FMT §5]).
 It holds **item rules** — each an S/F, one item path pattern and a digest domain; several rules may share an S/F — and **annotation rules**, each an `annotation_kind` and a digest domain.
+An item rule's stream is at most 127, bits 0–6 of payload byte 6 ([FMT §7.2]); a policy with a larger one is rejected before use (G5-262).
 A domain is a UTF-8 string of 1 to 65535 bytes; a policy with any other domain is rejected before use.
 A policy used with encryption is rejected before use when two of its item rules for one S/F can select overlapping items, which a comparison of their path patterns decides (G5-236):
 identical patterns, a pattern that is a prefix of another, and patterns whose `*` and numbered steps can select one item all overlap;
@@ -574,6 +575,7 @@ A match with no target bytes yields no entry and changes nothing.
 - Several matches of one record may overlap, except under a policy with encryption (Policy); each yields its own entry.
 - A writer that cannot finish screening a selected record — a resource limit, an internal error — fails the extract,
   or, for a consumer of a durable bus, defers the record ([STO §4] *Masking*); it never writes a selected record unscreened.
+  A record to be screened that already carries `redacted` is not in full and cannot be screened (G5-262).
 
 **Digest.**
 For each entry the writer computes HMAC-SHA-256 (RFC 2104, with SHA-256 of FIPS 180-4) under the policy's key; writers of format 1.0 use no other algorithm.
