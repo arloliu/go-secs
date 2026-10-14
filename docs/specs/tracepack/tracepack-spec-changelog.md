@@ -1546,3 +1546,4 @@ Review rounds (amendment plan, kept outside the repository):
 | plan precision pass | — | fix-then-ready, all applied |
 | apply consistency review P2 | the paired-header qualification missed [GO §3] and this summary | both state an absent or empty reference with a non-empty digest |
 | apply consistency review | — | fix-then-ready, applied |
+| ratification | — | spec v2.34 ratified by the owner (2026-10-14), after the Virtual Equipment project reported no conflict |
