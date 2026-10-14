@@ -1666,3 +1666,12 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   a header flag names no record, so it cannot say which records to mask.
   Rejected *(editorial)*: masking every record of the pack on any bootstrap defect; masking, on an order defect, only the later entry's records.
   Spec: [SEM §8] *Marking*, v2.34.
+- G5-261 What a merge refuses of an input's redaction evidence (2026-10-14, the scope of [STO §4] Merge):
+  a merge fails, publishing nothing, when any input, whatever its `format_minor` and whether or not it carries `redaction_policy`,
+  holds a `redaction` entry without `redaction_policy`, a bootstrap defect of its entries or of `redaction-present` ([SEM §8] Marking),
+  or an entry naming a seq it holds no record of.
+  Rationale *(editorial)*: a merge writes a pack that replaces its inputs once they become eligible for deletion,
+  so it must not carry, drop or repair contradictory evidence silently; a reader keeps the tolerant handling of the same defects for troubleshooting.
+  tracepack v0.4.0, which merged a minor-0 segment setting `redaction-present` with no entry, has no consumer, so no stored pack is refused (as G5-253).
+  Rejected *(editorial)*: checking only inputs that carry `redaction_policy`; dropping entries that name no record.
+  Spec: [STO §4] Merge, v2.34.
