@@ -153,6 +153,9 @@ Which packs to give is the caller's choice; tracepack defines no view.
     Terminating such a message on the bus and raising an alert is informative.
     A `start` the consumer cannot accept — its descriptor does not decode, or names a `capture_method` other than `raw-stream` or `decoded-message` or a `time_source` other than `capture-clock` —
     is never written and raises an alert, and the capture's later records stay deferred on the bus until an operator acts (G5-251).
+    A `start` whose message lacks `Tpk-Capture-Descriptor`, or whose header is not standard base64 with padding, is one whose descriptor does not decode;
+    the header on a message whose record is not a `start` is ignored.
+    A claim-check `start` is checked once its object is fetched and matches its message (*Large records*), its record's kind being in the payload (G5-257).
   - *Large records* (G5-217).
     A record travels inline when its body is at most `max_payload` − 4096 bytes; otherwise by claim-check:
     1. the producer puts the payload as the object `<capture_id>.<seq>` into an object bucket and waits until the put completes;

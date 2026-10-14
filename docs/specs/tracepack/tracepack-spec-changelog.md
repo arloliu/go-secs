@@ -1525,3 +1525,5 @@ Only G5-256 changes what an implementation does; tracepack v0.5.1 implements it.
 Summary:
 - A capture descriptor whose `hsms_timers` holds a nested tag other than T1 to T8 does not decode, so its `start` is not accepted;
   stored packs and merges still skip the tag ([STO §4], G5-256).
+- A `start` lacking its descriptor header or carrying one not in padded standard base64 is not accepted, the header on another record is ignored,
+  and a claim-check `start` is checked once its object is fetched and verified ([STO §4] *Bus message*, G5-257).

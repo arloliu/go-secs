@@ -1633,3 +1633,13 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   stored packs keep the tolerant reading, so no pack is refused.
   Rejected *(editorial)*: dropping the tag at decode, as tracepack v0.5.0 does; refusing it in stored packs too.
   Spec: [STO §4], v2.34.
+- G5-257 How a consumer reads the descriptor header (2026-10-14, the scope of G5-251):
+  a `start` whose message lacks `Tpk-Capture-Descriptor`, or whose header is not standard base64 with padding, has a descriptor that does not decode, so it is not accepted (G5-251);
+  the header on a message whose record is not a `start` is ignored;
+  a claim-check `start` is checked once its object is fetched and matches its message, since its record's kind travels in the payload,
+  and an object that is missing or does not match defers the message as for any claim-check record.
+  Rationale *(editorial)*: losing a descriptor must not turn a capture's later records into seq gaps (G5-251);
+  a header on another record has no meaning and must not register or replace a capture's metadata;
+  inline and claim-check `start`s are judged by one rule, never on an unverified object.
+  Rejected *(editorial)*: treating a missing or ill-encoded header as a malformed message, its seq a gap; refusing a message that carries the header on another record.
+  Spec: [STO §4] *Bus message*, v2.34.
