@@ -5,6 +5,8 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-14
+
 This release implements spec v2.34 and changes no byte of format 1.0 or 1.1, and no canonical export.
 
 ### Upgrade notes
