@@ -1520,7 +1520,8 @@ and [STO §4] states that a `thinning` entry with a stream above 127 or a functi
 Source: the owner's rulings on the points tracepack v0.5.0 implemented without an explicit decision, after an outside review of each.
 Format 1.1 is unchanged: no tag, enum value, bit or byte changes, and no canonical export changes;
 the corpus goldens are unchanged and keep `spec_version` `"2.33"` ([CORPUS §3]).
-Only G5-256 changes what an implementation does; tracepack v0.5.1 implements it. G5-257..G5-262 state as normative what tracepack v0.5.0 already does.
+Only G5-256 changes what an implementation does; tracepack v0.5.1 implements it.
+G5-257..G5-262 state as normative what tracepack v0.5.0 already does.
 
 Summary:
 - A capture descriptor whose `hsms_timers` holds a nested tag other than T1 to T8 does not decode, so its `start` is not accepted;
