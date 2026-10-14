@@ -253,6 +253,16 @@ func TestDescriptorScope(t *testing.T) {
 			entries func(t *testing.T) []tlv.Entry
 		}{c.name, func(t *testing.T) []tlv.Entry { return append(descriptorEntries(t), extra...) }})
 	}
+	for _, tag := range []uint16{9, 0x8000} {
+		refused = append(refused, struct {
+			name    string
+			entries func(t *testing.T) []tlv.Entry
+		}{fmt.Sprintf("hsms_timers nested 0x%04X", tag), func(t *testing.T) []tlv.Entry {
+			timers := tlv.NestedEntry(tagHSMSTimers, []tlv.Entry{tlv.U64Entry(3, 45_000), tlv.U64Entry(tag, 1)})
+
+			return replaceDescriptorEntry(descriptorEntries(t), tagHSMSTimers, timers)
+		}})
+	}
 	for _, tag := range []uint16{tagToolID, tagRecorderInstanceID, tagCaptureOriginUTCNs, tagCaptureOriginMonoNs, tagClockStepToleranceNs, tagQualityEvaluated} {
 		refused = append(refused, struct {
 			name    string
@@ -323,6 +333,21 @@ func TestDecodeDescriptorReordered(t *testing.T) {
 	want := descriptorMeta()
 	want.Thinning[0], want.Thinning[1] = want.Thinning[1], want.Thinning[0]
 	assert.Equal(t, want, m, "thinning keeps its stored order; every other value is order-free")
+}
+
+func TestDecodeDescriptorEveryTimer(t *testing.T) {
+	t.Parallel()
+
+	want := descriptorMeta()
+	want.HSMSTimers = &HSMSTimers{
+		T1: new(uint64(1)), T2: new(uint64(2)), T3: new(uint64(3)), T4: new(uint64(4)),
+		T5: new(uint64(5)), T6: new(uint64(6)), T7: new(uint64(7)), T8: new(uint64(8)),
+	}
+	b, err := EncodeDescriptor(want)
+	require.NoError(t, err)
+	m, err := DecodeDescriptor(b)
+	require.NoError(t, err)
+	assert.Equal(t, want, m, "every timer T1 to T8 is a nested tag of hsms_timers")
 }
 
 // descriptorBytes returns the encoding of descriptorMeta.
