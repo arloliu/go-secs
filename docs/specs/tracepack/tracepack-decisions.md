@@ -1675,3 +1675,11 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   tracepack v0.4.0, which merged a minor-0 segment setting `redaction-present` with no entry, has no consumer, so no stored pack is refused (as G5-253).
   Rejected *(editorial)*: checking only inputs that carry `redaction_policy`; dropping entries that name no record.
   Spec: [STO §4] Merge, v2.34.
+- G5-262 What a policy and a masked record must be (2026-10-14, the scope of [SEM §8]):
+  an item rule whose stream is above 127 makes its policy invalid, rejected before use, as a stream is bits 0–6 of payload byte 6 ([FMT §7.2]);
+  a writer masks only a record in full: a record to be screened that carries `redacted` cannot be screened, so a consumer of a durable bus defers it ([STO §4] *Masking*) and never writes it;
+  an unobserved record, never masked (G5-237), is not screened.
+  Rationale *(editorial)*: a rule that can never match would leave the traffic it was meant to mask unmasked without a word (as G5-254 for `thinning`);
+  masks computed over bytes already masked would digest and encrypt the wrong originals.
+  Rejected *(editorial)*: accepting a rule that never matches; masking a record that is not in full.
+  Spec: [SEM §8] *Policy*, *Masking*, v2.34.
