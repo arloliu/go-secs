@@ -1527,3 +1527,4 @@ Summary:
   stored packs and merges still skip the tag ([STO §4], G5-256).
 - A `start` lacking its descriptor header or carrying one not in padded standard base64 is not accepted, the header on another record is ignored,
   and a claim-check `start` is checked once its object is fetched and verified ([STO §4] *Bus message*, G5-257).
+- A message carrying `Tpk-Payload-Digest` without `Tpk-Payload-Ref` is malformed ([STO §4] *Large records*, G5-258).

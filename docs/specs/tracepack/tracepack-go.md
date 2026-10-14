@@ -102,7 +102,7 @@ The query service, its catalog database and the live-tail interface are designed
   the 4096-byte bound holds for every message.
   A consumer checks a message with `CheckBusMessage(BusEnvelope, body) (BusRecord, error)`,
   which returns the record normalized, `decode_status`, `trailing_bytes` and `field_validity` zero whatever the producer wrote:
-  `ErrBusMalformed` marks a message never written, its seq a seq gap,
+  `ErrBusMalformed` marks a message never written, its seq a seq gap, an inline message carrying `Tpk-Payload-Digest` included (G5-258),
   and `ErrBusNotAccepted` a `start` whose `Tpk-Capture-Descriptor` is missing, not padded standard base64 or does not decode,
   on which the consumer alerts and defers the capture's later records; the header on another record is ignored (G5-257).
   `CheckBusPayload` checks a fetched claim-check object (`ErrBusPayloadMismatch`, deferred)
