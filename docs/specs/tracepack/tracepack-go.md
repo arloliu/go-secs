@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-12)
-Implements tracepack v2.33 (format 1.1): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Status: current (2026-10-14)
+Implements tracepack v2.34 (format 1.1): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -113,7 +113,7 @@ The query service, its catalog database and the live-tail interface are designed
 - Descriptor codec (G5-226): `EncodeDescriptor(*PackMeta) ([]byte, error)` and `DecodeDescriptor([]byte) (*PackMeta, error)`,
   the producer-owned entries of a capture descriptor (TLV, [FMT §5]), `thinning` included, as raw values with no default applied:
   the decoder yields the producer-owned pack-metadata values, a nonzero `capture_origin_mono_ns` and a zero `clock_step_tolerance_ns` kept, which the consumer copies.
-  It refuses a top-level tag a descriptor does not carry, single or repeated, a nested tag `thinning` does not define (G5-252),
+  It refuses a top-level tag a descriptor does not carry, single or repeated, a nested tag `thinning` or `hsms_timers` does not define (G5-252, G5-256),
   a `thinning` entry whose stream is above 127 or whose function is above 255 (G5-254), and a `capture_method` or `time_source` layout 1 does not serve,
   so the `start` carrying such a descriptor is not accepted.
   `CaptureDescriptor` stays the recorder-facing type, which resolves its defaults before it encodes.

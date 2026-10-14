@@ -1,6 +1,6 @@
 # tracepack — decision log
 
-Status: current (2026-10-12)
+Status: current (2026-10-14)
 Owner decisions for tracepack; append-only under `.agents/rules/450-doc-lifecycle.md`.
 Entries up to G5-79 were recorded in the design notes before the repository became the source of truth;
 they are copied here verbatim under their original headings, and later entries are added only here.
@@ -1622,3 +1622,14 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rationale *(editorial)*: [SEM §7.2] states the rule for the lookup as a whole, and an hour whose packs of the primary's capture are all lost is the case an entry of another pack most needs to report; the lookup errs toward `incomplete`.
   Rejected *(editorial)*: counting the entry only in an hour whose read holds a pack of the primary's capture.
   Spec: [SEM §7.2], v2.33.
+
+## 2026-10-14 open points after tracepack v0.5.0 (owner accepted the recommendation)
+
+- G5-256 An unknown nested tag of `hsms_timers` makes a descriptor undecodable (2026-10-14, the scope of G5-252):
+  a capture descriptor holding an `hsms_timers` entry with a nested tag other than 1 to 8 does not decode, so its `start` is not accepted (G5-251);
+  a reader of a stored pack and a merge still skip such a tag ([FMT §5], [STO §4] Merge).
+  Rationale *(editorial)*: G5-252 refuses what a consumer does not know to make a producer newer than its consumers visible while it can still be fixed;
+  `hsms_timers` defines exactly T1 to T8, so another nested tag is a producer defect or an uncoordinated newer producer, and dropping it at decode would hide either;
+  stored packs keep the tolerant reading, so no pack is refused.
+  Rejected *(editorial)*: dropping the tag at decode, as tracepack v0.5.0 does; refusing it in stored packs too.
+  Spec: [STO §4], v2.34.

@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-12) — spec v2.33.
+Status: current (2026-10-14) — spec v2.34.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1514,3 +1514,14 @@ After ratification, the v0.5.0 task plan added G5-252 (2026-10-12):
 Its fact check added G5-253 and G5-254 (2026-10-12):
 [STO §4] Merge and [FMT §5] refuse an input outside extracts whose policy lacks either encryption tag, whatever its minor,
 and [STO §4] states that a `thinning` entry with a stream above 127 or a function above 255 makes its descriptor undecodable.
+
+## Changes v2.33 → v2.34: the open points after tracepack v0.5.0 (owner decisions G5-256..G5-262, 2026-10-14)
+
+Source: the owner's rulings on the points tracepack v0.5.0 implemented without an explicit decision, after an outside review of each.
+Format 1.1 is unchanged: no tag, enum value, bit or byte changes, and no canonical export changes;
+the corpus goldens are unchanged and keep `spec_version` `"2.33"` ([CORPUS §3]).
+Only G5-256 changes what an implementation does; tracepack v0.5.1 implements it. G5-257..G5-262 state as normative what tracepack v0.5.0 already does.
+
+Summary:
+- A capture descriptor whose `hsms_timers` holds a nested tag other than T1 to T8 does not decode, so its `start` is not accepted;
+  stored packs and merges still skip the tag ([STO §4], G5-256).

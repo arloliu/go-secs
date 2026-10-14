@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-12) — phases 0 to 6b2, phase 9, the simplification of tracepack v0.4.0, and phase 8, format 1.1 in tracepack v0.5.0 (spec v2.33), done; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206); the minimal CLI of 6c comes next.
-Implements: tracepack v2.33 (format 1.1) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-10-14) — phases 0 to 6b2, phase 9, the simplification of tracepack v0.4.0, and phase 8, format 1.1 in tracepack v0.5.0 (spec v2.33), done, spec v2.34 in tracepack v0.5.1; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206); the minimal CLI of 6c comes next.
+Implements: tracepack v2.34 (format 1.1) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
