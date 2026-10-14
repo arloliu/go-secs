@@ -1527,7 +1527,7 @@ Summary:
   stored packs and merges still skip the tag ([STO §4], G5-256).
 - A `start` lacking its descriptor header or carrying one not in padded standard base64 is not accepted, the header on another record is ignored,
   and a claim-check `start` is checked once its object is fetched and verified ([STO §4] *Bus message*, G5-257).
-- A message carrying `Tpk-Payload-Digest` without `Tpk-Payload-Ref` is malformed ([STO §4] *Large records*, G5-258).
+- A message whose `Tpk-Payload-Ref` is absent or empty and whose `Tpk-Payload-Digest` is not empty is malformed ([STO §4] *Large records*, G5-258).
 - A capture descriptor carries only the producer-owned tags: a known pack-metadata tag the consumer owns, or one a durable bus does not use, makes it undecodable as an unknown tag does ([STO §4], G5-259).
 - Which records a bootstrap redaction defect masks: those an entry failing its own checks names, those both entries of an out-of-order consecutive pair name, and none for a disagreeing `redaction-present` ([SEM §8] *Marking*, G5-260).
 - A merge refuses, in any input whatever its minor, a `redaction` entry without `redaction_policy`, a bootstrap defect of the entries or of `redaction-present`, and an entry naming a seq the input holds no record of ([STO §4] Merge, G5-261).
@@ -1543,3 +1543,5 @@ Review rounds (amendment plan, kept outside the repository):
 | plan precision pass P2 | two line anchors were off by one | corrected before applying |
 | plan precision pass P2 | the descriptor and merge sentences read awkwardly in place | the aside parenthesized; the antecedent of "with it" spelled out |
 | plan precision pass | — | fix-then-ready, all applied |
+| apply consistency review P2 | the paired-header qualification missed [GO §3] and this summary | both state an absent or empty reference with a non-empty digest |
+| apply consistency review | — | fix-then-ready, applied |
