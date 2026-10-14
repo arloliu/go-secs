@@ -1657,3 +1657,12 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   G5-252 refuses unknown tags for the same reason.
   Rejected *(editorial)*: ignoring known tags the producer does not own.
   Spec: [STO §4] *Capture descriptor and pack metadata*, v2.34.
+- G5-260 Which records a bootstrap redaction defect masks (2026-10-14, the scope of [SEM §8] Marking):
+  an entry failing a check of its own is defective, and so are both entries of each pair of consecutive entries out of order;
+  every record a defective entry names is wholly masked;
+  a `redaction-present` flag that disagrees with the entries is a defect of the pack, reported at bootstrap, and masks no record by itself.
+  Rationale *(editorial)*: an entry's own defect and an order defect make the range map untrustworthy for the records its entries name, so those records are masked,
+  while records the defect does not reach keep their evidence;
+  a header flag names no record, so it cannot say which records to mask.
+  Rejected *(editorial)*: masking every record of the pack on any bootstrap defect; masking, on an order defect, only the later entry's records.
+  Spec: [SEM §8] *Marking*, v2.34.

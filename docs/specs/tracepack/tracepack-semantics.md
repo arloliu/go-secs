@@ -622,6 +622,8 @@ A record carries `redacted` exactly when it has at least one entry; the header f
 A missing required nested tag or a wrong value type rejects the file, as for any TLV ([FMT §5]); every other defect below is recoverable.
 At bootstrap a reader checks each entry on its own: a non-empty ranges array of whole pairs, every length positive, the pairs ascending, none overlapping or adjacent,
 and the entries in the order above; it also checks that `redaction-present` is set exactly when there is at least one entry.
+An entry that fails a check of its own is defective, and so are both entries of each pair of consecutive entries out of order;
+a `redaction-present` flag that disagrees is a defect of the pack, which masks no record by itself (G5-260).
 When it reads a record, it checks the entries naming that record's seq against it:
 the record carries `redacted` exactly when some entry names it, and each range lies inside the payload (offset ≤ `payload_len` and length ≤ `payload_len` − offset),
 past the 14-byte frame prefix for item and whole-text masks, and inside the value of a `text` or `raw` entry for annotation masks.
