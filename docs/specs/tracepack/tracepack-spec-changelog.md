@@ -1530,3 +1530,4 @@ Summary:
 - A message carrying `Tpk-Payload-Digest` without `Tpk-Payload-Ref` is malformed ([STO §4] *Large records*, G5-258).
 - A capture descriptor carries only the producer-owned tags: a known pack-metadata tag the consumer owns, or one a durable bus does not use, makes it undecodable as an unknown tag does ([STO §4], G5-259).
 - Which records a bootstrap redaction defect masks: those an entry failing its own checks names, those both entries of an out-of-order consecutive pair name, and none for a disagreeing `redaction-present` ([SEM §8] *Marking*, G5-260).
+- A merge refuses, in any input whatever its minor, a `redaction` entry without `redaction_policy`, a bootstrap defect of the entries or of `redaction-present`, and an entry naming a seq the input holds no record of ([STO §4] Merge, G5-261).

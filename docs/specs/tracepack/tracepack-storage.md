@@ -287,9 +287,9 @@ Which packs to give is the caller's choice; tracepack defines no view.
   a pack with records has a `seq_start` other than its first record's seq ([FMT §5]);
   or its records breach its own commitments:
   a classified record without a `classifier` in that input's metadata, an `oversized` record without a `max_frame_len` there,
-  a `quality.redacted` record in an input without `redaction_policy`;
-  in an input with it, any record that carries `redacted` or is named by a `redaction` entry and fails the checks of [SEM §8] Marking,
-  or `redaction-present` set other than exactly when the input has a `redaction` entry;
+  a `quality.redacted` record or a `redaction` entry in an input without `redaction_policy`;
+  in any input, whatever its `format_minor`, a bootstrap defect of its entries or of `redaction-present` ([SEM §8] Marking), or an entry naming a seq the input holds no record of (G5-261);
+  in an input with `redaction_policy`, any record that carries `redacted` or is named by a `redaction` entry and fails the checks of [SEM §8] Marking;
   or a `quality.unobserved` record whose stream and function its input's `thinning` does not declare.
   A reader treats such redaction defects as recoverable ([SEM §8]); a merge, which writes a new pack, refuses them.
   The merge also fails, publishing nothing, when an input's `format_minor` exceeds the newest minor the merger implements, since a merge drops unknown top-level entries (below),
