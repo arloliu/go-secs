@@ -114,7 +114,7 @@ The query service, its catalog database and the live-tail interface are designed
 - Descriptor codec (G5-226): `EncodeDescriptor(*PackMeta) ([]byte, error)` and `DecodeDescriptor([]byte) (*PackMeta, error)`,
   the producer-owned entries of a capture descriptor (TLV, [FMT §5]), `thinning` included, as raw values with no default applied:
   the decoder yields the producer-owned pack-metadata values, a nonzero `capture_origin_mono_ns` and a zero `clock_step_tolerance_ns` kept, which the consumer copies.
-  It refuses a top-level tag a descriptor does not carry, single or repeated, a nested tag `thinning` or `hsms_timers` does not define (G5-252, G5-256),
+  It refuses a top-level tag a descriptor does not carry, single or repeated (G5-259), a nested tag `thinning` or `hsms_timers` does not define (G5-252, G5-256),
   a `thinning` entry whose stream is above 127 or whose function is above 255 (G5-254), and a `capture_method` or `time_source` layout 1 does not serve,
   so the `start` carrying such a descriptor is not accepted.
   `CaptureDescriptor` stays the recorder-facing type, which resolves its defaults before it encodes.
