@@ -1529,3 +1529,4 @@ Summary:
   and a claim-check `start` is checked once its object is fetched and verified ([STO §4] *Bus message*, G5-257).
 - A message carrying `Tpk-Payload-Digest` without `Tpk-Payload-Ref` is malformed ([STO §4] *Large records*, G5-258).
 - A capture descriptor carries only the producer-owned tags: a known pack-metadata tag the consumer owns, or one a durable bus does not use, makes it undecodable as an unknown tag does ([STO §4], G5-259).
+- Which records a bootstrap redaction defect masks: those an entry failing its own checks names, those both entries of an out-of-order consecutive pair name, and none for a disagreeing `redaction-present` ([SEM §8] *Marking*, G5-260).
