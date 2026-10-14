@@ -5,6 +5,15 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+This release implements spec v2.34 and changes no byte of format 1.0 or 1.1, and no canonical export.
+
+### Upgrade notes
+
+- `DecodeDescriptor` refuses a capture descriptor whose `hsms_timers` entry holds a nested tag other than 1 to 8 (T1 to T8),
+  which v0.5.0 skipped, so `CheckBusMessage` and `CheckBusPayload` return `ErrBusNotAccepted` for a `start` carrying one.
+  A producer newer than its consumers is seen while it can still be fixed, as for an unknown `thinning` nested tag.
+  Readers of a stored pack and `Merge` still skip such a tag.
+
 ## [0.5.0] - 2026-10-13
 
 This release implements spec v2.33, format 1.1, and keeps every format 1.0 pack and its canonical export unchanged.

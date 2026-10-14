@@ -127,13 +127,13 @@ func EncodeDescriptor(m *PackMeta) ([]byte, error) {
 // A descriptor the consumer cannot accept does not decode:
 // a top-level tag a descriptor does not carry, single or repeated,
 // whether unknown, retired, or a pack metadata tag the producer does not own, such as writer, seq_start or source_tz;
-// a nested tag a thinning entry does not define;
+// a nested tag a thinning entry does not define, or a nested tag of hsms_timers that no timer defines;
 // a thinning entry whose stream is above 127 or whose function is above 255;
 // a capture_method other than raw-stream or decoded-message, or a time_source other than capture-clock;
 // a missing required value, capture_origin_utc_ns, capture_origin_mono_ns and clock_step_tolerance_ns included;
 // and any frame or value the TLV encoding refuses (the tracepack format specification §5).
 // The reserved byte of each entry header is ignored, and entries may come in any order.
-// Nested tags of hsms_timers that no timer defines are skipped, as a reader of the pack metadata skips them.
+// A reader of the pack metadata, unlike DecodeDescriptor, skips the nested tags of hsms_timers that no timer defines.
 //
 // Returns:
 //   - *PackMeta: the producer-owned values; nil on error.
@@ -165,23 +165,30 @@ func DecodeDescriptor(b []byte) (*PackMeta, error) {
 }
 
 // checkDescriptorTags reports the first entry of a descriptor whose tag a descriptor does not carry,
-// or the first nested tag of a thinning entry that the thinning registry does not define.
+// or the first nested tag of a thinning or hsms_timers entry that its registry does not define.
 func checkDescriptorTags(entries []tlv.Entry) error {
 	for _, e := range entries {
 		if _, known := descriptorRegistry[e.Tag]; !known {
 			return &FieldError{Field: descriptorTagName(e.Tag), Err: errNotDescriptorTag}
 		}
-		if e.Tag != tagThinning {
+		var name string
+		var nestedRegistry tlv.Registry
+		switch e.Tag {
+		case tagThinning:
+			name, nestedRegistry = "thinning", tlv.Thinning
+		case tagHSMSTimers:
+			name, nestedRegistry = "hsms_timers", tlv.HSMSTimers
+		default:
 			continue
 		}
-		// The registry check rejects a thinning value that is not a TLV list; this scan looks only at well-framed ones.
+		// The registry check rejects a nested value that is not a TLV list; this scan looks only at well-framed ones.
 		nested, err := tlv.Decode(e.Value)
 		if err != nil {
 			continue
 		}
 		for _, n := range nested {
-			if _, known := tlv.Thinning[n.Tag]; !known {
-				return &FieldError{Field: fmt.Sprintf("thinning 0x%04X", n.Tag), Err: errNotDescriptorTag}
+			if _, known := nestedRegistry[n.Tag]; !known {
+				return &FieldError{Field: fmt.Sprintf("%s 0x%04X", name, n.Tag), Err: errNotDescriptorTag}
 			}
 		}
 	}

@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
 // busCapture is the capture every bus test message belongs to.
@@ -304,6 +306,8 @@ func TestBusClaimCheckStartDescriptor(t *testing.T) {
 		{"missing", ""},
 		{"undecodable", base64.StdEncoding.EncodeToString(descriptorBytes(t)[:10])},
 		{"unpadded", base64.RawStdEncoding.EncodeToString(descriptorBytes(t))},
+		{"unknown timer", base64.StdEncoding.EncodeToString(encodeTLV(replaceDescriptorEntry(descriptorEntries(t), tagHSMSTimers,
+			tlv.NestedEntry(tagHSMSTimers, []tlv.Entry{tlv.U64Entry(9, 1)}))))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
