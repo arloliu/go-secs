@@ -1649,3 +1649,11 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   a consumer that ignored it on an inline message would let a producer believe an integrity check took place that never did.
   Rejected *(editorial)*: ignoring the digest on an inline message.
   Spec: [STO §4] *Large records*, v2.34.
+- G5-259 A descriptor carries only the producer-owned tags (2026-10-14, the scope of G5-252):
+  a capture descriptor holding a top-level tag that is not one of the producer-owned tags of [STO §4] does not decode, single or repeated:
+  an unknown or retired tag, and a known pack-metadata tag the consumer owns or that a durable bus does not use (for example `writer`, `seq_start` or `source_tz`).
+  Rationale *(editorial)*: a consumer that ignored a consumer-owned value would hide a producer defect,
+  and one that took it would let the producer override what the consumer owns;
+  G5-252 refuses unknown tags for the same reason.
+  Rejected *(editorial)*: ignoring known tags the producer does not own.
+  Spec: [STO §4] *Capture descriptor and pack metadata*, v2.34.

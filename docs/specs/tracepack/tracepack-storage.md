@@ -219,8 +219,9 @@ Which packs to give is the caller's choice; tracepack defines no view.
     `previous_capture_id` and the optional site and equipment tags when it has them;
     and the `thinning` entries when it thins records ([FMT §5], *Unobserved records*).
     The consumer copies these values as decoded, applying no default: a `capture_origin_mono_ns` other than 0 and a `clock_step_tolerance_ns` of 0 are kept.
-    A descriptor holding a top-level tag the consumer does not know, an unknown nested tag inside `thinning` or `hsms_timers`, or a `thinning` entry whose stream is above 127 or whose function is above 255,
-    does not decode, and its `start` is not accepted (G5-251, G5-252, G5-254, G5-256);
+    A descriptor holding a top-level tag other than these producer-owned ones, single or repeated (unknown, retired, or a pack-metadata tag the consumer owns or a durable bus does not use),
+    a nested tag that `thinning` or `hsms_timers` does not define, or a `thinning` entry whose stream is above 127 or whose function is above 255
+    does not decode, and its `start` is not accepted (G5-251, G5-252, G5-254, G5-256, G5-259);
     a reader of a stored pack and a merge still skip an `hsms_timers` nested tag they do not know ([FMT §5], Merge).
     The consumer owns `writer`, `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`, `pack_role`, `compaction_level`, `scope_generation`, `flush_interval_ns` and `redaction_policy`.
     The traffic stream is configured so that an accepted message is removed only by acknowledgement, never by a size or age limit,
