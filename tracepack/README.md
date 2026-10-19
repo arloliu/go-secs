@@ -335,6 +335,29 @@ For the storage service:
   and its `ErrMergeInput` leaves partial output in `dst`, which you discard, as after any error.
   Merge packs of format 1.1 only with this version or later, since an earlier one does not carry what format 1.1 adds.
 
+## Command line
+
+The `tracepack` command reads packs on local paths:
+
+```sh
+go install github.com/arloliu/go-secs/tracepack/cmd/tracepack@<version>
+
+tracepack dump --jsonl [-o <file>] <pack>
+tracepack verify <pack>...
+tracepack find --capture <uuid> --seq <n> (--hour <n> | --at <time>) <path>...
+```
+
+- `dump --jsonl` writes the canonical JSONL export to stdout, or to `<file>` with `-o`, replaced only when the export succeeds;
+  the read's incomplete reasons, footer errors and redaction defects go to stderr.
+- `verify` reports each pack's verification outcome and evidence, and `complete`: no block failed and no block disagrees with the index.
+- `find` looks up the reply to a primary over the packs the paths name, a directory searched for `*.tpk` files,
+  and prints the outcome, every kept version with its roles, and every reason the lookup is incomplete.
+
+It exits 0 when the report is clean, 1 when it is not (an incomplete read or lookup, a `verify` outcome other than `finalized-consistent`),
+and 2 when the command could not run.
+The text of the `verify` and `find` reports is not a contract before tracepack v1.0.0;
+the command's Godoc states the rest.
+
 ## Specification
 
 The documents in [docs/specs/tracepack/](../docs/specs/tracepack/) are the reference:
