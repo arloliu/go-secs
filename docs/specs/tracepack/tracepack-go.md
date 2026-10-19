@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-14)
+Status: current (2026-10-18)
 Implements tracepack v2.34 (format 1.1): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
@@ -565,15 +565,35 @@ Subcommands `dump --jsonl`, `verify` and `find`, after phase 8 (G5-206), on loca
 `list`, `stats`, `dump --sml` and `merge` are not in the minimal CLI; whether any of them returns is open (G5-206).
 `s3://` URLs are deferred until the query service or another design decides where the object-store dependency lives,
 since the CLI shares the library's `go.mod` (G5-170).
-Every command reports `incomplete` explicitly;
-the output syntax stays deferred with the other output formats.
-`dump --jsonl` emits the spec's canonical export ([FMT §15]).
-`find` prints the lookup's outcome, its `incomplete` reasons and every kept version with its roles.
+Every command reports `incomplete` explicitly, through its exit code and its report (G5-263):
+- exit 2 when the command could not run: a usage error or an error the library or the file system returns,
+  a pack rejected at bootstrap, a reader budget returned as an error, a write error and an interrupt included;
+- else exit 1 when its report is not clean: an export whose read is incomplete, a `verify` outcome other than `finalized-consistent`, a lookup with an incomplete reason;
+  a reason inside a report that wraps a reader budget is 1, never 2;
+- else exit 0.
+A footer error alone does not make `dump --jsonl` or `find` exit 1.
+stdout carries the command's data and only it; stderr carries the diagnostics and every error.
+The text of the `verify` and `find` reports is not a contract before tracepack v1.0.0.
+
+`dump --jsonl <pack>` emits the spec's canonical export ([FMT §15]) on stdout, and the read's `incomplete` reasons, its footer errors and the pack's redaction defects on stderr;
+`dump` needs `--jsonl`, its only format.
+With `-o <file>` the export is written to a temporary file beside `<file>` and renamed over it only when the export succeeds, an incomplete export included,
+and removed on an error, an existing `<file>` left as it was;
+without `-o`, an error exits 2 with a line on stderr that says the output is not an export (G5-264).
+`verify <pack>...` reports each pack's outcome and evidence ([FMT §13]) and a `complete` line,
+true exactly when no block failed and no validated block disagrees with the index;
+coverage entries and stop-unclean boundaries, which make a read incomplete, are not part of it.
+It exits by outcome, 0 only for `finalized-consistent`, with the largest code over several packs (G5-265).
+`find --capture <uuid> --seq <n> (--hour <n> | --at <time>) <path>...` prints the lookup's outcome, its `incomplete` reasons and every kept version with its roles;
+`--hour` is the primary's UTC hour since 1970-01-01T00:00Z and `--at` its RFC 3339 timestamp;
+a path is a pack or a directory searched for regular `*.tpk` files without following symbolic links, skipping the hidden directories below it,
+such as a directory sink's `.partial/`,
+and every pack is held open for the lookup, of one tool and each inside one UTC hour (`NewReaderSource`).
+No flag sets a reader budget or a lookup limit (G5-266).
 Deferred with `dump --sml`, and not part of the CLI of G5-206:
 `dump --sml` renders data records through `sml.Encoder` and falls back to hex for control, event, annotation and malformed records;
 in it, a masked subtree is shown at its path with its domain and a digest prefix, its leaves with their item type and length but no value;
 a whole-text mask is shown as masked text of its length, without inventing item types; the exact syntax is deferred with the other output formats.
-Output formats of the other commands and exit codes are deferred to implementation.
 
 ## 8. Open questions
 

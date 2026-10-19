@@ -1,6 +1,6 @@
 # tracepack — decision log
 
-Status: current (2026-10-14)
+Status: current (2026-10-18)
 Owner decisions for tracepack; append-only under `.agents/rules/450-doc-lifecycle.md`.
 Entries up to G5-79 were recorded in the design notes before the repository became the source of truth;
 they are copied here verbatim under their original headings, and later entries are added only here.
@@ -1683,3 +1683,50 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   masks computed over bytes already masked would digest and encrypt the wrong originals.
   Rejected *(editorial)*: accepting a rule that never matches; masking a record that is not in full.
   Spec: [SEM §8] *Policy*, *Masking*, v2.34.
+
+## 2026-10-18 the minimal CLI of phase 6c (owner accepted the recommendations)
+
+- G5-263 The CLI's exit codes and output streams (2026-10-18, phase 6c plan):
+  the exit is 2 when the command could not run, which is a usage error or an error the library or the file system returns,
+  a pack rejected at bootstrap, a reader budget the library returns as an error, a write error and an interrupt included;
+  else 1 when the command's report is not clean: an export whose read is incomplete, a `verify` outcome other than `finalized-consistent` (G5-265), a lookup with an incomplete reason;
+  else 0.
+  A reason inside a report that wraps a reader budget, such as a lookup's read gap for a block over `MaxBlockLen`, is 1, never 2.
+  A footer error alone does not make `dump --jsonl` or `find` exit 1, as it does not make a read or a lookup incomplete.
+  The outcome of `find` is printed, not exit-coded.
+  stdout carries the command's data, and only it: the export of `dump --jsonl`, the reports of `verify` and `find`;
+  stderr carries the diagnostics: the incomplete reasons, footer errors and redaction defects of `dump --jsonl`, and every error.
+  The text of the `verify` and `find` reports is not a contract before tracepack v1.0.0.
+  Rationale *(editorial)*: the three codes are those of `grep` and `diff`, so a script tells "ran, clean", "ran, not clean" and "could not run" apart without parsing text,
+  which is how every command reports `incomplete` explicitly (G5-206);
+  an export on stdout alone is byte for byte the canonical export.
+  Rejected *(editorial)*: exit-coding the lookup outcome, since a complete `not-found` is a definite answer; a machine-readable report format before v1.0.0.
+  Spec: [GO §7].
+- G5-264 An export that fails is not published (2026-10-18, phase 6c plan):
+  `dump --jsonl -o <file>` writes the export to a temporary file in the directory of `<file>` and renames it over `<file>` only when the export succeeds,
+  an incomplete export included, and removes it on an error, leaving an existing `<file>` as it was;
+  without `-o`, the export streams to stdout, and on an error the CLI exits 2 with a line on stderr that says the output is not an export.
+  `dump` needs `--jsonl`, the only format until `dump --sml` returns (G5-206).
+  Rationale *(editorial)*: bytes written before an export fails are not an export, and the caller discards them (`ExportJSONL`); a file can be discarded, a stream cannot.
+  Rejected *(editorial)*: stdout alone; buffering the export in memory until it succeeds, whose memory would grow with the pack.
+  Spec: [GO §7].
+- G5-265 What `verify` reports and how it exits (2026-10-18, phase 6c plan):
+  `verify` exits 0 for a pack whose outcome is `finalized-consistent` and 1 for any other outcome, since it checks the pack's integrity, its index included;
+  over several packs it reports each and exits with the largest code.
+  Its report states `complete`, true exactly when no block failed and no validated block disagrees with the index:
+  the completeness of the verification of the pack's blocks and index.
+  It does not include what the pack metadata declares lost, its coverage entries and its stop-unclean boundaries, which make a read incomplete ([FMT §13]),
+  so `verify` and `dump --jsonl` can exit differently on one pack.
+  Rationale *(editorial)*: an invalid footer or an unfinalized pack loses no record, yet a pack that verify passes should be one a reader can trust whole;
+  the `complete` line keeps the two apart.
+  Rejected *(editorial)*: exiting by `complete` alone; folding coverage entries and crash gaps into `complete`.
+  Spec: [GO §7].
+- G5-266 How `find` names its primary and its packs (2026-10-18, phase 6c plan):
+  `find --capture <uuid> --seq <n>` with exactly one of `--hour <n>`, the primary's UTC hour since 1970-01-01T00:00Z, and `--at <RFC 3339 time>`, the primary's timestamp;
+  each further argument is a pack, or a directory searched for regular files named `*.tpk` without following symbolic links;
+  a hidden directory below it, such as the `.partial/` of a directory sink's unpublished segments, is skipped.
+  Every pack named is opened before the lookup and held open until it ends, of one tool and each inside one UTC hour, as `NewReaderSource` requires.
+  No flag sets a reader budget or a lookup limit: the CLI reads with the defaults, the lookup `DefaultTxMaxScopes` hours.
+  Rationale *(editorial)*: the minimal CLI reads local packs the caller names (G5-170), and the defaults are the ones the library documents.
+  Rejected *(editorial)*: flags for budgets and limits in the minimal CLI; locating packs by the storage keys of a prefix.
+  Spec: [GO §7].

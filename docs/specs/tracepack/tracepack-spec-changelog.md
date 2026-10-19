@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-14) — spec v2.34.
+Status: current (2026-10-18) — spec v2.34.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -60,6 +60,11 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   `ExportJSONL` its schema by minor; the documentation bullet the new audiences and the `redact` example;
   §1 says only `redact` links Tink, and §4 adds `classify.NewNamed` (G5-250).
   No rule changed.
+- 2026-10-18: §7 states the minimal CLI of phase 6c as the owner decided it:
+  the exit codes and output streams (G5-263), `dump --jsonl -o` and an export that fails (G5-264), what `verify` reports and how it exits (G5-265),
+  and how `find` names its primary and its packs (G5-266);
+  the text of the `verify` and `find` reports stays outside the contract before tracepack v1.0.0.
+  No rule of the format changed.
 
 ## Changes vs v1 (summary)
 
