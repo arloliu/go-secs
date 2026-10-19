@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-14) — phases 0 to 6b2, phase 9, the simplification of tracepack v0.4.0, and phase 8, format 1.1 in tracepack v0.5.0 (spec v2.33), done, spec v2.34 in tracepack v0.5.1; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206); the minimal CLI of 6c comes next.
+Status: active (2026-10-18) — phases 0 to 6b2, phase 9, the simplification of tracepack v0.4.0, and phase 8, format 1.1 in tracepack v0.5.0 (spec v2.33), done, spec v2.34 in tracepack v0.5.1; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206); the minimal CLI of 6c is implemented (G5-263..G5-266), unreleased.
 Implements: tracepack v2.34 (format 1.1) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -42,7 +42,7 @@ Nested module `github.com/arloliu/go-secs/tracepack` (own `go.mod` in `tracepack
 | `tracepack/cmd/tracepack` | CLI | binary |
 
 Rules from the repo apply: internal packages never appear in public signatures;
-only `classify` and `cmd/tracepack` (for SML rendering through `sml.Encoder`) import `github.com/arloliu/go-secs/v2`.
+only `classify` imports `github.com/arloliu/go-secs/v2`; `cmd/tracepack` would too, for SML rendering through `sml.Encoder`, once `dump --sml` returns (G5-206).
 ### 2.1 Module dependencies and workspace (G5-78, G5-79)
 
 - `tracepack/go.mod` never carries a `replace` directive:
@@ -82,7 +82,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 6a — JSONL export | done | |
 | 6b1 — conformance corpus, part 1 | done | |
 | 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | done | |
-| 6c — CLI | pending | minimal, after phase 8 (G5-206) |
+| 6c — CLI | done | minimal: `dump --jsonl`, `verify`, `find` (G5-206, G5-263..G5-266) |
 | 8 — Producer API for a durable-bus capture | done | v0.5.0, format 1.1; took phase 7's reader obligation (G5-207) |
 | 9 — Simplification (tracepack v0.4.0) | done | before phase 8 |
 
@@ -734,6 +734,10 @@ Dropped (G5-199): the corpus covers the format layer, and [STO §8] lists the im
 Starts after phase 8 (G5-206).
 
 Done when: `dump --jsonl` matches every JSONL golden of the corpus, rejects every vector rejected at bootstrap, and the CLI works on the corpus.
+
+Done (2026-10-18): `cmd/tracepack`; its test runs `dump --jsonl` on every vector of the corpus,
+every export byte for byte, every bootstrap rejection by its code, and every cut of every truncation vector;
+`verify` and `find` are tested on corpus vectors and on captures the test records.
 
 ### Phase 7 — Extract and redaction
 

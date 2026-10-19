@@ -5,6 +5,15 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+### Added
+
+- The `tracepack` command, `cmd/tracepack`, reads packs on local paths with three subcommands:
+  `dump --jsonl` writes the canonical JSONL export, to stdout or, with `-o`, to a file replaced only when the export succeeds;
+  `verify` reports each pack's verification outcome and evidence;
+  `find` looks up the reply to a primary over the packs and directories it is given.
+  It exits 0 for a clean report, 1 for a report that is not clean (an incomplete read or lookup, a `verify` outcome other than `finalized-consistent`), and 2 when it could not run.
+  It adds no dependency to the module.
+
 ## [0.5.1] - 2026-10-14
 
 This release implements spec v2.34 and changes no byte of format 1.0 or 1.1, and no canonical export.
