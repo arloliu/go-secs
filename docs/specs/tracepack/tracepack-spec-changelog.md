@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-18) — spec v2.34.
+Status: current (2026-10-20) — spec v2.34.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -65,6 +65,12 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   and how `find` names its primary and its packs (G5-266);
   the text of the `verify` and `find` reports stays outside the contract before tracepack v1.0.0.
   No rule of the format changed.
+- 2026-10-20: the implementation plan `tracepack-impl-plan.md` is closed, its work done:
+  phases 0 to 6c, 8 and 9 shipped by tracepack v0.6.0, and 6b3 and the extract writer of phase 7 dropped (G5-199, G5-206, G5-207);
+  its last text is at commit `7aec66d`.
+  `tracepack-go.md` §1 takes the plan's import rules;
+  the corpus catalogue no longer refers to phases of the plan that would extend it.
+  No rule changed.
 
 ## Changes vs v1 (summary)
 

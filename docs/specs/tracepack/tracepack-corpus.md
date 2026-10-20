@@ -1,6 +1,6 @@
 # tracepack — conformance corpus
 
-Status: current (2026-10-14) — v2.34, tracepack format 1.1, schema `tracepack-corpus/4` (draft until tracepack v1.0.0).
+Status: current (2026-10-20) — v2.34, tracepack format 1.1, schema `tracepack-corpus/4` (draft until tracepack v1.0.0).
 Normative.
 [FMT §16] states what the corpus holds; this document defines its files, their schemas and the vector catalogue.
 The format is documented for any reader;
@@ -345,8 +345,7 @@ How the corpus realizes [FMT §16] and [SEM §9] clauses whose wording leaves a 
 
 ## 9. Vector catalogue
 
-Every clause of [FMT §16] and of [SEM §9] that the corpus serves is mapped below to the vectors that exercise it,
-or marked as planned in a phase of `tracepack-impl-plan.md` that extends this corpus under a later schema value or the same one.
+Every clause of [FMT §16] and of [SEM §9] that the corpus serves is mapped below to the vectors that exercise it.
 A clause that the format-reading assertions of §1 cannot show —
 a verification report, a query, a classification, a read over several packs or a transaction lookup —
 is a test of the Go module instead of a vector (G5-199, G5-210).

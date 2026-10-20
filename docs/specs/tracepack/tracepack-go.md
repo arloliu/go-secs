@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-18)
+Status: current (2026-10-20)
 Implements tracepack v2.34 (format 1.1): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
@@ -10,8 +10,11 @@ line numbers are avoided because they drift.
 
 - Nested Go module `github.com/arloliu/go-secs/tracepack` in the repository's `tracepack/` directory, with its own `go.mod` and its own tags `tracepack/vX.Y.Z` (G5-77; precedent `benchmarks/go.mod`).
   The path carries no `/v2`: for a module in `tracepack/`, the go command resolves `github.com/arloliu/go-secs/v2/tracepack` to the directory `v2/tracepack/`, so that path would not be fetchable outside the repository.
-- The go-secs dependency carries no `replace` directive, and `go.work` stays local (G5-78; `tracepack-impl-plan.md` §2.1).
+- The go-secs dependency carries no `replace` directive, and `go.work` stays local (G5-78).
   A released tracepack requires a released go-secs, at least v2.5.0 (G5-79).
+- Only `classify` imports go-secs, and `cmd/tracepack` would too, for SML rendering, once `dump --sml` returns (G5-206);
+  `tracepack` never imports `redact`, and `internal/corpus` never imports `classify`.
+  Internal packages never appear in public signatures.
 - Reference CLI `tracepack/cmd/tracepack` in the same module is the explicit exemption from the root "no binary" rule.
 - The EAP log converter lives in `veq/cmd/eapconv`.
 - Dependencies: `github.com/klauspost/compress/zstd` (pure Go; it offers no seekable format, so independent block bodies are the design)
