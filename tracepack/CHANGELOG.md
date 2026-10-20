@@ -5,6 +5,12 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-20
+
+This release implements spec v2.34, as v0.5.1, and changes no library API, no byte of a pack and no canonical export.
+It adds the `tracepack` command, the reference command line for reading packs on local paths.
+The command is tested on Linux, and on Windows only compiled.
+
 ### Added
 
 - The `tracepack` command, `cmd/tracepack`, reads packs on local paths with three subcommands:
