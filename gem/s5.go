@@ -170,6 +170,16 @@ func S5F14(exid string, acka bool, errcode secs2.Item, errtext string) secs2.SEC
 	return secs2.NewMessage(5, 14, false, secs2.L(secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L(errcode, secs2.A(errtext)))))
 }
 
+// S5F14Accepted creates the short form of an S5F14 (Exception Recover Acknowledge) message, direction: equipment-to-host.
+//
+// [S5F14] creates the full form,
+// and [DecodeS5F14] decodes both.
+//
+// Body: L[2]{ A[exid] L[2]{ BOOLEAN[acka] L[0]{} } }.
+func S5F14Accepted(exid string, acka bool) secs2.SECS2Message {
+	return secs2.NewMessage(5, 14, false, secs2.L(secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L())))
+}
+
 // S5F15 creates the S5F15 (Exception Recovery Complete Notify) message, direction: equipment-to-host.
 //
 // Allows the service provider to inform the controller/host that the recovery operation completed on a specific exception, together with an error code if the recovery terminated abnormally.
@@ -180,6 +190,16 @@ func S5F14(exid string, acka bool, errcode secs2.Item, errtext string) secs2.SEC
 // Exception: The inner list may be zero length if the recovery was successful.
 func S5F15(timestamp string, exid string, acka bool, errcode secs2.Item, errtext string) secs2.SECS2Message {
 	return secs2.NewMessage(5, 15, true, secs2.L(secs2.A(timestamp), secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L(errcode, secs2.A(errtext)))))
+}
+
+// S5F15Success creates the short form of an S5F15 (Exception Recovery Complete Notify) message, direction: equipment-to-host.
+//
+// [S5F15] creates the full form,
+// and [DecodeS5F15] decodes both.
+//
+// Body: L[3]{ A[timestamp] A[exid] L[2]{ BOOLEAN[acka] L[0]{} } }.
+func S5F15Success(timestamp string, exid string, acka bool) secs2.SECS2Message {
+	return secs2.NewMessage(5, 15, true, secs2.L(secs2.A(timestamp), secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L())))
 }
 
 // S5F16 creates the S5F16 (Exception Recovery Complete Confirm) message, direction: host-to-equipment.
@@ -213,4 +233,14 @@ func S5F17(exid string) secs2.SECS2Message {
 // Exception: The inner list may be zero length if the abort was successful.
 func S5F18(exid string, acka bool, errcode secs2.Item, errtext string) secs2.SECS2Message {
 	return secs2.NewMessage(5, 18, false, secs2.L(secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L(errcode, secs2.A(errtext)))))
+}
+
+// S5F18Success creates the short form of an S5F18 (Exception Recovery Abort Acknowledge) message, direction: equipment-to-host.
+//
+// [S5F18] creates the full form,
+// and [DecodeS5F18] decodes both.
+//
+// Body: L[2]{ A[exid] L[2]{ BOOLEAN[acka] L[0]{} } }.
+func S5F18Success(exid string, acka bool) secs2.SECS2Message {
+	return secs2.NewMessage(5, 18, false, secs2.L(secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L())))
 }

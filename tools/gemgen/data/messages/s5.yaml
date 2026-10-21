@@ -194,6 +194,7 @@ messages:
         replyExpected: true
         structure: {type: list, items: [{item: EXID}, {item: EXRECVRA}]}
 
+  # The Accepted variant builds the form with the zero-length error list.
   - function: 14
     name: Exception Recover Acknowledge
     mnemonic: EXRA
@@ -212,7 +213,19 @@ messages:
               items:
                 - {item: ACKA}
                 - {type: list, minItems: 0, maxItems: 2, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+      - actor: both
+        replyExpected: false
+        variant: Accepted
+        structure:
+          type: list
+          items:
+            - {item: EXID}
+            - type: list
+              items:
+                - {item: ACKA}
+                - {type: list, items: []}
 
+  # The Success variant builds the form with the zero-length error list.
   - function: 15
     name: Exception Recovery Complete Notify
     mnemonic: EXRCN
@@ -236,6 +249,18 @@ messages:
               items:
                 - {item: ACKA}
                 - {type: list, minItems: 0, maxItems: 2, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+      - actor: both
+        replyExpected: true
+        variant: Success
+        structure:
+          type: list
+          items:
+            - {item: TIMESTAMP}
+            - {item: EXID}
+            - type: list
+              items:
+                - {item: ACKA}
+                - {type: list, items: []}
 
   - function: 16
     name: Exception Recovery Complete Confirm
@@ -261,6 +286,7 @@ messages:
         replyExpected: true
         structure: {item: EXID}
 
+  # The Success variant builds the form with the zero-length error list.
   - function: 18
     name: Exception Recovery Abort Acknowledge
     mnemonic: EXRAA
@@ -279,3 +305,14 @@ messages:
               items:
                 - {item: ACKA}
                 - {type: list, minItems: 0, maxItems: 2, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+      - actor: both
+        replyExpected: false
+        variant: Success
+        structure:
+          type: list
+          items:
+            - {item: EXID}
+            - type: list
+              items:
+                - {item: ACKA}
+                - {type: list, items: []}
