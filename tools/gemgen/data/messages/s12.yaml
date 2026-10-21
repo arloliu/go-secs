@@ -1,0 +1,349 @@
+stream: 12
+messages:
+  # FNLOC and FFROT may be sent zero-length (E5 §10.16.3.2.6),
+  # and so may ORLOC (E5 Table 3: "Zero length indicates not used";
+  # §10.16.2.7.1: if the equipment does not provide an origin, the host provides a default),
+  # so they are optional wherever they appear in this stream.
+  # The markdown copy of E5 drops the L,15 header of S12F1; the PDF text has it.
+  - function: 1
+    name: Map Set-up Data Send
+    mnemonic: MSDS
+    direction: equipment-to-host
+    description: >-
+      Used to send all of the map set-up data common to all formats
+      and required to link the data map with the physical wafer.
+      E5 §10.16.3.2.6: When either FNLOC or FFROT is unknown or irrelevant information, a zero-length item is transmitted,
+      and the item will be ignored by the application; one of the items must exist.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: MID}
+            - {item: IDTYP}
+            - {item: FNLOC, optional: true}
+            - {item: FFROT, optional: true}
+            - {item: ORLOC, optional: true}
+            - {item: RPSEL}
+            - {type: list, repeat: refps, of: {item: REFP}}
+            - {item: DUTMS}
+            - {item: XDIES}
+            - {item: YDIES}
+            - {item: ROWCT}
+            - {item: COLCT}
+            - {item: NULBC}
+            - {item: PRDCT}
+            - {item: PRAXI}
+
+  - function: 2
+    name: Map Set-up Data Acknowledge
+    mnemonic: MSDA
+    direction: host-to-equipment
+    description: Acknowledgment of receipt of complete set of map set-up parameters.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: SDACK}
+
+  - function: 3
+    name: Map Set-up Data Request
+    mnemonic: MSDR
+    direction: equipment-to-host
+    description: >-
+      Used to request set-up data from the host for the product ready to be processed at the equipment
+      (common to all formats).
+      E5 §10.16.3.2.6: When either FNLOC or FFROT is unknown or irrelevant information, a zero-length item is transmitted,
+      and the item will be ignored by the application; one of the items must exist.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: MID}
+            - {item: IDTYP}
+            - {item: MAPFT}
+            - {item: FNLOC, optional: true}
+            - {item: FFROT, optional: true}
+            - {item: ORLOC, optional: true}
+            - {item: PRAXI}
+            - {item: BCEQU}
+            - {item: NULBC}
+
+  # S12F4 is L,15 like S12F1 but with other members in another order (no FFROT or PRAXI; BCEQU and MLCL added);
+  # E5 Table 3 "Where Used" agrees.
+  - function: 4
+    name: Map Set-up Data
+    mnemonic: MSD
+    direction: host-to-equipment
+    description: Used to send all of the map set-up data required to link the data map with the physical wafer.
+    exception: A zero-length list returned means no such MID.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # E5 does not say which list may be zero length, so the outer list takes L,0 or L,15;
+        # an empty reference-point list also decodes.
+        structure:
+          type: list
+          minItems: 0
+          maxItems: 15
+          items:
+            - {item: MID}
+            - {item: IDTYP}
+            - {item: FNLOC, optional: true}
+            - {item: ORLOC, optional: true}
+            - {item: RPSEL}
+            - {type: list, repeat: refps, of: {item: REFP}}
+            - {item: DUTMS}
+            - {item: XDIES}
+            - {item: YDIES}
+            - {item: ROWCT}
+            - {item: COLCT}
+            - {item: PRDCT}
+            - {item: BCEQU}
+            - {item: NULBC}
+            - {item: MLCL}
+
+  - function: 5
+    name: Map Transmit Inquire
+    mnemonic: MAPTI
+    direction: equipment-to-host
+    description: >-
+      Used to prepare the host for map transmission.
+      S12F5 must precede all S12F7/S12F8, S12F9/S12F10 and S12F11/S12F12 transactions.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: MID}, {item: IDTYP}, {item: MAPFT}, {item: MLCL}]}
+
+  - function: 6
+    name: Map Transmit Grant
+    mnemonic: MAPTG
+    direction: host-to-equipment
+    description: Provides permission to transfer.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: GRNT1}
+
+  # The markdown copy of E5 garbles the S12F7 row/column list; the PDF text gives L,2 {RSINF, BINLT}.
+  - function: 7
+    name: Map Data Send Type 1
+    mnemonic: MDS1
+    direction: equipment-to-host
+    description: >-
+      Used to send map data from the equipment to the host in row or column compressed format.
+      If S12F7 is multi-block, it must be preceded by the S12F5/S12F6 Inquire/Grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: MID}
+            - {item: IDTYP}
+            - type: list
+              repeat: rows
+              of: {type: list, items: [{item: RSINF}, {item: BINLT}]}
+
+  - function: 8
+    name: Map Data Acknowledge Type 1
+    mnemonic: MDA1
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: MDACK}
+
+  - function: 9
+    name: Map Data Send Type 2
+    mnemonic: MDS2
+    direction: equipment-to-host
+    description: >-
+      Used to send map data from the equipment in array format.
+      If S12F9 is multi-block, it must be preceded by the S12F5/S12F6 Inquire/Grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: MID}, {item: IDTYP}, {item: STRP}, {item: BINLT}]}
+
+  - function: 10
+    name: Map Data Acknowledge Type 2
+    mnemonic: MDA2
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: MDACK}
+
+  # The markdown copy of E5 garbles the S12F11 coordinate list; the PDF text gives L,2 {XYPOS, BINLT}.
+  # E5 shows no shorter entry form, so each entry keeps BINLT, which is zero length when bin values are left out.
+  - function: 11
+    name: Map Data Send Type 3
+    mnemonic: MDS3
+    direction: equipment-to-host
+    description: >-
+      Used to send map data from the equipment in cartesian coordinate format.
+      Bin values may or may not be included in the message.
+      If S12F11 is multi-block, it must be preceded by the S12F5/S12F6 Inquire/Grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: MID}
+            - {item: IDTYP}
+            - type: list
+              repeat: positions
+              of: {type: list, items: [{item: XYPOS}, {item: BINLT}]}
+
+  - function: 12
+    name: Map Data Acknowledge Type 3
+    mnemonic: MDA3
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: MDACK}
+
+  - function: 13
+    name: Map Data Request Type 1
+    mnemonic: MDR1
+    direction: equipment-to-host
+    description: Used to request map data for product at equipment process station in row or column format.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: MID}, {item: IDTYP}]}
+
+  # The markdown copy of E5 garbles the S12F14 row/column list; the PDF text gives L,2 {RSINF, BINLT}.
+  - function: 14
+    name: Map Data Type 1
+    mnemonic: MD1
+    direction: host-to-equipment
+    description: Used to send map data from the host to the equipment in row or column format.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: MID}
+            - {item: IDTYP}
+            - type: list
+              repeat: rows
+              of: {type: list, items: [{item: RSINF}, {item: BINLT}]}
+
+  - function: 15
+    name: Map Data Request Type 2
+    mnemonic: MDR2
+    direction: equipment-to-host
+    description: Used to request map data for product at an equipment process station, in array format.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: MID}, {item: IDTYP}]}
+
+  - function: 16
+    name: Map Data Type 2
+    mnemonic: MD2
+    direction: host-to-equipment
+    description: Used to send map data from the host to the equipment in array format.
+    exception: A zero-length list returned means no such MID.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # E5 does not say which list may be zero length; the outer list is the only one, so it takes L,0 or L,4.
+        structure:
+          type: list
+          minItems: 0
+          maxItems: 4
+          items: [{item: MID}, {item: IDTYP}, {item: STRP}, {item: BINLT}]
+
+  - function: 17
+    name: Map Data Request Type 3
+    mnemonic: MDR3
+    direction: equipment-to-host
+    description: >-
+      Used to request map data for product at an equipment process station in cartesian coordinate format.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: MID}, {item: IDTYP}, {item: SDBIN}]}
+
+  # The markdown copy of E5 garbles the S12F18 coordinate list; the PDF text gives L,2 {XYPOS, BINLT}.
+  # E5 shows no shorter entry form, so each entry keeps BINLT, which is zero length when bin values are left out.
+  - function: 18
+    name: Map Data Type 3
+    mnemonic: MD3
+    direction: host-to-equipment
+    description: >-
+      Used to send map data from the host to the equipment in cartesian coordinate format.
+      Bin values may or may not be included.
+    exception: A zero-length list returned means no such MID.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # E5 does not say which list may be zero length, so the outer list takes L,0 or L,3;
+        # an empty coordinate list also decodes.
+        structure:
+          type: list
+          minItems: 0
+          maxItems: 3
+          items:
+            - {item: MID}
+            - {item: IDTYP}
+            - type: list
+              repeat: positions
+              of: {type: list, items: [{item: XYPOS}, {item: BINLT}]}
+
+  # S12F19 has no reply; S12F20 is not used.
+  - function: 19
+    name: Map Error Report Send
+    mnemonic: MERS
+    direction: bidirectional
+    description: Used to transmit map related errors.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: MAPER}, {item: DATLC}]}

@@ -1,0 +1,762 @@
+stream: 7
+messages:
+  - function: 1
+    name: Process Program Load Inquire
+    mnemonic: PPI
+    direction: bidirectional
+    description: >-
+      This message is used to initiate the transfer of a process program or to select from stored programs.
+      The message may be used to initiate the transfer of an unformatted process program (S7F3/S7F4)
+      or a formatted process program (S7F23/S7F24, S7F31/S7F32).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: PPID}, {item: LENGTH}]}
+
+  - function: 2
+    name: Process Program Load Grant
+    mnemonic: PPG
+    direction: bidirectional
+    description: This message gives permission for the process program to be loaded.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: PPGNT}
+
+  - function: 3
+    name: Process Program Send
+    mnemonic: PPS
+    direction: bidirectional
+    description: >-
+      The program is sent.
+      If S7F3 is multi-block, it must be preceded by the S7F1/S7F2 Inquire/Grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: PPID}, {item: PPBODY}]}
+
+  - function: 4
+    name: Process Program Acknowledge
+    mnemonic: PPA
+    direction: bidirectional
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
+
+  - function: 5
+    name: Process Program Request
+    mnemonic: PPR
+    direction: bidirectional
+    description: This message is used to request the transfer of a process program.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: PPID}
+
+  - function: 6
+    name: Process Program Data
+    mnemonic: PPD
+    direction: bidirectional
+    description: This message is used to transfer a process program.
+    exception: A zero-length list means request denied.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # E5 does not say which list may be zero length; the outer list is the only one, so it takes L,0 or L,2.
+        structure:
+          type: list
+          minItems: 0
+          maxItems: 2
+          items: [{item: PPID}, {item: PPBODY}]
+
+  - function: 7
+    name: Process Program ID Request
+    mnemonic: PIR
+    direction: equipment-to-host
+    description: This message is used to request the PPID for use on the material identified.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: MID}
+
+  - function: 8
+    name: Process Program ID Data
+    mnemonic: PID
+    direction: host-to-equipment
+    description: This message is used to transmit a single matrix entry in response to S7F7.
+    exception: A zero-length list returned means no such MID or other error.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # E5 does not say which list may be zero length; the outer list is the only one, so it takes L,0 or L,2.
+        structure:
+          type: list
+          minItems: 0
+          maxItems: 2
+          items: [{item: PPID}, {item: MID}]
+
+  - function: 9
+    name: M/P M Request
+    mnemonic: MMR
+    direction: bidirectional
+    description: >-
+      This message is used to request the transmission of the material/process matrix.
+      If the message is from the host, the response will be the current matrix in the equipment.
+      If the message is from the equipment, the response will be a new matrix to initialize the equipment.
+      E5 NOTE 5: M/PM defines the Material/Process Matrix.
+      The Material/Process Matrix is a table which links the material to the process program to be used in processing the material.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  # The markdown copy of E5 drops the outer L,n line of S7F10; the PDF text has it.
+  - function: 10
+    name: M/P M Data
+    mnemonic: MMD
+    direction: bidirectional
+    description: >-
+      In the response to S7F9, the equipment will transmit the current matrix it contains.
+      The matrix will be the sum of all matrix updates transmitted since initialization
+      less the completed material whose linkages have been deleted.
+      Programs with no pending material will be deleted from the matrix but not from the equipment program directory.
+    exception: >-
+      a = 0 indicates that this PPID will be used for all material processed.
+      The last default transmitted will be the one used; all other entries will be deleted from the active matrix.
+      A zero-length list returned means no such matrix.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: programs
+          of:
+            type: list
+            items:
+              - {item: PPID}
+              - {type: list, repeat: mids, of: {item: MID}}
+
+  - function: 11
+    name: M/P M Update Send
+    mnemonic: UMS
+    direction: host-to-equipment
+    description: >-
+      This message is used by the host to add to the M/PM in the equipment.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: >-
+      If a = 0, then the preceding PPID is to be used for all material processed.
+      All other entries will be deleted from the active matrix.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          repeat: programs
+          of:
+            type: list
+            items:
+              - {item: PPID}
+              - {type: list, repeat: mids, of: {item: MID}}
+
+  - function: 12
+    name: M/P M Update Acknowledge
+    mnemonic: UMA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
+
+  # The markdown copy of E5 drops the S7F13 exception text; the PDF text has it.
+  # E5 does not number the inner L,a of the first entry; it is the second element of that L,2, as in S7F11.
+  - function: 13
+    name: Delete M/P M Entry Send
+    mnemonic: DES
+    direction: host-to-equipment
+    description: >-
+      This message is used to delete program to material linkages in the M/PM of the equipment.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: >-
+      A delete consisting of a zero-length list means delete all entries
+      and generate an S7F9 request to initialize the matrix.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          repeat: programs
+          of:
+            type: list
+            items:
+              - {item: PPID}
+              - {type: list, repeat: mids, of: {item: MID}}
+
+  - function: 14
+    name: Delete M/P M Entry Acknowledge
+    mnemonic: DEA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
+
+  - function: 15
+    name: Matrix Mode Select Send
+    mnemonic: MMS
+    direction: host-to-equipment
+    description: >-
+      This message is used by the host to change the method of process program selection in the equipment,
+      which might not support all modes.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: MMODE}
+
+  - function: 16
+    name: Matrix Mode Select Acknowledge
+    mnemonic: MMA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
+
+  - function: 17
+    name: Delete Process Program Send
+    mnemonic: DPS
+    direction: host-to-equipment
+    description: >-
+      This message is used by the host to request the equipment to delete process programs from equipment storage.
+    exception: If n = 0, then delete all.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: ppids, of: {item: PPID}}
+
+  - function: 18
+    name: Delete Process Program Acknowledge
+    mnemonic: DPA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
+
+  - function: 19
+    name: Current EPPD Request
+    mnemonic: RER
+    direction: host-to-equipment
+    description: >-
+      This message is used to request the transmission of the current equipment process program directory (EPPD).
+      This is a list of all the PPIDs of the process programs stored in the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 20
+    name: Current EPPD Data
+    mnemonic: RED
+    direction: equipment-to-host
+    description: This message is used to transmit the current EPPD.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, repeat: ppids, of: {item: PPID}}
+
+  - function: 21
+    name: Equipment Process Capabilities Request
+    mnemonic: PCR
+    direction: host-to-equipment
+    description: This message is used to request the Equipment Process Capabilities Data (PCD).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  # The markdown copy of E5 scrambles the three parameter-specification columns of S7F22; the PDF text gives them cleanly.
+  - function: 22
+    name: Equipment Process Capabilities Data
+    mnemonic: PCD
+    direction: equipment-to-host
+    description: >-
+      This equipment message provides the information necessary for the host to create and partially verify
+      the contents of a new process program,
+      or display the object of a process program previously generated by a host or equipment.
+      The PCD defines the process program content acceptable to the originating equipment.
+      Each command is L,11 {CCODE, CNAME, RQCMD, BLKDEF, BCDS, IBCDS, NBCDS, ACDS, IACDS, NACDS, L,p {parameter specification}}.
+      Each parameter specification depends on the data type of its parameter:
+      numeric data is L,9 {PNAME, RQPAR, PDFLT, PMAX, LLIM, ULIM, UNITS, RESC, RESV},
+      string data is L,5 {PNAME, RQPAR, PDFLT, PMAX, L,s {STEMP}},
+      and Boolean data is L,4 {PNAME, RQPAR, PDFLT, PMAX}.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: MDLN}
+            - {item: SOFTREV}
+            - {item: CMDMAX}
+            - {item: BYTMAX}
+            - type: list
+              repeat: commands
+              of:
+                type: list
+                items:
+                  - {item: CCODE}
+                  - {item: CNAME}
+                  - {item: RQCMD}
+                  - {item: BLKDEF}
+                  - {item: BCDS}
+                  - {item: IBCDS}
+                  - {item: NBCDS}
+                  - {item: ACDS}
+                  - {item: IACDS}
+                  - {item: NACDS}
+                  # A parameter specification is L,9, L,5 or L,4 depending on the parameter's data type,
+                  # so each one is opaque.
+                  # This nesting documents the command shape only:
+                  # commands is a []secs2.Item, so callers build each whole L,11 command.
+                  - {type: list, repeat: parameters, of: {type: opaque}}
+
+  - function: 23
+    name: Formatted Process Program Send
+    mnemonic: FPS
+    direction: bidirectional
+    description: >-
+      This message allows movement of formatted process programs between a piece of equipment and its host system.
+      The values of MDLN and SOFTREV are obtained from the PCD used to generate the process program.
+      If S7F23 is multi-block, it must be preceded by the S7F1/S7F2 Inquire/Grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: PPID}
+            - {item: MDLN}
+            - {item: SOFTREV}
+            - type: list
+              repeat: commands
+              of:
+                type: list
+                items:
+                  - {item: CCODE}
+                  - {type: list, repeat: parameters, of: {item: PPARM}}
+
+  - function: 24
+    name: Formatted Process Program Acknowledge
+    mnemonic: FPA
+    direction: bidirectional
+    description: >-
+      Acknowledges reception of a formatted process program at its destination
+      and whether the process program was accepted by the interpreter.
+      A returned status of "accepted" by the interpreter means only that the message is understood.
+      The validity of the contents of the process program is determined through a separate transaction (S7F27/S7F28).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
+
+  - function: 25
+    name: Formatted Process Program Request
+    mnemonic: FPR
+    direction: bidirectional
+    description: This message is used by either equipment or host to request a particular process program from the other.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: PPID}
+
+  - function: 26
+    name: Formatted Process Program Data
+    mnemonic: FPD
+    direction: bidirectional
+    description: >-
+      This message transfers a process program in response to a request for the PPID.
+      The values of MDLN and SOFTREV are obtained from the PCD used to generate the process program.
+    exception: A zero length list indicates the request was denied.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # E5 does not say which list may be zero length, so the outer list takes L,0 or L,4;
+        # an empty command list also decodes.
+        structure:
+          type: list
+          minItems: 0
+          maxItems: 4
+          items:
+            - {item: PPID}
+            - {item: MDLN}
+            - {item: SOFTREV}
+            - type: list
+              repeat: commands
+              of:
+                type: list
+                items:
+                  - {item: CCODE}
+                  - {type: list, repeat: parameters, of: {item: PPARM}}
+
+  # E5 leaves the S7F27 exception cell empty.
+  # Its Direction column marks the message single-block (S),
+  # while the description allows a multi-block message after an S7F29/S7F30 inquire/grant;
+  # the generator ignores the single-block or multi-block mark.
+  - function: 27
+    name: Process Program Verification Send
+    mnemonic: PVS
+    direction: equipment-to-host
+    description: >-
+      This message indicates to the host that a process program has been received and checked by the equipment.
+      The result of the check is specified by the list of errors.
+      An empty error list (list of zero-length) or a one-element list with ACKC7A having a value of zero (0)
+      indicates no errors were found in the process program.
+      The equipment may report as many errors as it seems appropriate.
+      The equipment is responsible for sending a single copy of this message to the host
+      after any reception of a formatted process program (S7F23, S7F26, S7F31)
+      or a large process program that was transferred via the Stream 13 Data Set Transfer Protocol
+      (S7F37, S7F39, S7F41, S7F43).
+      The verification of large unformatted process programs checks that the received process program is intact
+      and was not corrupted by the Stream 13 transfer (e.g., by trying to load it).
+      If S7F27 is multi-block, it must be preceded by the S7F29/S7F30 Inquire/Grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: PPID}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: ACKC7A}, {item: SEQNUM}, {item: ERRW7}]}
+
+  - function: 28
+    name: Process Program Verification Acknowledge
+    mnemonic: PVA
+    direction: host-to-equipment
+    description: >-
+      Reply by host to equipment acknowledging reception of Process Program Verification Send (PVS).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
+
+  - function: 29
+    name: Process Program Verification Inquire
+    mnemonic: PVI
+    direction: equipment-to-host
+    description: This message allows a piece of equipment to ask a host for permission to send a multi-block PVS.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: LENGTH}
+
+  - function: 30
+    name: Process Program Verification Grant
+    mnemonic: PVG
+    direction: host-to-equipment
+    description: >-
+      Reply by host to equipment providing response to Process Program Verification Inquire (PVI).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: PPGNT}
+
+  - function: 31
+    name: Verification Request Send
+    mnemonic: VRS
+    direction: host-to-equipment
+    description: >-
+      This message requests the interpreting equipment to check the contents of the provided process program
+      and inform the host whether or not the process program is acceptable for processing at the machine.
+      The values of MDLN and SOFTREV are obtained from the PCD used to generate the process program.
+      If S7F31 is multi-block, it must be preceded by the S7F1/S7F2 Inquire/Grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: PPID}
+            - {item: MDLN}
+            - {item: SOFTREV}
+            - type: list
+              repeat: commands
+              of:
+                type: list
+                items:
+                  - {item: CCODE}
+                  - {type: list, repeat: parameters, of: {item: PPARM}}
+
+  - function: 32
+    name: Verification Request Acknowledge
+    mnemonic: VRA
+    direction: equipment-to-host
+    description: >-
+      Acknowledges reception of a formatted process program verification request at its destination
+      and whether the process program was accepted by the equipment.
+      A returned status of accepted by the interpreter means only that the message is understood.
+      The validity of the contents of the process program is specified through a separate transaction (S7F27/S7F28).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
+
+  - function: 33
+    name: Process Program Available Request
+    mnemonic: PAR
+    direction: bidirectional
+    description: >-
+      This message requests the interpreting host or equipment to check its process program library
+      and tell the requester if the PPID will be supplied if requested.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: PPID}
+
+  - function: 34
+    name: Process Program Availability Data
+    mnemonic: PAD
+    direction: bidirectional
+    description: >-
+      This message allows the originator to tell the requester whether it can provide the specified process program
+      and whether it can provide it formatted, unformatted, or both.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: PPID}, {item: UNFLEN}, {item: FRMLEN}]}
+
+  - function: 35
+    name: Process Program for MID Request
+    mnemonic: PPMR
+    direction: bidirectional
+    description: >-
+      This message is used to request the transfer of the process program to be used for the material identified.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: MID}
+
+  - function: 36
+    name: Process Program for MID Data
+    mnemonic: PPMD
+    direction: bidirectional
+    description: This message is used to transfer the process program for the material identified.
+    exception: A zero-length list returned means no such MID or other error.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # E5 does not say which list may be zero length; the outer list is the only one, so it takes L,0 or L,3.
+        structure:
+          type: list
+          minItems: 0
+          maxItems: 3
+          items: [{item: MID}, {item: PPID}, {item: PPBODY}]
+
+  - function: 37
+    name: Large Process Program Send
+    mnemonic: LPPS
+    direction: bidirectional
+    description: >-
+      This is a request to send a process program via the Data Set Transfer protocol.
+      The Data Set name, DSNAME, is the text string identifier of the process program, PPID.
+      The Data Set is subsequently transferred as a Stream with the internal SECS-II structured data <PPBODY>.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: DSNAME}
+
+  - function: 38
+    name: Large Process Program Acknowledge
+    mnemonic: LPPA
+    direction: bidirectional
+    description: >-
+      Acknowledge or error.
+      A returned status of "accepted" means only that the message is understood.
+      When the receiving entity is the equipment,
+      there is a separate verification transaction (S7F27/S7F28) that indicates the completion status of the request.
+      When the receiving entity is the host, the completion of the request is signaled by an event report.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
+
+  # E5 prints the data set's content (the S7F23-shaped L,4 formatted process program) before the structure;
+  # that content travels over Stream 13, and the message body is only <DSNAME>.
+  - function: 39
+    name: Large Formatted Process Program Send
+    mnemonic: LFPPS
+    direction: bidirectional
+    description: >-
+      This is a request to send a formatted process program via the Data Set Transfer Protocol.
+      The Data Set name, DSNAME, is the text string identifier of the process program, PPID.
+      The Data Set is subsequently transferred as a Stream whose internal SECS-II structured data
+      is the formatted process program L,4 {PPID, MDLN, SOFTREV, L,c {L,2 {CCODE, L,p {PPARM}}}}.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: DSNAME}
+
+  - function: 40
+    name: Large Formatted Process Program Acknowledge
+    mnemonic: LFPPA
+    direction: bidirectional
+    description: >-
+      Acknowledge or error.
+      A returned status of "accepted" means only that the message is understood.
+      When the receiving entity is the equipment,
+      there is a separate verification transaction (S7F27/S7F28) that indicates the completion status of the request.
+      When the receiving entity is the host, the completion of the request is signaled by an event report.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
+
+  - function: 41
+    name: Large Process Program Request
+    mnemonic: LPPR
+    direction: bidirectional
+    description: >-
+      This message is used to request the transfer of a process program via the Stream 13 Data Set Transfer protocol.
+      The Data Set name, DSNAME, is the text string identifier of the process program, PPID.
+      The Data Set is subsequently transferred as a Stream with the internal SECS-II structured data <PPBODY>.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: DSNAME}
+
+  # E5 gives S7F42 the same mnemonic as S7F38; it is kept as printed.
+  - function: 42
+    name: Large Process Program Acknowledge
+    mnemonic: LPPA
+    direction: bidirectional
+    description: >-
+      Acknowledge or error.
+      A returned status of "accepted" means only that the message is understood.
+      When the receiving entity is the equipment,
+      there is a separate verification transaction (S7F27/S7F28) that indicates the completion status of the request.
+      When the receiving entity is the host, the completion of the request is signaled by an event report.
+    exception: >-
+      It is possible to use the ACKC7 code "command will be performed with completion signaled later" for this message.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
+
+  # E5 prints the data set's content (the S7F23-shaped L,4 formatted process program) before the structure;
+  # that content travels over Stream 13, and the message body is only <DSNAME>.
+  - function: 43
+    name: Large Formatted Process Program Request
+    mnemonic: LFPPR
+    direction: bidirectional
+    description: >-
+      This message is used to request the transfer of a formatted process program via the Data Set Transfer protocol.
+      The Data Set name, DSNAME, is the text string identifier of the process program, PPID.
+      The Data Set is subsequently transferred as a Stream whose internal SECS-II structured data
+      is the formatted process program L,4 {PPID, MDLN, SOFTREV, L,c {L,2 {CCODE, L,p {PPARM}}}}.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: DSNAME}
+
+  # E5 gives S7F44 the same mnemonic as S7F40; it is kept as printed.
+  - function: 44
+    name: Large Formatted Process Program Acknowledge
+    mnemonic: LFPPA
+    direction: bidirectional
+    description: >-
+      Acknowledge or error.
+      A returned status of "accepted" means only that the message is understood.
+      When the receiving entity is the equipment,
+      there is a separate verification transaction (S7F27/S7F28) that indicates the completion status of the request.
+      When the receiving entity is the host, the completion of the request is signaled by an event report.
+    exception: >-
+      It is possible to use the ACKC7 code "command will be performed with completion signaled later" for this message.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC7}
