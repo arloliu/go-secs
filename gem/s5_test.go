@@ -423,6 +423,75 @@ func TestS5F14(t *testing.T) {
 	}
 }
 
+func TestS5F14Accepted(t *testing.T) {
+	msg := gem.S5F14Accepted("exid", true)
+
+	assertS5Header(t, msg, 14, false)
+
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+	list1, err := decoded.ToList()
+	if err != nil {
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list1))
+	}
+	v2, err := list1[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[0].ToASCII: %v", err)
+	}
+	if v2 != "exid" {
+		t.Errorf("exid: got %q, want %q", v2, "exid")
+	}
+	list3, err := list1[1].ToList()
+	if err != nil {
+		t.Fatalf("list1[1].ToList: %v", err)
+	}
+	if len(list3) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list3))
+	}
+	v4, err := list3[0].ToBoolean()
+	if err != nil {
+		t.Fatalf("list3[0].ToBoolean: %v", err)
+	}
+	if len(v4) != 1 || v4[0] != true {
+		t.Errorf("acka: got %v, want %v", v4, true)
+	}
+	list5, err := list3[1].ToList()
+	if err != nil {
+		t.Fatalf("list3[1].ToList: %v", err)
+	}
+	if len(list5) != 0 {
+		t.Fatalf("list length: got %d, want 0", len(list5))
+	}
+
+	got, err := gem.DecodeS5F14(decoded)
+	if err != nil {
+		t.Fatalf("DecodeS5F14: %v", err)
+	}
+
+	if got.EXID != "exid" {
+		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
+	}
+
+	if !got.ACKA {
+		t.Errorf("ACKA: got %v, want true", got.ACKA)
+	}
+
+	var zero gem.S5F14Reply
+
+	if got.ERRCODE != zero.ERRCODE {
+		t.Errorf("ERRCODE: got %v, want the zero value", got.ERRCODE)
+	}
+
+	if got.ERRTEXT != zero.ERRTEXT {
+		t.Errorf("ERRTEXT: got %v, want the zero value", got.ERRTEXT)
+	}
+}
+
 func TestS5F15(t *testing.T) {
 	msg := gem.S5F15("timestamp", "exid", true, secs2.A("errcode"), "errtext")
 
@@ -485,6 +554,86 @@ func TestS5F15(t *testing.T) {
 	}
 	if v8 != "errtext" {
 		t.Errorf("errtext: got %q, want %q", v8, "errtext")
+	}
+}
+
+func TestS5F15Success(t *testing.T) {
+	msg := gem.S5F15Success("timestamp", "exid", true)
+
+	assertS5Header(t, msg, 15, true)
+
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+	list1, err := decoded.ToList()
+	if err != nil {
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list1))
+	}
+	v2, err := list1[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[0].ToASCII: %v", err)
+	}
+	if v2 != "timestamp" {
+		t.Errorf("timestamp: got %q, want %q", v2, "timestamp")
+	}
+	v3, err := list1[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[1].ToASCII: %v", err)
+	}
+	if v3 != "exid" {
+		t.Errorf("exid: got %q, want %q", v3, "exid")
+	}
+	list4, err := list1[2].ToList()
+	if err != nil {
+		t.Fatalf("list1[2].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	v5, err := list4[0].ToBoolean()
+	if err != nil {
+		t.Fatalf("list4[0].ToBoolean: %v", err)
+	}
+	if len(v5) != 1 || v5[0] != true {
+		t.Errorf("acka: got %v, want %v", v5, true)
+	}
+	list6, err := list4[1].ToList()
+	if err != nil {
+		t.Fatalf("list4[1].ToList: %v", err)
+	}
+	if len(list6) != 0 {
+		t.Fatalf("list length: got %d, want 0", len(list6))
+	}
+
+	got, err := gem.DecodeS5F15(decoded)
+	if err != nil {
+		t.Fatalf("DecodeS5F15: %v", err)
+	}
+
+	if got.TIMESTAMP != "timestamp" {
+		t.Errorf("TIMESTAMP: got %v, want %v", got.TIMESTAMP, "timestamp")
+	}
+
+	if got.EXID != "exid" {
+		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
+	}
+
+	if !got.ACKA {
+		t.Errorf("ACKA: got %v, want true", got.ACKA)
+	}
+
+	var zero gem.S5F15Body
+
+	if got.ERRCODE != zero.ERRCODE {
+		t.Errorf("ERRCODE: got %v, want the zero value", got.ERRCODE)
+	}
+
+	if got.ERRTEXT != zero.ERRTEXT {
+		t.Errorf("ERRTEXT: got %v, want the zero value", got.ERRTEXT)
 	}
 }
 
@@ -571,5 +720,74 @@ func TestS5F18(t *testing.T) {
 	}
 	if v7 != "errtext" {
 		t.Errorf("errtext: got %q, want %q", v7, "errtext")
+	}
+}
+
+func TestS5F18Success(t *testing.T) {
+	msg := gem.S5F18Success("exid", true)
+
+	assertS5Header(t, msg, 18, false)
+
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+	list1, err := decoded.ToList()
+	if err != nil {
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list1))
+	}
+	v2, err := list1[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[0].ToASCII: %v", err)
+	}
+	if v2 != "exid" {
+		t.Errorf("exid: got %q, want %q", v2, "exid")
+	}
+	list3, err := list1[1].ToList()
+	if err != nil {
+		t.Fatalf("list1[1].ToList: %v", err)
+	}
+	if len(list3) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list3))
+	}
+	v4, err := list3[0].ToBoolean()
+	if err != nil {
+		t.Fatalf("list3[0].ToBoolean: %v", err)
+	}
+	if len(v4) != 1 || v4[0] != true {
+		t.Errorf("acka: got %v, want %v", v4, true)
+	}
+	list5, err := list3[1].ToList()
+	if err != nil {
+		t.Fatalf("list3[1].ToList: %v", err)
+	}
+	if len(list5) != 0 {
+		t.Fatalf("list length: got %d, want 0", len(list5))
+	}
+
+	got, err := gem.DecodeS5F18(decoded)
+	if err != nil {
+		t.Fatalf("DecodeS5F18: %v", err)
+	}
+
+	if got.EXID != "exid" {
+		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
+	}
+
+	if !got.ACKA {
+		t.Errorf("ACKA: got %v, want true", got.ACKA)
+	}
+
+	var zero gem.S5F18Reply
+
+	if got.ERRCODE != zero.ERRCODE {
+		t.Errorf("ERRCODE: got %v, want the zero value", got.ERRCODE)
+	}
+
+	if got.ERRTEXT != zero.ERRTEXT {
+		t.Errorf("ERRTEXT: got %v, want the zero value", got.ERRTEXT)
 	}
 }

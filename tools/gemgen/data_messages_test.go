@@ -192,15 +192,31 @@ func TestDataMessagesS5YAML(t *testing.T) {
 	_, hasF0 := byFunc[0]
 	require.False(t, hasF0, "S5F0 must not be authored")
 
-	// Every message carries exactly one body (no sender-dependent structure in
-	// Stream 5), and reply expectation matches E5's W-bit markers: the primary
-	// notifies/requests expect a reply; every acknowledge/confirm/data reply does
-	// not.
+	// Every message carries exactly one main body (no sender-dependent structure in Stream 5).
+	// Only S5F14, S5F15, and S5F18 add a variant,
+	// the short form E5 names whose error list is zero length.
+	// Every body's reply expectation matches E5's W-bit markers:
+	// the primary notifies/requests expect a reply;
+	// every acknowledge/confirm/data reply does not.
 	replyExpected := map[int]bool{1: true, 3: true, 5: true, 7: true, 9: true, 11: true, 13: true, 15: true, 17: true}
+	variants := map[int]string{14: "Accepted", 15: "Success", 18: "Success"}
 	for _, m := range mf.Messages {
-		require.Lenf(t, m.Bodies, 1, "S5F%d must have a single body", m.Function)
-		require.Equalf(t, replyExpected[m.Function], m.Bodies[0].ReplyExpected,
-			"S5F%d replyExpected mismatch", m.Function)
+		want := 1
+		if variants[m.Function] != "" {
+			want = 2
+		}
+
+		require.Lenf(t, m.Bodies, want, "S5F%d body count", m.Function)
+		require.Emptyf(t, m.Bodies[0].Variant, "S5F%d's first body must be its main body", m.Function)
+
+		if want == 2 {
+			require.Equalf(t, variants[m.Function], m.Bodies[1].Variant, "S5F%d variant name", m.Function)
+		}
+
+		for _, b := range m.Bodies {
+			require.Equalf(t, replyExpected[m.Function], b.ReplyExpected,
+				"S5F%d replyExpected mismatch", m.Function)
+		}
 	}
 
 	// The whole file renders without error (exercises the template end-to-end).
