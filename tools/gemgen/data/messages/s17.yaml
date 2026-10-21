@@ -1,0 +1,281 @@
+stream: 17
+messages:
+  - function: 1
+    name: Data Report Create Request
+    mnemonic: DRC
+    direction: host-to-equipment
+    description: >-
+      Create a Data Report definition.
+      This function allows the referencing of a Data Source for the items (variables or attributes)
+      specified in the data report.
+    exception: >-
+      DATAID is a zero-length item when the request can be sent in a single block.
+      If RPTID is a zero-length item, then the equipment shall return a value in RPTID
+      by which the host can then reference the report definition.
+      If RPTID has a value, then the equipment shall retain this value
+      by which the host can then reference the report definition.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RPTID}
+            - {item: DATASRC}
+            - {type: list, repeat: vids, of: {item: VID}}
+
+  - function: 2
+    name: Data Report Create Acknowledge
+    mnemonic: DRCA
+    direction: equipment-to-host
+    description: Equipment confirms creation of a Data Report and returns RPTID.
+    exception: If ERRCODE is a zero-length item, then no error occurred.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: RPTID}, {item: ERRCODE}]}
+
+  - function: 3
+    name: Data Report Delete Request
+    mnemonic: DRD
+    direction: host-to-equipment
+    description: >-
+      Delete one or more data reports.
+      This shall cause those reports to be unlinked from any Event Reports to which they were linked,
+      and to be excluded from any Trace Reports in which they had originally been included.
+    exception: If this message is sent with a zero-length list, then all reports shall be deleted.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: rptids, of: {item: RPTID}}
+
+  - function: 4
+    name: Data Report Delete Acknowledge
+    mnemonic: DRDA
+    direction: equipment-to-host
+    description: >-
+      Equipment confirms or indicates any errors on the request to delete Data Reports.
+      All Data Reports which could be deleted shall be listed in the response
+      and the associated error code shall be included in the list.
+    exception: >-
+      If ACKA is TRUE, then no errors were encountered,
+      meaning all report requests were completed successfully and a zero-length list (m = 0) shall be sent.
+      If some reports could not be deleted, then their RPTIDs shall be given in a space separated list in ERRTEXT.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: ACKA}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: RPTID}, {item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 5
+    name: Trace Create Request
+    mnemonic: TRC
+    direction: host-to-equipment
+    description: Establish a Trace Report definition.
+    exception: >-
+      The list m can be zero-length, or it can contain all eight data items.
+      Since specifying values for each item is optional, each of the eight items can be zero-length.
+      If the item is zero-length, the format of the item shall be the same format
+      used in other instances of the S17F5 message where the value is not zero-length.
+    source: e5
+    # The markdown copy of E5 displaces item 8 (RPTOC) of the trace-control list;
+    # the structure follows the PDF text, which lists all eight items in order.
+    # E5 lets the trace-control list be zero-length;
+    # the Untriggered variant builds that form, without start or stop events or any other of the eight items.
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: TRID}
+            - {item: CEED}
+            - {type: list, repeat: rptids, of: {item: RPTID}}
+            - {item: TRSPER}
+            # E5 writes L,m with m = {0,8}: either an empty list or all eight items.
+            # EVNTSRC and CEID appear twice, for the start event and the stop event.
+            - type: list
+              minItems: 0
+              maxItems: 8
+              items:
+                - {item: TOTSMP}
+                - {item: REPGSZ}
+                - {item: EVNTSRC, as: StartEVNTSRC}
+                - {item: CEID, as: StartCEID}
+                - {item: EVNTSRC, as: StopEVNTSRC}
+                - {item: CEID, as: StopCEID}
+                - {item: TRAUTOD, optional: true}
+                - {item: RPTOC, optional: true}
+      - actor: both
+        replyExpected: true
+        variant: Untriggered
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: TRID}
+            - {item: CEED}
+            - {type: list, repeat: rptids, of: {item: RPTID}}
+            - {item: TRSPER}
+            - {type: list, items: []}
+
+  - function: 6
+    name: Trace Create Acknowledge
+    mnemonic: TRCA
+    direction: equipment-to-host
+    # E5 says "an Event Report" here; the message acknowledges S17F5, a Trace Report.
+    description: Equipment confirms creation of a Trace Report and returns a TRID.
+    exception: If ERRCODE is a zero-length item, then no error occurred.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: TRID}, {item: ERRCODE}]}
+
+  - function: 7
+    name: Trace Delete Request
+    mnemonic: TRD
+    direction: host-to-equipment
+    description: The host requests to delete one or more Trace Reports.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: trids, of: {item: TRID}}
+
+  - function: 8
+    name: Trace Delete Acknowledge
+    mnemonic: TRDA
+    direction: equipment-to-host
+    description: >-
+      This message is required to inform the host when a Trace Report could not be deleted.
+      It does not need to be sent to confirm the successful deletion of a Trace Report.
+      If the report is sent for a successfully deleted Trace Report, then the ERRCODE item length shall be set to zero.
+    exception: >-
+      If ACKA is TRUE, then no errors were encountered,
+      meaning all report requests were completed successfully and a zero-length list (m = 0) shall be sent.
+      If some reports could not be deleted, then their TRIDs shall be provided in a space separated list in ERRTEXT.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: ACKA}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: TRID}, {item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 9
+    name: Collection Event Link Request
+    mnemonic: CELR
+    direction: host-to-equipment
+    description: Establish a Collection Event Report definition with respect to a specific Event Source.
+    # E5 leaves the exception empty.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: EVNTSRC}
+            - {item: CEID}
+            - {type: list, repeat: rptids, of: {item: RPTID}}
+
+  - function: 10
+    name: Collection Event Link Acknowledge
+    mnemonic: CELA
+    direction: equipment-to-host
+    description: Indicate the success or failure of a Collection Event Link Request.
+    exception: Item 3 (ERRCODE) should be set to zero length to indicate success.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: EVNTSRC}, {item: CEID}, {item: ERRCODE}]}
+
+  - function: 11
+    name: Collection Event Unlink Request
+    mnemonic: CEUR
+    direction: host-to-equipment
+    description: Request to unlink a specific Data Report from a Collection Event Report.
+    exception: Item one (EVNTSRC) can be zero length, in which case the default event source is assumed.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: EVNTSRC}, {item: CEID}, {item: RPTID}]}
+
+  - function: 12
+    name: Collection Event Unlink Acknowledge
+    mnemonic: CEUA
+    direction: equipment-to-host
+    description: Indicates success or failure of a requested Unlink.
+    exception: >-
+      Item one (EVNTSRC) can be zero length to indicate the default event source.
+      Item 4 (ERRCODE) is set to zero length if the primary request was successful.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: EVNTSRC}
+            - {item: CEID}
+            - {item: RPTID}
+            - {item: ERRCODE}
+
+  - function: 13
+    name: Trace Reset Request
+    mnemonic: TRR
+    direction: host-to-equipment
+    description: >-
+      The Host requests the equipment to clear the data and reset the specified trace reports.
+      If n = 0, then all defined Trace Objects will be reset.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: trids, of: {item: TRID}}
+
+  - function: 14
+    name: Trace Report Reset Acknowledge
+    mnemonic: TRRA
+    direction: equipment-to-host
+    # E5 says "This list in item 1"; the list is item 2 of the structure, so the item number is dropped.
+    description: >-
+      The list contains the identifiers of all the Trace Objects which were reset.
+      If all Trace Objects are successfully reset, then ACKA shall be set to TRUE.
+    exception: >-
+      If ACKA is TRUE, then no errors were encountered,
+      meaning all report requests were completed successfully and a zero-length list (m = 0) shall be sent.
+      If some reports could not be reset, then their TRIDs shall be given in a space separated list in ERRTEXT.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: ACKA}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: TRID}, {item: ERRCODE}, {item: ERRTEXT}]}
