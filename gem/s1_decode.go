@@ -43,7 +43,7 @@ func DecodeS1F2(item secs2.Item) (S1F2Reply, error) {
 
 // S1F2HostReply is the decoded body of the S1F2 (On Line Data) message for host.
 //
-// Body: L[0]{  }.
+// Body: L[0]{}.
 //
 // It is filled by [DecodeS1F2Host] and mirrors the parameters of [S1F2Host], in order.
 type S1F2HostReply struct{}
@@ -371,7 +371,7 @@ func DecodeS1F13(item secs2.Item) (S1F13Body, error) {
 
 // S1F13HostBody is the decoded body of the S1F13 (Establish Communications Request) message for host.
 //
-// Body: L[0]{  }.
+// Body: L[0]{}.
 //
 // It is filled by [DecodeS1F13Host] and mirrors the parameters of [S1F13Host], in order.
 type S1F13HostBody struct{}
@@ -443,7 +443,7 @@ func DecodeS1F14(item secs2.Item) (S1F14Reply, error) {
 
 // S1F14HostReply is the decoded body of the S1F14 (Establish Communications Request Acknowledge) message for host.
 //
-// Body: L[2]{ B[commack] L[0]{  } }.
+// Body: L[2]{ B[commack] L[0]{} }.
 //
 // It is filled by [DecodeS1F14Host] and mirrors the parameters of [S1F14Host], in order.
 type S1F14HostReply struct {

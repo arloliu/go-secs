@@ -2,10 +2,15 @@
 
 package gem
 {{range .Types}}
-// {{.Name}} enumerates the defined values of the {{.Name}} item.
-type {{.Name}} {{.GoType}}
+{{range .Doc}}// {{.}}
+{{end}}{{if .Typed}}type {{.Name}} {{.GoType}}
 
 const (
-{{$typeName := .Name}}{{range .Consts}}    {{.Name}} {{$typeName}} = {{.Value}}
+{{$typeName := .Name}}{{range .Consts}}{{range .Doc}}    // {{.}}
+{{end}}    {{.Name}} {{$typeName}} = {{.Value}}
 {{end}})
-{{end}}
+{{else}}const (
+{{range .Consts}}{{range .Doc}}    // {{.}}
+{{end}}    {{.Name}} = {{.Value}}
+{{end}})
+{{end}}{{end}}

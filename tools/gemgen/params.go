@@ -19,6 +19,13 @@ type Param struct {
 	Variadic bool
 }
 
+// emittedName is the set of names one leaf, opaque, repeat, or packed node is generated under.
+type emittedName struct {
+	Param string // builder parameter; also labels the node's generated test sample
+	Field string // decoder result-struct field
+	Label string // the name the node's decode errors report
+}
+
 // BuildParams walks a validated structure node and returns the ordered function
 // parameters a generated builder needs. A repeat node contributes a single
 // caller-supplied slice parameter and does NOT recurse into Of. After the walk,
@@ -39,16 +46,16 @@ func BuildParams(n *StructureNode, items map[string]Item) []Param {
 			typ := "secs2.Item"
 			if it.Binding == BindingFixed {
 				typ = it.GoType
-				if len(it.Values) > 0 {
+				if hasNamedType(it) {
 					typ = n.Item // enum item: named defined type, e.g. COMMACK (over goType byte)
 				}
 			}
-			out = append(out, Param{Name: lower(n.Item), Type: typ})
+			out = append(out, Param{Name: nodeNames(n).Param, Type: typ})
 		case "opaque":
-			out = append(out, Param{Name: "body", Type: "secs2.Item"})
+			out = append(out, Param{Name: nodeNames(n).Param, Type: "secs2.Item"})
 		default: // list
 			if n.Repeat != "" {
-				out = append(out, Param{Name: n.Repeat, Type: "secs2.Item", Repeat: true})
+				out = append(out, Param{Name: nodeNames(n).Param, Type: "secs2.Item", Repeat: true})
 				return // do NOT recurse into Of
 			}
 			if n.Packed != "" {
@@ -56,7 +63,7 @@ func BuildParams(n *StructureNode, items map[string]Item) []Param {
 				// primitive values, not pre-built Items, since packing into one item header is
 				// a generator-owned concern.
 				it := items[n.Of.Item]
-				out = append(out, Param{Name: n.Packed, Type: it.GoType, Repeat: true})
+				out = append(out, Param{Name: nodeNames(n).Param, Type: it.GoType, Repeat: true})
 				return // do NOT recurse into Of
 			}
 			for i := range n.Items {
@@ -87,14 +94,15 @@ func BodyExpr(n *StructureNode, items map[string]Item) string {
 	case "leaf":
 		it := items[n.Item]
 		if it.Binding == BindingFixed {
-			arg := lower(n.Item)
+			arg := nodeNames(n).Param
 			switch {
-			case len(it.Values) > 0:
+			case hasNamedType(it):
 				// Enum item: the parameter is the named type (e.g. COMMACK), but the secs2
 				// constructor combiners type-switch on the exact primitive (case byte:), which a
-				// named type does not satisfy. Convert back to goType at the call site so the
-				// value encodes instead of becoming a deferred-error item.
-				arg = fmt.Sprintf("%s(%s)", it.GoType, arg) // e.g. byte(commack)
+				// named type does not satisfy, and secs2.A takes a plain string. Convert back to
+				// goType at the call site so the value encodes instead of becoming a deferred-error
+				// item or failing to compile.
+				arg = fmt.Sprintf("%s(%s)", it.GoType, arg) // e.g. byte(commack), string(carrieraction)
 			case byteArrayGoTypeRE.MatchString(it.GoType):
 				// Fixed-size byte array: secs2.B takes ...any, and a [N]byte does not satisfy its
 				// []byte type-switch case directly -- slice it. NEVER add a "..." spread here too;
@@ -108,18 +116,18 @@ func BodyExpr(n *StructureNode, items map[string]Item) string {
 			return fmt.Sprintf("secs2.%s(%s)", it.Formats[0], arg)
 		}
 
-		return lower(n.Item)
+		return nodeNames(n).Param
 	case "opaque":
-		return "body"
+		return nodeNames(n).Param
 	default: // list
 		if n.Repeat != "" {
-			return fmt.Sprintf("secs2.L(%s...)", n.Repeat)
+			return fmt.Sprintf("secs2.L(%s...)", nodeNames(n).Param)
 		}
 		if n.Packed != "" {
 			// Packed group: call the underlying item's own constructor directly -- NEVER
 			// secs2.L(...), which would produce the wrong (list-of-separate-items) wire shape.
 			it := items[n.Of.Item]
-			return fmt.Sprintf("secs2.%s(%s)", it.Formats[0], n.Packed)
+			return fmt.Sprintf("secs2.%s(%s)", it.Formats[0], nodeNames(n).Param)
 		}
 
 		parts := make([]string, len(n.Items))
@@ -132,39 +140,55 @@ func BodyExpr(n *StructureNode, items map[string]Item) string {
 }
 
 // BodyDoc renders the human-readable godoc shorthand describing a body shape.
-// It mirrors the §6 shorthand column: header-only is "Header only."; a fixed
-// leaf is <Ctor>[name]; an open leaf is <name>; opaque is form-dependent; a
-// plain list is L[k]{ ... }; a bounded list is L[a,b]{ ... }; a repeat is
-// L[n]{ <name>... }; a packed group is <Ctor>[n]{ <name>... } (the packed
-// item's own constructor letter instead of L, so packed and repeat read apart).
+// It uses this shorthand:
+// header-only is "Header only.";
+// a fixed leaf is <Ctor>[name];
+// an open leaf is <name>;
+// a whole-body opaque is form-dependent,
+// while one nested in a list reads <name>, like an open leaf;
+// a plain list is L[k]{ ... }, and an empty one L[0]{};
+// a bounded list is L[a,b]{ ... };
+// a repeat is L[n]{ <name>... };
+// a packed group is <Ctor>[n]{ <name>... }
+// (the packed item's own constructor letter instead of L, so packed and repeat read apart).
 func BodyDoc(n *StructureNode, items map[string]Item) string {
 	if n == nil {
 		return "Header only."
 	}
 
+	if n.Kind() == "opaque" {
+		return "form-dependent (see description)"
+	}
+
+	return nodeDoc(n, items)
+}
+
+// nodeDoc renders the [BodyDoc] shorthand of a node below the body root,
+// or of a root that is not opaque.
+func nodeDoc(n *StructureNode, items map[string]Item) string {
 	switch n.Kind() {
 	case "leaf":
 		it := items[n.Item]
-		name := lower(n.Item)
+		name := nodeNames(n).Param
 		if it.Binding == BindingFixed {
 			return fmt.Sprintf("%s[%s]", it.Formats[0], name)
 		}
 
 		return fmt.Sprintf("<%s>", name)
 	case "opaque":
-		return "form-dependent (see description)"
+		return fmt.Sprintf("<%s>", nodeNames(n).Param)
 	default: // list
 		if n.Repeat != "" {
-			return fmt.Sprintf("L[n]{ <%s>... }", n.Repeat)
+			return fmt.Sprintf("L[n]{ <%s>... }", nodeNames(n).Param)
 		}
 		if n.Packed != "" {
 			it := items[n.Of.Item]
-			return fmt.Sprintf("%s[n]{ <%s>... }", it.Formats[0], n.Packed)
+			return fmt.Sprintf("%s[n]{ <%s>... }", it.Formats[0], nodeNames(n).Param)
 		}
 
 		parts := make([]string, len(n.Items))
 		for i := range n.Items {
-			parts[i] = BodyDoc(&n.Items[i], items)
+			parts[i] = nodeDoc(&n.Items[i], items)
 		}
 
 		header := fmt.Sprintf("L[%d]", len(n.Items))
@@ -172,12 +196,54 @@ func BodyDoc(n *StructureNode, items map[string]Item) string {
 			header = fmt.Sprintf("L[%d,%d]", derefOr(n.MinItems), derefOr(n.MaxItems))
 		}
 
+		if len(parts) == 0 {
+			return header + "{}"
+		}
+
 		return header + "{ " + strings.Join(parts, " ") + " }"
 	}
 }
 
-// lower lowercases an item or repeat name for use as a Go parameter identifier.
-func lower(name string) string { return strings.ToLower(name) }
+// nodeNames derives the names a leaf, opaque, repeat, or packed node is generated under.
+// It is the only place those names are derived,
+// so the builder, the decoder, and both generated tests always agree on them.
+//
+// A leaf is named after its item and an opaque node is named body,
+// unless the node sets as:, which replaces that name.
+// Both give parameter lower(name) and field upper(name).
+// A repeat or packed node keeps its repeat:/packed: name as the parameter,
+// verbatim, and upper-cases it for the field.
+// Decode errors report the field name, except for an opaque node,
+// which has no E5 item name and reports its parameter name.
+func nodeNames(n *StructureNode) emittedName {
+	var param, field string
+
+	switch {
+	case n.As != "":
+		param, field = strings.ToLower(n.As), strings.ToUpper(n.As)
+	case n.Kind() == "leaf":
+		param, field = strings.ToLower(n.Item), strings.ToUpper(n.Item)
+	case n.Kind() == "opaque":
+		param, field = "body", "BODY"
+	case n.Repeat != "":
+		param, field = n.Repeat, strings.ToUpper(n.Repeat)
+	default: // packed
+		param, field = n.Packed, strings.ToUpper(n.Packed)
+	}
+
+	if n.Kind() == "opaque" {
+		return emittedName{Param: param, Field: field, Label: param}
+	}
+
+	return emittedName{Param: param, Field: field, Label: field}
+}
+
+// hasNamedType reports whether an item's parameters and decoder fields use the named type items.go declares for it:
+// a fixed item with a values table.
+// An open item's values are untyped constants, and its parameters and fields stay secs2.Item.
+func hasNamedType(it Item) bool {
+	return it.Binding == BindingFixed && len(it.Values) > 0
+}
 
 // derefOr returns the pointed-to int, or 0 when the pointer is nil.
 func derefOr(p *int) int {

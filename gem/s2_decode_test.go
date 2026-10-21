@@ -10,6 +10,249 @@ import (
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
+func init() {
+	registerFuzzDecoder("DecodeS2F1", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F1(item)
+
+		return err
+	}, gem.S2F1("spid", secs2.A("length")).Item())
+	registerFuzzDecoder("DecodeS2F2", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F2(item)
+
+		return err
+	}, gem.S2F2(0xee).Item())
+	registerFuzzDecoder("DecodeS2F3", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F3(item)
+
+		return err
+	}, gem.S2F3(0x29).Item())
+	registerFuzzDecoder("DecodeS2F4", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F4(item)
+
+		return err
+	}, gem.S2F4(0x1e).Item())
+	registerFuzzDecoder("DecodeS2F5", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F5(item)
+
+		return err
+	}, gem.S2F5("spid").Item())
+	registerFuzzDecoder("DecodeS2F6", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F6(item)
+
+		return err
+	}, gem.S2F6(0x29).Item())
+	registerFuzzDecoder("DecodeS2F7", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F7(item)
+
+		return err
+	}, gem.S2F7("spid").Item())
+	registerFuzzDecoder("DecodeS2F8", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F8(item)
+
+		return err
+	}, gem.S2F8(0x94).Item())
+	registerFuzzDecoder("DecodeS2F9", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F9(item)
+
+		return err
+	}, gem.S2F9("spid").Item())
+	registerFuzzDecoder("DecodeS2F10", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F10(item)
+
+		return err
+	}, gem.S2F10(secs2.A("spr")).Item())
+	registerFuzzDecoder("DecodeS2F12", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F12(item)
+
+		return err
+	}, gem.S2F12(secs2.A("spids")).Item())
+	registerFuzzDecoder("DecodeS2F13", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F13(item)
+
+		return err
+	}, gem.S2F13(secs2.A("ecids")).Item())
+	registerFuzzDecoder("DecodeS2F14", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F14(item)
+
+		return err
+	}, gem.S2F14(secs2.A("ecvs")).Item())
+	registerFuzzDecoder("DecodeS2F15", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F15(item)
+
+		return err
+	}, gem.S2F15(secs2.A("constants")).Item())
+	registerFuzzDecoder("DecodeS2F16", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F16(item)
+
+		return err
+	}, gem.S2F16(0x78).Item())
+	registerFuzzDecoder("DecodeS2F18", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F18(item)
+
+		return err
+	}, gem.S2F18("time").Item())
+	registerFuzzDecoder("DecodeS2F19", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F19(item)
+
+		return err
+	}, gem.S2F19(secs2.A("ric")).Item())
+	registerFuzzDecoder("DecodeS2F20", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F20(item)
+
+		return err
+	}, gem.S2F20(secs2.A("rac")).Item())
+	registerFuzzDecoder("DecodeS2F21", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F21(item)
+
+		return err
+	}, gem.S2F21(secs2.A("rcmd")).Item())
+	registerFuzzDecoder("DecodeS2F22", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F22(item)
+
+		return err
+	}, gem.S2F22(secs2.A("cmda")).Item())
+	registerFuzzDecoder("DecodeS2F23", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F23(item)
+
+		return err
+	}, gem.S2F23(secs2.A("trid"), "dsper", secs2.A("totsmp"), secs2.A("repgsz"), secs2.A("svids")).Item())
+	registerFuzzDecoder("DecodeS2F24", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F24(item)
+
+		return err
+	}, gem.S2F24(0xe7).Item())
+	registerFuzzDecoder("DecodeS2F25", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F25(item)
+
+		return err
+	}, gem.S2F25([]byte{0xa7, 0x49, 0xdc, 0x66}).Item())
+	registerFuzzDecoder("DecodeS2F26", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F26(item)
+
+		return err
+	}, gem.S2F26([]byte{0xa7, 0x49, 0xdc, 0x66}).Item())
+	registerFuzzDecoder("DecodeS2F27", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F27(item)
+
+		return err
+	}, gem.S2F27(0xd8, secs2.A("ppid"), secs2.A("mids")).Item())
+	registerFuzzDecoder("DecodeS2F28", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F28(item)
+
+		return err
+	}, gem.S2F28(secs2.A("cmda")).Item())
+	registerFuzzDecoder("DecodeS2F29", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F29(item)
+
+		return err
+	}, gem.S2F29(secs2.A("ecids")).Item())
+	registerFuzzDecoder("DecodeS2F30", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F30(item)
+
+		return err
+	}, gem.S2F30(secs2.A("constants")).Item())
+	registerFuzzDecoder("DecodeS2F31", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F31(item)
+
+		return err
+	}, gem.S2F31("time").Item())
+	registerFuzzDecoder("DecodeS2F32", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F32(item)
+
+		return err
+	}, gem.S2F32(0xe6).Item())
+	registerFuzzDecoder("DecodeS2F33", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F33(item)
+
+		return err
+	}, gem.S2F33(secs2.A("dataid"), secs2.A("reports")).Item())
+	registerFuzzDecoder("DecodeS2F34", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F34(item)
+
+		return err
+	}, gem.S2F34(0x94).Item())
+	registerFuzzDecoder("DecodeS2F35", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F35(item)
+
+		return err
+	}, gem.S2F35(secs2.A("dataid"), secs2.A("events")).Item())
+	registerFuzzDecoder("DecodeS2F36", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F36(item)
+
+		return err
+	}, gem.S2F36(0xe5).Item())
+	registerFuzzDecoder("DecodeS2F37", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F37(item)
+
+		return err
+	}, gem.S2F37(true, secs2.A("ceids")).Item())
+	registerFuzzDecoder("DecodeS2F38", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F38(item)
+
+		return err
+	}, gem.S2F38(0xc3).Item())
+	registerFuzzDecoder("DecodeS2F39", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F39(item)
+
+		return err
+	}, gem.S2F39(secs2.A("dataid"), secs2.A("datalength")).Item())
+	registerFuzzDecoder("DecodeS2F40", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F40(item)
+
+		return err
+	}, gem.S2F40(0xee).Item())
+	registerFuzzDecoder("DecodeS2F41", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F41(item)
+
+		return err
+	}, gem.S2F41(secs2.A("rcmd"), secs2.A("params")).Item())
+	registerFuzzDecoder("DecodeS2F42", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F42(item)
+
+		return err
+	}, gem.S2F42(0x1f, secs2.A("params")).Item())
+	registerFuzzDecoder("DecodeS2F43", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F43(item)
+
+		return err
+	}, gem.S2F43(secs2.A("streams")).Item())
+	registerFuzzDecoder("DecodeS2F44", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F44(item)
+
+		return err
+	}, gem.S2F44(0xc9, secs2.A("streams")).Item())
+	registerFuzzDecoder("DecodeS2F45", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F45(item)
+
+		return err
+	}, gem.S2F45(secs2.A("dataid"), secs2.A("variables")).Item())
+	registerFuzzDecoder("DecodeS2F46", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F46(item)
+
+		return err
+	}, gem.S2F46(0xea, secs2.A("variables")).Item())
+	registerFuzzDecoder("DecodeS2F47", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F47(item)
+
+		return err
+	}, gem.S2F47(secs2.A("vids")).Item())
+	registerFuzzDecoder("DecodeS2F48", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F48(item)
+
+		return err
+	}, gem.S2F48(secs2.A("variables")).Item())
+	registerFuzzDecoder("DecodeS2F49", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F49(item)
+
+		return err
+	}, gem.S2F49(secs2.A("body")).Item())
+	registerFuzzDecoder("DecodeS2F50", func(item secs2.Item) error {
+		_, err := gem.DecodeS2F50(item)
+
+		return err
+	}, gem.S2F50(secs2.A("body")).Item())
+}
+
 func TestDecodeS2F1RoundTrip(t *testing.T) {
 	msg := gem.S2F1("spid", secs2.A("length"))
 

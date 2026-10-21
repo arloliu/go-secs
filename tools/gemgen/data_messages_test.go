@@ -1,7 +1,11 @@
 package main
 
 import (
+	"fmt"
+	"maps"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -343,4 +347,132 @@ func TestDataMessagesS9YAML(t *testing.T) {
 	// The whole file renders without error (exercises the template end-to-end).
 	_, err = renderMessages(mf, items)
 	require.NoError(t, err)
+}
+
+// functionSpan returns the function numbers lo through hi.
+func functionSpan(lo, hi int) []int {
+	fns := make([]int, 0, hi-lo+1)
+	for f := lo; f <= hi; f++ {
+		fns = append(fns, f)
+	}
+
+	return fns
+}
+
+// oddFunctions returns the odd function numbers lo through hi.
+func oddFunctions(lo, hi int) []int {
+	var fns []int
+
+	for f := lo; f <= hi; f++ {
+		if f%2 == 1 {
+			fns = append(fns, f)
+		}
+	}
+
+	return fns
+}
+
+// expectedStreamFunctions returns, for every stream the generator covers,
+// the sorted function numbers its stream file must define.
+// The sets come from SEMI E5-0813 §10.
+// F0 (Abort Transaction) is never generated, and the functions E5 marks Not Used are left out.
+func expectedStreamFunctions() map[int][]int {
+	return map[int][]int{
+		1: functionSpan(1, 24),
+		2: functionSpan(1, 50),
+		3: functionSpan(1, 36),
+		// The original material-control protocol defines F1-F18 with gaps.
+		// The E32 macro and micro messages follow.
+		4:  slices.Concat(functionSpan(1, 3), oddFunctions(5, 17), functionSpan(18, 27), oddFunctions(29, 41)),
+		5:  functionSpan(1, 18),
+		6:  functionSpan(1, 30),
+		7:  functionSpan(1, 44),
+		8:  functionSpan(1, 4),
+		9:  oddFunctions(1, 13),
+		10: slices.Concat(functionSpan(1, 7), functionSpan(9, 10)),
+		12: functionSpan(1, 19),
+		13: functionSpan(1, 16),
+		14: functionSpan(1, 28),
+		15: functionSpan(1, 54),
+		16: slices.Concat(functionSpan(1, 12), functionSpan(15, 30)),
+		17: functionSpan(1, 14),
+		18: functionSpan(1, 16),
+		19: functionSpan(1, 20),
+	}
+}
+
+// TestExpectedStreamFunctionsTable guards the expected-function table against typos.
+// The streams S3, S4, S7, S8, S10 and S12 to S19 define 315 functions between them.
+func TestExpectedStreamFunctionsTable(t *testing.T) {
+	table := expectedStreamFunctions()
+	require.Len(t, table, 18)
+
+	total := 0
+
+	for stream, fns := range table {
+		require.Truef(t, slices.IsSorted(fns), "S%d: functions not sorted", stream)
+		require.Equalf(t, len(fns), len(slices.Compact(slices.Clone(fns))), "S%d: duplicate function", stream)
+		require.NotContainsf(t, fns, 0, "S%d: F0 must not be listed", stream)
+
+		if !slices.Contains([]int{1, 2, 5, 6, 9}, stream) {
+			total += len(fns)
+		}
+	}
+
+	require.Equal(t, 315, total)
+}
+
+// TestStreamFilesDefineExpectedFunctions checks every stream file against the expected-function table.
+// A stream file must define exactly its stream's functions, each once;
+// a stream file for a stream outside the table fails, and a table stream without a file yet is skipped.
+func TestStreamFilesDefineExpectedFunctions(t *testing.T) {
+	table := expectedStreamFunctions()
+
+	files, err := loadMessageFiles(filepath.Join("data", "messages"))
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+
+	present := map[int]MessageFile{}
+
+	for _, mf := range files {
+		_, ok := table[mf.Stream]
+		require.Truef(t, ok, "S%d: stream file for a stream outside the expected-function table", mf.Stream)
+		present[mf.Stream] = mf
+	}
+
+	for _, stream := range slices.Sorted(maps.Keys(table)) {
+		t.Run(fmt.Sprintf("S%d", stream), func(t *testing.T) {
+			mf, ok := present[stream]
+			if !ok {
+				t.Skipf("no stream file for S%d yet", stream)
+			}
+
+			want := table[stream]
+
+			got := make([]int, 0, len(mf.Messages))
+			for _, m := range mf.Messages {
+				got = append(got, m.Function)
+			}
+
+			slices.Sort(got)
+
+			var missing, extra []int
+
+			for _, f := range want {
+				if !slices.Contains(got, f) {
+					missing = append(missing, f)
+				}
+			}
+
+			for _, f := range got {
+				if !slices.Contains(want, f) {
+					extra = append(extra, f)
+				}
+			}
+
+			require.Truef(t, len(missing) == 0 && len(extra) == 0,
+				"S%d: missing functions %v, functions outside the expected set %v", stream, missing, extra)
+			require.Equalf(t, want, got, "S%d: every function must be defined exactly once", stream)
+		})
+	}
 }

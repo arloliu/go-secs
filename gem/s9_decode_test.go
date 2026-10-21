@@ -10,6 +10,44 @@ import (
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
+func init() {
+	registerFuzzDecoder("DecodeS9F1", func(item secs2.Item) error {
+		_, err := gem.DecodeS9F1(item)
+
+		return err
+	}, gem.S9F1([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc}).Item())
+	registerFuzzDecoder("DecodeS9F3", func(item secs2.Item) error {
+		_, err := gem.DecodeS9F3(item)
+
+		return err
+	}, gem.S9F3([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc}).Item())
+	registerFuzzDecoder("DecodeS9F5", func(item secs2.Item) error {
+		_, err := gem.DecodeS9F5(item)
+
+		return err
+	}, gem.S9F5([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc}).Item())
+	registerFuzzDecoder("DecodeS9F7", func(item secs2.Item) error {
+		_, err := gem.DecodeS9F7(item)
+
+		return err
+	}, gem.S9F7([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc}).Item())
+	registerFuzzDecoder("DecodeS9F9", func(item secs2.Item) error {
+		_, err := gem.DecodeS9F9(item)
+
+		return err
+	}, gem.S9F9([10]byte{0x87, 0x3a, 0xa4, 0xd6, 0xc5, 0x50, 0xe2, 0x0d, 0x44, 0x8e}).Item())
+	registerFuzzDecoder("DecodeS9F11", func(item secs2.Item) error {
+		_, err := gem.DecodeS9F11(item)
+
+		return err
+	}, gem.S9F11([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc}).Item())
+	registerFuzzDecoder("DecodeS9F13", func(item secs2.Item) error {
+		_, err := gem.DecodeS9F13(item)
+
+		return err
+	}, gem.S9F13("mexp", secs2.A("edid")).Item())
+}
+
 func TestDecodeS9F1RoundTrip(t *testing.T) {
 	msg := gem.S9F1([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc})
 

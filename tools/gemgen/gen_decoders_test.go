@@ -1,8 +1,13 @@
 package main
 
 import (
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -16,7 +21,7 @@ import (
 func decoderItems() map[string]Item {
 	items := paramsItems()
 
-	items["RMACK"] = Item{Formats: []string{"U1"}, Binding: BindingFixed, GoType: "uint8", Values: []ItemValue{{Name: "OK", Value: 0}}}
+	items["RMACK"] = Item{Formats: []string{"U1"}, Binding: BindingFixed, GoType: "uint8", Values: []ItemValue{{Name: "OK", Value: IntValue(0)}}}
 	items["FCNID"] = Item{Formats: []string{"U1"}, Binding: BindingFixed, GoType: "uint8"}
 	items["ACKA"] = Item{Formats: []string{"BOOLEAN"}, Binding: BindingFixed, GoType: "bool"}
 	items["MHEAD"] = Item{Formats: []string{"B"}, Binding: BindingFixed, GoType: "[10]byte"}
@@ -222,8 +227,7 @@ func TestRenderDecodersRejectsUndecodableShapes(t *testing.T) {
 }
 
 // TestFieldsAgreeWithParamsOverRealData is the invariant the round-trip test generation rests on:
-// the decoder's field i must describe the builder's parameter i for every body the generator
-// emits.
+// the decoder's value fields must describe the builder's parameters, in order, for every body the generator emits.
 // Length agreement alone would pass on a swapped pair, so this compares name by name — the same
 // regression the name-derived samples were built to expose.
 func TestFieldsAgreeWithParamsOverRealData(t *testing.T) {
@@ -237,8 +241,6 @@ func TestFieldsAgreeWithParamsOverRealData(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, paths)
 
-	bodies := 0
-
 	for _, path := range paths {
 		msgData, err := os.ReadFile(path)
 		require.NoError(t, err)
@@ -248,11 +250,9 @@ func TestFieldsAgreeWithParamsOverRealData(t *testing.T) {
 
 		for _, m := range mf.Messages {
 			for _, b := range m.Bodies {
-				if b.Structure == nil {
+				if !bodyHasDecoder(b) {
 					continue
 				}
-
-				bodies++
 
 				code := ResultTypeName(mf.Stream, m.Function, b.Actor)
 
@@ -264,15 +264,170 @@ func TestFieldsAgreeWithParamsOverRealData(t *testing.T) {
 				fields, err := BuildFields(b.Structure, items)
 				require.NoErrorf(t, err, "%s fields", code)
 
-				require.Lenf(t, fields, len(params), "%s: field count", code)
 				require.Lenf(t, exprs, len(params), "%s: sample count", code)
-
-				for i := range params {
-					require.Equalf(t, strings.ToUpper(params[i].Name), fields[i].Name, "%s: field %d", code, i)
-				}
+				requireFieldsMirrorParams(t, code, params, fields)
 			}
 		}
 	}
+}
 
-	require.Equal(t, 122, bodies, "every non-header-only body must be decodable")
+// requireFieldsMirrorParams checks that the non-presence fields mirror params one to one, in order and by name,
+// and that every presence field directly follows its value field and mirrors no parameter.
+func requireFieldsMirrorParams(t *testing.T, code string, params []Param, fields []decodeField) {
+	t.Helper()
+
+	next := 0
+
+	for i, f := range fields {
+		if f.Presence {
+			require.Positivef(t, i, "%s: presence field %s has no value field before it", code, f.Name)
+			require.Equalf(t, fields[i-1].Name+"Present", f.Name, "%s: field %d", code, i)
+			require.Equalf(t, -1, f.Param, "%s: presence field %s", code, f.Name)
+			require.Equalf(t, "bool", f.Type, "%s: presence field %s", code, f.Name)
+
+			continue
+		}
+
+		require.Lessf(t, next, len(params), "%s: field %s has no parameter", code, f.Name)
+		require.Equalf(t, next, f.Param, "%s: field %s", code, f.Name)
+		require.Equalf(t, strings.ToUpper(params[next].Name), f.Name, "%s: field %d", code, i)
+
+		next++
+	}
+
+	require.Equalf(t, len(params), next, "%s: value field count", code)
+}
+
+// bodyHasDecoder reports whether the generator must emit a decoder and a decode round-trip test for b.
+// A header-only body carries nothing to decode,
+// and a variant is decoded by its main body's decoder.
+// The real-data tests in this file compute their expectations from this predicate rather than from the generator's loops,
+// so a body kind that gains or loses a decoder changes here in one line.
+func bodyHasDecoder(b Body) bool {
+	return b.Structure != nil && b.Variant == ""
+}
+
+// optionalLeafFields returns the decoder field names of the optional leaves in n, in body order.
+// It does not descend into a repeat's or packed group's element shape, where no leaf is optional.
+func optionalLeafFields(n *StructureNode) []string {
+	if n == nil {
+		return nil
+	}
+
+	switch n.Kind() {
+	case "leaf":
+		if n.Optional {
+			return []string{nodeNames(n).Field}
+		}
+
+		return nil
+	case "list":
+		if n.Repeat != "" || n.Packed != "" {
+			return nil
+		}
+
+		var out []string
+		for i := range n.Items {
+			out = append(out, optionalLeafFields(&n.Items[i])...)
+		}
+
+		return out
+	default:
+		return nil
+	}
+}
+
+// declaredFuncs returns the names of the top-level functions declared in the generated source src,
+// apart from init, which only registers the decoders with the fuzz harness.
+func declaredFuncs(t *testing.T, src []byte) []string {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), "", src, parser.SkipObjectResolution)
+	require.NoError(t, err)
+
+	var names []string
+
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv == nil && fn.Name.Name != "init" {
+			names = append(names, fn.Name.Name)
+		}
+	}
+
+	return names
+}
+
+// fuzzRegisterCall matches a generated decode test file's registration of one decoder with the fuzz harness.
+var fuzzRegisterCall = regexp.MustCompile(`registerFuzzDecoder\("(\w+)"`)
+
+// fuzzRegistrations returns the decoder names the generated decode tests src register with the fuzz harness,
+// in source order.
+func fuzzRegistrations(src []byte) []string {
+	matches := fuzzRegisterCall.FindAllSubmatch(src, -1)
+
+	names := make([]string, 0, len(matches))
+	for _, m := range matches {
+		names = append(names, string(m[1]))
+	}
+
+	return names
+}
+
+// TestEveryDecodableBodyGetsADecoderOverRealData checks the generator's output against the stream files themselves:
+// every main body that carries a structure gets exactly one decoder and one decode round-trip test,
+// plus an empty-list test when its outermost list may be empty,
+// and nothing else does;
+// and the decode tests register exactly those decoders with the fuzz harness, each once.
+// Unlike a fixed body count, it needs no update when a stream file is added.
+func TestEveryDecodableBodyGetsADecoderOverRealData(t *testing.T) {
+	itemsData, err := os.ReadFile("data/items.yaml")
+	require.NoError(t, err)
+
+	items, err := LoadItems(itemsData)
+	require.NoError(t, err)
+
+	files, err := loadMessageFiles(filepath.Join("data", "messages"))
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+
+	for _, mf := range files {
+		t.Run(fmt.Sprintf("S%d", mf.Stream), func(t *testing.T) {
+			var wantDecoders, wantTests []string
+
+			for _, m := range mf.Messages {
+				for _, b := range m.Bodies {
+					if !bodyHasDecoder(b) {
+						continue
+					}
+
+					name := fmt.Sprintf("DecodeS%dF%d", mf.Stream, m.Function)
+					if b.Actor == "host" {
+						name += "Host"
+					}
+
+					wantDecoders = append(wantDecoders, name)
+					wantTests = append(wantTests, "Test"+name+"RoundTrip")
+
+					// A body whose outermost list may be empty also gets a test decoding a bare L,0.
+					if s := b.Structure; s.Kind() == "list" && s.MinItems != nil && *s.MinItems == 0 {
+						wantTests = append(wantTests, "Test"+name+"EmptyList")
+					}
+
+					// Each optional leaf also gets a test decoding the body with that item sent zero-length.
+					for _, field := range optionalLeafFields(b.Structure) {
+						wantTests = append(wantTests, "Test"+name+field+"Absent")
+					}
+				}
+			}
+
+			decoders, err := renderDecoders(mf, items)
+			require.NoError(t, err)
+
+			decodeTests, err := renderDecodeTests(mf, items)
+			require.NoError(t, err)
+
+			require.ElementsMatch(t, wantDecoders, declaredFuncs(t, decoders), "decoders")
+			require.ElementsMatch(t, wantTests, declaredFuncs(t, decodeTests), "decode round-trip tests")
+			require.ElementsMatch(t, wantDecoders, fuzzRegistrations(decodeTests), "fuzz registrations")
+		})
+	}
 }

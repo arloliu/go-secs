@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go/format"
 	"hash/fnv"
+	"slices"
 	"strconv"
 	"strings"
 	"text/template"
@@ -42,11 +43,15 @@ type fixedSample struct {
 // name-derived sample. A GoType with no entry here has no known sample, and
 // renderTests reports an error rather than guessing.
 //
-// bool is the one exception that still uses a single shared literal: a
-// boolean only has two possible values, so no per-name derivation can give
-// every item a distinguishable sample the way string/byte can, and no GEM
-// message declares two BOOLEAN-typed siblings in the same body, so the
-// swapped-sibling failure mode this fix targets doesn't arise for bool.
+// bool is the exception:
+// a boolean has only two values,
+// so no per-name derivation can tell every BOOLEAN item of a body apart.
+// A bool leaf instead takes its literal from boolSamples,
+// which alternates true and false in parameter order,
+// so swapping two adjacent BOOLEAN leaves changes the expected values.
+// A swap of two leaves with the same parity, such as the first and third, still goes unseen;
+// a variant cannot reorder fields that way, since validation checks every variant field's position.
+// The literal below covers the rest: a typed repeat's or packed group's bool element.
 var fixedSamples = map[string]fixedSample{
 	"string": {literal: func(name string) string { return fmt.Sprintf("%q", name) }, method: "ToASCII", scalar: true},
 	"byte":   {literal: func(name string) string { return fmt.Sprintf("0x%02x", byteSample(name)) }, method: "ToBinary", scalar: false},
@@ -71,6 +76,42 @@ var fixedSamples = map[string]fixedSample{
 	// the float32 -> float64 decode round-trip compares equal with no drift.
 	"float32": {literal: floatLiteral, method: "ToFloat", scalar: false},
 	"float64": {literal: floatLiteral, method: "ToFloat", scalar: false},
+}
+
+// boolSamples returns the sample literal of each bool leaf of a body, keyed by parameter name:
+// true for the first, false for the second, and so on, in parameter order.
+// It walks the structure like [SampleExprs] and does not descend into a repeat's or packed group's of.
+func boolSamples(n *StructureNode, items map[string]Item) map[string]string {
+	out := map[string]string{}
+
+	var walk func(*StructureNode)
+	walk = func(n *StructureNode) {
+		switch {
+		case n == nil:
+		case n.Kind() == "leaf":
+			if it := items[n.Item]; it.Binding == BindingFixed && it.GoType == "bool" {
+				out[nodeNames(n).Param] = strconv.FormatBool(len(out)%2 == 0)
+			}
+		case isFixedList(n):
+			for i := range n.Items {
+				walk(&n.Items[i])
+			}
+		default:
+		}
+	}
+	walk(n)
+
+	return out
+}
+
+// literalFor returns fs's sample literal for the parameter named name,
+// or the literal bools assigns it, if any.
+func (fs fixedSample) literalFor(name string, bools map[string]string) string {
+	if lit, ok := bools[name]; ok {
+		return lit
+	}
+
+	return fs.literal(name)
 }
 
 // byteSample derives a deterministic sample byte from an item's (already-
@@ -248,13 +289,12 @@ func renderTests(mf MessageFile, items map[string]Item) ([]byte, error) {
 // SampleExprs for the parallel per-parameter sample expression, so the call
 // argument list always lines up with the body assertions built from the same
 // structure node.
+//
+// A variant body's test goes on to decode the built body with the main body's decoder for the same actor:
+// see [variantDecodeLines].
 func newFuncTestView(stream int, m Message, b Body, items map[string]Item) (funcTestView, bool, error) {
-	code := fmt.Sprintf("S%dF%d", stream, m.Function)
-
-	callName := code
-	if b.Actor == "host" {
-		callName = code + "Host"
-	}
+	name := builderName(stream, m.Function, b)
+	params := BuildParams(b.Structure, items)
 
 	exprs, err := SampleExprs(b.Structure, items)
 	if err != nil {
@@ -266,14 +306,112 @@ func newFuncTestView(stream int, m Message, b Body, items map[string]Item) (func
 		return funcTestView{}, false, err
 	}
 
+	if b.Variant != "" {
+		vLines, vBytes, err := variantDecodeLines(stream, m, b, params, exprs, items)
+		if err != nil {
+			return funcTestView{}, false, fmt.Errorf("%s: %w", name, err)
+		}
+
+		lines = append(lines, vLines...)
+		usesBytes = usesBytes || vBytes
+	}
+
 	return funcTestView{
-		Name:     "Test" + callName,
-		CallName: callName,
-		CallArgs: callArgs(BuildParams(b.Structure, items), exprs),
+		Name:     "Test" + name,
+		CallName: name,
+		CallArgs: callArgs(params, exprs),
 		Func:     m.Function,
 		WaitBit:  b.ReplyExpected,
 		Lines:    lines,
 	}, usesBytes, nil
+}
+
+// variantDecodeLines renders the part of a variant body's builder test that decodes the built body
+// with the main body's decoder for the same actor.
+// It reuses the decoded local that [renderTestBody] declares.
+//
+// The fields the variant supplies must equal the samples it was built from,
+// and every field it omits must decode to its zero value,
+// which is what a caller of the main decoder sees when a short form arrives.
+// A presence field of the main body follows its value field:
+// true when the variant supplies that value, since a builder always sends one,
+// and false when the variant omits it.
+// params and exprs are the variant's own builder parameters and samples.
+// It reports whether any emitted line needs the "bytes" import.
+func variantDecodeLines(stream int, m Message, b Body, params []Param, exprs []string, items map[string]Item) ([]string, bool, error) {
+	main, ok := mainBody(m, b.Actor)
+	if !ok {
+		return nil, false, fmt.Errorf("no main body for actor %s", b.Actor)
+	}
+
+	mainFields, err := BuildFields(main.Structure, items)
+	if err != nil {
+		return nil, false, err
+	}
+
+	fields, err := BuildFields(b.Structure, items)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if n := valueFieldCount(fields); n != len(params) || n != len(exprs) {
+		return nil, false, fmt.Errorf("%d value fields, %d parameters, %d samples", n, len(params), len(exprs))
+	}
+
+	decoder := "Decode" + callName(stream, m.Function, b.Actor)
+
+	if len(mainFields) == 0 {
+		return []string{
+			"",
+			fmt.Sprintf("if _, err := gem.%s(decoded); err != nil {", decoder),
+			fmt.Sprintf("t.Fatalf(%q, err)", decoder+": %v"),
+			"}",
+		}, false, nil
+	}
+
+	supplied := map[string]bool{}
+	for _, f := range fields {
+		supplied[f.Name] = true
+	}
+
+	var omitted []decodeField
+
+	for i, f := range mainFields {
+		switch {
+		case supplied[f.Name]:
+			// Asserted with the variant's own fields.
+		case f.Presence && supplied[mainFields[i-1].Name]:
+			// The variant sends the value as a plain leaf, so the main decoder finds it present.
+			fields = append(fields, f)
+		default:
+			omitted = append(omitted, f)
+		}
+	}
+
+	decode := []string{
+		"",
+		fmt.Sprintf("got, err := gem.%s(decoded)", decoder),
+		"if err != nil {",
+		fmt.Sprintf("t.Fatalf(%q, err)", decoder+": %v"),
+		"}",
+		"",
+	}
+
+	assertLines, usesBytes := decodeAssertLines(params, fields, exprs)
+	zeroLines := zeroAssertLines(ResultTypeName(stream, m.Function, b.Actor), omitted)
+
+	return trimTrailingBlank(slices.Concat(decode, assertLines, zeroLines)), usesBytes, nil
+}
+
+// mainBody returns the message's main body for actor: its one body that is not a variant.
+func mainBody(m Message, actor string) (Body, bool) {
+	for _, b := range m.Bodies {
+		if b.Actor == actor && b.Variant == "" {
+			return b, true
+		}
+	}
+
+	return Body{}, false
 }
 
 // callArgs renders the generated call's argument list from the parameters
@@ -313,6 +451,8 @@ func callArgs(params []Param, exprs []string) string {
 func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 	var out []string
 
+	bools := boolSamples(n, items)
+
 	var walkErr error
 
 	var walk func(*StructureNode)
@@ -324,7 +464,7 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 		switch n.Kind() {
 		case "leaf":
 			it := items[n.Item]
-			name := lower(n.Item)
+			name := nodeNames(n).Param
 
 			if it.Binding != BindingFixed {
 				out = append(out, fmt.Sprintf("secs2.A(%q)", name))
@@ -344,12 +484,24 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 				return
 			}
 
-			out = append(out, fs.literal(name))
+			out = append(out, fs.literalFor(name, bools))
 		case "opaque":
-			out = append(out, `secs2.A("body")`)
+			out = append(out, fmt.Sprintf("secs2.A(%q)", nodeNames(n).Param))
 		default: // list
+			if n.Repeat != "" && n.Typed {
+				expr, err := typedElementSample(n, items)
+				if err != nil {
+					walkErr = err
+					return
+				}
+
+				out = append(out, expr)
+
+				return
+			}
+
 			if n.Repeat != "" {
-				out = append(out, fmt.Sprintf("secs2.A(%q)", n.Repeat))
+				out = append(out, fmt.Sprintf("secs2.A(%q)", nodeNames(n).Param))
 				return
 			}
 
@@ -367,7 +519,7 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 					return
 				}
 
-				out = append(out, fs.literal(n.Packed))
+				out = append(out, fs.literal(nodeNames(n).Param))
 
 				return
 			}
@@ -386,6 +538,22 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 	return out, nil
 }
 
+// typedElementSample returns the sample element of a typed repeat:
+// an item of the element item's own format,
+// holding that goType's deterministic sample labeled by the repeat's parameter name,
+// e.g. secs2.U1(42).
+// A raw secs2.A sample, as an untyped repeat gets, would fail the typed decoder.
+func typedElementSample(n *StructureNode, items map[string]Item) (string, error) {
+	it := items[n.Of.Item]
+
+	fs, ok := fixedSamples[it.GoType]
+	if !ok {
+		return "", fmt.Errorf("typed repeat %s: no deterministic sample for goType %q", n.Repeat, it.GoType)
+	}
+
+	return fmt.Sprintf("secs2.%s(%s)", firstFormat(it), fs.literal(nodeNames(n).Param)), nil
+}
+
 // testCtx accumulates the Go statement lines that assert a decoded body
 // tree, and hands out unique variable-name suffixes so consecutive
 // extractions (list unwraps, scalar decodes) never collide within the
@@ -394,6 +562,7 @@ type testCtx struct {
 	lines     []string
 	counter   int
 	usesBytes bool
+	bools     map[string]string // the body's boolSamples
 }
 
 // nextID returns a fresh, monotonically increasing suffix for a generated
@@ -442,7 +611,7 @@ func (c *testCtx) assertFixed(expr, name string, it Item) error {
 	}
 
 	v := fmt.Sprintf("v%d", c.nextID())
-	literal := fs.literal(name)
+	literal := fs.literalFor(name, c.bools)
 
 	c.emit(
 		fmt.Sprintf("%s, err := %s.%s()", v, expr, fs.method),
@@ -518,7 +687,7 @@ func (c *testCtx) assertNode(n *StructureNode, items map[string]Item, expr strin
 	switch n.Kind() {
 	case "leaf":
 		it := items[n.Item]
-		name := lower(n.Item)
+		name := nodeNames(n).Param
 
 		if it.Binding == BindingFixed {
 			return c.assertFixed(expr, name, it)
@@ -528,13 +697,20 @@ func (c *testCtx) assertNode(n *StructureNode, items map[string]Item, expr strin
 
 		return nil
 	case "opaque":
-		c.assertSample(expr, "body")
+		c.assertSample(expr, nodeNames(n).Param)
 
 		return nil
 	default: // list
+		if n.Repeat != "" && n.Typed {
+			// The one element is the typedElementSample item: check it like a fixed leaf of the element item.
+			v := c.assertList(expr, 1)
+
+			return c.assertFixed(v+"[0]", nodeNames(n).Param, items[n.Of.Item])
+		}
+
 		if n.Repeat != "" {
 			v := c.assertList(expr, 1)
-			c.assertSample(v+"[0]", n.Repeat)
+			c.assertSample(v+"[0]", nodeNames(n).Param)
 
 			return nil
 		}
@@ -545,7 +721,7 @@ func (c *testCtx) assertNode(n *StructureNode, items map[string]Item, expr strin
 			// with the underlying item's accessor and check it holds exactly the one
 			// sample value the call site passed -- the same assertFixed path a bare
 			// fixed leaf uses, keyed by the packed name and its of.item's goType.
-			return c.assertFixed(expr, n.Packed, items[n.Of.Item])
+			return c.assertFixed(expr, nodeNames(n).Param, items[n.Of.Item])
 		}
 
 		v := c.assertList(expr, len(n.Items))
@@ -574,7 +750,7 @@ func renderTestBody(n *StructureNode, items map[string]Item) ([]string, bool, er
 		}, false, nil
 	}
 
-	c := &testCtx{}
+	c := &testCtx{bools: boolSamples(n, items)}
 	c.emit(
 		"decoded, err := secs2.Decode(msg.Item().ToBytes())",
 		"if err != nil {",

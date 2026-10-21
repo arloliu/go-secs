@@ -82,6 +82,8 @@ func run(itemsPath, msgsDir, outDir string) error {
 
 // loadMessageFiles globs and loads every *.yaml file under msgsDir into a
 // MessageFile, sorted by path so the generated output order is deterministic.
+// Each file must be named after the stream it declares (sN.yaml for stream: N),
+// since the stream number alone picks the gem/sN*.go files it writes.
 func loadMessageFiles(msgsDir string) ([]MessageFile, error) {
 	paths, err := filepath.Glob(filepath.Join(msgsDir, "*.yaml"))
 	if err != nil {
@@ -100,6 +102,10 @@ func loadMessageFiles(msgsDir string) ([]MessageFile, error) {
 		mf, err := LoadMessageFile(data)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+
+		if want := fmt.Sprintf("s%d.yaml", mf.Stream); filepath.Base(p) != want {
+			return nil, fmt.Errorf("%s: declares stream %d, so the file must be named %s", p, mf.Stream, want)
 		}
 
 		msgFiles = append(msgFiles, mf)
