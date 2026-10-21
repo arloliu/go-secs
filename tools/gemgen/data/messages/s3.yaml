@@ -1,0 +1,644 @@
+stream: 3
+messages:
+  - function: 1
+    name: Material Status Request
+    mnemonic: MSR
+    direction: host-to-equipment
+    description: Host requests the device to send the status of all material in process.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 2
+    name: Material Status Data
+    mnemonic: MSD
+    direction: equipment-to-host
+    description: Material-in-process information is sent from the equipment to the host. There are m locations.
+    exception: A zero-length list returned means no such data exists.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          # E5 does not say which list may be zero-length,
+          # so the outer list may be sent empty (L,0) as well as the location list.
+          type: list
+          minItems: 0
+          maxItems: 2
+          items:
+            - {item: MF}
+            - type: list
+              repeat: locations
+              of: {type: list, items: [{item: LOC}, {item: QUA}, {item: MID}]}
+
+  - function: 3
+    name: Time to Completion Request
+    mnemonic: TCR
+    direction: host-to-equipment
+    description: Host requests the equipment to send the time-to-completion of operations on all material in possession.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  # The E5 markdown scrambles this structure; it is taken from the layout text.
+  - function: 4
+    name: Time to Completion Data
+    mnemonic: TCD
+    direction: equipment-to-host
+    description: Time-to-completion information is sent by the equipment to the host.
+    exception: A zero-length list header returned means no such data exists.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          # E5 does not say which list may be zero-length,
+          # so the outer list may be sent empty (L,0) as well as the material list.
+          type: list
+          minItems: 0
+          maxItems: 2
+          items:
+            - {item: MF}
+            - type: list
+              repeat: materials
+              of: {type: list, items: [{item: TTC}, {item: QUA}, {item: MID}]}
+
+  - function: 5
+    name: Material Found Send
+    mnemonic: MFS
+    direction: equipment-to-host
+    description: >-
+      The equipment advises the host that unsolicited material has appeared at one of its sensors.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: MF}, {item: QUA}]}
+
+  - function: 6
+    name: Material Found Acknowledge
+    mnemonic: MFA
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC3}
+
+  - function: 7
+    name: Material Lost Send
+    mnemonic: MLS
+    direction: equipment-to-host
+    description: >-
+      The equipment advises the host that material has disappeared from its sensors.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: MF}, {item: QUA}, {item: MID}]}
+
+  - function: 8
+    name: Material Lost Acknowledge
+    mnemonic: MLA
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC3}
+
+  - function: 9
+    name: Material ID Equate Send
+    mnemonic: IES
+    direction: equipment-to-host
+    description: Provide an alternative name to be used as equivalent to the original material ID.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: MID}, {item: EMID}]}
+
+  - function: 10
+    name: Material ID Equate Acknowledge
+    mnemonic: IEA
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC3}
+
+  - function: 11
+    name: Material ID Request
+    mnemonic: MIDR
+    direction: equipment-to-host
+    description: The equipment requests the Material ID of the material at the specified port.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: PTN}
+
+  # E5 reads "A timeout when electing S3,F13"; it is read as "expecting".
+  - function: 12
+    name: Material ID Request Acknowledge
+    mnemonic: MIRA
+    direction: host-to-equipment
+    description: >-
+      The host acknowledges the request for the Material ID. If the use of a
+      request/acknowledge/send/acknowledge conversation is required, it is indicated by the
+      acknowledge code MIDRA = 2. In this case, the send/acknowledge transaction is S3F13, S3F14. A
+      timeout when expecting S3F13 is indicated by S9F13 or a restart of the conversation, with
+      S3F11. For all cases except MIDRA = 0 (accepted, MID follows), the MID is ignored by the
+      receiver of S3F12. When MIDRA = 0, a zero-length MID indicates that no MID is available.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: PTN}, {item: MIDRA}, {item: MID}]}
+
+  - function: 13
+    name: Material ID Send
+    mnemonic: MIS
+    direction: host-to-equipment
+    description: >-
+      The host sends the Material ID of the material at the specified port. A zero-length MID
+      indicates that no MID is available.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: PTN}, {item: MID}]}
+
+  - function: 14
+    name: Material ID Acknowledge
+    mnemonic: MIA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: MIDAC}
+
+  - function: 15
+    name: Materials Multi-Block Inquire
+    mnemonic: MMBI
+    direction: host-to-equipment
+    description: >-
+      This message requests permission to send a multi-block message based upon a maximum length of
+      the total message. It must be sent prior to sending any multi-block primary message in Stream 3.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: DATAID}, {item: DATALENGTH}]}
+
+  - function: 16
+    name: Materials Multi-Block Grant
+    mnemonic: MMBG
+    direction: equipment-to-host
+    description: This message grants or denies permission to send a multi-block primary message in Stream 3.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: GRANT}
+
+  - function: 17
+    name: Carrier Action Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      This message requests an action to be performed for a specified carrier. If multi-block, this
+      message must be preceded by the S3F15/S3F16 transaction.
+    exception: >-
+      If n = 0, then no carrier attributes are included. If CARRIERID is not a zero-length item,
+      then PTN may be omitted (a zero-length item). ATTRID and ATTRDATA may be substituted for
+      CATTRID and CATTRDATA respectively. ReticlePodLocationID may be used as one of CATTRID when the
+      CARRIERACTION is PodRelease and the carrier is not at a Load Port.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: CARRIERACTION}
+            - {item: CARRIERID}
+            - {item: PTN}
+            # The attribute pairs follow E5's primary text (CATTRID, CATTRDATA).
+            # E5 allows ATTRID and ATTRDATA in their place;
+            # the pairs are caller-built items, so either form builds and decodes.
+            - type: list
+              repeat: attributes
+              of: {type: list, items: [{item: CATTRID}, {item: CATTRDATA}]}
+
+  - function: 18
+    name: Carrier Action Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message acknowledges the carrier action request.
+    exception: If n = 0, no errors exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: CAACK}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 19
+    name: Cancel All Carrier Out Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: This message is used to cancel all pending carrier out requests.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 20
+    name: Cancel All Carrier Out Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message acknowledges the Cancel Carrier Out request.
+    exception: If n = 0, no errors exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: CAACK}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 21
+    name: Port Group Definition
+    mnemonic: ""
+    direction: host-to-equipment
+    description: This message defines the port in a port group and provides the initial port access.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: PORTGRPNAME}
+            - {item: ACCESSMODE}
+            - {type: list, repeat: ports, of: {item: PTN}}
+
+  - function: 22
+    name: Port Group Definition Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message acknowledges the port group definition.
+    exception: If n = 0, no errors exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: CAACK}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 23
+    name: Port Group Action Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      This message requests an action be performed for a port group. The access mode may be changed
+      or the port group may be deleted.
+    exception: If m = 0, then no parameters are provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: PGRPACTION}
+            - {item: PORTGRPNAME}
+            - type: list
+              repeat: params
+              of: {type: list, items: [{item: PARAMNAME}, {item: PARAMVAL}]}
+
+  - function: 24
+    name: Port Group Action Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message acknowledges the port group action.
+    exception: If n = 0, no errors exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: CAACK}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 25
+    name: Port Action Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: This message requests an action be performed for a port.
+    exception: If m = 0, then no parameters are provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: PORTACTION}
+            - {item: PTN}
+            - type: list
+              repeat: params
+              of: {type: list, items: [{item: PARAMNAME}, {item: PARAMVAL}]}
+
+  # E5 numbers the error sub-items 3 to 6 here; the shape is the same as S3F18.
+  - function: 26
+    name: Port Action Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message acknowledges the port action request.
+    exception: If n = 0, no errors exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: CAACK}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 27
+    name: Change Access
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      The Host requests the Equipment to change the Access Mode for the specified Load Ports.
+      ACCESSMODE specifies the desired Access Mode. PTN specifies a desired Load Port Number.
+    exception: >-
+      If n = 0, then the command applies to all Load Ports on the equipment. If any specified port
+      is already in the specified Access Mode, then the Equipment shall accept the command, and
+      toggle all loadports to specified mode. If the Equipment is unable to change one or more of
+      specified Port(s) to the specified Access Mode, then the Equipment shall accept the command
+      (with appropriate response acknowledgement), and shall change only the Access Mode of those
+      Port(s) allowed by the equipment, supplying the host with an indication that not all ports
+      were successfully changed.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: ACCESSMODE}
+            - {type: list, repeat: ports, of: {item: PTN}}
+
+  # E5 leaves the description of this message blank;
+  # the sentence below follows the other Stream 3 acknowledges.
+  - function: 28
+    name: Change Access Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message acknowledges the change access request.
+    exception: >-
+      If the command is successful, CAACK = 0, and n = 0. If the command was successful for some
+      ports, CAACK = 6, and n > 0.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: CAACK}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: PTN}, {item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 29
+    name: Carrier Tag Read Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      The host requests the equipment to read data from the carrier tag of a carrier. The carrier
+      must be identified either by its location identifier or its carrier identifier, or both.
+      DATASEG may be used to indicate a specific section of data to be read. DATALENGTH is used to
+      limit the amount of data for that section.
+    exception: >-
+      Either LOCID or CARRIERSPEC can be omitted (zero-length item), but not both. If DATASEG and
+      DATALENGTH are both omitted (are zero-length items) then all data is requested. If DATALENGTH
+      only is omitted, then all data within the indicated section is requested.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items: [{item: LOCID}, {item: CARRIERSPEC}, {item: DATASEG}, {item: DATALENGTH}]
+
+  - function: 30
+    name: Carrier Tag Read Data
+    mnemonic: CTRD
+    direction: equipment-to-host
+    description: >-
+      This message is used to return requested information from the carrier tag of the carrier
+      indicated in the request and to acknowledge the results of the request.
+    exception: >-
+      If the carrier identifier or the carrier location originally specified is unknown, then DATA
+      is zero length. If CAACK is non-zero, then DATA is zero length.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: DATA}
+            # E5 prints this list header as <L,2>; it is an ordinary L,2.
+            - type: list
+              items:
+                - {item: CAACK}
+                - type: list
+                  repeat: errors
+                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 31
+    name: Carrier Tag Write Data Request
+    mnemonic: CTWDR
+    direction: host-to-equipment
+    description: >-
+      The host requests the equipment to write data to a carrier tag. The carrier must be indicated
+      either by its location identifier or its carrier identifier, or both. DATASEG may be used to
+      indicate a specific section of data to be written or overwritten. DATALENGTH may be used to
+      indicate the length of the data to be written.
+    exception: >-
+      Either LOCID or CARRIERSPEC can be omitted (zero-length item), but not both. If DATASEG and
+      DATALENGTH are both omitted (are zero-length items) then all data is to be overwritten. If
+      only DATALENGTH is omitted, then all data within the indicated section is to be written.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items: [{item: LOCID}, {item: CARRIERSPEC}, {item: DATASEG}, {item: DATALENGTH}, {item: DATA}]
+
+  - function: 32
+    name: Carrier Tag Write Data Acknowledge
+    mnemonic: CTWDA
+    direction: equipment-to-host
+    description: >-
+      This message acknowledges the success or failure of writing data to the carrier tag
+      requested.
+    exception: n = 0 if and only if there are no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: CAACK}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  # E5 leaves the Direction column blank for S3F33 to S3F36.
+  # The direction and reply bit are inferred from the request/acknowledge pairing,
+  # as for S3F19 and S3F20.
+  - function: 33
+    name: Cancel All Pod Out Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: This message is used to cancel all pending pod out requests.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 34
+    name: Cancel All Pod Out Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message acknowledges the Cancel Pod Out request.
+    exception: If n = 0, no errors exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: CAACK}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  # E5 heads this structure L,6 but lists seven elements (two are numbered 5),
+  # and Table 3 cross-references both RETREMOVEINSTR and RETPLACEINSTR to S3F35,
+  # so the body is generated as L,7.
+  # The E5 markdown flattens this structure into one paragraph; it is taken from the layout text.
+  # PODID has no row in E5 Table 3.
+  - function: 35
+    name: Reticle Transfer Job Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: This message requests a reticle transfer job be performed (or cancelled) for a particular pod.
+    exception: If JOBACTION = CancelReticleTransferJob, m and n may = 0.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: JOBACTION}
+            - {item: PODID}
+            - {item: INPTN}
+            - {item: OUTPTN}
+            - type: list
+              repeat: attributes
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - type: list
+              repeat: removals
+              of:
+                type: list
+                items:
+                  - {item: RETICLEID}
+                  - {item: RETREMOVEINSTR}
+                  - type: list
+                    repeat: reticleAttributes
+                    of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - type: list
+              repeat: placements
+              of: {type: list, items: [{item: RETICLEID}, {item: RETPLACEINSTR}]}
+
+  - function: 36
+    name: Reticle Transfer Job Request Acknowledgement
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message acknowledges the ReticleTransferJobRequest.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RPMACK}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
