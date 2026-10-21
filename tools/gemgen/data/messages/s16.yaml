@@ -1,0 +1,617 @@
+stream: 16
+messages:
+  - function: 1
+    name: Multi-block Process Job Data Inquire
+    mnemonic: PRJI
+    direction: host-to-equipment
+    description: >-
+      If any of the Processing Management messages are larger than one block,
+      this transaction must precede that message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: DATAID}, {item: DATALENGTH}]}
+
+  - function: 2
+    name: Multi-block Process Job Data Grant
+    mnemonic: PRJG
+    direction: equipment-to-host
+    description: Message to indicate if permission is granted to transmit a multi-block Job Data message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: GRANT}
+
+  # E5 prints "<RCPSPEC> or <PPID>" for the recipe;
+  # it also requires a PPID used here to be ASCII,
+  # so on the wire the item is always the ASCII RCPSPEC form and is modeled as RCPSPEC.
+  - function: 3
+    name: Process Job Create Request
+    mnemonic: PRJCR
+    direction: host-to-equipment
+    description: >-
+      The purpose of this message is to request material to be processed on a Process Module.
+      The recipe is identified by RCPSPEC or by PPID.
+    exception: >-
+      For the m length list, m = 0 may be allowed depending on the value of PRRECIPEMETHOD.
+      If an implementer uses PPID for this message, the format of PPID shall be ASCII,
+      because RecID is defined as text in SEMI E40.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: MF}
+            - {type: list, repeat: mids, of: {item: MID}}
+            - type: list
+              items:
+                - {item: PRRECIPEMETHOD}
+                - {item: RCPSPEC}
+                - type: list
+                  repeat: recipeParams
+                  of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}]}
+            - {item: PRPROCESSSTART}
+
+  - function: 4
+    name: Process Job Create Acknowledge
+    mnemonic: PRJCA
+    direction: equipment-to-host
+    description: Acknowledge or report error in the creation of a Process Job.
+    exception: >-
+      The error list may be zero length, generally the case when ACKA indicates success.
+      When ACKA indicates a create failure, the equipment may supply one or more ERRCODEs.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: PRJOBID}
+            - type: list
+              items:
+                - {item: ACKA}
+                - type: list
+                  repeat: errors
+                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 5
+    name: Process Job Command Request
+    mnemonic: PRJCMDR
+    direction: host-to-equipment
+    description: Send a job control command to a processing job.
+    exception: >-
+      The CPNAME, CPVAL pairs are command parameter identifiers and values;
+      n = 0 is valid for some commands (PRCMDNAME).
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: PRJOBID}
+            - {item: PRCMDNAME}
+            - type: list
+              repeat: params
+              of: {type: list, items: [{item: CPNAME}, {item: CPVAL}]}
+
+  - function: 6
+    name: Process Job Command Acknowledge
+    mnemonic: PRJCMDA
+    direction: equipment-to-host
+    description: The processing service sends its confirmation for receipt of a command request.
+    exception: The error list may be zero length.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: PRJOBID}
+            - type: list
+              items:
+                - {item: ACKA}
+                - type: list
+                  repeat: errors
+                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 7
+    name: Process Job Alert Notify
+    mnemonic: PRJA
+    direction: equipment-to-host
+    description: >-
+      The processing service may notify the controlling entity of important events.
+      The Process Job Milestones only assume a small number of different values,
+      but the conditions under which a process job meets one of these milestones may vary;
+      for instance, a job may reach Job Complete because the process was aborted.
+      By using item 4 (ACKA and the error list), the status of the alert (PRJOBMILESTONE) can be indicated.
+      See the list of Error Codes for Processing in the Data Item Dictionary.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: The error list may be zero length.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TIMESTAMP}
+            - {item: PRJOBID}
+            - {item: PRJOBMILESTONE}
+            - type: list
+              items:
+                - {item: ACKA}
+                - type: list
+                  repeat: errors
+                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 8
+    name: Process Job Alert Confirm
+    mnemonic: PRJAC
+    direction: host-to-equipment
+    description: Host confirms receipt of the Process Job Alert message from the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
+
+  - function: 9
+    name: Process Job Event Notify
+    mnemonic: PRJE
+    direction: equipment-to-host
+    description: >-
+      Send a Processing Job related event to the controlling entity.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: >-
+      The VID, V pairs are variable data identifiers and values;
+      n = 0 is valid for some events (PREVENTID).
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: PREVENTID}
+            - {item: TIMESTAMP}
+            - {item: PRJOBID}
+            - type: list
+              repeat: variables
+              of: {type: list, items: [{item: VID}, {item: V}]}
+
+  - function: 10
+    name: Process Job Event Confirm
+    mnemonic: PRJEC
+    direction: host-to-equipment
+    description: Host confirms receipt of the S16F9 message to the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
+
+  # E5 prints "<RCPSPEC> or <PPID>" for the recipe;
+  # it also requires a PPID used here to be ASCII,
+  # so on the wire the item is always the ASCII RCPSPEC form and is modeled as RCPSPEC.
+  # The material list (item 4) takes one of two shapes chosen by the value of MF:
+  # L,n of L,2 {CARRIERID, L,j of SLOTID} when MF denotes carriers,
+  # or L,n of MID when MF denotes substrates (SEMI E40.1 uses MF 13 and 14);
+  # no static structure covers both, so the caller builds that one item.
+  - function: 11
+    name: PRJobCreateEnh
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      Request equipment to create a Process Job with the given PRJOBID.
+      If multi-block, this message must be preceded by the S16F1/F2 transaction.
+      The material list is built by the caller:
+      when MF denotes carriers it is L,n of L,2 {CARRIERID, L,j of SLOTID},
+      where the SLOTID list may be implemented as an array;
+      when MF denotes substrates it is L,n of MID.
+      The recipe is identified by RCPSPEC or by PPID.
+    exception: >-
+      The list for specifying material is empty (L,0 instead of L,n) when no material is specified for the process job.
+      The form of the material list depends on the value in MF.
+      If an implementer uses PPID for this message, the format of PPID shall be ASCII,
+      because RecID is defined as text in SEMI E40.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: PRJOBID}
+            - {item: MF}
+            - {type: opaque, as: material}
+            - type: list
+              items:
+                - {item: PRRECIPEMETHOD}
+                - {item: RCPSPEC}
+                - type: list
+                  repeat: recipeParams
+                  of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}]}
+            - {item: PRPROCESSSTART}
+            - {item: PRPAUSEEVENT}
+
+  - function: 12
+    name: PRJobCreateEnh Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: >-
+      This message acknowledges the request and reports any errors in the creation of a process job.
+    exception: If n = 0, no errors exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: PRJOBID}
+            - type: list
+              items:
+                - {item: ACKA}
+                - type: list
+                  repeat: errors
+                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  # Each job element has the S16F11 shape without DATAID:
+  # L,6 {PRJOBID, MF, material list, L,3 {PRRECIPEMETHOD, RCPSPEC, L,m of L,2 {RCPPARNM, RCPPARVAL}},
+  # PRPROCESSSTART, PRPAUSEEVENT}.
+  # Its material list depends on MF as in S16F11, and E5's "<RCPSPEC> or <PPID>" is modeled as RCPSPEC
+  # because a PPID used here shall be ASCII.
+  - function: 15
+    name: PRJobMultiCreate
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      Use this single message to create multiple process jobs,
+      each of which may be unique in its association of material to process recipe.
+      If multi-block, this message must be preceded by the S16F1/F2 transaction.
+      Each job element is L,6 {PRJOBID, MF, material list,
+      L,3 {PRRECIPEMETHOD, RCPSPEC, L,m of L,2 {RCPPARNM, RCPPARVAL}}, PRPROCESSSTART, PRPAUSEEVENT};
+      its material list is L,n of L,2 {CARRIERID, L,j of SLOTID} when MF denotes carriers,
+      where the SLOTID list may be implemented as an array,
+      or L,n of MID when MF denotes substrates.
+    exception: >-
+      The list for specifying material is empty (L,0 instead of L,n) when no material is specified for the process job.
+      The form of the material list depends on the value in MF.
+      If an implementer uses PPID for this message, the format of PPID shall be ASCII,
+      because RecID is defined as text in SEMI E40.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - type: list
+              repeat: jobs
+              of:
+                type: list
+                items:
+                  - {item: PRJOBID}
+                  - {item: MF}
+                  - {type: opaque, as: material}
+                  - type: list
+                    items:
+                      - {item: PRRECIPEMETHOD}
+                      - {item: RCPSPEC}
+                      - type: list
+                        repeat: recipeParams
+                        of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}]}
+                  - {item: PRPROCESSSTART}
+                  - {item: PRPAUSEEVENT}
+
+  - function: 16
+    name: PRJobMultiCreate Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: >-
+      This message acknowledges the request and reports any errors in the creation of a process job.
+      The first list holds the jobs created.
+      ERRTEXT contains the identifier of process jobs that were not created.
+    exception: If n = 0, no errors exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {type: list, repeat: prjobids, of: {item: PRJOBID}}
+            - type: list
+              items:
+                - {item: ACKA}
+                - type: list
+                  repeat: errors
+                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 17
+    name: PRJobDequeue
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      Used to remove process jobs from the equipment for jobs that have not begun processing.
+    exception: If m = 0, then de-queue all.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: prjobids, of: {item: PRJOBID}}
+
+  - function: 18
+    name: PRJobDequeue Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: >-
+      Acknowledge the request to de-queue and report any errors.
+      The first list holds the jobs removed.
+      ERRTEXT will contain the identifier of any jobs that were not de-queued.
+    exception: If n = 0, no errors exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {type: list, repeat: prjobids, of: {item: PRJOBID}}
+            - type: list
+              items:
+                - {item: ACKA}
+                - type: list
+                  repeat: errors
+                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  # E5's Direction column for S16F19 omits "reply",
+  # but S16F20 is its paired reply and SEMI E40.1 maps the two as a request and its response,
+  # so the reply bit is set.
+  - function: 19
+    name: PRGetAllJobs
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      Requests the equipment to return a list of process jobs which have not completed.
+      They may be running or waiting to run.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 20
+    name: PRGetAllJobs Send
+    mnemonic: ""
+    direction: equipment-to-host
+    description: Returns the requested list of process jobs.
+    exception: If m = 0, then no process jobs are running or waiting to run.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: jobs
+          of: {type: list, items: [{item: PRJOBID}, {item: PRSTATE}]}
+
+  # E5's Direction column for S16F21 omits "reply",
+  # but S16F22 is its paired reply and SEMI E40.1 maps the two as a request and its response,
+  # so the reply bit is set.
+  - function: 21
+    name: PRGetSpace
+    mnemonic: ""
+    direction: host-to-equipment
+    description: Requests the equipment to return the number of process jobs it has space to create.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 22
+    name: PRGetSpace Send
+    mnemonic: ""
+    direction: equipment-to-host
+    description: Sends the host the number of process jobs which can be created.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: PRJOBSPACE}
+
+  # E5's Direction column for S16F23 omits "reply",
+  # but S16F24 is its paired acknowledge and SEMI E40.1 maps the two as a request and its acknowledge,
+  # so the reply bit is set.
+  - function: 23
+    name: PRJobSetRecipeVariable
+    mnemonic: ""
+    direction: host-to-equipment
+    description: Reset the value of recipe variable parameters for a specific process job.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: PRJOBID}
+            - type: list
+              repeat: recipeParams
+              of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}]}
+
+  - function: 24
+    name: PRJobSetRecipeVariable Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: >-
+      Indicate the status of the request to set recipe variables.
+      ERRTEXT will contain the RCPPARNM value for parameters that could not be reset.
+    exception: If n = 0, no errors exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: ACKA}
+            - type: list
+              repeat: errors
+              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  # E5's Direction column for S16F25 omits "reply",
+  # but S16F26 is its paired acknowledge and SEMI E40.1 maps the two as a request and its acknowledge,
+  # so the reply bit is set.
+  # E5 requires at least one PRJOBID (m >= 1);
+  # a repeat takes no minimum count, so neither the builder nor the decoder enforces it.
+  - function: 25
+    name: PRJobSetStartMethod
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      Used to request to change the start method (manual start or automatic start) for one or more process jobs.
+      The job list holds at least one PRJOBID.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {type: list, repeat: prjobids, of: {item: PRJOBID}}
+            - {item: PRPROCESSSTART}
+
+  # E5 prints the second element (the ACKA and error list) without its "2." label;
+  # the body is read as a two-element list.
+  - function: 26
+    name: PRJobSetStartMethod Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: >-
+      Acknowledges the request to set the job start method and indicates any errors.
+      The first list holds the jobs referenced in the request that are now in the specified start method.
+      ERRTEXT will contain the identifiers of any process jobs that did not accept the new process start method.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {type: list, repeat: prjobids, of: {item: PRJOBID}}
+            - type: list
+              items:
+                - {item: ACKA}
+                - type: list
+                  repeat: errors
+                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  # E5's Direction column for S16F27 omits "reply",
+  # but S16F28 is its paired acknowledge and SEMI E94.1 maps every control job command as a request and its acknowledge,
+  # so the reply bit is set.
+  # The parameter list is a single CPNAME, CPVAL pair that E5 sends as L,0 for commands without parameters;
+  # the NoParams variant builds that form.
+  - function: 27
+    name: Control Job Command Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: Send a control job command to a control job.
+    exception: The parameter list L,2 is L,0 for commands that do not need parameters.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: CTLJOBID}
+            - {item: CTLJOBCMD}
+            - {type: list, minItems: 0, maxItems: 2, items: [{item: CPNAME}, {item: CPVAL}]}
+      - actor: both
+        replyExpected: true
+        variant: NoParams
+        structure:
+          type: list
+          items:
+            - {item: CTLJOBID}
+            - {item: CTLJOBCMD}
+            - {type: list, items: []}
+
+  # The error list is a single ERRCODE, ERRTEXT pair that E5 sends as L,0 when there are no errors;
+  # the Success variant builds that form.
+  - function: 28
+    name: Control Job Command Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: >-
+      Indicates success or failure of a command request to a control job.
+      If applicable, ERRTEXT shall contain information on specific command parameter names or values that caused the error.
+    exception: The error list L,2 is L,0 if there are no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: ACKA}
+            - {type: list, minItems: 0, maxItems: 2, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+      - actor: both
+        replyExpected: false
+        variant: Success
+        structure:
+          type: list
+          items:
+            - {item: ACKA}
+            - {type: list, items: []}
+
+  - function: 29
+    name: PRSetMtrlOrder
+    mnemonic: PRJSMO
+    direction: host-to-equipment
+    description: >-
+      This message requests the equipment's Processing Management Service to use a specific strategy
+      for the order in which materials are processed.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: PRMTRLORDER}
+
+  - function: 30
+    name: PRSetMtrlOrder Acknowledge
+    mnemonic: PRJSMOA
+    direction: equipment-to-host
+    description: >-
+      This message acknowledges the request for change to the material process strategy
+      by reporting back the value requested, if correct.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKA}
