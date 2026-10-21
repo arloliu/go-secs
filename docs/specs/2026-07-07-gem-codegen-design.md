@@ -4,6 +4,7 @@ Date: 2026-07-07
 Status: Phase 1 shipped (v2.0.0-rc, Stream 1). Phase 2 design addendum added
 2026-07-07 (S2/S5/S6/S9), independently fact-checked against the local E5
 spec.
+Streams S3–S19 addendum added 2026-10-20; it corrects the Scope section below.
 
 ## Goal
 
@@ -52,6 +53,12 @@ they continue — an earlier count of 336 miscounted this exact merge and is
 corrected here) is E5-sourced regardless of stream — only message-level
 structure / description / exception for S12–S21 carries the lower-confidence
 tag.
+
+**Correction (2026-10-20):** the premise above is wrong.
+E5-0813 §10 itself defines every message of S12–S19 (§10.16–§10.23);
+the GEM300 standards only map their services onto those messages.
+S20 and S21 are not in E5-0813, and no GEM300 standard in the local corpus uses them.
+See "Streams S3–S19 addendum" below.
 
 ## Phasing
 
@@ -269,6 +276,107 @@ raw table layout at face value.
 helper (used by `S6F11`/`S6F16`'s `reports` parameter) is unaffected — it
 stays hand-written; Phase 2 only replaces the four listed stream files.
 Streams S3, S4, S7, S8, S10 and S12–S21 remain out of scope for this phase.
+
+## Streams S3–S19 addendum
+
+Added 2026-10-20.
+Covers every E5-0813 message of S3, S4, S7, S8, S10 and S12–S19, F0 and "Not Used" functions excluded:
+
+| Stream | Functions | Stream | Functions |
+|---|---|---|---|
+| S3 | 36 (F1–F36) | S14 | 28 (F1–F28) |
+| S4 | 27 (odd F1–F17, F2, F18, F19–F26, odd F27–F41) | S15 | 54 (F1–F54) |
+| S7 | 44 (F1–F44) | S16 | 28 (F1–F30 without F13, F14) |
+| S8 | 4 (F1–F4) | S17 | 14 (F1–F14) |
+| S10 | 9 (F1–F10 without F8) | S18 | 16 (F1–F16) |
+| S12 | 19 (F1–F19) | S19 | 20 (F1–F20) |
+| S13 | 16 (F1–F16) | | |
+
+Total: 315 functions.
+
+### Provenance
+
+Every message is `source: e5`.
+The markdown conversion of E5 drops or scrambles some structures
+(S14F7, S15F16, S15F21, S15F24, S15F25, S19F7 among others);
+the PDF text of the same document (`e005-00-0813.layout.txt`) holds them intact,
+so they are recovered from it rather than reconstructed.
+
+Where E5 is internally inconsistent, the generated form follows the listed items and the Table 3 cross-references,
+and the YAML records the deviation:
+S3F35 is `L,7` (header says `L,6`), S4F27 is `L,10` (header says `L,11`),
+S14F26 takes its sibling replies' form `L,2{ L,n{..} L,2{OBJACK ERRS} }`.
+Blank Direction cells (S3F33–F36, S14F6) are inferred from the paired message.
+S16F19, F21, F23, F25 and F27 lack `reply` in E5's Direction column but each has a paired reply,
+and E40.1 and E94.1 map them as request and acknowledge, so they set the W-bit.
+S14F20 is generated in its `L,4` form only; E5's older `L,3` form fails decoding.
+
+PODID (S3F35) is the one item not in E5 Table 3; it is added with `source: external`.
+
+### GEM300
+
+The GEM300 standards in the local corpus (E39.1, E40.1, E58.1, E87.1, E90.1, E94.1, E116.1, with E30)
+use only E5-0813 messages: S2, S3, S6, S13, S14 and S16.
+They add no message and no data item;
+they add value vocabularies for existing items,
+which `items.yaml` records as enumerations with their source standard
+(for example CARRIERACTION from E87.1, PRSTATE from E40.1, OBJTYPE names from E40/E87/E90/E94/E116/E58).
+Where two standards spell a value differently, E5 wins and the constant's doc names the other spelling.
+State machines, object models and attribute-name sets stay out of `gem`.
+
+### DSL extensions
+
+- **`as:`** on a leaf or opaque node names its parameter and decoder field,
+  for a message that holds the same item twice (S14F20 SVCACK, S17F5 EVNTSRC and CEID).
+  The generator rejects colliding parameter or field names, Go keywords, predeclared identifiers and `secs2`.
+- **Nested `opaque`**: an opaque node may sit below the root,
+  so only the value-dependent part of a body is built by hand (S15F15/F18 recipe sections, S16F11 material list).
+- **`optional: true`** on a fixed scalar leaf outside any repeat:
+  the decoder accepts a zero-length item there and reports it through a `<FIELD>Present` field.
+  The builder always sends the value.
+- **`variant:`** on a body generates an extra builder for a short form E5 names;
+  the main body's decoder decodes it, and the variant has no decoder of its own.
+  Its generated test builds the variant and decodes it with that main decoder.
+  A variant must keep its main body's reply bit and supply only fields the main body has, with the same types;
+  a header-only variant is rejected, since no main decoder accepts an empty message body.
+  Seven variants exist: `S5F14Accepted`, `S5F15Success`, `S5F18Success`, `S15F41Delete`,
+  `S16F27NoParams`, `S16F28Success` (the empty error list) and `S17F5Untriggered`.
+- **String and constants-only enumerations**: `values:` take strings on a fixed `A` item (a named string type),
+  and integer or string constants on a multi-format item, whose parameter stays `secs2.Item`.
+- **`note:`** on an item or on one of its values adds a sentence to the godoc of its type or constant,
+  for a fact the value table does not carry
+  (another standard's spelling of a value, E58.1's case-insensitive matching of RCMD and CPNAME names).
+- **`typed: true`** on a repeat of one fixed leaf decodes it into a typed slice (S18 STATUSLIST, CONDITIONLIST);
+  the builder still takes `secs2.Item` elements.
+  Numeric and binary enumeration elements decode through the generic helpers,
+  a string enumeration through a string-conversion helper;
+  any other named element type (a `BOOLEAN` enumeration) is a generation error.
+
+Packed groups stay format `B` only.
+A packed group of a numeric format was planned for S16 SLOTID,
+but E5 prints SLOTID as a list (an array only in a note),
+and it sits inside S16F11's opaque material node and S16F15's repeat element, which the decoders do not visit;
+no other stream uses a packed group, so it was not built.
+
+### Zero-length bodies
+
+When an E5 exception says a zero-length list or item means "no data" without naming the list,
+the outermost list of that body takes `minItems: 0` with `maxItems` equal to its child count,
+so the decoder accepts both `L,0` and the full form (S3F2, S3F4, S6F8, S6F16, S6F18, S7F6, S7F8 among others);
+the YAML records the choice in a comment.
+When the text names an inner list, only that list may be empty and the outer list stays fixed.
+The generator emits a `TestDecode…EmptyList` case for every body whose outermost list may be empty.
+
+### Loading and fuzzing
+
+`items.yaml` and every stream file are decoded with unknown keys rejected,
+so a misspelled key (`optinal:`) fails generation instead of being ignored.
+Each stream's generated decode tests register its decoders, seeded with the builders' output,
+with the hand-written fuzz harness `gem/fuzz_test.go`;
+`FuzzDecoders` runs every decoder over arbitrary bytes and fails on a panic.
+
+Unifying the duplicated structure walkers (see Non-goals) remains deferred;
+each extension instead carries an integration test that compiles and runs generated code.
 
 ## DSL schema
 
