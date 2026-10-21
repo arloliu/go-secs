@@ -244,7 +244,7 @@ func DecodeS6F7(item secs2.Item) (S6F7Body, error) {
 
 // S6F8Reply is the decoded body of the S6F8 (Data Transfer Data) message.
 //
-// Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
+// Body: L[0,3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // It is filled by [DecodeS6F8] and mirrors the parameters of [S6F8], in order.
 type S6F8Reply struct {
@@ -265,20 +265,23 @@ func DecodeS6F8(item secs2.Item) (S6F8Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if err = requireArity(root, "S6F8 body", 3); err != nil {
+	n1, err := optionalArity(root, "S6F8 body", 0, 3)
+	if err != nil {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
-		return out, err
-	}
+	if n1 == 3 {
+		if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+			return out, err
+		}
 
-	if out.CEID, err = decodeItem(root.At(1), "CEID"); err != nil {
-		return out, err
-	}
+		if out.CEID, err = decodeItem(root.At(1), "CEID"); err != nil {
+			return out, err
+		}
 
-	if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
-		return out, err
+		if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
+			return out, err
+		}
 	}
 
 	return out, nil
@@ -533,7 +536,7 @@ func DecodeS6F15(item secs2.Item) (S6F15Body, error) {
 
 // S6F16Reply is the decoded body of the S6F16 (Event Report Data) message.
 //
-// Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
+// Body: L[0,3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // It is filled by [DecodeS6F16] and mirrors the parameters of [S6F16], in order.
 type S6F16Reply struct {
@@ -554,20 +557,23 @@ func DecodeS6F16(item secs2.Item) (S6F16Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if err = requireArity(root, "S6F16 body", 3); err != nil {
+	n1, err := optionalArity(root, "S6F16 body", 0, 3)
+	if err != nil {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
-		return out, err
-	}
+	if n1 == 3 {
+		if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+			return out, err
+		}
 
-	if out.CEID, err = decodeItem(root.At(1), "CEID"); err != nil {
-		return out, err
-	}
+		if out.CEID, err = decodeItem(root.At(1), "CEID"); err != nil {
+			return out, err
+		}
 
-	if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
-		return out, err
+		if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
+			return out, err
+		}
 	}
 
 	return out, nil
@@ -603,7 +609,7 @@ func DecodeS6F17(item secs2.Item) (S6F17Body, error) {
 
 // S6F18Reply is the decoded body of the S6F18 (Annotated Event Report Data) message.
 //
-// Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
+// Body: L[0,3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // It is filled by [DecodeS6F18] and mirrors the parameters of [S6F18], in order.
 type S6F18Reply struct {
@@ -624,20 +630,23 @@ func DecodeS6F18(item secs2.Item) (S6F18Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if err = requireArity(root, "S6F18 body", 3); err != nil {
+	n1, err := optionalArity(root, "S6F18 body", 0, 3)
+	if err != nil {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
-		return out, err
-	}
+	if n1 == 3 {
+		if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+			return out, err
+		}
 
-	if out.CEID, err = decodeItem(root.At(1), "CEID"); err != nil {
-		return out, err
-	}
+		if out.CEID, err = decodeItem(root.At(1), "CEID"); err != nil {
+			return out, err
+		}
 
-	if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
-		return out, err
+		if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
+			return out, err
+		}
 	}
 
 	return out, nil
@@ -815,16 +824,23 @@ func DecodeS6F24(item secs2.Item) (S6F24Reply, error) {
 //
 // Body: L[7]{ <dataid> <opid> U4[linkid] A[rcpspec] <rmchgstat> L[n]{ <attributes>... } L[2]{ U1[rmack] L[n]{ <errors>... } } }.
 //
-// It is filled by [DecodeS6F25] and mirrors the parameters of [S6F25], in order.
+// It is filled by [DecodeS6F25] and mirrors the parameters of [S6F25], in order,
+// apart from its LINKIDPresent field.
+//
+// SEMI E5 lets LINKID be sent as a zero-length item:
+// [DecodeS6F25] decodes that form as a zero LINKID with LINKIDPresent false.
+// [S6F25] always sends a value,
+// so callers that need the zero-length form build the body with [secs2] directly.
 type S6F25Body struct {
-	DATAID     secs2.Item
-	OPID       secs2.Item
-	LINKID     uint32
-	RCPSPEC    string
-	RMCHGSTAT  secs2.Item
-	ATTRIBUTES []secs2.Item
-	RMACK      RMACK
-	ERRORS     []secs2.Item
+	DATAID        secs2.Item
+	OPID          secs2.Item
+	LINKID        uint32
+	LINKIDPresent bool
+	RCPSPEC       string
+	RMCHGSTAT     secs2.Item
+	ATTRIBUTES    []secs2.Item
+	RMACK         RMACK
+	ERRORS        []secs2.Item
 }
 
 // DecodeS6F25 decodes the body of an S6F25 (Notification Report Send) message into a [S6F25Body].
@@ -851,8 +867,14 @@ func DecodeS6F25(item secs2.Item) (S6F25Body, error) {
 		return out, err
 	}
 
-	if out.LINKID, err = decodeUintAs[uint32](root.At(2), "LINKID"); err != nil {
+	if out.LINKIDPresent, err = presentAt[*secs2.UintItem](root.At(2), "LINKID"); err != nil {
 		return out, err
+	}
+
+	if out.LINKIDPresent {
+		if out.LINKID, err = decodeUintAs[uint32](root.At(2), "LINKID"); err != nil {
+			return out, err
+		}
 	}
 
 	if out.RCPSPEC, err = decodeASCII(root.At(3), "RCPSPEC"); err != nil {

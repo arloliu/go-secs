@@ -93,7 +93,7 @@ func S6F7(dataid secs2.Item) secs2.SECS2Message {
 // Equipment sends data to the host.
 // The structure is the same as S6F3.
 //
-// Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
+// Body: L[0,3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // Exception: A zero-length item returned means the requested data cannot be sent.
 func S6F8(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
@@ -191,7 +191,7 @@ func S6F15(ceid secs2.Item) secs2.SECS2Message {
 // Equipment sends the reports linked to the given CEID to the host.
 // The structure is identical to S6F11.
 //
-// Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
+// Body: L[0,3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // Exception: A zero-length item means there are no reports linked to the given CEID.
 func S6F16(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
@@ -214,7 +214,7 @@ func S6F17(ceid secs2.Item) secs2.SECS2Message {
 // Equipment sends the annotated reports linked to the given CEID.
 // The structure is the same as S6F13.
 //
-// Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
+// Body: L[0,3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // Exception: A zero-length item means there are no reports linked to the given CEID.
 func S6F18(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
@@ -299,6 +299,10 @@ func S6F24(rsda RSDA) secs2.SECS2Message {
 // Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[7]{ <dataid> <opid> U4[linkid] A[rcpspec] <rmchgstat> L[n]{ <attributes>... } L[2]{ U1[rmack] L[n]{ <errors>... } } }.
+//
+// SEMI E5 lets LINKID be sent as a zero-length item,
+// but this builder always sends a value:
+// callers that need the zero-length form build the body with [secs2] directly.
 //
 // Exception: OPID and LINKID are zero-length items when and only when S6F25 is sent as a change notification rather than as a confirmation report.
 // p = 0 if and only if RMACK indicates no errors.
