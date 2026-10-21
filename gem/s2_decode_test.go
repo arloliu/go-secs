@@ -25,7 +25,7 @@ func init() {
 		_, err := gem.DecodeS2F3(item)
 
 		return err
-	}, gem.S2F3(0x29).Item())
+	}, gem.S2F3([]byte{0x4e, 0xf9, 0xb2, 0x22}).Item())
 	registerFuzzDecoder("DecodeS2F4", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F4(item)
 
@@ -40,7 +40,7 @@ func init() {
 		_, err := gem.DecodeS2F6(item)
 
 		return err
-	}, gem.S2F6(0x29).Item())
+	}, gem.S2F6([]byte{0x4e, 0xf9, 0xb2, 0x22}).Item())
 	registerFuzzDecoder("DecodeS2F7", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F7(item)
 
@@ -294,7 +294,7 @@ func TestDecodeS2F2RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS2F3RoundTrip(t *testing.T) {
-	msg := gem.S2F3(0x29)
+	msg := gem.S2F3([]byte{0x4e, 0xf9, 0xb2, 0x22})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -306,8 +306,8 @@ func TestDecodeS2F3RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS2F3: %v", err)
 	}
 
-	if got.SPD != 0x29 {
-		t.Errorf("SPD: got %v, want %v", got.SPD, 0x29)
+	if !bytes.Equal(got.SPD, []byte{0x4e, 0xf9, 0xb2, 0x22}) {
+		t.Errorf("SPD: got %x, want %x", got.SPD, []byte{0x4e, 0xf9, 0xb2, 0x22})
 	}
 }
 
@@ -348,7 +348,7 @@ func TestDecodeS2F5RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS2F6RoundTrip(t *testing.T) {
-	msg := gem.S2F6(0x29)
+	msg := gem.S2F6([]byte{0x4e, 0xf9, 0xb2, 0x22})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -360,8 +360,8 @@ func TestDecodeS2F6RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS2F6: %v", err)
 	}
 
-	if got.SPD != 0x29 {
-		t.Errorf("SPD: got %v, want %v", got.SPD, 0x29)
+	if !bytes.Equal(got.SPD, []byte{0x4e, 0xf9, 0xb2, 0x22}) {
+		t.Errorf("SPD: got %x, want %x", got.SPD, []byte{0x4e, 0xf9, 0xb2, 0x22})
 	}
 }
 

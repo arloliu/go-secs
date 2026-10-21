@@ -10,6 +10,9 @@ ACCESSMODE:
   goType: uint8
   description: "Load Port Access Mode. Possible values are:"
   source: e5
+  values:
+    - {name: Manual, value: 0}
+    - {name: Auto, value: 1}
 ACDS:
   formats: [I2, U2]
   binding: open
@@ -27,24 +30,52 @@ ACKC10:
   goType: byte
   description: "Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: AcceptedForDisplay, value: 0}
+    - {name: WillNotBeDisplayed, value: 1}
+    - {name: TerminalNotAvailable, value: 2}
 ACKC13:
   formats: [B]
   binding: fixed
   goType: byte
   description: Return code for secondary messages 1 byte.
   source: e5
+  # E5 Table 3 prints ">10 = ERROR: Pending Transaction",
+  # but the S13F4, F6 and F8 exceptions and the Stream 13 text use 10.
+  values:
+    - {name: OK, value: 0}
+    - {name: TryLater, value: 1}
+    - {name: UnknownDataSetName, value: 2}
+    - {name: IllegalCheckpointValue, value: 3}
+    - {name: TooManyOpenDataSets, value: 4}
+    - {name: DataSetOpenTooManyTimes, value: 5}
+    - {name: NoOpenDataSet, value: 6}
+    - {name: CannotContinue, value: 7}
+    - {name: EndOfData, value: 8}
+    - {name: HandleInUse, value: 9}
+    - {name: PendingTransaction, value: 10}
 ACKC15:
   formats: [B]
   binding: fixed
   goType: byte
   description: "Return code for secondary messages, 1 byte."
   source: e5
+  values:
+    - {name: Accepted, value: 0}
+    - {name: CompletionSignaledLater, value: 1}
+    - {name: DSNAMENotFound, value: 2}
+    - {name: PermissionNotGranted, value: 3}
+    - {name: OtherError, value: 4}
 ACKC3:
   formats: [B]
   binding: fixed
   goType: byte
   description: "Acknowledge code, 1 byte."
   source: e5
+  # E5 Table 3: 0 = Accepted; >0 = Error, not accepted (1-63 reserved, no
+  # individually named codes).
+  values:
+    - {name: Accepted, value: 0}
 ACKC5:
   formats: [B]
   binding: fixed
@@ -71,11 +102,26 @@ ACKC7:
   goType: byte
   description: "Acknowledge code, 1 byte."
   source: e5
+  values:
+    - {name: Accepted, value: 0}
+    - {name: PermissionNotGranted, value: 1}
+    - {name: LengthError, value: 2}
+    - {name: MatrixOverflow, value: 3}
+    - {name: PPIDNotFound, value: 4}
+    - {name: ModeUnsupported, value: 5}
+    - {name: CompletionSignaledLater, value: 6}
 ACKC7A:
   formats: [I1, U1]
   binding: open
   description: "Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: Accepted, value: 0}
+    - {name: MDLNInconsistent, value: 1}
+    - {name: SOFTREVInconsistent, value: 2}
+    - {name: InvalidCCODE, value: 3}
+    - {name: InvalidPPARMValue, value: 4}
+    - {name: OtherError, value: 5}
 AGENT:
   formats: [A]
   binding: fixed
@@ -120,6 +166,16 @@ ATTRRELN:
   goType: uint8
   description: "The relationship that a specified qualifying value has to the value of an attribute of an object instance (the value of interest):"
   source: e5
+  # Each relation reads "the qualifying value <relation> the value of interest".
+  values:
+    - {name: Equal, value: 0}
+    - {name: NotEqual, value: 1}
+    - {name: LessThan, value: 2}
+    - {name: LessThanOrEqual, value: 3}
+    - {name: GreaterThan, value: 4}
+    - {name: GreaterThanOrEqual, value: 5}
+    - {name: Present, value: 6}
+    - {name: Absent, value: 7}
 BCDS:
   formats: [I2, U2]
   binding: open
@@ -140,10 +196,15 @@ BLKDEF:
   binding: open
   description: Block Definition.
   source: e5
+  # E5 Table 3 describes the codes in prose: +1 starts a block, -1 ends one, 0 is within one.
+  values:
+    - {name: StartBlock, value: 1}
+    - {name: EndBlock, value: -1}
+    - {name: WithinBlock, value: 0}
 BPD:
   formats: [B]
   binding: fixed
-  goType: byte
+  goType: "[]byte"
   description: Boot program Data.
   source: e5
 BYTMAX:
@@ -157,12 +218,37 @@ CAACK:
   goType: uint8
   description: "Carrier Action Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: AcknowledgeCommandPerformed, value: 0}
+    - {name: InvalidCommand, value: 1}
+    - {name: CannotPerformNow, value: 2}
+    - {name: InvalidDataOrArgument, value: 3}
+    - {name: AcknowledgeCompletionLater, value: 4}
+    - {name: RejectedInvalidState, value: 5}
+    - {name: CommandPerformedWithErrors, value: 6}
 CARRIERACTION:
   formats: [A]
   binding: fixed
   goType: string
   description: Specifies the action requested for a carrier.
   source: e5
+  # E5 Table 3 gives no values.
+  # The SEMI E87.1 S3F17 services name the carrier actions;
+  # the E5 S3F17 exception also names PodRelease.
+  values:
+    - {name: Bind, value: "Bind", source: e87.1}
+    - {name: CancelBind, value: "CancelBind", source: e87.1}
+    - {name: CancelCarrier, value: "CancelCarrier", source: e87.1}
+    - {name: CancelCarrierAtPort, value: "CancelCarrierAtPort", source: e87.1}
+    - {name: CancelCarrierNotification, value: "CancelCarrierNotification", source: e87.1}
+    - {name: CancelCarrierOut, value: "CancelCarrierOut", source: e87.1}
+    - {name: CarrierIn, value: "CarrierIn", source: e87.1}
+    - {name: CarrierNotification, value: "CarrierNotification", source: e87.1}
+    - {name: CarrierOut, value: "CarrierOut", source: e87.1}
+    - {name: CarrierReCreate, value: "CarrierReCreate", source: e87.1}
+    - {name: CarrierRelease, value: "CarrierRelease", source: e87.1}
+    - {name: ProceedWithCarrier, value: "ProceedWithCarrier", source: e87.1}
+    - {name: PodRelease, value: "PodRelease"}
 CARRIERID:
   formats: [A]
   binding: fixed
@@ -213,6 +299,14 @@ CEPACK:
   binding: open
   description: "Command Enhanced Parameter Acknowledge. If a specific value of CPNAME is defined to have a CEPVAL that is a LIST, then CEPACK shall have the same structure as the corresponding list format of CEPVAL as used in S2,F49. Otherwise CEPACK will be a 1 byte integer. Enumerated:"
   source: e5
+  # The codes apply to CEPACK sent as a 1-byte integer;
+  # CEPACK sent as a list mirrors the structure of its CEPVAL instead.
+  values:
+    - {name: NoError, value: 0}
+    - {name: CPNAMEDoesNotExist, value: 1}
+    - {name: IllegalValue, value: 2}
+    - {name: IllegalFormat, value: 3}
+    - {name: CPNAMENotValidAsUsed, value: 4}
 CEPVAL:
   formats: [L, B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
   binding: open
@@ -229,6 +323,10 @@ CMDA:
   binding: open
   description: Command acknowledge code.
   source: e5
+  values:
+    - {name: CompletedOrDone, value: 0}
+    - {name: CommandDoesNotExist, value: 1}
+    - {name: CannotPerformNow, value: 2}
 CMDMAX:
   formats: [I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
@@ -266,6 +364,16 @@ COMPARISONOPERATOR:
   goType: uint8
   description: "Choice of available operators that compare the supplied value to the current attribute value. Evaluated as 'Current value XX supplied value' where XX is one of the enumerated values (e.g., 'GT')."
   source: e5
+  # Each operator reads "current value <operator> supplied value".
+  values:
+    - {name: EQ, value: 0}
+    - {name: NotEQ, value: 1}
+    - {name: LT, value: 2}
+    - {name: LE, value: 3}
+    - {name: GT, value: 4}
+    - {name: GE, value: 5}
+    - {name: Like, value: 6}
+    - {name: NotLike, value: 7}
 CONDITION:
   formats: [A]
   binding: fixed
@@ -293,6 +401,12 @@ CPNAME:
   binding: open
   description: Command Parameter Name.
   source: e5
+  note: "SEMI E58.1 requires the equipment to recognize these names whether or not it is case-sensitive."
+  values:
+    - {name: ARAMSCode, value: "ARAMSCode", source: e58.1}
+    - {name: ObjSpec, value: "ObjSpec", source: e58.1}
+    - {name: SympID, value: "SympID", source: e58.1}
+    - {name: SympText, value: "SympText", source: e58.1}
 CPVAL:
   formats: [B, BOOLEAN, A, J, I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
@@ -315,6 +429,15 @@ CTLJOBCMD:
   goType: uint8
   description: "Control Job command codes are assigned as follows:"
   source: e5
+  values:
+    - {name: CJStart, value: 1}
+    - {name: CJPause, value: 2}
+    - {name: CJResume, value: 3}
+    - {name: CJCancel, value: 4}
+    - {name: CJDeselect, value: 5}
+    - {name: CJStop, value: 6}
+    - {name: CJAbort, value: 7}
+    - {name: CJHOQ, value: 8}
 CTLJOBID:
   formats: [A]
   binding: fixed
@@ -333,6 +456,10 @@ DATAACK:
   goType: byte
   description: Acknowledge code for data.
   source: e5
+  values:
+    - {name: Acknowledge, value: 0}
+    - {name: UnknownDATAID, value: 1}
+    - {name: ParameterInvalid, value: 2}
 DATAID:
   formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
@@ -367,12 +494,25 @@ DELRSPSTAT:
   goType: uint8
   description: Status response for the Delete PDE request.
   source: e5
+  # E5 Table 3 spells these PDEnotFound and PDElocked;
+  # the constants use the GETRSPSTAT spelling.
+  values:
+    - {name: OK, value: 0}
+    - {name: PDENotFound, value: 1}
+    - {name: PDELocked, value: 2}
+    - {name: Other, value: 255}
 DIRRSPSTAT:
   formats: [U1]
   binding: fixed
   goType: uint8
   description: Status response for the GET PDE Directory request.
   source: e5
+  values:
+    - {name: OK, value: 0}
+    - {name: BadFilter, value: 1}
+    - {name: BadAttribute, value: 2}
+    - {name: DateTimeCompareFailed, value: 3}
+    - {name: Other, value: 255}
 DRACK:
   formats: [B]
   binding: fixed
@@ -478,7 +618,7 @@ EMID:
 EPD:
   formats: [B]
   binding: fixed
-  goType: byte
+  goType: "[]byte"
   description: Executive program data.
   source: e5
 EQNAME:
@@ -501,6 +641,77 @@ ERRCODE:
   binding: open
   description: Code identifying an error.
   source: e5
+  # E5 Table 3 reserves 51-63 and 32785-65535 and leaves 64-32767 and 65536 and above user-defined.
+  # E5 prints 37 as "Group size to large".
+  # E5 truncates the label of 32772 to "Client Alr", so it has no constant.
+  values:
+    - {name: NoError, value: 0}
+    - {name: UnknownObjectInObjectSpecifier, value: 1}
+    - {name: UnknownTargetObjectType, value: 2}
+    - {name: UnknownObjectInstance, value: 3}
+    - {name: UnknownAttributeName, value: 4}
+    - {name: ReadOnlyAttributeAccessDenied, value: 5}
+    - {name: UnknownObjectType, value: 6}
+    - {name: InvalidAttributeValue, value: 7}
+    - {name: SyntaxError, value: 8}
+    - {name: VerificationError, value: 9}
+    - {name: ValidationError, value: 10}
+    - {name: ObjectIdentifierInUse, value: 11}
+    - {name: ParametersImproperlySpecified, value: 12}
+    - {name: InsufficientParametersSpecified, value: 13}
+    - {name: UnsupportedOptionRequested, value: 14}
+    - {name: Busy, value: 15}
+    - {name: NotAvailableForProcessing, value: 16}
+    - {name: CommandNotValidForCurrentState, value: 17}
+    - {name: NoMaterialAltered, value: 18}
+    - {name: MaterialPartiallyProcessed, value: 19}
+    - {name: AllMaterialProcessed, value: 20}
+    - {name: RecipeSpecificationRelatedError, value: 21}
+    - {name: FailedDuringProcessing, value: 22}
+    - {name: FailedWhileNotProcessing, value: 23}
+    - {name: FailedDueToLackOfMaterial, value: 24}
+    - {name: JobAborted, value: 25}
+    - {name: JobStopped, value: 26}
+    - {name: JobCancelled, value: 27}
+    - {name: CannotChangeSelectedRecipe, value: 28}
+    - {name: UnknownEvent, value: 29}
+    - {name: DuplicateReportID, value: 30}
+    - {name: UnknownDataReport, value: 31}
+    - {name: DataReportNotLinked, value: 32}
+    - {name: UnknownTraceReport, value: 33}
+    - {name: DuplicateTraceID, value: 34}
+    - {name: TooManyDataReports, value: 35}
+    - {name: SamplePeriodOutOfRange, value: 36}
+    - {name: GroupSizeTooLarge, value: 37}
+    - {name: RecoveryActionCurrentlyInvalid, value: 38}
+    - {name: BusyWithAnotherRecovery, value: 39}
+    - {name: NoActiveRecoveryAction, value: 40}
+    - {name: ExceptionRecoveryFailed, value: 41}
+    - {name: ExceptionRecoveryAborted, value: 42}
+    - {name: InvalidTableElement, value: 43}
+    - {name: UnknownTableElement, value: 44}
+    - {name: CannotDeletePredefined, value: 45}
+    - {name: InvalidToken, value: 46}
+    - {name: InvalidParameter, value: 47}
+    - {name: LoadPortDoesNotExist, value: 48}
+    - {name: LoadPortAlreadyInUse, value: 49}
+    - {name: MissingCarrier, value: 50}
+    - {name: ActionWillBePerformedAtEarliestOpportunity, value: 32768}
+    - {name: ActionCannotBePerformedNow, value: 32769}
+    - {name: ActionFailedDueToErrors, value: 32770}
+    - {name: InvalidCommand, value: 32771}
+    - {name: DuplicateClientID, value: 32773}
+    - {name: InvalidClientType, value: 32774}
+    - {name: IncompatibleVersions, value: 32775}
+    - {name: UnrecognizedClientID, value: 32776}
+    - {name: FailedCompletedUnsuccessfully, value: 32777}
+    - {name: FailedUnsafe, value: 32778}
+    - {name: SensorDetectedObstacle, value: 32779}
+    - {name: MaterialNotSent, value: 32780}
+    - {name: MaterialNotReceived, value: 32781}
+    - {name: MaterialLost, value: 32782}
+    - {name: HardwareFailure, value: 32783}
+    - {name: TransferCancelled, value: 32784}
 ERRTEXT:
   formats: [A]
   binding: fixed
@@ -577,6 +788,12 @@ GETRSPSTAT:
   goType: uint8
   description: Status response for the Get PDE and Get PDEheader requests.
   source: e5
+  values:
+    - {name: OK, value: 0}
+    - {name: PDENotFound, value: 1}
+    - {name: PDELocked, value: 2}
+    - {name: TransferNotAllowed, value: 3}
+    - {name: Other, value: 255}
 GRANT:
   formats: [B]
   binding: fixed
@@ -594,12 +811,25 @@ GRANT6:
   goType: byte
   description: "Permission to send, 1 byte."
   source: e5
+  # E5 Table 3 also prints ">2 = Other errors" beside "3-63 Reserved"; a range gets no constant.
+  values:
+    - {name: PermissionGranted, value: 0}
+    - {name: BusyTryAgain, value: 1}
+    - {name: NotInterested, value: 2}
 GRNT1:
   formats: [B]
   binding: fixed
   goType: byte
   description: "Grant code, 1 byte."
   source: e5
+  values:
+    - {name: PositiveResponseTransferOK, value: 0}
+    - {name: BusyTryAgain, value: 1}
+    - {name: NoSpace, value: 2}
+    - {name: MapTooLarge, value: 3}
+    - {name: DuplicateID, value: 4}
+    - {name: MaterialIDNotFound, value: 5}
+    - {name: UnknownMapFormat, value: 6}
 HANDLE:
   formats: [I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
@@ -631,6 +861,10 @@ HOCANCELACK:
   goType: uint8
   description: Tells whether the cancel ready message was accepted or rejected.
   source: e5
+  values:
+    - {name: CancelReadyAccepted, value: 0}
+    - {name: AtomicTransferUnknown, value: 1}
+    - {name: CancelReadyRejectedHandoffBegun, value: 2}
 HOCMDNAME:
   formats: [A]
   binding: fixed
@@ -643,6 +877,9 @@ HOHALTACK:
   goType: uint8
   description: Tells whether the halt command was accepted or rejected.
   source: e5
+  values:
+    - {name: HaltAccepted, value: 0}
+    - {name: AtomicTransferUnknown, value: 1}
 IACDS:
   formats: [I2, U2]
   binding: open
@@ -659,6 +896,10 @@ IDTYP:
   goType: byte
   description: Id type.
   source: e5
+  values:
+    - {name: WaferID, value: 0}
+    - {name: WaferCassetteID, value: 1}
+    - {name: FilmFrameID, value: 2}
 INPTN:
   formats: [B, U1]
   binding: open
@@ -765,12 +1006,20 @@ MAPER:
   goType: byte
   description: Map Error.
   source: e5
+  values:
+    - {name: IDNotFound, value: 0}
+    - {name: InvalidData, value: 1}
+    - {name: FormatError, value: 2}
 MAPFT:
   formats: [B]
   binding: fixed
   goType: byte
   description: Map data format type.
   source: e5
+  values:
+    - {name: RowFormat, value: 0}
+    - {name: ArrayFormat, value: 1}
+    - {name: CoordinateFormat, value: 2}
 MCINDEX:
   formats: [U1, U2, U4, U8]
   binding: open
@@ -782,6 +1031,11 @@ MDACK:
   goType: byte
   description: Map data acknowledge.
   source: e5
+  values:
+    - {name: MapReceived, value: 0}
+    - {name: FormatError, value: 1}
+    - {name: NoIDMatch, value: 2}
+    - {name: AbortDiscardMap, value: 3}
 MDLN:
   formats: [A]
   binding: fixed
@@ -799,6 +1053,24 @@ MF:
   binding: open
   description: Material format code 1 byte by Format 10.
   source: e5
+  # The codes apply to MF sent as format B ("Quantities in ...");
+  # MF sent as format A is a unit identifier instead.
+  # E5 Table 3 prints 12 as "waterframes"; it is Waferframes.
+  values:
+    - {name: Wafers, value: 1}
+    - {name: Cassette, value: 2}
+    - {name: DieOrChips, value: 3}
+    - {name: Boats, value: 4}
+    - {name: Ingots, value: 5}
+    - {name: Leadframes, value: 6}
+    - {name: Lots, value: 7}
+    - {name: Magazines, value: 8}
+    - {name: Packages, value: 9}
+    - {name: Plates, value: 10}
+    - {name: Tubes, value: 11}
+    - {name: Waferframes, value: 12}
+    - {name: Carriers, value: 13}
+    - {name: Substrates, value: 14}
 MHEAD:
   formats: [B]
   binding: fixed
@@ -816,12 +1088,20 @@ MIDAC:
   goType: byte
   description: "Material ID Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: Accepted, value: 0}
+    - {name: InvalidPortNumber, value: 1}
+    - {name: MaterialNotPresentAtPort, value: 2}
 MIDRA:
   formats: [B]
   binding: fixed
   goType: byte
   description: "Material ID Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: AcknowledgeMIDFollows, value: 0}
+    - {name: AcknowledgeWillNotSendMID, value: 1}
+    - {name: AcknowledgeWillSendMIDLater, value: 2}
 MLCL:
   formats: [U1, U2, U4, U8]
   binding: open
@@ -833,6 +1113,11 @@ MMODE:
   goType: byte
   description: "Matrix mode select, 1 byte."
   source: e5
+  # E5 Table 3 enumerates codes starting at 1 (no 0 defined).
+  values:
+    - {name: HostSourceMode, value: 1}
+    - {name: LocalSourceMode, value: 2}
+    - {name: HostImmediateMode, value: 3}
 NACDS:
   formats: [I2, U2]
   binding: open
@@ -854,12 +1139,21 @@ OBJACK:
   goType: uint8
   description: "Acknowledge code:"
   source: e5
+  values:
+    - {name: Success, value: 0}
+    - {name: Error, value: 1}
 OBJCMD:
   formats: [U1]
   binding: fixed
   goType: uint8
   description: "Specifies an action to be performed by an object:"
   source: e5
+  # E5 Table 3 reserves 0.
+  values:
+    - {name: AttachToRequestor, value: 1}
+    - {name: DetachFromRequestor, value: 2}
+    - {name: ReattachToRequestor, value: 3}
+    - {name: SetAttributes, value: 4}
 OBJID:
   formats: [A, U1, U2, U4, U8]
   binding: open
@@ -882,18 +1176,35 @@ OBJTYPE:
   binding: open
   description: Identifier for a group or class of objects. All objects of the same type must have the same set of attributes available.
   source: e5
+  # E5 Table 3 gives no values; the object-type names come from the standards that define the objects.
+  # SEMI E90.1 prints BatchLoc with a stray leading space; E90 does not.
+  values:
+    - {name: Carrier, value: "Carrier", source: e87.1}
+    - {name: ProcessJob, value: "ProcessJob", source: e40.1, note: "SEMI E40-0813 spells this object type PROCESSJOB."}
+    - {name: ControlJob, value: "ControlJob", source: e94.1}
+    - {name: Substrate, value: "Substrate", source: e90.1}
+    - {name: SubstLoc, value: "SubstLoc", source: e90.1}
+    - {name: BatchLoc, value: "BatchLoc", source: e90}
+    - {name: EPTTracker, value: "EPTTracker", source: e116}
+    - {name: Table, value: "Table", source: e58}
 OFLACK:
   formats: [B]
   binding: fixed
   goType: byte
   description: Acknowledge code for OFF LINE request.
   source: e5
+  values:
+    - {name: Acknowledge, value: 0}
 ONLACK:
   formats: [B]
   binding: fixed
   goType: byte
   description: Acknowledge code for ON LINE request.
   source: e5
+  values:
+    - {name: Accepted, value: 0}
+    - {name: NotAllowed, value: 1}
+    - {name: AlreadyOnLine, value: 2}
 OPID:
   formats: [U1, U2, U4, U8]
   binding: open
@@ -905,6 +1216,12 @@ ORLOC:
   goType: byte
   description: Origin Location.
   source: e5
+  values:
+    - {name: CenterDie, value: 0}
+    - {name: UpperRight, value: 1}
+    - {name: UpperLeft, value: 2}
+    - {name: LowerLeft, value: 3}
+    - {name: LowerRight, value: 4}
 OUTPTN:
   formats: [B, U1]
   binding: open
@@ -927,12 +1244,41 @@ PDEATTRIBUTE:
   goType: uint8
   description: Selection from available PDE attributes whose values could be reported.
   source: e5
+  # E5 Table 3 reserves 0.
+  values:
+    - {name: Name, value: 1}
+    - {name: GID, value: 2}
+    - {name: GroupName, value: 3}
+    - {name: Description, value: 4}
+    - {name: Type, value: 5}
+    - {name: Executable, value: 6}
+    - {name: MaxAntecedents, value: 7}
+    - {name: CreateDate, value: 8}
+    - {name: CreateNode, value: 9}
+    - {name: Author, value: 10}
+    - {name: UserInfo, value: 11}
+    - {name: SupplierInfo, value: 12}
+    - {name: Checksum, value: 13}
 PDEATTRIBUTENAME:
   formats: [U1]
   binding: fixed
   goType: uint8
   description: Selection from available PDE attributes that can be used to filter the PDE directory report.
   source: e5
+  # E5 Table 3 reserves 7.
+  values:
+    - {name: UID, value: 0}
+    - {name: Name, value: 1}
+    - {name: GID, value: 2}
+    - {name: GroupName, value: 3}
+    - {name: Description, value: 4}
+    - {name: Type, value: 5}
+    - {name: Executable, value: 6}
+    - {name: CreateDate, value: 8}
+    - {name: CreateNode, value: 9}
+    - {name: Author, value: 10}
+    - {name: UserInfo, value: 11}
+    - {name: SupplierInfo, value: 12}
 PDEATTRIBUTEVALUE:
   formats: [L, BOOLEAN, A, J, U1]
   binding: open
@@ -971,12 +1317,25 @@ PNAME:
   goType: string
   description: Parameter Name ≤16 characters.
   source: e5
+# The E5 S3F35 structure names PODID, but Table 3 has no row for it.
+# Format A follows the other carrier identifiers, such as CARRIERID.
+PODID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Pod identifier used by S3F35; not in E5 Table 3.
+  source: external
 PORTACTION:
   formats: [A]
   binding: fixed
   goType: string
   description: The action to be performed on a port.
   source: e5
+  # E5 Table 3 gives no values; the SEMI E87.1 S3F25 services do.
+  # E87.1 also maps ChangeServiceStatus to S3F25 but does not say how PORTACTION encodes it.
+  values:
+    - {name: ReserveAtPort, value: "ReserveAtPort", source: e87.1}
+    - {name: CancelReservationAtPort, value: "CancelReservationAtPort", source: e87.1}
 PORTGRPNAME:
   formats: [A]
   binding: fixed
@@ -999,6 +1358,13 @@ PPGNT:
   goType: byte
   description: "Process program grant status, 1 byte."
   source: e5
+  values:
+    - {name: OK, value: 0}
+    - {name: AlreadyHave, value: 1}
+    - {name: NoSpace, value: 2}
+    - {name: InvalidPPID, value: 3}
+    - {name: BusyTryLater, value: 4}
+    - {name: WillNotAccept, value: 5}
 PPID:
   formats: [B, A]
   binding: open
@@ -1010,12 +1376,28 @@ PRAXI:
   goType: byte
   description: Process axis.
   source: e5
+  values:
+    - {name: RowsTopIncreasing, value: 0}
+    - {name: RowsTopDecreasing, value: 1}
+    - {name: RowsBottomIncreasing, value: 2}
+    - {name: RowsBottomDecreasing, value: 3}
+    - {name: ColumnsLeftIncreasing, value: 4}
+    - {name: ColumnsLeftDecreasing, value: 5}
+    - {name: ColumnsRightIncreasing, value: 6}
+    - {name: ColumnsRightDecreasing, value: 7}
 PRCMDNAME:
   formats: [A]
   binding: fixed
   goType: string
   description: "Commands sent to a process job:"
   source: e5
+  values:
+    - {name: Start, value: "START", note: "SEMI E40-0813 spells this command STARTPROCESS."}
+    - {name: Stop, value: "STOP"}
+    - {name: Pause, value: "PAUSE"}
+    - {name: Resume, value: "RESUME"}
+    - {name: Abort, value: "ABORT"}
+    - {name: Cancel, value: "CANCEL"}
 PRDCT:
   formats: [U1, U2, U4, U8]
   binding: open
@@ -1026,6 +1408,9 @@ PREVENTID:
   binding: open
   description: "Processing related event identification:"
   source: e5
+  values:
+    - {name: WaitingForMaterial, value: 1}
+    - {name: JobStateChange, value: 2}
 PRJOBID:
   formats: [A]
   binding: fixed
@@ -1037,6 +1422,12 @@ PRJOBMILESTONE:
   binding: open
   description: "Notification of Processing status shall have one of the following values:"
   source: e5
+  values:
+    - {name: JobSetup, value: 1}
+    - {name: JobProcessing, value: 2}
+    - {name: JobProcessingComplete, value: 3}
+    - {name: JobComplete, value: 4}
+    - {name: JobWaitingForStart, value: 5}
 PRJOBSPACE:
   formats: [U2]
   binding: fixed
@@ -1049,6 +1440,10 @@ PRMTRLORDER:
   goType: uint8
   description: "Defines the order by which material in the process jobs material list will be processed. Possible values are assigned as follows:"
   source: e5
+  values:
+    - {name: Arrival, value: 1}
+    - {name: Optimize, value: 2}
+    - {name: List, value: 3}
 PRPAUSEEVENT:
   formats: [L]
   binding: open
@@ -1066,12 +1461,27 @@ PRRECIPEMETHOD:
   goType: uint8
   description: "Indicates the recipe specification type, whether tuning is applied and which method is used:"
   source: e5
+  values:
+    - {name: RecipeOnly, value: 1}
+    - {name: RecipeWithVariableTuning, value: 2}
 PRSTATE:
   formats: [U1]
   binding: fixed
   goType: uint8
   description: "Enumerated value, 1 byte."
   source: e5
+  # E5 Table 3 gives no values; SEMI E40.1 (PRJobState) does.
+  # E40.1 reserves 5 and codes no stopped or aborted state.
+  values:
+    - {name: QueuedPooled, value: 0, source: e40.1}
+    - {name: SettingUp, value: 1, source: e40.1}
+    - {name: WaitingForStart, value: 2, source: e40.1}
+    - {name: Processing, value: 3, source: e40.1}
+    - {name: ProcessComplete, value: 4, source: e40.1}
+    - {name: Pausing, value: 6, source: e40.1}
+    - {name: Paused, value: 7, source: e40.1}
+    - {name: Stopping, value: 8, source: e40.1}
+    - {name: Aborting, value: 9, source: e40.1}
 PTN:
   formats: [B, U1]
   binding: open
@@ -1088,11 +1498,18 @@ RAC:
   binding: open
   description: "Reset acknowledge, 1 byte."
   source: e5
+  values:
+    - {name: ResetToBeDone, value: 0}
+    - {name: ResetDenied, value: 1}
 RCMD:
   formats: [A, I1, U1]
   binding: open
   description: Remote command code or string.
   source: e5
+  note: "SEMI E58.1 requires the equipment to recognize these names whether or not it is case-sensitive."
+  values:
+    - {name: ARAMSStateChange, value: "ARAMSStateChange", source: e58.1}
+    - {name: ResetAccumulators, value: "ResetAccumulators", source: e58.1}
 RCPATTRDATA:
   formats: [L, B, BOOLEAN, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
   binding: open
@@ -1121,11 +1538,26 @@ RCPCMD:
   goType: uint8
   description: Indicates an action to be performed on a recipe.
   source: e5
+  # E5 Table 3 reserves 0-4, 6-7 and 17-63.
+  values:
+    - {name: Delete, value: 5}
+    - {name: Unprotect, value: 8}
+    - {name: Protect, value: 9}
+    - {name: Verify, value: 10}
+    - {name: Link, value: 11}
+    - {name: Unlink, value: 12}
+    - {name: Certify, value: 13}
+    - {name: Decertify, value: 14}
+    - {name: Download, value: 15}
+    - {name: Upload, value: 16}
 RCPDEL:
   formats: [U1]
   binding: fixed
   goType: uint8
   source: e5
+  values:
+    - {name: Delete, value: 0}
+    - {name: Deselect, value: 1}
 RCPDESCLTH:
   formats: [U1, U2, U4, U8]
   binding: open
@@ -1137,6 +1569,11 @@ RCPDESCNM:
   goType: string
   description: "Identifies a type of descriptor of a recipe: 'ASDesc', 'BodyDesc', 'GenDesc.'"
   source: e5
+  # E5 Table 3 lists the names in the description column.
+  values:
+    - {name: ASDesc, value: "ASDesc"}
+    - {name: BodyDesc, value: "BodyDesc"}
+    - {name: GenDesc, value: "GenDesc"}
 RCPDESCTIME:
   formats: [A]
   binding: fixed
@@ -1196,12 +1633,25 @@ RCPSECCODE:
   goType: byte
   description: "Indicates the sections of a recipe requested for transfer or being transferred:"
   source: e5
+  # E5 Table 3 reserves every other value.
+  values:
+    - {name: GenericAttributesOnly, value: 1}
+    - {name: GenericAttributesAndBody, value: 3}
+    - {name: AllAgentSpecificDatasets, value: 4}
+    - {name: GenericBodyAndAllAgentSpecificDatasets, value: 7}
+    - {name: SingleAgentSpecificDataset, value: 8}
+    - {name: GenericBodyAndSingleAgentSpecificDataset, value: 11}
 RCPSECNM:
   formats: [A]
   binding: fixed
   goType: string
   description: "Recipe section name: 'Generic', 'Body', or 'ASDS.'"
   source: e5
+  # E5 Table 3 lists the names in the description column.
+  values:
+    - {name: Generic, value: "Generic"}
+    - {name: Body, value: "Body"}
+    - {name: ASDS, value: "ASDS"}
 RCPSPEC:
   formats: [A]
   binding: fixed
@@ -1214,6 +1664,10 @@ RCPSTAT:
   goType: uint8
   description: The status of a managed recipe.
   source: e5
+  values:
+    - {name: DoesNotExist, value: 0}
+    - {name: Unprotected, value: 8}
+    - {name: Protected, value: 9}
 RCPUPDT:
   formats: [BOOLEAN]
   binding: fixed
@@ -1251,6 +1705,9 @@ RESC:
   binding: open
   description: Resolution code for numeric data.
   source: e5
+  values:
+    - {name: Absolute, value: 1}
+    - {name: SignificantDigits, value: 2}
 RESOLUTION:
   formats: [A]
   binding: fixed
@@ -1263,6 +1720,16 @@ RESPDESTAT:
   goType: uint8
   description: "Status response for the Resolve PDE request. If more than one of these conditions applies, the first value on the list that applies should be returned."
   source: e5
+  # PDENotFound and DateTimeCompareFailed sit at 5 and 6, the reverse of VERIFYRSPSTAT.
+  values:
+    - {name: OK, value: 0}
+    - {name: InvalidInputMap, value: 1}
+    - {name: MapPDENotFound, value: 2}
+    - {name: ResolveDenied, value: 3}
+    - {name: ReferencedPDENotFound, value: 4}
+    - {name: PDENotFound, value: 5}
+    - {name: DateTimeCompareFailed, value: 6}
+    - {name: Other, value: 255}
 RESPEC:
   formats: [A]
   binding: fixed
@@ -1286,17 +1753,27 @@ RETPLACEINSTR:
   goType: uint8
   description: "Instructions to indicate which pod slots will have reticles placed. Possible values for Reticle PlacementInstruction are:"
   source: e5
+  values:
+    - {name: Place, value: 0}
+    - {name: PassBy, value: 1}
+    - {name: CurrentlyOccupied, value: 2}
 RETREMOVEINSTR:
   formats: [U1]
   binding: fixed
   goType: uint8
   description: Instructions to indicate which pod slots will have reticles removed.
   source: e5
+  values:
+    - {name: Remove, value: 0}
+    - {name: PassBy, value: 1}
 RIC:
   formats: [I1, U1]
   binding: open
   description: "Reset code, 1 byte."
   source: e5
+  values:
+    - {name: NotUsed, value: 0}
+    - {name: PowerUpReset, value: 1}
 RMACK:
   formats: [U1]
   binding: fixed
@@ -1314,11 +1791,47 @@ RMCHGSTAT:
   binding: open
   description: Indicates the change that occurred for an object.
   source: e5
+  values:
+    - {name: NoChange, value: 0}
+    - {name: Created, value: 1}
+    - {name: Updated, value: 2}
+    - {name: Stored, value: 3}
+    - {name: Replaced, value: 4}
+    - {name: Deleted, value: 5}
+    - {name: Copied, value: 6}
+    - {name: Renamed, value: 7}
+    - {name: Unprotected, value: 8}
+    - {name: Protected, value: 9}
+    - {name: Verified, value: 10}
+    - {name: Linked, value: 11}
+    - {name: Unlinked, value: 12}
+    - {name: Certified, value: 13}
+    - {name: Decertified, value: 14}
+    - {name: Selected, value: 15}
+    - {name: Deselected, value: 16}
 RMCHGTYPE:
   formats: [U1, U2, U4, U8]
   binding: open
   description: Indicates the type of change for a recipe.
   source: e5
+  # E5 Table 3 prints 9 as "Product"; it is Protect, the pair of 8 = Unprotect (as in RCPCMD).
+  values:
+    - {name: NoChange, value: 0}
+    - {name: Create, value: 1}
+    - {name: Update, value: 2}
+    - {name: Delete, value: 5}
+    - {name: Copy, value: 6}
+    - {name: Rename, value: 7}
+    - {name: Unprotect, value: 8}
+    - {name: Protect, value: 9}
+    - {name: Verify, value: 10}
+    - {name: Link, value: 11}
+    - {name: Unlink, value: 12}
+    - {name: Certify, value: 13}
+    - {name: Decertify, value: 14}
+    - {name: ChangeGenericAttribute, value: 15}
+    - {name: ChangeAgentSpecificAttribute, value: 16}
+    - {name: ChangeGenericAndAgentSpecificAttributes, value: 17}
 RMDATASIZE:
   formats: [U1, U2, U4, U8]
   binding: open
@@ -1330,6 +1843,11 @@ RMGRNT:
   goType: byte
   description: "Grant code, used to grant or deny a request. 1 byte."
   source: e5
+  values:
+    - {name: PermissionGranted, value: 0}
+    - {name: CannotAcceptNowTryAgain, value: 1}
+    - {name: NoSpace, value: 2}
+    - {name: RequestOnHold, value: 3}
 RMNEWNS:
   formats: [A]
   binding: fixed
@@ -1342,6 +1860,10 @@ RMNSCMD:
   goType: uint8
   description: Action to be performed on a recipe namespace.
   source: e5
+  # E5 Table 3 reserves 0, 2-4 and 6-63.
+  values:
+    - {name: Created, value: 1}
+    - {name: Deleted, value: 5}
 RMNSSPEC:
   formats: [A]
   binding: fixed
@@ -1382,6 +1904,14 @@ RPMACK:
   goType: uint8
   description: Reticle Pod management service acknowledge code. 1 byte.
   source: e5
+  values:
+    - {name: AcknowledgeServicePerformed, value: 0}
+    - {name: ServiceDoesNotExist, value: 1}
+    - {name: CannotPerformNow, value: 2}
+    - {name: ParameterDoesNotExist, value: 3}
+    - {name: AcknowledgeCompletionLater, value: 4}
+    - {name: ServiceNotCompletedOrProhibited, value: 5}
+    - {name: NoSuchObjectExists, value: 6}
 RPMDESTLOC:
   formats: [A]
   binding: fixed
@@ -1429,12 +1959,24 @@ RRACK:
   goType: byte
   description: "Request to Receive Acknowledge code, 1 byte."
   source: e5
+  values:
+    - {name: AcknowledgeOK, value: 0}
+    - {name: InvalidPortNumber, value: 1}
+    - {name: MaterialNotAtPort, value: 2}
+    - {name: BusyTryAgain, value: 3}
+    - {name: SenderHasNoPermission, value: 4}
 RSACK:
   formats: [B]
   binding: fixed
   goType: byte
   description: "Ready to Send Acknowledge code, 1 byte."
   source: e5
+  values:
+    - {name: AcknowledgeOK, value: 0}
+    - {name: InvalidPortNumber, value: 1}
+    - {name: PortAlreadyOccupied, value: 2}
+    - {name: BusyTryAgain, value: 3}
+    - {name: ReceiverHasNoPermission, value: 4}
 RSDA:
   formats: [B]
   binding: fixed
@@ -1451,6 +1993,9 @@ RSDC:
   goType: uint8
   description: Request Spool Data Code.
   source: e5
+  values:
+    - {name: TransmitSpooledMessages, value: 0}
+    - {name: PurgeSpooledMessages, value: 1}
 RSINF:
   formats: [I1, I2, I4, I8]
   binding: open
@@ -1471,35 +2016,70 @@ RTSRSPSTAT:
   goType: uint8
   description: Status response for the Ready To Send request.
   source: e5
+  values:
+    - {name: OK, value: 0}
+    - {name: NoResources, value: 1}
+    - {name: TransferContainerTooLarge, value: 2}
+    - {name: NoStorageSpace, value: 3}
+    - {name: Other, value: 255}
 RTYPE:
   formats: [I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
   description: Type of record.
   source: e5
+  values:
+    - {name: Stream, value: 0}
+    - {name: Discrete, value: 1}
 SDACK:
   formats: [B]
   binding: fixed
   goType: byte
   description: Map set-up data acknowledge.
   source: e5
+  # E5 Table 3: 0 = Received data; ">1 = Error" with 1-63 reserved,
+  # so every nonzero code is an error (no individually named codes).
+  values:
+    - {name: ReceivedData, value: 0}
 SDBIN:
   formats: [B]
   binding: fixed
   goType: byte
   description: Send bin information flag.
   source: e5
+  # E5 Table 3 prints 0 as "Sent bin information";
+  # the flag asks the equipment to send it.
+  values:
+    - {name: SendBinInformation, value: 0}
+    - {name: DontSendBinInformation, value: 1}
 SENDRESULT:
   formats: [U1]
   binding: fixed
   goType: uint8
   description: Reports overall success or failure of the sendPDE() request.
   source: e5
+  values:
+    - {name: OK, value: 0}
+    - {name: SendRspError, value: 1}
+    - {name: TCManifestError, value: 2}
+    - {name: TCUnexpectedContent, value: 3}
+    - {name: TCMissingFiles, value: 4}
+    - {name: TCFormatError, value: 5}
 SENDRSPSTAT:
   formats: [U1]
   binding: fixed
   goType: uint8
   description: Status response for the Send PDE request.
   source: e5
+  # E5 Table 3 spells PDElocked;
+  # the constant uses the GETRSPSTAT spelling.
+  values:
+    - {name: OK, value: 0}
+    - {name: NoResources, value: 1}
+    - {name: NoExecutionTarget, value: 2}
+    - {name: PDELocked, value: 3}
+    - {name: VerificationFailed, value: 4}
+    - {name: TransferNotAllowed, value: 5}
+    - {name: Other, value: 255}
 SEQNUM:
   formats: [I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
@@ -1546,7 +2126,7 @@ SPAACK:
 SPD:
   formats: [B]
   binding: fixed
-  goType: byte
+  goType: "[]byte"
   description: Service program data.
   source: e5
 SPID:
@@ -1648,12 +2228,23 @@ SVCACK:
   goType: byte
   description: "Service acceptance acknowledge code, 1 byte."
   source: e5
+  values:
+    - {name: AcknowledgeServicePerformed, value: 0}
+    - {name: ServiceDoesNotExist, value: 1}
+    - {name: CannotPerformNow, value: 2}
+    - {name: ParameterInvalid, value: 3}
+    - {name: AcknowledgeCompletionLater, value: 4}
+    - {name: ServiceNotCompletedOrProhibited, value: 5}
+    - {name: NoSuchObjectExists, value: 6}
 SVCNAME:
   formats: [A]
   binding: fixed
   goType: string
   description: Service name provided on specified object asking by the host.
   source: e5
+  # E5 Table 3 gives no values; SEMI E90.1 maps its ObjectAction service to this name.
+  values:
+    - {name: UpdateSubstrateObject, value: "UpdateSubstrateObject", source: e90.1}
 SVID:
   formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
@@ -1689,12 +2280,21 @@ TBLACK:
   goType: uint8
   description: Indicates success or failure.
   source: e5
+  values:
+    - {name: Success, value: 0}
+    - {name: Failure, value: 1}
 TBLCMD:
   formats: [U1]
   binding: fixed
   goType: uint8
   description: "Provides information about the table or parts of the table being transferred or requested. Enumerated:"
   source: e5
+  values:
+    - {name: CompleteTable, value: 0}
+    - {name: NewRows, value: 1}
+    - {name: NewColumns, value: 2}
+    - {name: ReplaceExistingRows, value: 3}
+    - {name: ReplaceExistingColumns, value: 4}
 TBLELT:
   formats: [L, B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
   binding: open
@@ -1712,6 +2312,10 @@ TBLTYP:
   goType: string
   description: A reserved text string to denote the format and application of the table. Text conforming to the requirements of OBJSPEC.
   source: e5
+  # E5 Table 3 gives no values; SEMI E58 defines the ARAMS table types.
+  values:
+    - {name: TableARAMSCode, value: "TableARAMSCode", source: e58}
+    - {name: TableARAMSSymptom, value: "TableARAMSSymptom", source: e58}
 TCID:
   formats: [A]
   binding: fixed
@@ -1751,6 +2355,9 @@ TID:
   goType: byte
   description: "Terminal number, 1 byte."
   source: e5
+  # E5 Table 3 numbers the additional terminals at the same equipment above 0 without naming them.
+  values:
+    - {name: SingleOrMain, value: 0}
 TIME:
   formats: [A]
   binding: fixed
@@ -1803,12 +2410,23 @@ TRCMDNAME:
   goType: string
   description: "Identifier of the transfer job related command to be executed. Possible values:"
   source: e5
+  # STARTHANDOFF requires a TRATOMICID parameter.
+  values:
+    - {name: Cancel, value: "CANCEL"}
+    - {name: Pause, value: "PAUSE"}
+    - {name: Resume, value: "RESUME"}
+    - {name: Abort, value: "ABORT"}
+    - {name: Stop, value: "STOP"}
+    - {name: StartHandoff, value: "STARTHANDOFF"}
 TRDIR:
   formats: [U1]
   binding: fixed
   goType: uint8
   description: Direction of handoff.
   source: e5
+  values:
+    - {name: SendMaterial, value: 1}
+    - {name: ReceiveMaterial, value: 2}
 TRID:
   formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
@@ -1817,7 +2435,7 @@ TRID:
 TRJOBID:
   formats: [B]
   binding: fixed
-  goType: byte
+  goType: "[]byte"
   description: Equipment assigned identifier for the transfer job.
   source: e5
 TRJOBMS:
@@ -1826,6 +2444,9 @@ TRJOBMS:
   goType: uint8
   description: "Milestone for a transfer job (e.g., started or complete)."
   source: e5
+  values:
+    - {name: TransferJobStarted, value: 1}
+    - {name: TransferJobComplete, value: 2}
 TRJOBNAME:
   formats: [A]
   binding: fixed
@@ -1881,6 +2502,9 @@ TRROLE:
   goType: uint8
   description: Tells whether the equipment is to be the primary or secondary transfer partner.
   source: e5
+  values:
+    - {name: PrimaryTransferPartner, value: 1}
+    - {name: SecondaryTransferPartner, value: 2}
 TRSPER:
   formats: [F4, F8]
   binding: open
@@ -1892,18 +2516,32 @@ TRTYPE:
   goType: uint8
   description: Tells whether the equipment is to be an active or passive participant in the transfer.
   source: e5
+  values:
+    - {name: Active, value: 1}
+    - {name: Passive, value: 2}
 TSIP:
   formats: [B]
   binding: fixed
   goType: byte
   description: "Transfer status of input port, 1 byte."
   source: e5
+  values:
+    - {name: Idle, value: 1}
+    - {name: Prep, value: 2}
+    - {name: TrackOn, value: 3}
+    - {name: StuckInReceiver, value: 4}
 TSOP:
   formats: [B]
   binding: fixed
   goType: byte
   description: "Transfer status of output port, 1 byte."
   source: e5
+  values:
+    - {name: Idle, value: 1}
+    - {name: Prep, value: 2}
+    - {name: TrackOn, value: 3}
+    - {name: StuckInSender, value: 4}
+    - {name: Completion, value: 5}
 TTC:
   formats: [I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
@@ -1947,12 +2585,32 @@ VERIFYDEPTH:
   goType: uint8
   description: Selects whether to check only the target PDE or all associated PDEs within a multi-part recipe.
   source: e5
+  values:
+    - {name: Single, value: 0}
+    - {name: All, value: 1}
 VERIFYRSPSTAT:
   formats: [U1]
   binding: fixed
   goType: uint8
   description: Verification result.
   source: e5
+  # The markdown row is truncated; the codes come from the PDF text of Table 3.
+  # DateTimeCompareFailed and PDENotFound sit at 5 and 6, the reverse of RESPDESTAT.
+  values:
+    - {name: OK, value: 0}
+    - {name: InvalidInputMap, value: 1}
+    - {name: MapPDENotFound, value: 2}
+    - {name: ResolveDenied, value: 3}
+    - {name: ReferencedPDENotFound, value: 4}
+    - {name: DateTimeCompareFailed, value: 5}
+    - {name: PDENotFound, value: 6}
+    - {name: ChecksumFail, value: 7}
+    - {name: SyntaxError, value: 8}
+    - {name: ContentError, value: 9}
+    - {name: NoExecutionTarget, value: 10}
+    - {name: OutputParameterError, value: 11}
+    - {name: NoVerification, value: 12}
+    - {name: Other, value: 255}
 VERIFYSUCCESS:
   formats: [BOOLEAN]
   binding: fixed
@@ -1965,6 +2623,9 @@ VERIFYTYPE:
   goType: uint8
   description: Choice of the type of verification to perform.
   source: e5
+  values:
+    - {name: Checksum, value: 0}
+    - {name: Validity, value: 1}
 VID:
   formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open

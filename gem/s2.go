@@ -34,7 +34,7 @@ func S2F2(grant GRANT) secs2.SECS2Message {
 // Body: B[spd].
 //
 // Exception: None.
-func S2F3(spd byte) secs2.SECS2Message {
+func S2F3(spd []byte) secs2.SECS2Message {
 	return secs2.NewMessage(2, 3, true, secs2.B(spd))
 }
 
@@ -67,7 +67,7 @@ func S2F5(spid string) secs2.SECS2Message {
 // Body: B[spd].
 //
 // Exception: A zero-length item means that the requested program cannot be returned.
-func S2F6(spd byte) secs2.SECS2Message {
+func S2F6(spd []byte) secs2.SECS2Message {
 	return secs2.NewMessage(2, 6, false, secs2.B(spd))
 }
 
