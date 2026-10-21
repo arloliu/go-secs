@@ -17,11 +17,37 @@ declined:
   - gem/s1_decode.go
   - gem/s2.go
   - gem/s2_decode.go
+  - gem/s3.go
+  - gem/s3_decode.go
+  - gem/s4.go
+  - gem/s4_decode.go
   - gem/s5.go
   - gem/s5_decode.go
   - gem/s6.go
   - gem/s6_decode.go
+  - gem/s7.go
+  - gem/s7_decode.go
+  - gem/s8.go
+  - gem/s8_decode.go
   - gem/s9_decode.go
+  - gem/s10.go
+  - gem/s10_decode.go
+  - gem/s12.go
+  - gem/s12_decode.go
+  - gem/s13.go
+  - gem/s13_decode.go
+  - gem/s14.go
+  - gem/s14_decode.go
+  - gem/s15.go
+  - gem/s15_decode.go
+  - gem/s16.go
+  - gem/s16_decode.go
+  - gem/s17.go
+  - gem/s17_decode.go
+  - gem/s18.go
+  - gem/s18_decode.go
+  - gem/s19.go
+  - gem/s19_decode.go
   # per-type SECS-II item implementations; doc.go and godoc cover them
   - secs2/binary.go
   - secs2/boolean.go
