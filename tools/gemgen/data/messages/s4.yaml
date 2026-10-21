@@ -1,0 +1,497 @@
+stream: 4
+messages:
+  # Original material control protocol (SEMI E5 §10.8.1).
+  - function: 1
+    name: Ready to Send Materials
+    mnemonic: RSN
+    direction: bidirectional
+    description: The sender advises the receiver that some material is awaiting transfer.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: PTN}, {item: MID}]}
+
+  - function: 2
+    name: Ready to Send Acknowledge
+    mnemonic: RSA
+    direction: bidirectional
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: RSACK}
+
+  - function: 3
+    name: Send Material
+    mnemonic: SMN
+    direction: bidirectional
+    description: >-
+      The receiver advises the sender that it is ready to receive material and that its transfer
+      mechanism is running.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: PTN}, {item: MID}]}
+
+  - function: 5
+    name: Handshake Complete
+    mnemonic: HCN
+    direction: bidirectional
+    description: >-
+      Receiver advises sender that the handshake is complete. The sender may now stop its transfer
+      mechanism.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: PTN}, {item: MID}]}
+
+  - function: 7
+    name: Not Ready to Send
+    mnemonic: ABN
+    direction: bidirectional
+    description: >-
+      Sender advises receiver that no material is being sent. The receiver may now stop its transfer
+      mechanism.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: PTN}, {item: MID}]}
+
+  # E5 reads "the receipt of Material (SMN)";
+  # SMN is Send Material, so the description says "the receipt of Send Material (SMN)".
+  - function: 9
+    name: Stuck in Sender
+    mnemonic: SSN
+    direction: equipment-to-host
+    description: >-
+      An error from the sender to the host. The time between the receipt of Send Material (SMN) and
+      the material leaving the sender's sensor exceeds the sender's t1 timeout. The sender goes to a
+      hold state until the disposition of the stuck material is determined.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: PTN}, {item: MID}]}
+
+  - function: 11
+    name: Stuck in Receiver
+    mnemonic: SRN
+    direction: equipment-to-host
+    description: >-
+      An error from the receiver to the host. The time between Send Material (SMN) and detection of
+      the material at the receiver exceeds the receiver's t2 timeout. The receiver goes to a hold
+      state until the disposition of material is determined.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: PTN}, {item: MID}]}
+
+  - function: 13
+    name: Send Incomplete Timeout
+    mnemonic: SIN
+    direction: equipment-to-host
+    description: >-
+      An error from the sender to the host. The time between the receipt of the Send Material (SMN)
+      and the receipt of Handshake Complete (HCN) exceeds the sender's t3 timeout. There has been an
+      error in the handshake and the transfer mechanism is turned off.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: PTN}, {item: MID}]}
+
+  - function: 15
+    name: Material Received
+    mnemonic: MRN
+    direction: equipment-to-host
+    description: A message from the receiver to the host. Material has been transferred to the receiver.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: PTN}, {item: MID}]}
+
+  - function: 17
+    name: Request to Receive
+    mnemonic: RTR
+    direction: bidirectional
+    description: >-
+      Receiver requests the sender initiate a conversation to send the specified material to the
+      specified port.
+    exception: A zero-length MID means equipment doesn't know MID.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: PTN}, {item: MID}]}
+
+  - function: 18
+    name: Request to Receive Acknowledge
+    mnemonic: RRA
+    direction: bidirectional
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: RRACK}
+
+  # SEMI E32 macro level messages (SEMI E5 §10.8.2.1); S1F19/S1F20 belong to this group too.
+  # E5's description reads "If S4F20 is multi-block"; S4F20 is a single-block message
+  # and S4F19 is the multi-block one, so the sentence is quoted with S4F19.
+  - function: 19
+    name: Transfer Job Create
+    mnemonic: TJ
+    direction: host-to-equipment
+    description: >-
+      The host requests that the equipment undertake one or more discrete (or atomic) transfers to
+      achieve a host defined objective. The host provides the transfer specifications for each atomic
+      transfer. Atomic transfers on separate ports on the equipment are allowed to execute in
+      parallel. Atomic transfers for a port must be executed sequentially or in some cases
+      concurrently. Both equipment transfer partners for each atomic transfer must receive appropriate
+      Transfer Job Request messages in order to execute a transfer. If S4F19 is multi-block, it must
+      be preceded by the S4F25/S4F26 Inquire/Grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - type: list
+              items:
+                - {item: TRJOBNAME}
+                - type: list
+                  repeat: transfers
+                  of:
+                    type: list
+                    items:
+                      - {item: TRLINK}
+                      - {item: TRPORT}
+                      - {item: TROBJNAME}
+                      - {item: TROBJTYPE}
+                      - {item: TRROLE}
+                      - {item: TRRCP}
+                      - {item: TRPTNR}
+                      - {item: TRPTPORT}
+                      - {item: TRDIR}
+                      - {item: TRTYPE}
+                      - {item: TRLOCATION}
+                      - {item: TRAUTOSTART}
+
+  # The markdown conversion of E5 drops the L,3 header of this structure;
+  # the structure is taken from the page layout text.
+  # E5 prints the mnemonic TJA for both S4F20 and S4F23; both are kept as printed.
+  - function: 20
+    name: Transfer Job Acknowledge
+    mnemonic: TJA
+    direction: equipment-to-host
+    description: The equipment informs the host of its acceptance or rejection of the Transfer Job Request.
+    exception: >-
+      A zero-length list (m = 0) is sent if the transfer job is rejected. A zero-length list (n = 0)
+      is sent if the transfer job is accepted.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TRJOBID}
+            - {type: list, repeat: atomicids, of: {item: TRATOMICID}}
+            - type: list
+              items:
+                - {item: TRACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 21
+    name: Transfer Job Command
+    mnemonic: TC
+    direction: host-to-equipment
+    description: This message is used by the host to modify a current transfer job on an equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TRJOBID}
+            - {item: TRCMDNAME}
+            - type: list
+              repeat: params
+              of: {type: list, items: [{item: CPNAME}, {item: CPVAL}]}
+
+  - function: 22
+    name: Transfer Command Acknowledge
+    mnemonic: TCA
+    direction: equipment-to-host
+    description: Equipment accepts or rejects the transfer command.
+    exception: If the command is accepted, n = 0.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TRACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  # The markdown conversion of E5 drops most of this structure;
+  # the structure is taken from the page layout text.
+  # E5 prints the mnemonic TJA for both S4F20 and S4F23; both are kept as printed.
+  - function: 23
+    name: Transfer Job Alert
+    mnemonic: TJA
+    direction: equipment-to-host
+    description: >-
+      Equipment informs the host that a transfer job milestone has been reached (e.g., job started or
+      job complete). If complete, all equipment resources originally reserved for the transfer have
+      been released.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: If the transfer job is completed successfully, n = 0.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TRJOBID}
+            - {item: TRJOBNAME}
+            - {item: TRJOBMS}
+            - type: list
+              items:
+                - {item: TRACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 24
+    name: Transfer Alert Acknowledge
+    mnemonic: TLA
+    direction: host-to-equipment
+    description: Acknowledge receipt of the S4F23 message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
+
+  # E5 prints the mnemonic as "MB14", a misprint of MBI4 (compare MBG4 for S4F26).
+  - function: 25
+    name: Multi-block Inquire
+    mnemonic: MBI4
+    direction: host-to-equipment
+    description: >-
+      If a Stream 4 host-initiated message is more than a single block in length, this transaction
+      must precede the message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: DATAID}, {item: DATALENGTH}]}
+
+  - function: 26
+    name: Multi-block Grant
+    mnemonic: MBG4
+    direction: equipment-to-host
+    description: Grant (or deny) permission to send multi-block message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: GRANT}
+
+  # SEMI E32 micro level messages (SEMI E5 §10.8.2.2), passed directly between two equipment.
+  # E5 gives their direction in terms of the primary (P) and secondary (S) transfer partner,
+  # and either equipment may play host or equipment on the link (§10.8.2.2.3),
+  # so every message in this group is bidirectional on the link.
+  # E5 heads the atomic transfer specification with L,11 but lists ten items;
+  # E5 Table 3 uses TRRCP and TRAUTOSTART only in S4F19, so the ten-item list is generated.
+  - function: 27
+    name: Handoff Ready
+    mnemonic: HR
+    direction: bidirectional
+    description: >-
+      Each transfer partner informs the other when they are ready to perform a specified atomic
+      transfer. The TRLINK values from the two partners must match. The values contained in the
+      atomic transfer specification pertain to the sender of the message (except where specified).
+      Either transfer partner may send this message.
+      The host and equipment roles of the link are unrelated to the transfer partner roles.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: EQNAME}
+            - type: list
+              items:
+                - {item: TRLINK}
+                - {item: TRPORT}
+                - {item: TROBJNAME}
+                - {item: TROBJTYPE}
+                - {item: TRROLE}
+                - {item: TRPTNR}
+                - {item: TRPTPORT}
+                - {item: TRDIR}
+                - {item: TRTYPE}
+                - {item: TRLOCATION}
+
+  - function: 29
+    name: Handoff Command
+    mnemonic: HC
+    direction: bidirectional
+    description: >-
+      Command issued by the primary to the secondary transfer partner to achieve some physical action.
+      Either equipment may be the primary transfer partner.
+      The host and equipment roles of the link are unrelated to the transfer partner roles.
+    exception: N = 0 if no parameters are used.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TRLINK}
+            - {item: MCINDEX}
+            - {item: HOCMDNAME}
+            - type: list
+              repeat: params
+              of: {type: list, items: [{item: CPNAME}, {item: CPVAL}]}
+
+  - function: 31
+    name: Handoff Command Complete
+    mnemonic: HCC
+    direction: bidirectional
+    description: >-
+      Completion status of the micro command. This is sent from the secondary to the primary transfer
+      partner when the command is completed or terminated.
+      Either equipment may be the secondary transfer partner.
+      The host and equipment roles of the link are unrelated to the transfer partner roles.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TRLINK}
+            - {item: MCINDEX}
+            - type: list
+              items:
+                - {item: HOACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 33
+    name: Handoff Verified
+    mnemonic: HV
+    direction: bidirectional
+    description: >-
+      Sent by the primary transfer partner to inform the secondary that no more micro commands will be
+      issued for this atomic transfer and to request a verification that the transfer is complete and
+      successful. Also sent by the secondary partner following the receipt of this message to verify
+      that the transfer is complete and successful (or to report problems).
+      Either transfer partner may send this message.
+      The host and equipment roles of the link are unrelated to the transfer partner roles.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TRLINK}
+            - type: list
+              items:
+                - {item: HOACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 35
+    name: Handoff Cancel Ready
+    mnemonic: HCR
+    direction: bidirectional
+    description: >-
+      Sent by either transfer partner to cancel a previous Handoff Ready message. This message is valid
+      only before the handoff has begun.
+      The host and equipment roles of the link are unrelated to the transfer partner roles.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: TRLINK}
+
+  - function: 37
+    name: Handoff Cancel Ready Acknowledge
+    mnemonic: HCA
+    direction: bidirectional
+    description: >-
+      Sent by the receiver of the Handoff Cancel Ready message to accept or deny the cancel. The cancel
+      request is denied if the handoff process has begun.
+      Either transfer partner may send this message.
+      The host and equipment roles of the link are unrelated to the transfer partner roles.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: TRLINK}, {item: HOCANCELACK}]}
+
+  - function: 39
+    name: Handoff Halt
+    mnemonic: HH
+    direction: bidirectional
+    description: >-
+      Sent by either transfer partner to cause all transfer related activity of the other to cease
+      immediately. It is used when the equipment or material is at risk of damage.
+      The host and equipment roles of the link are unrelated to the transfer partner roles.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: TRLINK}
+
+  - function: 41
+    name: Handoff Halt Acknowledge
+    mnemonic: HHA
+    direction: bidirectional
+    description: >-
+      Sent to equipment's transfer partner following completion of halt activities resulting from a
+      previously received S4F39.
+      Either transfer partner may send this message.
+      The host and equipment roles of the link are unrelated to the transfer partner roles.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: TRLINK}, {item: HOHALTACK}]}
