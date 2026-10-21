@@ -1,0 +1,56 @@
+stream: 8
+messages:
+  - function: 1
+    name: Boot Program Request
+    mnemonic: BPR
+    direction: bidirectional
+    description: >-
+      This message is used to request the transmission of the boot program.
+      It is assumed that there is only one boot program associated with any given equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 2
+    name: Boot Program Data
+    mnemonic: BPD
+    direction: bidirectional
+    description: The boot program is required by some systems as a precursor to loading an operating system or executive program.
+    exception: A zero-length item means no boot.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: BPD}
+
+  - function: 3
+    name: Executive Program Request
+    mnemonic: EPR
+    direction: bidirectional
+    description: >-
+      This message is used to request the executive program.
+      It is assumed that there is only one executive program associated with any given equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 4
+    name: Executive Program Data
+    mnemonic: EPD
+    direction: bidirectional
+    description: >-
+      The executive program is the master control program of the equipment.
+      The executive may contain all the program required
+      or it may contain the information required to request the rest of the program it needs on Stream 13.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: EPD}

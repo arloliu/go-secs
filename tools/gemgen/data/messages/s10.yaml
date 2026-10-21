@@ -1,0 +1,126 @@
+stream: 10
+messages:
+  - function: 1
+    name: Terminal Request
+    mnemonic: TRN
+    direction: equipment-to-host
+    description: >-
+      A terminal text message to the host.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: TID}, {item: TEXT}]}
+
+  - function: 2
+    name: Terminal Request Acknowledge
+    mnemonic: TRA
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC10}
+
+  - function: 3
+    name: Terminal Display, Single
+    mnemonic: VTN
+    direction: host-to-equipment
+    description: >-
+      Data to be displayed.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: TID}, {item: TEXT}]}
+
+  - function: 4
+    name: Terminal Display, Single Acknowledge
+    mnemonic: VTA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC10}
+
+  - function: 5
+    name: Terminal Display, Multi-Block
+    # E5 prints the mnemonic VTN for both S10F3 and S10F5; kept as printed.
+    mnemonic: VTN
+    direction: host-to-equipment
+    description: >-
+      Data to be displayed on the equipment's terminal.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TID}
+            - {type: list, repeat: texts, of: {item: TEXT}}
+
+  - function: 6
+    name: Terminal Display, Multi-block Acknowledge
+    mnemonic: VMA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC10}
+
+  - function: 7
+    name: Multi-block Not Allowed
+    mnemonic: MNN
+    direction: equipment-to-host
+    description: An error message from a terminal that cannot handle a multi-block message from S10F5.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: TID}
+
+  - function: 9
+    name: Broadcast
+    mnemonic: BCN
+    direction: host-to-equipment
+    description: >-
+      This function is generally the same as S10F3
+      except that specific TID in each equipment need not be specified.
+      Instead, the text is directed to each terminal in the equipment when the function is received.
+      This function assumes that this feature exists on all equipment,
+      otherwise repeated S10F3 messages should be used.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: TEXT}
+
+  - function: 10
+    name: Broadcast Acknowledge
+    mnemonic: BCA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC10}
