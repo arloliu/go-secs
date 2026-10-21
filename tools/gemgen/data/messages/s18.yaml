@@ -1,0 +1,297 @@
+stream: 18
+# In Stream 18, H is the higher-level controller and E is the subsystem component.
+# STATUSLIST and CONDITIONLIST are list-format items that E5 Table 3 defines as
+# L,s of STATUS and L,s of CONDITION; they are written in that expanded form.
+messages:
+  - function: 1
+    name: Read Attribute Request
+    mnemonic: RAR
+    direction: host-to-equipment
+    description: >-
+      This message requests the current values of specified attributes
+      of the subsystem component indicated in TARGETID.
+    exception: If n = 0, then all attributes of the target component are requested.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {type: list, repeat: attrids, of: {item: ATTRID}}
+
+  - function: 2
+    name: Read Attribute Data
+    mnemonic: RAD
+    direction: equipment-to-host
+    description: >-
+      This message returns the current values of requested attributes
+      and the current status of the requested component indicated in TARGETID.
+      Attributes are returned in the order requested.
+    # E5 names an s that this structure does not have; the text is kept as printed.
+    exception: Both n = 0 and s = 0 if the target component is unknown.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {item: SSACK}
+            - {type: list, repeat: values, of: {item: ATTRDATA}}
+
+  - function: 3
+    name: Write Attribute Request
+    mnemonic: WAR
+    direction: host-to-equipment
+    description: >-
+      This message requests the subsystem to set the value of read/write attributes
+      of the component specified in TARGETID.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - type: list
+              repeat: attributes
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+
+  - function: 4
+    name: Write Attribute Acknowledge
+    mnemonic: WAA
+    direction: equipment-to-host
+    description: >-
+      This message acknowledges the success or failure of the request to write attribute data
+      to the subsystem indicated in TARGETID.
+    exception: s = 0 (an empty STATUSLIST) if the target component is unknown.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {item: SSACK}
+            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+
+  - function: 5
+    name: Read Request
+    mnemonic: RR
+    direction: host-to-equipment
+    description: >-
+      The host requests the subsystem indicated in TARGETID to read information.
+      DATASEG may be used to indicate a specific section of data to be read.
+      DATALENGTH is used to limit the amount of data for that section.
+    exception: >-
+      If DATASEG and DATALENGTH are both omitted (are zero-length items) then all data is requested.
+      If DATALENGTH only is omitted, then all data within the indicated section is requested.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: TARGETID}, {item: DATASEG}, {item: DATALENGTH}]}
+
+  - function: 6
+    name: Read Data
+    mnemonic: RD
+    direction: equipment-to-host
+    description: >-
+      This message is used to return requested information from the subsystem indicated in TARGETID
+      or to acknowledge the results of the request.
+    exception: If TARGETID is unknown, then DATA is zero length.
+    source: e5
+    # The markdown copy of E5 merges the direction into the name cell; the PDF text gives S,H<-E.
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {item: SSACK}
+            - {item: DATA}
+            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+
+  - function: 7
+    name: Write Data Request
+    mnemonic: WDR
+    direction: host-to-equipment
+    description: >-
+      This message requests to write data to the subsystem component indicated in TARGETID.
+      DATASEG may be used to indicate a specific section of data to be written or overwritten.
+    exception: >-
+      If DATASEG and DATALENGTH are both omitted (are zero-length items) then all data is to be overwritten.
+      If only DATALENGTH is omitted, then all data within the indicated section is to be written.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {item: DATASEG}
+            - {item: DATALENGTH}
+            - {item: DATA}
+
+  - function: 8
+    name: Write Data Acknowledge
+    mnemonic: WDA
+    direction: equipment-to-host
+    description: >-
+      This message acknowledges the success or failure of writing data
+      to the subsystem indicated in TARGETID.
+    exception: s = 0 (an empty STATUSLIST) if and only if TARGETID is unknown.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {item: SSACK}
+            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+
+  - function: 9
+    name: Read ID Request
+    mnemonic: RIR
+    direction: host-to-equipment
+    description: This message is used to request the subsystem indicated by TARGETID to read an identifier.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: TARGETID}
+
+  - function: 10
+    name: Read ID Data
+    mnemonic: RID
+    direction: equipment-to-host
+    description: >-
+      This message returns a requested material identifier MID
+      as read by the subsystem indicated in TARGETID.
+    exception: s = 0 (an empty STATUSLIST) if and only if TARGETID is unknown.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {item: SSACK}
+            - {item: MID}
+            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+
+  - function: 11
+    name: Write ID Request
+    mnemonic: WIR
+    direction: host-to-equipment
+    description: This message is used to request the subsystem indicated by TARGETID to write an identifier.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: TARGETID}, {item: MID}]}
+
+  - function: 12
+    name: Write ID Acknowledge
+    mnemonic: WIA
+    direction: equipment-to-host
+    description: >-
+      This message acknowledges the success or failure of the subsystem specified in TARGETID
+      in writing the ID.
+    exception: s = 0 (an empty STATUSLIST) if and only if TARGETID is unknown.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {item: SSACK}
+            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+
+  - function: 13
+    name: Subsystem Command Request
+    mnemonic: SCR
+    direction: host-to-equipment
+    description: >-
+      This message is used to request the subsystem indicated in TARGETID
+      to perform a specific action.
+    exception: If n = 0, no parameters are provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {item: SSCMD}
+            - {type: list, repeat: params, of: {item: CPVAL}}
+
+  - function: 14
+    name: Subsystem Command Acknowledge
+    mnemonic: SCA
+    direction: equipment-to-host
+    description: >-
+      This message reports the results from the subsystem specified in TARGETID
+      for the requested action.
+    exception: s = 0 (an empty STATUSLIST) if and only if TARGETID is unknown.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {item: SSACK}
+            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+
+  - function: 15
+    name: Read 2D Code Condition Request
+    mnemonic: R2DCCR
+    direction: host-to-equipment
+    description: >-
+      The host requests the subsystem indicated in TARGETID
+      to read information on 2D Code Condition.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: TARGETID}
+
+  - function: 16
+    name: Read 2D Code Condition Data
+    mnemonic: R2DCCD
+    direction: equipment-to-host
+    description: >-
+      This message is used to return requested information on 2D Code Condition
+      from the subsystem indicated in TARGETID or to acknowledge the results of the request.
+    exception: If SSACK is failure, the length of CONDITIONLIST must be zero.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TARGETID}
+            - {item: SSACK}
+            - {item: MID}
+            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+            - {type: list, repeat: conditions, of: {item: CONDITION}, typed: true}

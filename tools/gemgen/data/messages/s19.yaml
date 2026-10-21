@@ -1,0 +1,413 @@
+stream: 19
+# Stream 19 messages pass between a client and a service provider, either of which may be the host or the equipment.
+# PDEs and PDE headers never travel in these bodies:
+# they move as a TransferContainer by Stream 13 Data Set Transfer, with TCID as the DSNAME.
+messages:
+  - function: 1
+    name: Get PDE Directory
+    mnemonic: GPD
+    direction: bidirectional
+    # The last sentence of the description comes from the PDEATTRIBUTEVALUE row of E5 Table 3.
+    description: >-
+      This message is used to request the list of PDEs maintained by the service provider.
+      The client requests a subset of the full list by specifying filters (list L,m).
+      The COMPARISONOPERATOR is used to compare the given attribute value with the current value of that attribute.
+      Filters are AND'ed together.
+      The client specifies the PDE attributes (list L,n) to be returned (in addition to the identifier).
+      The format of PDEATTRIBUTEVALUE depends on the PDEATTRIBUTENAME it is paired with.
+    exception: >-
+      If m = 0, all PDEs stored by the service provider are reported.
+      If n = 0, no additional attributes are requested for each PDE (UID is always returned).
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: filters
+              of:
+                type: list
+                items: [{item: PDEATTRIBUTENAME}, {item: COMPARISONOPERATOR}, {item: PDEATTRIBUTEVALUE}]
+            - {type: list, repeat: attributes, of: {item: PDEATTRIBUTE}}
+
+  - function: 2
+    name: PDE Directory Data
+    mnemonic: PDD
+    direction: bidirectional
+    description: >-
+      Returns the list of the PDEs, held by the service provider, that match the provided filter.
+      The values of the specified attributes are included for each.
+    exception: >-
+      m = 0 indicates that no PDEs matched the filter or none exist on the service provider.
+      n = 0 if no additional attributes were requested in S19F1.
+      When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: DIRRSPSTAT}
+            - {item: STATUSTXT}
+            - type: list
+              repeat: pdes
+              of:
+                type: list
+                items:
+                  - {item: UID}
+                  - type: list
+                    repeat: attributes
+                    of: {type: list, items: [{item: PDEATTRIBUTE}, {item: PDEATTRIBUTEVALUE}]}
+
+  - function: 3
+    name: Delete PDE
+    mnemonic: DPDE
+    direction: host-to-equipment
+    description: Request that the specified PDEs be deleted from the service provider's collection of PDEs.
+    exception: n = 0 is not allowed; at least one UID is required.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: uids, of: {item: UID}}
+
+  - function: 4
+    name: Delete PDE Acknowledge
+    mnemonic: DPDEA
+    direction: equipment-to-host
+    description: Acknowledge or error for each specified UID.
+    exception: >-
+      If S19F3 contained a list of zero UIDs, this is an error.
+      A zero-length list (n = 0) is returned as acknowledgement of this error.
+      When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: results
+          of: {type: list, items: [{item: UID}, {item: DELRSPSTAT}, {item: STATUSTXT}]}
+
+  - function: 5
+    name: Get PDE Header
+    mnemonic: GPH
+    direction: bidirectional
+    description: Client requests that the headers of one or more PDEs be sent from the service provider.
+    exception: n = 0 is not allowed; at least one UID is required.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: uids, of: {item: UID}}
+
+  - function: 6
+    name: PDE Header Data
+    mnemonic: PHD
+    direction: bidirectional
+    description: >-
+      Response to the request for PDE header transfer.
+      The list L,n provides a status response for each of the requested PDEs.
+      The PDE headers of any PDEs with a GETRSPSTAT code of 0 are returned in a TransferContainer
+      (identified by the TCID) using Data Set Transfer (Stream 13), with the TCID as the DSNAME.
+      Due to the SECS-II data item size restriction, the TransferContainer is not returned directly in this response.
+    exception: >-
+      If S19F5 contained a list of zero UIDs, then this is an error
+      and a zero-length list (n = 0) is returned as acknowledgement;
+      in this case, no TransferContainer will be transferred.
+      If no requested PDEs have a GETRSPSTAT code of 0, no TransferContainer will be transferred.
+      If no TransferContainer is to be transferred, then the TCID shall be a zero-length item.
+      When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TCID}
+            - type: list
+              repeat: results
+              of: {type: list, items: [{item: UID}, {item: GETRSPSTAT}, {item: STATUSTXT}]}
+
+  - function: 7
+    name: Get PDE
+    mnemonic: GPDE
+    direction: bidirectional
+    description: Client requests that one or more PDEs be sent from the service provider.
+    exception: n = 0 is not allowed; at least one UID is required.
+    source: e5
+    # The markdown copy of E5 drops this message's name, description and structure;
+    # they are taken from the PDF text.
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: uids, of: {item: UID}}
+
+  - function: 8
+    name: PDE Data
+    mnemonic: PDED
+    direction: bidirectional
+    description: >-
+      Response to the request for PDE transfer.
+      The list L,n provides a status response for each of the requested PDEs.
+      Any PDEs with a GETRSPSTAT code of 0 are returned in a TransferContainer
+      (identified by the TCID) using Data Set Transfer (Stream 13), with the TCID as the DSNAME.
+      Due to the data item size restriction, the TransferContainer is not returned directly in this response.
+    exception: >-
+      If S19F7 contained a list of zero UIDs, then this is an error
+      and a zero-length list (n = 0) is returned as acknowledgement;
+      in this case, no TransferContainer will be transferred.
+      If no requested PDEs have a GETRSPSTAT code of 0, no TransferContainer will be transferred.
+      If no TransferContainer is to be transferred, then the TCID shall be a zero-length item.
+      When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TCID}
+            - type: list
+              repeat: results
+              of: {type: list, items: [{item: UID}, {item: GETRSPSTAT}, {item: STATUSTXT}]}
+
+  - function: 9
+    name: Request To Send PDE
+    mnemonic: RTSP
+    direction: bidirectional
+    description: >-
+      Request for the service provider to determine whether transfer of a TransferContainer of a specified size
+      can be initiated using the S19F11/S19F12 transaction.
+      The TCID identifies the TransferContainer to be sent to the service provider.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: TCID}, {item: TRANSFERSIZE}]}
+
+  - function: 10
+    name: Send PDE Grant
+    mnemonic: SPDEG
+    direction: bidirectional
+    description: >-
+      Grants or denies the request to send PDEs.
+      The TCID value shall match that in the corresponding S19F9 message.
+    exception: >-
+      When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: TCID}, {item: RTSRSPSTAT}, {item: STATUSTXT}]}
+
+  - function: 11
+    name: Send PDE
+    mnemonic: SPDE
+    direction: bidirectional
+    description: >-
+      This message initiates the transport of a TransferContainer to the service provider.
+      Restrictions on the size of a data item prevent the inclusion of the TransferContainer in this message.
+      Instead, this message tells the service provider to initiate Data Set Transfer (Stream 13)
+      of the TransferContainer with DSNAME = TCID.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: TCID}
+
+  - function: 12
+    name: Send PDE Acknowledge
+    mnemonic: SPDEA
+    direction: bidirectional
+    description: >-
+      Acknowledges receipt of the S19F11 message.
+      See S19F13 for results of the transfer.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
+
+  - function: 13
+    name: TransferContainer Report
+    mnemonic: TR
+    direction: bidirectional
+    description: >-
+      Acknowledges the receipt of a TransferContainer using Stream 13 Data Set Transfer.
+      Verification of transferred PDEs is required upon receipt by equipment,
+      and verification results are included in this message.
+      The text in STATUSTXT reflects the status of transfer of the PDE referenced by the UID value.
+      SENDRSPSTAT and VERIFYRSPSTAT together represent any error condition.
+      The list L,n has one entry per PDE contained in the related TransferContainer, so n > 0.
+    exception: >-
+      If the service provider is not an equipment, then verification will not occur
+      and all VERIFYRSPSTAT will be zero-length data items.
+      When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
+    source: e5
+    # E5 prints TCID and SENDRESULT without angle brackets; they are the same data items.
+    # VERIFYRSPSTAT may be zero-length, but it sits inside the repeat,
+    # whose elements the decoder returns undecoded, so no presence flag is needed.
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TCID}
+            - {item: SENDRESULT}
+            - type: list
+              repeat: results
+              of:
+                type: list
+                items: [{item: UID}, {item: SENDRSPSTAT}, {item: VERIFYRSPSTAT}, {item: STATUSTXT}]
+
+  - function: 14
+    name: PDE TransferContainer Report Acknowledge
+    mnemonic: TA
+    direction: bidirectional
+    description: Acknowledges the receipt of the S19F13 message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
+
+  - function: 15
+    name: Resolve PDE Request
+    mnemonic: RPR
+    direction: host-to-equipment
+    description: >-
+      Request for the equipment to provide specific references (UIDs) for all PDEs in the (multi-part) recipe structure.
+      The TARGETPDE is the apex of this structure.
+      The second item, the list L,n, is the PDE InputMap.
+      This provides client preferences for cases where indirect PDE references occur in the recipe structure.
+    exception: The PDE InputMap is included at the option of the client. n = 0 if no InputMap is provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TARGETPDE}
+            - type: list
+              repeat: inputMap
+              of: {type: list, items: [{item: PDEREF}, {item: RESOLUTION}]}
+
+  - function: 16
+    name: Resolve PDE Data
+    mnemonic: RPD
+    direction: equipment-to-host
+    description: >-
+      This message returns the OutputMap of the recipe structure (the first list, L,m)
+      with the resolution of each PDE reference found in the recipe structure.
+      If a PDEREF is not resolved, it is not included in the OutputMap.
+      The second list gives the response status for each PDEREF found in the recipe structure.
+    exception: >-
+      n = the number of PDE reference errors found in the recipe structure,
+      or n = 1 if all PDE references were successfully resolved;
+      that single entry represents the TARGETPDE with RESPDESTAT = 0.
+      When there is a positive result, STATUSTXT is allowed to be a zero-length data item.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: outputMap
+              of: {type: list, items: [{item: PDEREF}, {item: RESOLUTION}]}
+            - type: list
+              repeat: results
+              of: {type: list, items: [{item: UID}, {item: RESPDESTAT}, {item: STATUSTXT}]}
+
+  - function: 17
+    name: Verify PDE
+    mnemonic: VP
+    direction: host-to-equipment
+    description: >-
+      This message requests that a PDE be verified.
+      If VERIFYDEPTH = 1 (All), then the second item (the list L,n) is the InputMap
+      that contains user-suggested resolutions for PDEREFs in the message structure.
+    exception: >-
+      The PDE InputMap is included at the option of the client. n = 0 if no InputMap is provided.
+      If VERIFYDEPTH = 0, then the list L,n (InputMap) is ignored and in this case n should be 0.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TARGETPDE}
+            - type: list
+              repeat: inputMap
+              of: {type: list, items: [{item: PDEREF}, {item: RESOLUTION}]}
+            - {item: VERIFYTYPE}
+            - {item: VERIFYDEPTH}
+
+  - function: 18
+    name: Verify PDE Data
+    mnemonic: VPD
+    direction: equipment-to-host
+    description: Results of the requested verification.
+    exception: >-
+      If VERIFYDEPTH = 0, then n must be 1.
+      When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
+    source: e5
+    # The markdown copy of E5 interleaves this structure with its exception; the structure follows the PDF text.
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: VERIFYSUCCESS}
+            - type: list
+              repeat: results
+              of: {type: list, items: [{item: UID}, {item: VERIFYRSPSTAT}, {item: STATUSTXT}]}
+
+  - function: 19
+    name: RaP Multi-block Inquire
+    mnemonic: RMI
+    direction: bidirectional
+    # E5 says this message "is included for compatibility purposes"; it is its only form, so it is generated.
+    description: >-
+      Request permission to send one of the following multi-block messages:
+      S19F1, S19F3, S19F5, S19F7, S19F13, S19F15, S19F17.
+      This message is included for compatibility purposes.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: DATALENGTH}
+
+  - function: 20
+    name: RaP Multi-block Grant
+    mnemonic: RMG
+    direction: bidirectional
+    description: >-
+      Provides permission to send any of the corresponding multi-block messages (see S19F19).
+      GRANT value 3 (DuplicateDATAID) is not valid for this message.
+    exception: >-
+      GRANT enumeration value of 3 is not valid for this message.
+      S19F19 begins a conversation.
+      That conversation is considered complete if any of the following messages are subsequently received:
+      S19F1, S19F3, S19F5, S19F7, S19F13, S19F15, or S19F17.
+      The requestor is responsible for ensuring that the next Stream 19 message sent corresponds to the multi-block request.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: GRANT}
