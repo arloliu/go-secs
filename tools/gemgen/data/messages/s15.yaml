@@ -1,0 +1,1123 @@
+stream: 15
+# E5 prints no mnemonic for S15F1 to S15F48; their mnemonic is empty here.
+messages:
+  - function: 1
+    name: Recipe Management Multi-block Inquire
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message requests permission to send a multi-block message based upon a maximum length of
+      the total message.
+    exception: >-
+      If RCPSPEC is zero-length, the multi-block message for which permission to send is requested
+      does not contain a recipe.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: DATAID}, {item: RCPSPEC}, {item: RMDATASIZE}]}
+
+  - function: 2
+    name: Recipe Management Multi-block Grant
+    mnemonic: ""
+    direction: bidirectional
+    description: This message grants or denies permission to send a multi-block message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: RMGRNT}
+
+  - function: 3
+    name: Recipe Namespace Action Request
+    mnemonic: ""
+    direction: bidirectional
+    description: This message requests that a recipe namespace be created or deleted.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: RMNSSPEC}, {item: RMNSCMD}]}
+
+  - function: 4
+    name: Recipe Namespace Action Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to confirm whether the requested action was completed successfully or to
+      provide error information otherwise.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 5
+    name: Recipe Namespace Rename Request
+    mnemonic: ""
+    direction: bidirectional
+    description: A request is made for a recipe namespace to be renamed.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: RMNSSPEC}, {item: RMNEWNS}]}
+
+  - function: 6
+    name: Recipe Namespace Rename Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: This message is used to acknowledge or deny a request to rename a recipe namespace.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 7
+    name: Recipe Space Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message requests the amount of recipe storage available in the storage of a recipe
+      namespace or recipe executor, as indicated by its object specifier OBJSPEC.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: OBJSPEC}
+
+  - function: 8
+    name: Recipe Space Data
+    mnemonic: ""
+    direction: bidirectional
+    description: This message contains the amount of storage available for recipes.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RMSPACE}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 9
+    name: Recipe Status Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to request the status of a recipe and the next available numeric version
+      for that recipe class and name.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: RCPSPEC}
+
+  - function: 10
+    name: Recipe Status Data
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message contains the protected status of the recipe and the next available version number
+      for that recipe class and name.
+    exception: >-
+      RCPVERS is a zero-length item if and only if the recipe does not exist. p = 0 if and only if
+      RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RCPSTAT}
+            - {item: RCPVERS}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 11
+    name: Recipe Version Request
+    mnemonic: ""
+    direction: bidirectional
+    description: This message is used to request the best version of a recipe for the specified agent.
+    # E5's exception refers to "item 2" and "item 4" only; the item names are added.
+    exception: >-
+      If item 2 (RCPCLASS) is zero length, the recipe class PROCESS is indicated. If item 4 (AGENT) is
+      a zero-length item, no agent is specified.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items: [{item: RMNSSPEC}, {item: RCPCLASS}, {item: RCPNAME}, {item: AGENT}]
+
+  - function: 12
+    name: Recipe Version Data
+    mnemonic: ""
+    direction: bidirectional
+    description: This message contains the recommended version.
+    exception: >-
+      If AGENT is a zero-length item in the request, it shall also be a zero-length item in the
+      reply. If it is not zero-length in the request, and it is of zero-length in the reply, then no
+      qualifying recipe was found specific to that equipment. p = 0 if and only if RMACK indicates no
+      errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: AGENT}
+            - {item: RCPVERS}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 13
+    name: Recipe Create Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to create or modify a recipe body. If multi-block, it shall be preceded by
+      the S15F1/S15F2 inquire/grant transaction.
+    # The markdown displaces this exception below S15F11; it is taken from the PDF text of E5.
+    exception: RCPBODY may be of zero length.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RCPUPDT}
+            - {item: RCPSPEC}
+            - {type: list, repeat: attributes, of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}}
+            - {item: RCPBODY}
+
+  - function: 14
+    name: Recipe Create Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to acknowledge that a recipe has been created or updated with the body
+      sent in the request.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # E5 prints the error list as "L,2",
+        # but its elements run 1..p,
+        # and the exception says p = 0 when there are no errors.
+        # As in every other RMACK reply of this stream, it is a list of p.
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 15
+    name: Recipe Store Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to send a recipe, or one or more recipe sections, to a recipe namespace.
+      If multi-block, it shall be preceded by the S15F1/S15F2 inquire/grant transaction.
+      The fourth element is the list of recipe sections, L,q (q = 1, 2, or 3), whose content depends
+      on RCPSECCODE: the generic attributes section L,r (r = 0 or 2) of RCPSECNM and a list of
+      RCPATTRID/RCPATTRDATA pairs, the RCPBODY, and the agent-specific datasets L,m of
+      RCPSECNM/attribute-list pairs. The caller builds that list with secs2 primitives.
+    exception: >-
+      RCPBODY is a zero-length item when the body is omitted. If g = 0, no generic attributes are
+      transferred and RCPBODY shall be a zero-length item. If m = 0, no agent-specific datasets are
+      transferred.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RCPSPEC}
+            - {item: RCPSECCODE}
+            # Which sections the L,q list holds,
+            # and so its length and the position of each,
+            # depends on the RCPSECCODE value,
+            # which no static structure can express;
+            # the caller builds only this part.
+            - {type: opaque, as: sections}
+
+  - function: 16
+    name: Recipe Store Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to acknowledge that the specified recipe has been stored as requested or
+      to indicate the error(s).
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # The markdown loses this structure and exception; both are taken from the PDF text of E5.
+        structure:
+          type: list
+          items:
+            - {item: RCPSECCODE}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 17
+    name: Recipe Retrieve Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to get a recipe, or one or more recipe sections, from a recipe namespace.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: RCPSPEC}, {item: RCPSECCODE}]}
+
+  - function: 18
+    name: Recipe Retrieve Data
+    mnemonic: ""
+    direction: bidirectional
+    # E5 prints "to acknowledge that the specified recipe, or recipe sections, have been set as requested",
+    # which reads like the S15F16 store acknowledge;
+    # this message returns what the S15F17 retrieve request asks for.
+    description: >-
+      This message is used to return the specified recipe, or recipe sections, requested by S15F17,
+      or to indicate the error(s).
+      The first element is the list of recipe sections, L,q (q = 1, 2, or 3), with the same form as
+      in S15F15; which sections it holds depends on the RCPSECCODE of the S15F17 request.
+      The caller builds that list with secs2 primitives.
+    exception: >-
+      If r = 0, no generic attributes are transferred and RCPBODY shall be a zero-length item. If
+      m = 0, no agent-specific datasets are transferred. p = 0 if and only if RMACK indicates no
+      errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # E5 indents the RMACK list under the agent-specific datasets list,
+        # but its numbering (item 2) and the L,2 top level make it the second element of the body.
+        # E5 also misprints ERRCODE1 as ERROCODE1.
+        structure:
+          type: list
+          items:
+            # The sections depend on the request's RCPSECCODE, which no static structure can express;
+            # the caller builds only this part.
+            - {type: opaque, as: sections}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 19
+    name: Recipe Rename Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to request that a recipe be copied to, or renamed to, a recipe with a new
+      identifier.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: RCPSPEC}, {item: RCPRENAME}, {item: RCPNEWID}]}
+
+  - function: 20
+    name: Recipe Rename Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message acknowledges the request to copy or rename a recipe and indicates whether the
+      action was successfully performed or errors that occurred.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 21
+    name: Recipe Action Request
+    mnemonic: ""
+    direction: bidirectional
+    # E5 prints "This message is used to acknowledge the request to perform an action in one or more recipes",
+    # which reads like the description of S15F22;
+    # the message is the request itself.
+    description: >-
+      This message is used to request that an action be performed on one or more recipes within a
+      namespace.
+    exception: >-
+      AGENT may be a zero-length item except for requests for certify, de-certify, download, and
+      upload.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        # The markdown loses this message's header, description, and structure;
+        # all are taken from the PDF text of E5.
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RCPCMD}
+            - {item: RMNSSPEC}
+            - {item: OPID}
+            - {item: AGENT}
+            - {type: list, repeat: recipes, of: {item: RCPID}}
+
+  - function: 22
+    name: Recipe Action Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    # E5 prints "to acknowledge the request to originate a new recipe", which does not fit this message;
+    # the description takes the acknowledge wording that E5 prints under S15F21,
+    # since this message answers the S15F21 recipe action request.
+    description: >-
+      This message is used to acknowledge the request to perform an action in one or more recipes.
+    exception: >-
+      LINKID is zero if and only if all requested actions have been completed. p = 0 if and only if
+      RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: AGENT}
+            - {item: LINKID}
+            - {item: RCPCMD}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 23
+    name: Recipe Descriptor Request
+    mnemonic: ""
+    direction: bidirectional
+    # E5 prints "either a recipe namespace of a recipe executor"; the "of" is read as "or".
+    description: >-
+      This message is used to request the descriptors of a list of the specified recipes. If
+      multi-block, it must be preceded by the S15F1/S15F2 inquire/grant transaction. OBJSPEC is the
+      object specifier of either a recipe namespace or a recipe executor.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: OBJSPEC}
+            - {type: list, repeat: recipes, of: {item: RCPID}}
+
+  - function: 24
+    name: Recipe Descriptor Data
+    mnemonic: ""
+    direction: bidirectional
+    # E5's description is the first sentence only;
+    # the second summarizes the structure and the exception.
+    description: >-
+      This message returns the requested descriptors in the same order as requested. Each recipe has
+      a list of component descriptors, each an L,3 of RCPDESCNM, RCPDESCTIME, and RCPDESCLTH, or an
+      L,0 when the recipe does not exist.
+    exception: >-
+      A zero-length recipe descriptor (r = 0) means that the specified recipe does not exist (could
+      not be located). p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # The markdown scrambles this structure; it is taken from the PDF text of E5.
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: recipes
+              of:
+                type: list
+                repeat: descriptors
+                of:
+                  type: list
+                  minItems: 0
+                  maxItems: 3
+                  items: [{item: RCPDESCNM}, {item: RCPDESCTIME}, {item: RCPDESCLTH}]
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 25
+    name: Recipe Parameter Update Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to update the variable parameter definitions for a specific agent. If
+      multi-block, it must be preceded by the S15F1/S15F2 inquire/grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        # The markdown truncates this structure and loses the exception;
+        # both are taken from the PDF text of E5.
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RMNSSPEC}
+            - {item: AGENT}
+            - type: list
+              repeat: parameters
+              of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}, {item: RCPPARRULE}]}
+
+  - function: 26
+    name: Recipe Parameter Update Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message indicates the successful performance of the request or otherwise indicates the
+      nature of error(s) that occurred.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 27
+    name: Recipe Download Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      This message is used to send a recipe to a recipe executor. If multi-block, it shall be
+      preceded by the S15F1/S15F2 inquire/grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RCPOWCODE}
+            - {item: RCPSPEC}
+            - {type: list, repeat: attributes, of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}}
+            - {item: RCPBODY}
+
+  - function: 28
+    name: Recipe Download Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: >-
+      This message is used to acknowledge that a recipe has been received by the recipe executor. If
+      the recipe was successfully verified, the results are returned to the sender. RCPID contains
+      the identifier of a derived object form recipe if created during verification.
+    # E5's exception reads "If item is a zero length item"; the item number and name are added.
+    exception: >-
+      If item 1 (RCPID) is a zero length item, no derived object form recipe was originated. n = 0 if
+      and only if the recipe was not verified or failed verification. p = 0 if and only if RMACK
+      indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RCPID}
+            - {type: list, repeat: attributes, of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 29
+    name: Recipe Verify Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      This message is used to request verification of one or more recipes by a recipe executor. If
+      multi-block, it shall be preceded by the S15F1/S15F2 inquire/grant transaction. The operation
+      identifier OPID, used where multiple verification requests may be outstanding, may be zero if no
+      further verifications will be requested before all current verification requests are completed
+      by the recipe executor. Otherwise, OPID is generated to be unique for the requestor. RESPEC is
+      the object specifier for the recipe executor.
+    exception: If RESPEC is a zero length item, the target is the recipient of the message.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: OPID}
+            - {item: RESPEC}
+            - {type: list, repeat: recipes, of: {item: RCPID}}
+
+  - function: 30
+    name: Recipe Verify Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: >-
+      This message is used to acknowledge the request to verify one or more recipes. If a single
+      recipe verification was requested and the recipe was successfully verified, the results are
+      returned to the sender in this message, and RCPID contains the identifier of a derived object
+      form recipe if created during verification. If multiple recipe verifications were requested,
+      then LINKID shall be non-zero.
+    # E5's exception refers to "item 3" only; the item name is added.
+    exception: >-
+      LINKID is zero if and only if a single recipe verification was requested and has been
+      completed. If item 3 (RCPID) is a zero length item, no derived object form recipe was
+      originated. n = 0 if and only if the recipe was not verified or failed verification. p = 0 if
+      and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: OPID}
+            - {item: LINKID}
+            - {item: RCPID}
+            - {type: list, repeat: attributes, of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 31
+    name: Recipe Upload Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: This message is used to request an execution recipe from a recipe executor.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: RCPSPEC}
+
+  - function: 32
+    name: Recipe Upload Data
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message is used to send an execution recipe from a recipe executor.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RCPSPEC}
+            - {type: list, repeat: attributes, of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}}
+            - {item: RCPBODY}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 33
+    name: Recipe Select Request
+    mnemonic: ""
+    direction: host-to-equipment
+    # E5's description ends at the inquire/grant sentence;
+    # the last sentence summarizes the structure.
+    description: >-
+      This message is used to request the selection of one or more execution recipes. If
+      multi-block, it shall be preceded by the S15F1/S15F2 inquire/grant transaction. Each selection
+      is an RCPID with its list of RCPPARNM/RCPPARVAL parameter settings.
+    exception: >-
+      If the list of parameter settings for a recipe selection is of zero length, then no parameter
+      settings are specified for the corresponding recipe.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RESPEC}
+            - type: list
+              repeat: selections
+              of:
+                type: list
+                items:
+                  - {item: RCPID}
+                  - {type: list, repeat: parameters, of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}]}}
+
+  - function: 34
+    name: Recipe Select Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message is used to acknowledge the request for recipe selection.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 35
+    name: Recipe Delete Request
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      This message is used to request that one or more recipes be deleted or deselected. If
+      multi-block, it shall be preceded by the S15F1/S15F2 inquire/grant transaction.
+    exception: >-
+      If n = 0 and recipes are to be deselected (RCPDEL = 1), then all currently-selected recipes are
+      indicated.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RESPEC}
+            - {item: RCPDEL}
+            - {type: list, repeat: recipes, of: {item: RCPID}}
+
+  - function: 36
+    name: Recipe Delete Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: This message is used to acknowledge the request that recipes be deleted or deselected.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 37
+    name: DRNS Segment Approve Action Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is sent by a distributed recipe namespace manager to an attached distributed
+      recipe namespace segment to approve an action previously requested by the segment. If
+      multi-block, it shall be preceded by the S15F1/S15F2 inquire/grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: RMSEGSPEC}
+            - {item: OBJTOKEN}
+            - {item: RMGRNT}
+            - {item: OPID}
+            - {item: RCPID}
+            - {item: RMCHGTYPE}
+
+  - function: 38
+    name: DRNS Segment Approve Action Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: This message is used to acknowledge or deny the approve action request.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 39
+    name: DRNS Recorder Segment Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used by the distributed recipe namespace manager to request that an attached
+      recorder create or delete a segment specifier record. If multi-block, it shall be preceded by
+      the S15F1/S15F2 inquire/grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RMNSCMD}
+            - {item: RMRECSPEC}
+            - {item: RMSEGSPEC}
+            - {item: OBJTOKEN}
+
+  - function: 40
+    name: DRNS Recorder Segment Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to acknowledge the request to add or delete a segment specifier record.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 41
+    name: DRNS Recorder Modify Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used by a distributed recipe namespace manager to a recorder to store or delete
+      a change request record. If multi-block, it shall be preceded by the S15F1/S15F2 inquire/grant
+      transaction.
+    # The markdown displaces this exception below S15F39; it is taken from the PDF text of E5.
+    exception: If RMNSCMD = create, then c = 7, otherwise c = 1.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RMRECSPEC}
+            - {item: OBJTOKEN}
+            - {item: RMNSCMD}
+            # L,c with c = 7 when RMNSCMD is create and c = 1 (RCPID only) otherwise.
+            - type: list
+              minItems: 1
+              maxItems: 7
+              items:
+                - {item: RCPID}
+                - {item: RCPNEWID}
+                - {item: RMSEGSPEC}
+                - {item: RMCHGTYPE}
+                - {item: OPID}
+                - {item: TIMESTAMP}
+                - {item: RMREQUESTOR}
+      # The c = 1 form E5 names for every RMNSCMD other than create (Table 3 defines only create and delete).
+      - actor: both
+        replyExpected: true
+        variant: Delete
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: RMRECSPEC}
+            - {item: OBJTOKEN}
+            - {item: RMNSCMD}
+            - {type: list, items: [{item: RCPID}]}
+
+  - function: 42
+    name: DRNS Recorder Modify Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: This message is used to acknowledge a request to store or delete a change request.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 43
+    name: DRNS Get Change Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to request a distributed recipe namespace recorder or manager to return
+      change requests records for a specific recipe or assigned to a specific segment. If
+      multi-block, it shall be preceded by the S15F1/S15F2 inquire/grant transaction.
+    # E5 says only "If TARGETSPEC is omitted"; omission is read as a zero-length item.
+    exception: If TARGETSPEC is omitted (a zero-length item), OBJSPEC identifies a recipe.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: DATAID}, {item: OBJSPEC}, {item: TARGETSPEC}]}
+
+  - function: 44
+    name: DRNS Get Change Request Data
+    mnemonic: ""
+    direction: bidirectional
+    description: This message is used to return the specified change request records.
+    exception: >-
+      If n = 0, no change records were found matching the specification. p = 0 if and only if RMACK
+      indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: changes
+              of:
+                type: list
+                items:
+                  - {item: RCPID}
+                  - {item: RCPNEWID}
+                  - {item: RMSEGSPEC}
+                  - {item: RMCHGTYPE}
+                  - {item: OPID}
+                  - {item: TIMESTAMP}
+                  - {item: RMREQUESTOR}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 45
+    name: DRNS Manager Segment Change Approval Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is sent to a distributed recipe namespace manager by an attached distributed recipe
+      namespace segment to request approval for a specific type of change to a recipe. If
+      multi-block, it shall be preceded by the S15F1/S15F2 inquire/grant transaction.
+    exception: >-
+      RCPNEWID is a zero-length item except where RMCHGTYPE specifies a copy or rename change.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items: [{item: DATAID}, {item: RCPSPEC}, {item: RCPNEWID}, {item: RMCHGTYPE}]
+
+  - function: 46
+    name: DRNS Manager Segment Approval Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: This message is used to acknowledge the request to change a recipe.
+    exception: OPID is zero if and only if RMGRNT indicates the change is denied.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: RMCHGTYPE}, {item: RMGRNT}, {item: OPID}]}
+
+  - function: 47
+    name: DRNS Manager Rebuild Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message requests a distributed recipe namespace manager specified in OBJSPEC to rebuild a
+      distributed recipe namespace. Either a distributed recipe namespace recorder or a list of
+      distributed recipe namespace segment specifiers shall be provided. If multi-block, it shall be
+      preceded by the S15F1/S15F2 inquire/grant transaction.
+    exception: >-
+      If RMRECSPEC is a non-zero length item, then n is zero. If RMRECSPEC is a zero length item,
+      then n is non-zero.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: OBJSPEC}
+            - {item: RMNSSPEC}
+            - {item: RMRECSPEC}
+            - {type: list, repeat: segments, of: {item: RMSEGSPEC}}
+
+  - function: 48
+    name: DRNS Manager Rebuild Acknowledge
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      This message is used to acknowledge the request to rebuild a distributed recipe namespace.
+    exception: p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        # E5 prints the error list as "L,P"; it is the same list of p as every other RMACK reply.
+        structure:
+          type: list
+          items:
+            - {item: RMACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 49
+    name: Large Recipe Download Request
+    mnemonic: LRDR
+    direction: host-to-equipment
+    description: >-
+      This is a request by the host for the equipment to request the download of a recipe via the
+      Stream 13 Data Set Transfer protocol. The Data Set name, DSNAME, is the text string identifier
+      of the recipe, RCPSPEC. The Data Set is subsequently transferred as a Stream with the internal
+      SECS-II structure L,4 of RCPSPEC, DATAID, a list of RCPATTRID/RCPATTRDATA pairs, and RCPBODY.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        # The L,4 E5 prints in the description is the Stream 13 data set's content, not this body.
+        structure: {type: list, items: [{item: DSNAME}, {item: RCPOWCODE}]}
+
+  - function: 50
+    name: Large Recipe Download Acknowledge
+    mnemonic: LRDA
+    direction: equipment-to-host
+    description: >-
+      Acknowledge or error. A returned status of "accepted" means only that the message is
+      understood. Upon completion of the large recipe download request (Stream 13 Data Set transfer
+      scenario) the equipment initiates a separate verification transaction (S15F53/S15F54) that
+      provides the result of the verification.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC15}
+
+  - function: 51
+    name: Large Recipe Upload Request
+    mnemonic: LRUR
+    direction: host-to-equipment
+    description: >-
+      This is a request by the host for the equipment to request the host to upload a recipe via the
+      Stream 13 Data Set Transfer protocol. The Data Set name, DSNAME, is the text string identifier
+      of the recipe, RCPSPEC. The Data Set is subsequently transferred as a Stream with the internal
+      SECS-II structure L,3 of RCPSPEC, a list of RCPATTRID/RCPATTRDATA pairs, and RCPBODY.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        # The L,3 E5 prints in the description is the Stream 13 data set's content, not this body.
+        structure: {item: DSNAME}
+
+  - function: 52
+    name: Large Recipe Upload Acknowledge
+    mnemonic: LRUA
+    direction: equipment-to-host
+    description: >-
+      Acknowledge or error. A returned status of "accepted" means only that the message is
+      understood. The completion of the request is signaled by an event report.
+    exception: >-
+      It is possible to use the ACKC15 code "command will be performed with completion signaled
+      later" for this message.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC15}
+
+  - function: 53
+    name: Recipe Verification Send
+    mnemonic: RVS
+    direction: equipment-to-host
+    description: >-
+      This message indicates to the host that a large recipe that was transferred via Stream 13 Data
+      Set Transfer Protocol had been received and checked by the equipment. RCPID contains the
+      identifier of a derived object form recipe if created during verification. The result of the
+      check is specified by the list of errors. An empty error list indicates no errors were found in
+      the recipe. The equipment is responsible for sending a single copy of this message to the host
+      after any reception of a recipe through S15F49.
+    # E5 misprints RCPSPEC as RCPSEPC in this exception.
+    exception: >-
+      n = 0 if and only if RMACK indicates no error. If RCPSPEC is a zero length item, then the
+      recipe was not verified or failed verification. If RCPID is zero length, then no derived object
+      form recipe was originated.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: RCPSPEC}
+            - {item: RCPID}
+            - type: list
+              items:
+                - {item: RMACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 54
+    name: Recipe Verification Acknowledge
+    mnemonic: RVA
+    direction: host-to-equipment
+    description: Reply by host to equipment providing response to Recipe Verification Send (RVS).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
