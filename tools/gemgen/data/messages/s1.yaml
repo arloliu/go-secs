@@ -115,7 +115,11 @@ messages:
     name: Material Transfer Status Data
     mnemonic: TSD
     direction: equipment-to-host
-    description: The equipment reports the transfer status of all material ports.
+    # The second description sentence is not E5 text: it tells callers how the packed values meet the TSIP and TSOP constants.
+    description: >-
+      The equipment reports the transfer status of all material ports.
+      The packed TSIP and TSOP values are raw bytes,
+      so a TSIP or TSOP constant converts with byte(...), as in byte(TSIPIdle).
     exception: >-
       A zero-length input or output port list means there are no such ports.
     source: e5

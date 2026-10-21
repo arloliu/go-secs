@@ -192,7 +192,7 @@ func DecodeS6F5(item secs2.Item) (S6F5Body, error) {
 //
 // It is filled by [DecodeS6F6] and mirrors the parameters of [S6F6], in order.
 type S6F6Reply struct {
-	GRANT6 byte
+	GRANT6 GRANT6
 }
 
 // DecodeS6F6 decodes the body of an S6F6 (Multi-block Grant) message into a [S6F6Reply].
@@ -207,7 +207,7 @@ func DecodeS6F6(item secs2.Item) (S6F6Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.GRANT6, err = decodeByteAs[byte](root, "GRANT6"); err != nil {
+	if out.GRANT6, err = decodeByteAs[GRANT6](root, "GRANT6"); err != nil {
 		return out, err
 	}
 
@@ -761,7 +761,7 @@ func DecodeS6F22(item secs2.Item) (S6F22Reply, error) {
 //
 // It is filled by [DecodeS6F23] and mirrors the parameters of [S6F23], in order.
 type S6F23Body struct {
-	RSDC uint8
+	RSDC RSDC
 }
 
 // DecodeS6F23 decodes the body of an S6F23 (Request Spooled Data) message into a [S6F23Body].
@@ -776,7 +776,7 @@ func DecodeS6F23(item secs2.Item) (S6F23Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.RSDC, err = decodeUintAs[uint8](root, "RSDC"); err != nil {
+	if out.RSDC, err = decodeUintAs[RSDC](root, "RSDC"); err != nil {
 		return out, err
 	}
 

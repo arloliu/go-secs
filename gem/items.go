@@ -2,6 +2,58 @@
 
 package gem
 
+// ACCESSMODE enumerates the defined values of the ACCESSMODE item.
+type ACCESSMODE uint8
+
+const (
+	ACCESSMODEManual ACCESSMODE = 0
+	ACCESSMODEAuto   ACCESSMODE = 1
+)
+
+// ACKC10 enumerates the defined values of the ACKC10 item.
+type ACKC10 byte
+
+const (
+	ACKC10AcceptedForDisplay   ACKC10 = 0
+	ACKC10WillNotBeDisplayed   ACKC10 = 1
+	ACKC10TerminalNotAvailable ACKC10 = 2
+)
+
+// ACKC13 enumerates the defined values of the ACKC13 item.
+type ACKC13 byte
+
+const (
+	ACKC13OK                      ACKC13 = 0
+	ACKC13TryLater                ACKC13 = 1
+	ACKC13UnknownDataSetName      ACKC13 = 2
+	ACKC13IllegalCheckpointValue  ACKC13 = 3
+	ACKC13TooManyOpenDataSets     ACKC13 = 4
+	ACKC13DataSetOpenTooManyTimes ACKC13 = 5
+	ACKC13NoOpenDataSet           ACKC13 = 6
+	ACKC13CannotContinue          ACKC13 = 7
+	ACKC13EndOfData               ACKC13 = 8
+	ACKC13HandleInUse             ACKC13 = 9
+	ACKC13PendingTransaction      ACKC13 = 10
+)
+
+// ACKC15 enumerates the defined values of the ACKC15 item.
+type ACKC15 byte
+
+const (
+	ACKC15Accepted                ACKC15 = 0
+	ACKC15CompletionSignaledLater ACKC15 = 1
+	ACKC15DSNAMENotFound          ACKC15 = 2
+	ACKC15PermissionNotGranted    ACKC15 = 3
+	ACKC15OtherError              ACKC15 = 4
+)
+
+// ACKC3 enumerates the defined values of the ACKC3 item.
+type ACKC3 byte
+
+const (
+	ACKC3Accepted ACKC3 = 0
+)
+
 // ACKC5 enumerates the defined values of the ACKC5 item.
 type ACKC5 byte
 
@@ -16,12 +68,138 @@ const (
 	ACKC6Accepted ACKC6 = 0
 )
 
+// ACKC7 enumerates the defined values of the ACKC7 item.
+type ACKC7 byte
+
+const (
+	ACKC7Accepted                ACKC7 = 0
+	ACKC7PermissionNotGranted    ACKC7 = 1
+	ACKC7LengthError             ACKC7 = 2
+	ACKC7MatrixOverflow          ACKC7 = 3
+	ACKC7PPIDNotFound            ACKC7 = 4
+	ACKC7ModeUnsupported         ACKC7 = 5
+	ACKC7CompletionSignaledLater ACKC7 = 6
+)
+
+// Defined values of the ACKC7A item, which may be sent as I1 or U1.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.I1(ACKC7AAccepted).
+const (
+	ACKC7AAccepted            = 0
+	ACKC7AMDLNInconsistent    = 1
+	ACKC7ASOFTREVInconsistent = 2
+	ACKC7AInvalidCCODE        = 3
+	ACKC7AInvalidPPARMValue   = 4
+	ACKC7AOtherError          = 5
+)
+
+// ATTRRELN enumerates the defined values of the ATTRRELN item.
+type ATTRRELN uint8
+
+const (
+	ATTRRELNEqual              ATTRRELN = 0
+	ATTRRELNNotEqual           ATTRRELN = 1
+	ATTRRELNLessThan           ATTRRELN = 2
+	ATTRRELNLessThanOrEqual    ATTRRELN = 3
+	ATTRRELNGreaterThan        ATTRRELN = 4
+	ATTRRELNGreaterThanOrEqual ATTRRELN = 5
+	ATTRRELNPresent            ATTRRELN = 6
+	ATTRRELNAbsent             ATTRRELN = 7
+)
+
+// Defined values of the BLKDEF item, which may be sent as I1 or U1.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.I1(BLKDEFStartBlock).
+const (
+	BLKDEFStartBlock  = 1
+	BLKDEFEndBlock    = -1
+	BLKDEFWithinBlock = 0
+)
+
+// CAACK enumerates the defined values of the CAACK item.
+type CAACK uint8
+
+const (
+	CAACKAcknowledgeCommandPerformed CAACK = 0
+	CAACKInvalidCommand              CAACK = 1
+	CAACKCannotPerformNow            CAACK = 2
+	CAACKInvalidDataOrArgument       CAACK = 3
+	CAACKAcknowledgeCompletionLater  CAACK = 4
+	CAACKRejectedInvalidState        CAACK = 5
+	CAACKCommandPerformedWithErrors  CAACK = 6
+)
+
+// CARRIERACTION enumerates the defined values of the CARRIERACTION item.
+type CARRIERACTION string
+
+const (
+	// CARRIERACTIONBind is defined by SEMI E87.1.
+	CARRIERACTIONBind CARRIERACTION = "Bind"
+	// CARRIERACTIONCancelBind is defined by SEMI E87.1.
+	CARRIERACTIONCancelBind CARRIERACTION = "CancelBind"
+	// CARRIERACTIONCancelCarrier is defined by SEMI E87.1.
+	CARRIERACTIONCancelCarrier CARRIERACTION = "CancelCarrier"
+	// CARRIERACTIONCancelCarrierAtPort is defined by SEMI E87.1.
+	CARRIERACTIONCancelCarrierAtPort CARRIERACTION = "CancelCarrierAtPort"
+	// CARRIERACTIONCancelCarrierNotification is defined by SEMI E87.1.
+	CARRIERACTIONCancelCarrierNotification CARRIERACTION = "CancelCarrierNotification"
+	// CARRIERACTIONCancelCarrierOut is defined by SEMI E87.1.
+	CARRIERACTIONCancelCarrierOut CARRIERACTION = "CancelCarrierOut"
+	// CARRIERACTIONCarrierIn is defined by SEMI E87.1.
+	CARRIERACTIONCarrierIn CARRIERACTION = "CarrierIn"
+	// CARRIERACTIONCarrierNotification is defined by SEMI E87.1.
+	CARRIERACTIONCarrierNotification CARRIERACTION = "CarrierNotification"
+	// CARRIERACTIONCarrierOut is defined by SEMI E87.1.
+	CARRIERACTIONCarrierOut CARRIERACTION = "CarrierOut"
+	// CARRIERACTIONCarrierReCreate is defined by SEMI E87.1.
+	CARRIERACTIONCarrierReCreate CARRIERACTION = "CarrierReCreate"
+	// CARRIERACTIONCarrierRelease is defined by SEMI E87.1.
+	CARRIERACTIONCarrierRelease CARRIERACTION = "CarrierRelease"
+	// CARRIERACTIONProceedWithCarrier is defined by SEMI E87.1.
+	CARRIERACTIONProceedWithCarrier CARRIERACTION = "ProceedWithCarrier"
+	CARRIERACTIONPodRelease         CARRIERACTION = "PodRelease"
+)
+
+// Defined values of the CEPACK item, which may be sent as L or U1.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.U1(CEPACKNoError).
+const (
+	CEPACKNoError              = 0
+	CEPACKCPNAMEDoesNotExist   = 1
+	CEPACKIllegalValue         = 2
+	CEPACKIllegalFormat        = 3
+	CEPACKCPNAMENotValidAsUsed = 4
+)
+
+// Defined values of the CMDA item, which may be sent as I1 or U1.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.I1(CMDACompletedOrDone).
+const (
+	CMDACompletedOrDone     = 0
+	CMDACommandDoesNotExist = 1
+	CMDACannotPerformNow    = 2
+)
+
 // COMMACK enumerates the defined values of the COMMACK item.
 type COMMACK byte
 
 const (
 	COMMACKAccepted COMMACK = 0
 	COMMACKDenied   COMMACK = 1
+)
+
+// COMPARISONOPERATOR enumerates the defined values of the COMPARISONOPERATOR item.
+type COMPARISONOPERATOR uint8
+
+const (
+	COMPARISONOPERATOREQ      COMPARISONOPERATOR = 0
+	COMPARISONOPERATORNotEQ   COMPARISONOPERATOR = 1
+	COMPARISONOPERATORLT      COMPARISONOPERATOR = 2
+	COMPARISONOPERATORLE      COMPARISONOPERATOR = 3
+	COMPARISONOPERATORGT      COMPARISONOPERATOR = 4
+	COMPARISONOPERATORGE      COMPARISONOPERATOR = 5
+	COMPARISONOPERATORLike    COMPARISONOPERATOR = 6
+	COMPARISONOPERATORNotLike COMPARISONOPERATOR = 7
 )
 
 // CPACK enumerates the defined values of the CPACK item.
@@ -33,6 +211,21 @@ const (
 	CPACKIllegalFormat      CPACK = 3
 )
 
+// Defined values of the CPNAME item, which may be sent as A, I1, I2, I4, I8, U1, U2, U4, or U8.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.A(CPNAMEARAMSCode).
+// SEMI E58.1 requires the equipment to recognize these names whether or not it is case-sensitive.
+const (
+	// CPNAMEARAMSCode is defined by SEMI E58.1.
+	CPNAMEARAMSCode = "ARAMSCode"
+	// CPNAMEObjSpec is defined by SEMI E58.1.
+	CPNAMEObjSpec = "ObjSpec"
+	// CPNAMESympID is defined by SEMI E58.1.
+	CPNAMESympID = "SympID"
+	// CPNAMESympText is defined by SEMI E58.1.
+	CPNAMESympText = "SympText"
+)
+
 // CSAACK enumerates the defined values of the CSAACK item.
 type CSAACK byte
 
@@ -41,6 +234,50 @@ const (
 	CSAACKBusy              CSAACK = 1
 	CSAACKInvalidSPID       CSAACK = 2
 	CSAACKInvalidData       CSAACK = 3
+)
+
+// CTLJOBCMD enumerates the defined values of the CTLJOBCMD item.
+type CTLJOBCMD uint8
+
+const (
+	CTLJOBCMDCJStart    CTLJOBCMD = 1
+	CTLJOBCMDCJPause    CTLJOBCMD = 2
+	CTLJOBCMDCJResume   CTLJOBCMD = 3
+	CTLJOBCMDCJCancel   CTLJOBCMD = 4
+	CTLJOBCMDCJDeselect CTLJOBCMD = 5
+	CTLJOBCMDCJStop     CTLJOBCMD = 6
+	CTLJOBCMDCJAbort    CTLJOBCMD = 7
+	CTLJOBCMDCJHOQ      CTLJOBCMD = 8
+)
+
+// DATAACK enumerates the defined values of the DATAACK item.
+type DATAACK byte
+
+const (
+	DATAACKAcknowledge      DATAACK = 0
+	DATAACKUnknownDATAID    DATAACK = 1
+	DATAACKParameterInvalid DATAACK = 2
+)
+
+// DELRSPSTAT enumerates the defined values of the DELRSPSTAT item.
+type DELRSPSTAT uint8
+
+const (
+	DELRSPSTATOK          DELRSPSTAT = 0
+	DELRSPSTATPDENotFound DELRSPSTAT = 1
+	DELRSPSTATPDELocked   DELRSPSTAT = 2
+	DELRSPSTATOther       DELRSPSTAT = 255
+)
+
+// DIRRSPSTAT enumerates the defined values of the DIRRSPSTAT item.
+type DIRRSPSTAT uint8
+
+const (
+	DIRRSPSTATOK                    DIRRSPSTAT = 0
+	DIRRSPSTATBadFilter             DIRRSPSTAT = 1
+	DIRRSPSTATBadAttribute          DIRRSPSTAT = 2
+	DIRRSPSTATDateTimeCompareFailed DIRRSPSTAT = 3
+	DIRRSPSTATOther                 DIRRSPSTAT = 255
 )
 
 // DRACK enumerates the defined values of the DRACK item.
@@ -72,6 +309,90 @@ const (
 	ERACKDeniedCEIDDoesNotExist ERACK = 1
 )
 
+// Defined values of the ERRCODE item, which may be sent as U1, U2, U4, or U8.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.U1(ERRCODENoError).
+const (
+	ERRCODENoError                                    = 0
+	ERRCODEUnknownObjectInObjectSpecifier             = 1
+	ERRCODEUnknownTargetObjectType                    = 2
+	ERRCODEUnknownObjectInstance                      = 3
+	ERRCODEUnknownAttributeName                       = 4
+	ERRCODEReadOnlyAttributeAccessDenied              = 5
+	ERRCODEUnknownObjectType                          = 6
+	ERRCODEInvalidAttributeValue                      = 7
+	ERRCODESyntaxError                                = 8
+	ERRCODEVerificationError                          = 9
+	ERRCODEValidationError                            = 10
+	ERRCODEObjectIdentifierInUse                      = 11
+	ERRCODEParametersImproperlySpecified              = 12
+	ERRCODEInsufficientParametersSpecified            = 13
+	ERRCODEUnsupportedOptionRequested                 = 14
+	ERRCODEBusy                                       = 15
+	ERRCODENotAvailableForProcessing                  = 16
+	ERRCODECommandNotValidForCurrentState             = 17
+	ERRCODENoMaterialAltered                          = 18
+	ERRCODEMaterialPartiallyProcessed                 = 19
+	ERRCODEAllMaterialProcessed                       = 20
+	ERRCODERecipeSpecificationRelatedError            = 21
+	ERRCODEFailedDuringProcessing                     = 22
+	ERRCODEFailedWhileNotProcessing                   = 23
+	ERRCODEFailedDueToLackOfMaterial                  = 24
+	ERRCODEJobAborted                                 = 25
+	ERRCODEJobStopped                                 = 26
+	ERRCODEJobCancelled                               = 27
+	ERRCODECannotChangeSelectedRecipe                 = 28
+	ERRCODEUnknownEvent                               = 29
+	ERRCODEDuplicateReportID                          = 30
+	ERRCODEUnknownDataReport                          = 31
+	ERRCODEDataReportNotLinked                        = 32
+	ERRCODEUnknownTraceReport                         = 33
+	ERRCODEDuplicateTraceID                           = 34
+	ERRCODETooManyDataReports                         = 35
+	ERRCODESamplePeriodOutOfRange                     = 36
+	ERRCODEGroupSizeTooLarge                          = 37
+	ERRCODERecoveryActionCurrentlyInvalid             = 38
+	ERRCODEBusyWithAnotherRecovery                    = 39
+	ERRCODENoActiveRecoveryAction                     = 40
+	ERRCODEExceptionRecoveryFailed                    = 41
+	ERRCODEExceptionRecoveryAborted                   = 42
+	ERRCODEInvalidTableElement                        = 43
+	ERRCODEUnknownTableElement                        = 44
+	ERRCODECannotDeletePredefined                     = 45
+	ERRCODEInvalidToken                               = 46
+	ERRCODEInvalidParameter                           = 47
+	ERRCODELoadPortDoesNotExist                       = 48
+	ERRCODELoadPortAlreadyInUse                       = 49
+	ERRCODEMissingCarrier                             = 50
+	ERRCODEActionWillBePerformedAtEarliestOpportunity = 32768
+	ERRCODEActionCannotBePerformedNow                 = 32769
+	ERRCODEActionFailedDueToErrors                    = 32770
+	ERRCODEInvalidCommand                             = 32771
+	ERRCODEDuplicateClientID                          = 32773
+	ERRCODEInvalidClientType                          = 32774
+	ERRCODEIncompatibleVersions                       = 32775
+	ERRCODEUnrecognizedClientID                       = 32776
+	ERRCODEFailedCompletedUnsuccessfully              = 32777
+	ERRCODEFailedUnsafe                               = 32778
+	ERRCODESensorDetectedObstacle                     = 32779
+	ERRCODEMaterialNotSent                            = 32780
+	ERRCODEMaterialNotReceived                        = 32781
+	ERRCODEMaterialLost                               = 32782
+	ERRCODEHardwareFailure                            = 32783
+	ERRCODETransferCancelled                          = 32784
+)
+
+// GETRSPSTAT enumerates the defined values of the GETRSPSTAT item.
+type GETRSPSTAT uint8
+
+const (
+	GETRSPSTATOK                 GETRSPSTAT = 0
+	GETRSPSTATPDENotFound        GETRSPSTAT = 1
+	GETRSPSTATPDELocked          GETRSPSTAT = 2
+	GETRSPSTATTransferNotAllowed GETRSPSTAT = 3
+	GETRSPSTATOther              GETRSPSTAT = 255
+)
+
 // GRANT enumerates the defined values of the GRANT item.
 type GRANT byte
 
@@ -80,6 +401,28 @@ const (
 	GRANTBusyTryAgain      GRANT = 1
 	GRANTNoSpaceAvailable  GRANT = 2
 	GRANTDuplicateDATAID   GRANT = 3
+)
+
+// GRANT6 enumerates the defined values of the GRANT6 item.
+type GRANT6 byte
+
+const (
+	GRANT6PermissionGranted GRANT6 = 0
+	GRANT6BusyTryAgain      GRANT6 = 1
+	GRANT6NotInterested     GRANT6 = 2
+)
+
+// GRNT1 enumerates the defined values of the GRNT1 item.
+type GRNT1 byte
+
+const (
+	GRNT1PositiveResponseTransferOK GRNT1 = 0
+	GRNT1BusyTryAgain               GRNT1 = 1
+	GRNT1NoSpace                    GRNT1 = 2
+	GRNT1MapTooLarge                GRNT1 = 3
+	GRNT1DuplicateID                GRNT1 = 4
+	GRNT1MaterialIDNotFound         GRNT1 = 5
+	GRNT1UnknownMapFormat           GRNT1 = 6
 )
 
 // HCACK enumerates the defined values of the HCACK item.
@@ -93,6 +436,32 @@ const (
 	HCACKAcknowledgeCompletionLater        HCACK = 4
 	HCACKRejectedAlreadyInDesiredCondition HCACK = 5
 	HCACKNoSuchObjectExists                HCACK = 6
+)
+
+// HOCANCELACK enumerates the defined values of the HOCANCELACK item.
+type HOCANCELACK uint8
+
+const (
+	HOCANCELACKCancelReadyAccepted             HOCANCELACK = 0
+	HOCANCELACKAtomicTransferUnknown           HOCANCELACK = 1
+	HOCANCELACKCancelReadyRejectedHandoffBegun HOCANCELACK = 2
+)
+
+// HOHALTACK enumerates the defined values of the HOHALTACK item.
+type HOHALTACK uint8
+
+const (
+	HOHALTACKHaltAccepted          HOHALTACK = 0
+	HOHALTACKAtomicTransferUnknown HOHALTACK = 1
+)
+
+// IDTYP enumerates the defined values of the IDTYP item.
+type IDTYP byte
+
+const (
+	IDTYPWaferID         IDTYP = 0
+	IDTYPWaferCassetteID IDTYP = 1
+	IDTYPFilmFrameID     IDTYP = 2
 )
 
 // LIMITACK enumerates the defined values of the LIMITACK item.
@@ -130,6 +499,424 @@ const (
 	LVACKLimitValueError               LVACK = 4
 )
 
+// MAPER enumerates the defined values of the MAPER item.
+type MAPER byte
+
+const (
+	MAPERIDNotFound  MAPER = 0
+	MAPERInvalidData MAPER = 1
+	MAPERFormatError MAPER = 2
+)
+
+// MAPFT enumerates the defined values of the MAPFT item.
+type MAPFT byte
+
+const (
+	MAPFTRowFormat        MAPFT = 0
+	MAPFTArrayFormat      MAPFT = 1
+	MAPFTCoordinateFormat MAPFT = 2
+)
+
+// MDACK enumerates the defined values of the MDACK item.
+type MDACK byte
+
+const (
+	MDACKMapReceived     MDACK = 0
+	MDACKFormatError     MDACK = 1
+	MDACKNoIDMatch       MDACK = 2
+	MDACKAbortDiscardMap MDACK = 3
+)
+
+// Defined values of the MF item, which may be sent as B or A.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.B(MFWafers).
+const (
+	MFWafers      = 1
+	MFCassette    = 2
+	MFDieOrChips  = 3
+	MFBoats       = 4
+	MFIngots      = 5
+	MFLeadframes  = 6
+	MFLots        = 7
+	MFMagazines   = 8
+	MFPackages    = 9
+	MFPlates      = 10
+	MFTubes       = 11
+	MFWaferframes = 12
+	MFCarriers    = 13
+	MFSubstrates  = 14
+)
+
+// MIDAC enumerates the defined values of the MIDAC item.
+type MIDAC byte
+
+const (
+	MIDACAccepted                 MIDAC = 0
+	MIDACInvalidPortNumber        MIDAC = 1
+	MIDACMaterialNotPresentAtPort MIDAC = 2
+)
+
+// MIDRA enumerates the defined values of the MIDRA item.
+type MIDRA byte
+
+const (
+	MIDRAAcknowledgeMIDFollows       MIDRA = 0
+	MIDRAAcknowledgeWillNotSendMID   MIDRA = 1
+	MIDRAAcknowledgeWillSendMIDLater MIDRA = 2
+)
+
+// MMODE enumerates the defined values of the MMODE item.
+type MMODE byte
+
+const (
+	MMODEHostSourceMode    MMODE = 1
+	MMODELocalSourceMode   MMODE = 2
+	MMODEHostImmediateMode MMODE = 3
+)
+
+// OBJACK enumerates the defined values of the OBJACK item.
+type OBJACK uint8
+
+const (
+	OBJACKSuccess OBJACK = 0
+	OBJACKError   OBJACK = 1
+)
+
+// OBJCMD enumerates the defined values of the OBJCMD item.
+type OBJCMD uint8
+
+const (
+	OBJCMDAttachToRequestor   OBJCMD = 1
+	OBJCMDDetachFromRequestor OBJCMD = 2
+	OBJCMDReattachToRequestor OBJCMD = 3
+	OBJCMDSetAttributes       OBJCMD = 4
+)
+
+// Defined values of the OBJTYPE item, which may be sent as A, U1, U2, U4, or U8.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.A(OBJTYPECarrier).
+const (
+	// OBJTYPECarrier is defined by SEMI E87.1.
+	OBJTYPECarrier = "Carrier"
+	// OBJTYPEProcessJob is defined by SEMI E40.1.
+	// SEMI E40-0813 spells this object type PROCESSJOB.
+	OBJTYPEProcessJob = "ProcessJob"
+	// OBJTYPEControlJob is defined by SEMI E94.1.
+	OBJTYPEControlJob = "ControlJob"
+	// OBJTYPESubstrate is defined by SEMI E90.1.
+	OBJTYPESubstrate = "Substrate"
+	// OBJTYPESubstLoc is defined by SEMI E90.1.
+	OBJTYPESubstLoc = "SubstLoc"
+	// OBJTYPEBatchLoc is defined by SEMI E90.
+	OBJTYPEBatchLoc = "BatchLoc"
+	// OBJTYPEEPTTracker is defined by SEMI E116.
+	OBJTYPEEPTTracker = "EPTTracker"
+	// OBJTYPETable is defined by SEMI E58.
+	OBJTYPETable = "Table"
+)
+
+// OFLACK enumerates the defined values of the OFLACK item.
+type OFLACK byte
+
+const (
+	OFLACKAcknowledge OFLACK = 0
+)
+
+// ONLACK enumerates the defined values of the ONLACK item.
+type ONLACK byte
+
+const (
+	ONLACKAccepted      ONLACK = 0
+	ONLACKNotAllowed    ONLACK = 1
+	ONLACKAlreadyOnLine ONLACK = 2
+)
+
+// ORLOC enumerates the defined values of the ORLOC item.
+type ORLOC byte
+
+const (
+	ORLOCCenterDie  ORLOC = 0
+	ORLOCUpperRight ORLOC = 1
+	ORLOCUpperLeft  ORLOC = 2
+	ORLOCLowerLeft  ORLOC = 3
+	ORLOCLowerRight ORLOC = 4
+)
+
+// PDEATTRIBUTE enumerates the defined values of the PDEATTRIBUTE item.
+type PDEATTRIBUTE uint8
+
+const (
+	PDEATTRIBUTEName           PDEATTRIBUTE = 1
+	PDEATTRIBUTEGID            PDEATTRIBUTE = 2
+	PDEATTRIBUTEGroupName      PDEATTRIBUTE = 3
+	PDEATTRIBUTEDescription    PDEATTRIBUTE = 4
+	PDEATTRIBUTEType           PDEATTRIBUTE = 5
+	PDEATTRIBUTEExecutable     PDEATTRIBUTE = 6
+	PDEATTRIBUTEMaxAntecedents PDEATTRIBUTE = 7
+	PDEATTRIBUTECreateDate     PDEATTRIBUTE = 8
+	PDEATTRIBUTECreateNode     PDEATTRIBUTE = 9
+	PDEATTRIBUTEAuthor         PDEATTRIBUTE = 10
+	PDEATTRIBUTEUserInfo       PDEATTRIBUTE = 11
+	PDEATTRIBUTESupplierInfo   PDEATTRIBUTE = 12
+	PDEATTRIBUTEChecksum       PDEATTRIBUTE = 13
+)
+
+// PDEATTRIBUTENAME enumerates the defined values of the PDEATTRIBUTENAME item.
+type PDEATTRIBUTENAME uint8
+
+const (
+	PDEATTRIBUTENAMEUID          PDEATTRIBUTENAME = 0
+	PDEATTRIBUTENAMEName         PDEATTRIBUTENAME = 1
+	PDEATTRIBUTENAMEGID          PDEATTRIBUTENAME = 2
+	PDEATTRIBUTENAMEGroupName    PDEATTRIBUTENAME = 3
+	PDEATTRIBUTENAMEDescription  PDEATTRIBUTENAME = 4
+	PDEATTRIBUTENAMEType         PDEATTRIBUTENAME = 5
+	PDEATTRIBUTENAMEExecutable   PDEATTRIBUTENAME = 6
+	PDEATTRIBUTENAMECreateDate   PDEATTRIBUTENAME = 8
+	PDEATTRIBUTENAMECreateNode   PDEATTRIBUTENAME = 9
+	PDEATTRIBUTENAMEAuthor       PDEATTRIBUTENAME = 10
+	PDEATTRIBUTENAMEUserInfo     PDEATTRIBUTENAME = 11
+	PDEATTRIBUTENAMESupplierInfo PDEATTRIBUTENAME = 12
+)
+
+// PORTACTION enumerates the defined values of the PORTACTION item.
+type PORTACTION string
+
+const (
+	// PORTACTIONReserveAtPort is defined by SEMI E87.1.
+	PORTACTIONReserveAtPort PORTACTION = "ReserveAtPort"
+	// PORTACTIONCancelReservationAtPort is defined by SEMI E87.1.
+	PORTACTIONCancelReservationAtPort PORTACTION = "CancelReservationAtPort"
+)
+
+// PPGNT enumerates the defined values of the PPGNT item.
+type PPGNT byte
+
+const (
+	PPGNTOK            PPGNT = 0
+	PPGNTAlreadyHave   PPGNT = 1
+	PPGNTNoSpace       PPGNT = 2
+	PPGNTInvalidPPID   PPGNT = 3
+	PPGNTBusyTryLater  PPGNT = 4
+	PPGNTWillNotAccept PPGNT = 5
+)
+
+// PRAXI enumerates the defined values of the PRAXI item.
+type PRAXI byte
+
+const (
+	PRAXIRowsTopIncreasing      PRAXI = 0
+	PRAXIRowsTopDecreasing      PRAXI = 1
+	PRAXIRowsBottomIncreasing   PRAXI = 2
+	PRAXIRowsBottomDecreasing   PRAXI = 3
+	PRAXIColumnsLeftIncreasing  PRAXI = 4
+	PRAXIColumnsLeftDecreasing  PRAXI = 5
+	PRAXIColumnsRightIncreasing PRAXI = 6
+	PRAXIColumnsRightDecreasing PRAXI = 7
+)
+
+// PRCMDNAME enumerates the defined values of the PRCMDNAME item.
+type PRCMDNAME string
+
+const (
+	// SEMI E40-0813 spells this command STARTPROCESS.
+	PRCMDNAMEStart  PRCMDNAME = "START"
+	PRCMDNAMEStop   PRCMDNAME = "STOP"
+	PRCMDNAMEPause  PRCMDNAME = "PAUSE"
+	PRCMDNAMEResume PRCMDNAME = "RESUME"
+	PRCMDNAMEAbort  PRCMDNAME = "ABORT"
+	PRCMDNAMECancel PRCMDNAME = "CANCEL"
+)
+
+// Defined values of the PREVENTID item, which may be sent as U1, U2, U4, or U8.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.U1(PREVENTIDWaitingForMaterial).
+const (
+	PREVENTIDWaitingForMaterial = 1
+	PREVENTIDJobStateChange     = 2
+)
+
+// Defined values of the PRJOBMILESTONE item, which may be sent as U1, U2, U4, or U8.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.U1(PRJOBMILESTONEJobSetup).
+const (
+	PRJOBMILESTONEJobSetup              = 1
+	PRJOBMILESTONEJobProcessing         = 2
+	PRJOBMILESTONEJobProcessingComplete = 3
+	PRJOBMILESTONEJobComplete           = 4
+	PRJOBMILESTONEJobWaitingForStart    = 5
+)
+
+// PRMTRLORDER enumerates the defined values of the PRMTRLORDER item.
+type PRMTRLORDER uint8
+
+const (
+	PRMTRLORDERArrival  PRMTRLORDER = 1
+	PRMTRLORDEROptimize PRMTRLORDER = 2
+	PRMTRLORDERList     PRMTRLORDER = 3
+)
+
+// PRRECIPEMETHOD enumerates the defined values of the PRRECIPEMETHOD item.
+type PRRECIPEMETHOD uint8
+
+const (
+	PRRECIPEMETHODRecipeOnly               PRRECIPEMETHOD = 1
+	PRRECIPEMETHODRecipeWithVariableTuning PRRECIPEMETHOD = 2
+)
+
+// PRSTATE enumerates the defined values of the PRSTATE item.
+type PRSTATE uint8
+
+const (
+	// PRSTATEQueuedPooled is defined by SEMI E40.1.
+	PRSTATEQueuedPooled PRSTATE = 0
+	// PRSTATESettingUp is defined by SEMI E40.1.
+	PRSTATESettingUp PRSTATE = 1
+	// PRSTATEWaitingForStart is defined by SEMI E40.1.
+	PRSTATEWaitingForStart PRSTATE = 2
+	// PRSTATEProcessing is defined by SEMI E40.1.
+	PRSTATEProcessing PRSTATE = 3
+	// PRSTATEProcessComplete is defined by SEMI E40.1.
+	PRSTATEProcessComplete PRSTATE = 4
+	// PRSTATEPausing is defined by SEMI E40.1.
+	PRSTATEPausing PRSTATE = 6
+	// PRSTATEPaused is defined by SEMI E40.1.
+	PRSTATEPaused PRSTATE = 7
+	// PRSTATEStopping is defined by SEMI E40.1.
+	PRSTATEStopping PRSTATE = 8
+	// PRSTATEAborting is defined by SEMI E40.1.
+	PRSTATEAborting PRSTATE = 9
+)
+
+// Defined values of the RAC item, which may be sent as I1 or U1.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.I1(RACResetToBeDone).
+const (
+	RACResetToBeDone = 0
+	RACResetDenied   = 1
+)
+
+// Defined values of the RCMD item, which may be sent as A, I1, or U1.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.A(RCMDARAMSStateChange).
+// SEMI E58.1 requires the equipment to recognize these names whether or not it is case-sensitive.
+const (
+	// RCMDARAMSStateChange is defined by SEMI E58.1.
+	RCMDARAMSStateChange = "ARAMSStateChange"
+	// RCMDResetAccumulators is defined by SEMI E58.1.
+	RCMDResetAccumulators = "ResetAccumulators"
+)
+
+// RCPCMD enumerates the defined values of the RCPCMD item.
+type RCPCMD uint8
+
+const (
+	RCPCMDDelete    RCPCMD = 5
+	RCPCMDUnprotect RCPCMD = 8
+	RCPCMDProtect   RCPCMD = 9
+	RCPCMDVerify    RCPCMD = 10
+	RCPCMDLink      RCPCMD = 11
+	RCPCMDUnlink    RCPCMD = 12
+	RCPCMDCertify   RCPCMD = 13
+	RCPCMDDecertify RCPCMD = 14
+	RCPCMDDownload  RCPCMD = 15
+	RCPCMDUpload    RCPCMD = 16
+)
+
+// RCPDEL enumerates the defined values of the RCPDEL item.
+type RCPDEL uint8
+
+const (
+	RCPDELDelete   RCPDEL = 0
+	RCPDELDeselect RCPDEL = 1
+)
+
+// RCPDESCNM enumerates the defined values of the RCPDESCNM item.
+type RCPDESCNM string
+
+const (
+	RCPDESCNMASDesc   RCPDESCNM = "ASDesc"
+	RCPDESCNMBodyDesc RCPDESCNM = "BodyDesc"
+	RCPDESCNMGenDesc  RCPDESCNM = "GenDesc"
+)
+
+// RCPSECCODE enumerates the defined values of the RCPSECCODE item.
+type RCPSECCODE byte
+
+const (
+	RCPSECCODEGenericAttributesOnly                    RCPSECCODE = 1
+	RCPSECCODEGenericAttributesAndBody                 RCPSECCODE = 3
+	RCPSECCODEAllAgentSpecificDatasets                 RCPSECCODE = 4
+	RCPSECCODEGenericBodyAndAllAgentSpecificDatasets   RCPSECCODE = 7
+	RCPSECCODESingleAgentSpecificDataset               RCPSECCODE = 8
+	RCPSECCODEGenericBodyAndSingleAgentSpecificDataset RCPSECCODE = 11
+)
+
+// RCPSECNM enumerates the defined values of the RCPSECNM item.
+type RCPSECNM string
+
+const (
+	RCPSECNMGeneric RCPSECNM = "Generic"
+	RCPSECNMBody    RCPSECNM = "Body"
+	RCPSECNMASDS    RCPSECNM = "ASDS"
+)
+
+// RCPSTAT enumerates the defined values of the RCPSTAT item.
+type RCPSTAT uint8
+
+const (
+	RCPSTATDoesNotExist RCPSTAT = 0
+	RCPSTATUnprotected  RCPSTAT = 8
+	RCPSTATProtected    RCPSTAT = 9
+)
+
+// Defined values of the RESC item, which may be sent as I1 or U1.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.I1(RESCAbsolute).
+const (
+	RESCAbsolute          = 1
+	RESCSignificantDigits = 2
+)
+
+// RESPDESTAT enumerates the defined values of the RESPDESTAT item.
+type RESPDESTAT uint8
+
+const (
+	RESPDESTATOK                    RESPDESTAT = 0
+	RESPDESTATInvalidInputMap       RESPDESTAT = 1
+	RESPDESTATMapPDENotFound        RESPDESTAT = 2
+	RESPDESTATResolveDenied         RESPDESTAT = 3
+	RESPDESTATReferencedPDENotFound RESPDESTAT = 4
+	RESPDESTATPDENotFound           RESPDESTAT = 5
+	RESPDESTATDateTimeCompareFailed RESPDESTAT = 6
+	RESPDESTATOther                 RESPDESTAT = 255
+)
+
+// RETPLACEINSTR enumerates the defined values of the RETPLACEINSTR item.
+type RETPLACEINSTR uint8
+
+const (
+	RETPLACEINSTRPlace             RETPLACEINSTR = 0
+	RETPLACEINSTRPassBy            RETPLACEINSTR = 1
+	RETPLACEINSTRCurrentlyOccupied RETPLACEINSTR = 2
+)
+
+// RETREMOVEINSTR enumerates the defined values of the RETREMOVEINSTR item.
+type RETREMOVEINSTR uint8
+
+const (
+	RETREMOVEINSTRRemove RETREMOVEINSTR = 0
+	RETREMOVEINSTRPassBy RETREMOVEINSTR = 1
+)
+
+// Defined values of the RIC item, which may be sent as I1 or U1.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.I1(RICNotUsed).
+const (
+	RICNotUsed      = 0
+	RICPowerUpReset = 1
+)
+
 // RMACK enumerates the defined values of the RMACK item.
 type RMACK uint8
 
@@ -141,6 +928,104 @@ const (
 	RMACKNoRequestExists       RMACK = 4
 )
 
+// Defined values of the RMCHGSTAT item, which may be sent as U1, U2, U4, or U8.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.U1(RMCHGSTATNoChange).
+const (
+	RMCHGSTATNoChange    = 0
+	RMCHGSTATCreated     = 1
+	RMCHGSTATUpdated     = 2
+	RMCHGSTATStored      = 3
+	RMCHGSTATReplaced    = 4
+	RMCHGSTATDeleted     = 5
+	RMCHGSTATCopied      = 6
+	RMCHGSTATRenamed     = 7
+	RMCHGSTATUnprotected = 8
+	RMCHGSTATProtected   = 9
+	RMCHGSTATVerified    = 10
+	RMCHGSTATLinked      = 11
+	RMCHGSTATUnlinked    = 12
+	RMCHGSTATCertified   = 13
+	RMCHGSTATDecertified = 14
+	RMCHGSTATSelected    = 15
+	RMCHGSTATDeselected  = 16
+)
+
+// Defined values of the RMCHGTYPE item, which may be sent as U1, U2, U4, or U8.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.U1(RMCHGTYPENoChange).
+const (
+	RMCHGTYPENoChange                                = 0
+	RMCHGTYPECreate                                  = 1
+	RMCHGTYPEUpdate                                  = 2
+	RMCHGTYPEDelete                                  = 5
+	RMCHGTYPECopy                                    = 6
+	RMCHGTYPERename                                  = 7
+	RMCHGTYPEUnprotect                               = 8
+	RMCHGTYPEProtect                                 = 9
+	RMCHGTYPEVerify                                  = 10
+	RMCHGTYPELink                                    = 11
+	RMCHGTYPEUnlink                                  = 12
+	RMCHGTYPECertify                                 = 13
+	RMCHGTYPEDecertify                               = 14
+	RMCHGTYPEChangeGenericAttribute                  = 15
+	RMCHGTYPEChangeAgentSpecificAttribute            = 16
+	RMCHGTYPEChangeGenericAndAgentSpecificAttributes = 17
+)
+
+// RMGRNT enumerates the defined values of the RMGRNT item.
+type RMGRNT byte
+
+const (
+	RMGRNTPermissionGranted       RMGRNT = 0
+	RMGRNTCannotAcceptNowTryAgain RMGRNT = 1
+	RMGRNTNoSpace                 RMGRNT = 2
+	RMGRNTRequestOnHold           RMGRNT = 3
+)
+
+// RMNSCMD enumerates the defined values of the RMNSCMD item.
+type RMNSCMD uint8
+
+const (
+	RMNSCMDCreated RMNSCMD = 1
+	RMNSCMDDeleted RMNSCMD = 5
+)
+
+// RPMACK enumerates the defined values of the RPMACK item.
+type RPMACK uint8
+
+const (
+	RPMACKAcknowledgeServicePerformed     RPMACK = 0
+	RPMACKServiceDoesNotExist             RPMACK = 1
+	RPMACKCannotPerformNow                RPMACK = 2
+	RPMACKParameterDoesNotExist           RPMACK = 3
+	RPMACKAcknowledgeCompletionLater      RPMACK = 4
+	RPMACKServiceNotCompletedOrProhibited RPMACK = 5
+	RPMACKNoSuchObjectExists              RPMACK = 6
+)
+
+// RRACK enumerates the defined values of the RRACK item.
+type RRACK byte
+
+const (
+	RRACKAcknowledgeOK         RRACK = 0
+	RRACKInvalidPortNumber     RRACK = 1
+	RRACKMaterialNotAtPort     RRACK = 2
+	RRACKBusyTryAgain          RRACK = 3
+	RRACKSenderHasNoPermission RRACK = 4
+)
+
+// RSACK enumerates the defined values of the RSACK item.
+type RSACK byte
+
+const (
+	RSACKAcknowledgeOK           RSACK = 0
+	RSACKInvalidPortNumber       RSACK = 1
+	RSACKPortAlreadyOccupied     RSACK = 2
+	RSACKBusyTryAgain            RSACK = 3
+	RSACKReceiverHasNoPermission RSACK = 4
+)
+
 // RSDA enumerates the defined values of the RSDA item.
 type RSDA byte
 
@@ -150,12 +1035,79 @@ const (
 	RSDADeniedSpooledDataDoesNotExist RSDA = 2
 )
 
+// RSDC enumerates the defined values of the RSDC item.
+type RSDC uint8
+
+const (
+	RSDCTransmitSpooledMessages RSDC = 0
+	RSDCPurgeSpooledMessages    RSDC = 1
+)
+
 // RSPACK enumerates the defined values of the RSPACK item.
 type RSPACK byte
 
 const (
 	RSPACKSpoolingSetupAccepted RSPACK = 0
 	RSPACKSpoolingSetupRejected RSPACK = 1
+)
+
+// RTSRSPSTAT enumerates the defined values of the RTSRSPSTAT item.
+type RTSRSPSTAT uint8
+
+const (
+	RTSRSPSTATOK                        RTSRSPSTAT = 0
+	RTSRSPSTATNoResources               RTSRSPSTAT = 1
+	RTSRSPSTATTransferContainerTooLarge RTSRSPSTAT = 2
+	RTSRSPSTATNoStorageSpace            RTSRSPSTAT = 3
+	RTSRSPSTATOther                     RTSRSPSTAT = 255
+)
+
+// Defined values of the RTYPE item, which may be sent as I1, I2, I4, I8, U1, U2, U4, or U8.
+// They are untyped constants:
+// pass one to the secs2 constructor of the format to send, e.g. secs2.I1(RTYPEStream).
+const (
+	RTYPEStream   = 0
+	RTYPEDiscrete = 1
+)
+
+// SDACK enumerates the defined values of the SDACK item.
+type SDACK byte
+
+const (
+	SDACKReceivedData SDACK = 0
+)
+
+// SDBIN enumerates the defined values of the SDBIN item.
+type SDBIN byte
+
+const (
+	SDBINSendBinInformation     SDBIN = 0
+	SDBINDontSendBinInformation SDBIN = 1
+)
+
+// SENDRESULT enumerates the defined values of the SENDRESULT item.
+type SENDRESULT uint8
+
+const (
+	SENDRESULTOK                  SENDRESULT = 0
+	SENDRESULTSendRspError        SENDRESULT = 1
+	SENDRESULTTCManifestError     SENDRESULT = 2
+	SENDRESULTTCUnexpectedContent SENDRESULT = 3
+	SENDRESULTTCMissingFiles      SENDRESULT = 4
+	SENDRESULTTCFormatError       SENDRESULT = 5
+)
+
+// SENDRSPSTAT enumerates the defined values of the SENDRSPSTAT item.
+type SENDRSPSTAT uint8
+
+const (
+	SENDRSPSTATOK                 SENDRSPSTAT = 0
+	SENDRSPSTATNoResources        SENDRSPSTAT = 1
+	SENDRSPSTATNoExecutionTarget  SENDRSPSTAT = 2
+	SENDRSPSTATPDELocked          SENDRSPSTAT = 3
+	SENDRSPSTATVerificationFailed SENDRSPSTAT = 4
+	SENDRSPSTATTransferNotAllowed SENDRSPSTAT = 5
+	SENDRSPSTATOther              SENDRSPSTAT = 255
 )
 
 // SPAACK enumerates the defined values of the SPAACK item.
@@ -176,6 +1128,56 @@ const (
 	STRACKSecondaryFunction           STRACK = 4
 )
 
+// SVCACK enumerates the defined values of the SVCACK item.
+type SVCACK byte
+
+const (
+	SVCACKAcknowledgeServicePerformed     SVCACK = 0
+	SVCACKServiceDoesNotExist             SVCACK = 1
+	SVCACKCannotPerformNow                SVCACK = 2
+	SVCACKParameterInvalid                SVCACK = 3
+	SVCACKAcknowledgeCompletionLater      SVCACK = 4
+	SVCACKServiceNotCompletedOrProhibited SVCACK = 5
+	SVCACKNoSuchObjectExists              SVCACK = 6
+)
+
+// SVCNAME enumerates the defined values of the SVCNAME item.
+type SVCNAME string
+
+const (
+	// SVCNAMEUpdateSubstrateObject is defined by SEMI E90.1.
+	SVCNAMEUpdateSubstrateObject SVCNAME = "UpdateSubstrateObject"
+)
+
+// TBLACK enumerates the defined values of the TBLACK item.
+type TBLACK uint8
+
+const (
+	TBLACKSuccess TBLACK = 0
+	TBLACKFailure TBLACK = 1
+)
+
+// TBLCMD enumerates the defined values of the TBLCMD item.
+type TBLCMD uint8
+
+const (
+	TBLCMDCompleteTable          TBLCMD = 0
+	TBLCMDNewRows                TBLCMD = 1
+	TBLCMDNewColumns             TBLCMD = 2
+	TBLCMDReplaceExistingRows    TBLCMD = 3
+	TBLCMDReplaceExistingColumns TBLCMD = 4
+)
+
+// TBLTYP enumerates the defined values of the TBLTYP item.
+type TBLTYP string
+
+const (
+	// TBLTYPTableARAMSCode is defined by SEMI E58.
+	TBLTYPTableARAMSCode TBLTYP = "TableARAMSCode"
+	// TBLTYPTableARAMSSymptom is defined by SEMI E58.
+	TBLTYPTableARAMSSymptom TBLTYP = "TableARAMSSymptom"
+)
+
 // TIAACK enumerates the defined values of the TIAACK item.
 type TIAACK byte
 
@@ -194,6 +1196,114 @@ type TIACK byte
 const (
 	TIACKOK           TIACK = 0
 	TIACKErrorNotDone TIACK = 1
+)
+
+// TID enumerates the defined values of the TID item.
+type TID byte
+
+const (
+	TIDSingleOrMain TID = 0
+)
+
+// TRCMDNAME enumerates the defined values of the TRCMDNAME item.
+type TRCMDNAME string
+
+const (
+	TRCMDNAMECancel       TRCMDNAME = "CANCEL"
+	TRCMDNAMEPause        TRCMDNAME = "PAUSE"
+	TRCMDNAMEResume       TRCMDNAME = "RESUME"
+	TRCMDNAMEAbort        TRCMDNAME = "ABORT"
+	TRCMDNAMEStop         TRCMDNAME = "STOP"
+	TRCMDNAMEStartHandoff TRCMDNAME = "STARTHANDOFF"
+)
+
+// TRDIR enumerates the defined values of the TRDIR item.
+type TRDIR uint8
+
+const (
+	TRDIRSendMaterial    TRDIR = 1
+	TRDIRReceiveMaterial TRDIR = 2
+)
+
+// TRJOBMS enumerates the defined values of the TRJOBMS item.
+type TRJOBMS uint8
+
+const (
+	TRJOBMSTransferJobStarted  TRJOBMS = 1
+	TRJOBMSTransferJobComplete TRJOBMS = 2
+)
+
+// TRROLE enumerates the defined values of the TRROLE item.
+type TRROLE uint8
+
+const (
+	TRROLEPrimaryTransferPartner   TRROLE = 1
+	TRROLESecondaryTransferPartner TRROLE = 2
+)
+
+// TRTYPE enumerates the defined values of the TRTYPE item.
+type TRTYPE uint8
+
+const (
+	TRTYPEActive  TRTYPE = 1
+	TRTYPEPassive TRTYPE = 2
+)
+
+// TSIP enumerates the defined values of the TSIP item.
+type TSIP byte
+
+const (
+	TSIPIdle            TSIP = 1
+	TSIPPrep            TSIP = 2
+	TSIPTrackOn         TSIP = 3
+	TSIPStuckInReceiver TSIP = 4
+)
+
+// TSOP enumerates the defined values of the TSOP item.
+type TSOP byte
+
+const (
+	TSOPIdle          TSOP = 1
+	TSOPPrep          TSOP = 2
+	TSOPTrackOn       TSOP = 3
+	TSOPStuckInSender TSOP = 4
+	TSOPCompletion    TSOP = 5
+)
+
+// VERIFYDEPTH enumerates the defined values of the VERIFYDEPTH item.
+type VERIFYDEPTH uint8
+
+const (
+	VERIFYDEPTHSingle VERIFYDEPTH = 0
+	VERIFYDEPTHAll    VERIFYDEPTH = 1
+)
+
+// VERIFYRSPSTAT enumerates the defined values of the VERIFYRSPSTAT item.
+type VERIFYRSPSTAT uint8
+
+const (
+	VERIFYRSPSTATOK                    VERIFYRSPSTAT = 0
+	VERIFYRSPSTATInvalidInputMap       VERIFYRSPSTAT = 1
+	VERIFYRSPSTATMapPDENotFound        VERIFYRSPSTAT = 2
+	VERIFYRSPSTATResolveDenied         VERIFYRSPSTAT = 3
+	VERIFYRSPSTATReferencedPDENotFound VERIFYRSPSTAT = 4
+	VERIFYRSPSTATDateTimeCompareFailed VERIFYRSPSTAT = 5
+	VERIFYRSPSTATPDENotFound           VERIFYRSPSTAT = 6
+	VERIFYRSPSTATChecksumFail          VERIFYRSPSTAT = 7
+	VERIFYRSPSTATSyntaxError           VERIFYRSPSTAT = 8
+	VERIFYRSPSTATContentError          VERIFYRSPSTAT = 9
+	VERIFYRSPSTATNoExecutionTarget     VERIFYRSPSTAT = 10
+	VERIFYRSPSTATOutputParameterError  VERIFYRSPSTAT = 11
+	VERIFYRSPSTATNoVerification        VERIFYRSPSTAT = 12
+	VERIFYRSPSTATOther                 VERIFYRSPSTAT = 255
+)
+
+// VERIFYTYPE enumerates the defined values of the VERIFYTYPE item.
+type VERIFYTYPE uint8
+
+const (
+	VERIFYTYPEChecksum VERIFYTYPE = 0
+	VERIFYTYPEValidity VERIFYTYPE = 1
 )
 
 // VLAACK enumerates the defined values of the VLAACK item.

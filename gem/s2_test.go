@@ -76,7 +76,7 @@ func TestS2F2(t *testing.T) {
 }
 
 func TestS2F3(t *testing.T) {
-	msg := gem.S2F3(0x29)
+	msg := gem.S2F3([]byte{0x4e, 0xf9, 0xb2, 0x22})
 
 	assertS2Header(t, msg, 3, true)
 
@@ -88,8 +88,8 @@ func TestS2F3(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decoded.ToBinary: %v", err)
 	}
-	if len(v1) != 1 || v1[0] != 0x29 {
-		t.Errorf("spd: got %v, want %v", v1, 0x29)
+	if !bytes.Equal(v1, []byte{0x4e, 0xf9, 0xb2, 0x22}) {
+		t.Errorf("spd: got %x, want %x", v1, []byte{0x4e, 0xf9, 0xb2, 0x22})
 	}
 }
 
@@ -130,7 +130,7 @@ func TestS2F5(t *testing.T) {
 }
 
 func TestS2F6(t *testing.T) {
-	msg := gem.S2F6(0x29)
+	msg := gem.S2F6([]byte{0x4e, 0xf9, 0xb2, 0x22})
 
 	assertS2Header(t, msg, 6, false)
 
@@ -142,8 +142,8 @@ func TestS2F6(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decoded.ToBinary: %v", err)
 	}
-	if len(v1) != 1 || v1[0] != 0x29 {
-		t.Errorf("spd: got %v, want %v", v1, 0x29)
+	if !bytes.Equal(v1, []byte{0x4e, 0xf9, 0xb2, 0x22}) {
+		t.Errorf("spd: got %x, want %x", v1, []byte{0x4e, 0xf9, 0xb2, 0x22})
 	}
 }
 

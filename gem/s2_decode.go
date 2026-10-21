@@ -75,7 +75,7 @@ func DecodeS2F2(item secs2.Item) (S2F2Reply, error) {
 //
 // It is filled by [DecodeS2F3] and mirrors the parameters of [S2F3], in order.
 type S2F3Body struct {
-	SPD byte
+	SPD []byte
 }
 
 // DecodeS2F3 decodes the body of an S2F3 (Service Program Send) message into a [S2F3Body].
@@ -90,7 +90,7 @@ func DecodeS2F3(item secs2.Item) (S2F3Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.SPD, err = decodeByteAs[byte](root, "SPD"); err != nil {
+	if out.SPD, err = decodeBinary(root, "SPD"); err != nil {
 		return out, err
 	}
 
@@ -159,7 +159,7 @@ func DecodeS2F5(item secs2.Item) (S2F5Body, error) {
 //
 // It is filled by [DecodeS2F6] and mirrors the parameters of [S2F6], in order.
 type S2F6Reply struct {
-	SPD byte
+	SPD []byte
 }
 
 // DecodeS2F6 decodes the body of an S2F6 (Service Program Load Data) message into a [S2F6Reply].
@@ -174,7 +174,7 @@ func DecodeS2F6(item secs2.Item) (S2F6Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.SPD, err = decodeByteAs[byte](root, "SPD"); err != nil {
+	if out.SPD, err = decodeBinary(root, "SPD"); err != nil {
 		return out, err
 	}
 

@@ -73,8 +73,8 @@ func S6F5(dataid secs2.Item, datalength secs2.Item) secs2.SECS2Message {
 // Body: B[grant6].
 //
 // Exception: None.
-func S6F6(grant6 byte) secs2.SECS2Message {
-	return secs2.NewMessage(6, 6, false, secs2.B(grant6))
+func S6F6(grant6 GRANT6) secs2.SECS2Message {
+	return secs2.NewMessage(6, 6, false, secs2.B(byte(grant6)))
 }
 
 // S6F7 creates the S6F7 (Data Transfer Request) message, direction: host-to-equipment.
@@ -272,8 +272,8 @@ func S6F22(values ...secs2.Item) secs2.SECS2Message {
 // Body: U1[rsdc].
 //
 // Exception: None.
-func S6F23(rsdc uint8) secs2.SECS2Message {
-	return secs2.NewMessage(6, 23, true, secs2.U1(rsdc))
+func S6F23(rsdc RSDC) secs2.SECS2Message {
+	return secs2.NewMessage(6, 23, true, secs2.U1(uint8(rsdc)))
 }
 
 // S6F24 creates the S6F24 (Request Spooled Data Acknowledgement Send) message, direction: equipment-to-host.

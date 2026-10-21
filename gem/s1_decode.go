@@ -483,7 +483,7 @@ func DecodeS1F14Host(item secs2.Item) (S1F14HostReply, error) {
 //
 // It is filled by [DecodeS1F16] and mirrors the parameters of [S1F16], in order.
 type S1F16Reply struct {
-	OFLACK byte
+	OFLACK OFLACK
 }
 
 // DecodeS1F16 decodes the body of an S1F16 (OFF-LINE Acknowledge) message into a [S1F16Reply].
@@ -498,7 +498,7 @@ func DecodeS1F16(item secs2.Item) (S1F16Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.OFLACK, err = decodeByteAs[byte](root, "OFLACK"); err != nil {
+	if out.OFLACK, err = decodeByteAs[OFLACK](root, "OFLACK"); err != nil {
 		return out, err
 	}
 
@@ -511,7 +511,7 @@ func DecodeS1F16(item secs2.Item) (S1F16Reply, error) {
 //
 // It is filled by [DecodeS1F18] and mirrors the parameters of [S1F18], in order.
 type S1F18Reply struct {
-	ONLACK byte
+	ONLACK ONLACK
 }
 
 // DecodeS1F18 decodes the body of an S1F18 (ON-LINE Acknowledge) message into a [S1F18Reply].
@@ -526,7 +526,7 @@ func DecodeS1F18(item secs2.Item) (S1F18Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.ONLACK, err = decodeByteAs[byte](root, "ONLACK"); err != nil {
+	if out.ONLACK, err = decodeByteAs[ONLACK](root, "ONLACK"); err != nil {
 		return out, err
 	}
 

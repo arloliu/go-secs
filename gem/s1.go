@@ -117,6 +117,7 @@ func S1F9() secs2.SECS2Message {
 // S1F10 creates the S1F10 (Material Transfer Status Data) message, direction: equipment-to-host.
 //
 // The equipment reports the transfer status of all material ports.
+// The packed TSIP and TSOP values are raw bytes, so a TSIP or TSOP constant converts with byte(...), as in byte(TSIPIdle).
 //
 // Body: L[2]{ B[n]{ <tsips>... } B[n]{ <tsops>... } }.
 //
@@ -213,8 +214,8 @@ func S1F15() secs2.SECS2Message {
 // Body: B[oflack].
 //
 // Exception: None.
-func S1F16(oflack byte) secs2.SECS2Message {
-	return secs2.NewMessage(1, 16, false, secs2.B(oflack))
+func S1F16(oflack OFLACK) secs2.SECS2Message {
+	return secs2.NewMessage(1, 16, false, secs2.B(byte(oflack)))
 }
 
 // S1F17 creates the S1F17 (Request ON-LINE) message, direction: host-to-equipment.
@@ -235,8 +236,8 @@ func S1F17() secs2.SECS2Message {
 // Body: B[onlack].
 //
 // Exception: None.
-func S1F18(onlack byte) secs2.SECS2Message {
-	return secs2.NewMessage(1, 18, false, secs2.B(onlack))
+func S1F18(onlack ONLACK) secs2.SECS2Message {
+	return secs2.NewMessage(1, 18, false, secs2.B(byte(onlack)))
 }
 
 // S1F19 creates the S1F19 (Get Attribute) message, direction: bidirectional.
