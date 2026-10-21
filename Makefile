@@ -54,7 +54,7 @@ STRESS_DIRS := ./hsmsss/... ./hsms/... ./secs1/... ./integration/...
 # Packages that contain Fuzz* targets. fuzz-test auto-discovers the targets
 # inside each package, so new fuzzers in a listed package are picked up
 # automatically; a package's first fuzzer needs an entry here.
-FUZZ_PKGS := ./hsms ./hsmsss ./integration ./secs2 ./sml
+FUZZ_PKGS := ./gem ./hsms ./hsmsss ./integration ./secs2 ./sml
 
 # Coverage outputs.
 COVER_ROOT            := ./.coverage

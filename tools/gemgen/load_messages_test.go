@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -185,4 +186,47 @@ messages:
 	mf, err := LoadMessageFile([]byte(yml))
 	require.NoError(t, err)
 	require.Error(t, ValidateMessages([]MessageFile{mf}, testItems()))
+}
+
+// TestLoadMessageFileRejectsUnknownKeys proves a key the messages DSL does not define fails loading
+// at every level of a stream file:
+// the file, a message, a body, a structure node, and a node nested in a list and in a repeat's of.
+// A misspelled key such as optinal would otherwise be dropped silently and change the generated code.
+func TestLoadMessageFileRejectsUnknownKeys(t *testing.T) {
+	const message = `
+stream: 1
+messages:
+  - function: 2
+    name: On Line Data
+    bodies:
+      - actor: equipment
+        structure: {type: list, items: [{item: MDLN}]}
+`
+
+	tests := []struct {
+		name string
+		old  string
+		new  string
+		key  string
+	}{
+		{"file", "stream: 1\n", "stream: 1\nstreem: 1\n", "streem"},
+		{"message", "    name: On Line Data\n", "    name: On Line Data\n    replyExpected: true\n", "replyExpected"},
+		{"body", "      - actor: equipment\n", "      - actor: equipment\n        shortForm: Short\n", "shortForm"},
+		{"structure node", "{type: list, items:", "{type: list, repeats: x, items:", "repeats"},
+		{"node in a list", "{item: MDLN}", "{item: MDLN, optinal: true}", "optinal"},
+		{"node in a repeat's of", "items: [{item: MDLN}]", "repeat: x, of: {item: MDLN, typd: true}", "typd"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			yml := strings.Replace(message, tt.old, tt.new, 1)
+			require.NotEqual(t, message, yml)
+
+			_, err := LoadMessageFile([]byte(yml))
+			require.ErrorContains(t, err, "field "+tt.key+" not found")
+		})
+	}
+
+	_, err := LoadMessageFile([]byte(message))
+	require.NoError(t, err)
 }

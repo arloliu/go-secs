@@ -9,7 +9,17 @@ import (
 	"github.com/arloliu/go-secs/v2/gem"
 	"github.com/arloliu/go-secs/v2/secs2"
 )
-{{range .Tests}}
+{{if .Tests}}
+func init() {
+{{- range .Tests}}
+	registerFuzzDecoder("{{.DecodeName}}", func(item secs2.Item) error {
+		_, err := gem.{{.DecodeName}}(item)
+
+		return err
+	}, gem.{{.CallName}}({{.CallArgs}}).Item())
+{{- end}}
+}
+{{end}}{{range .Tests}}
 func {{.Name}}(t *testing.T) {
 	msg := gem.{{.CallName}}({{.CallArgs}})
 
@@ -28,4 +38,14 @@ func {{.Name}}(t *testing.T) {
 		t.Fatalf("{{.DecodeName}}: %v", err)
 	}
 {{end}}}
-{{end}}
+{{if .EmptyName}}
+func {{.EmptyName}}(t *testing.T) {
+{{- range .EmptyLines}}
+	{{.}}{{end}}
+}
+{{end}}{{range .Absent}}
+func {{.Name}}(t *testing.T) {
+{{- range .Lines}}
+	{{.}}{{end}}
+}
+{{end}}{{end}}

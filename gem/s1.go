@@ -30,7 +30,7 @@ func S1F2(mdln string, softrev string) secs2.SECS2Message {
 //
 // Data signifying that the equipment is alive.
 //
-// Body: L[0]{  }.
+// Body: L[0]{}.
 //
 // Exception: The host sends a zero-length list to the equipment.
 func S1F2Host() secs2.SECS2Message {
@@ -164,7 +164,7 @@ func S1F13(mdln string, softrev string) secs2.SECS2Message {
 //
 // Provides a formal means of initializing communications at the application level.
 //
-// Body: L[0]{  }.
+// Body: L[0]{}.
 //
 // Exception: The host sends a zero-length list to the equipment.
 func S1F13Host() secs2.SECS2Message {
@@ -188,7 +188,7 @@ func S1F14(commack COMMACK, mdln string, softrev string) secs2.SECS2Message {
 // Accepts or denies an Establish Communications Request.
 // MDLN and SOFTREV are valid only if COMMACK is 0.
 //
-// Body: L[2]{ B[commack] L[0]{  } }.
+// Body: L[2]{ B[commack] L[0]{} }.
 //
 // Exception: The host sends a zero-length list for the second item to the equipment.
 func S1F14Host(commack COMMACK) secs2.SECS2Message {

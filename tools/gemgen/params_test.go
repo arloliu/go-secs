@@ -17,7 +17,7 @@ func paramsItems() map[string]Item {
 		"MDLN":    {Formats: []string{"A"}, Binding: BindingFixed, GoType: "string"},
 		"SOFTREV": {Formats: []string{"A"}, Binding: BindingFixed, GoType: "string"},
 		"SFCD":    {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte"},
-		"COMMACK": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte", Values: []ItemValue{{Name: "OK", Value: 0}}},
+		"COMMACK": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte", Values: []ItemValue{{Name: "OK", Value: IntValue(0)}}},
 		"SVID":    {Formats: []string{"U1", "U2", "U4", "U8"}, Binding: BindingOpen},
 		"TSIP":    {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte"},
 		"TSOP":    {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte"},
@@ -255,6 +255,12 @@ func TestBodyDoc(t *testing.T) {
 			"bounded-arity list",
 			&StructureNode{Type: "list", MinItems: new(0), MaxItems: new(4), Items: []StructureNode{{Item: "MDLN"}}},
 			"L[0,4]{ A[mdln] }",
+		},
+		{"empty list S1F2Host and S1F13Host", &StructureNode{Type: "list"}, "L[0]{}"},
+		{
+			"nested empty list S1F14Host",
+			&StructureNode{Type: "list", Items: []StructureNode{{Item: "COMMACK"}, {Type: "list"}}},
+			"L[2]{ B[commack] L[0]{} }",
 		},
 	}
 

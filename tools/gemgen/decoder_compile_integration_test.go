@@ -32,9 +32,9 @@ import (
 // reaches across module boundaries; run it with `go test -tags integration ./...`.
 func TestDecodersCompileAndRoundTripAgainstRealSecs2(t *testing.T) {
 	items := map[string]Item{
-		"COMMACK": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte", Values: []ItemValue{{Name: "OK", Value: 0}}},
+		"COMMACK": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte", Values: []ItemValue{{Name: "OK", Value: IntValue(0)}}},
 		"SFCD":    {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte"},
-		"RMACK":   {Formats: []string{"U1"}, Binding: BindingFixed, GoType: "uint8", Values: []ItemValue{{Name: "Done", Value: 0}}},
+		"RMACK":   {Formats: []string{"U1"}, Binding: BindingFixed, GoType: "uint8", Values: []ItemValue{{Name: "Done", Value: IntValue(0)}}},
 		"LINKID":  {Formats: []string{"U4"}, Binding: BindingFixed, GoType: "uint32"},
 		"SIGNED":  {Formats: []string{"I4"}, Binding: BindingFixed, GoType: "int32"},
 		"REAL":    {Formats: []string{"F4"}, Binding: BindingFixed, GoType: "float32"},
@@ -152,6 +152,8 @@ func TestDecodersCompileAndRoundTripAgainstRealSecs2(t *testing.T) {
 	} {
 		require.NoError(t, os.WriteFile(filepath.Join(checkDir, name), []byte(src), 0o600))
 	}
+
+	plantFuzzHarness(t, rootDir, checkDir, pkg)
 
 	// Real build + test against real secs2 -- the whole point: prove the emitted accessors, generic
 	// instantiations, and field types type-check, and that the round-trip assertions pass.

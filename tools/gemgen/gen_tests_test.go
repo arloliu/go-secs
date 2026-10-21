@@ -320,6 +320,45 @@ func TestRenderTestsFixedBooleanLeaf(t *testing.T) {
 	require.Contains(t, src, "decoded.ToBoolean()")
 }
 
+// TestRenderTestsAlternateBooleanSamples proves the BOOLEAN leaves of one body get alternating samples,
+// true, false, true, in parameter order,
+// and that the builder test and the round-trip test both expect each leaf's own sample,
+// so a builder or decoder that swaps two adjacent BOOLEAN leaves fails its generated test.
+func TestRenderTestsAlternateBooleanSamples(t *testing.T) {
+	items := map[string]Item{
+		"START": {Formats: []string{"BOOLEAN"}, Binding: BindingFixed, GoType: "bool"},
+		"STOP":  {Formats: []string{"BOOLEAN"}, Binding: BindingFixed, GoType: "bool"},
+		"ABORT": {Formats: []string{"BOOLEAN"}, Binding: BindingFixed, GoType: "bool"},
+	}
+	structure := &StructureNode{Type: "list", Items: []StructureNode{
+		{Item: "START"},
+		{Type: "list", Items: []StructureNode{{Item: "STOP"}}},
+		{Item: "ABORT"},
+	}}
+
+	exprs, err := SampleExprs(structure, items)
+	require.NoError(t, err)
+	require.Equal(t, []string{"true", "false", "true"}, exprs)
+
+	mf := MessageFile{Stream: 2, Messages: []Message{{
+		Function: 99, Name: "Boolean Sample", Mnemonic: "BS",
+		Bodies: []Body{{Actor: "both", Structure: structure}},
+	}}}
+
+	out, err := renderTests(mf, items)
+	require.NoError(t, err)
+	parseGoSource(t, out)
+	require.Contains(t, string(out), "gem.S2F99(true, false, true)")
+	require.Regexp(t, `v\d+\[0\] != false`, string(out))
+
+	out, err = renderDecodeTests(mf, items)
+	require.NoError(t, err)
+	parseGoSource(t, out)
+	require.Contains(t, string(out), "if !got.START {")
+	require.Contains(t, string(out), "if got.STOP {")
+	require.Contains(t, string(out), "if !got.ABORT {")
+}
+
 // TestRenderTestsByteArrayLeaf proves the byte-array/byte-slice leaf body
 // path (S9 header items / S2F25 ABS shape): a fixed [N]byte leaf is sampled
 // as an [N]byte{...} composite literal at the call site and asserted against

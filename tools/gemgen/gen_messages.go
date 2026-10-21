@@ -62,13 +62,33 @@ func renderMessages(mf MessageFile, items map[string]Item) ([]byte, error) {
 	return out, nil
 }
 
+// callName returns the name of the main builder for one actor of a message:
+// SxFy, or SxFyHost for the host's body.
+// The main body's decoder is Decode<callName>,
+// and a variant's builder is callName followed by the variant name.
+func callName(stream int, function int, actor string) string {
+	name := fmt.Sprintf("S%dF%d", stream, function)
+	if actor == "host" {
+		name += "Host"
+	}
+
+	return name
+}
+
+// builderName returns the name of the builder generated for one body:
+// its actor's [callName], followed by the variant name for a variant body.
+func builderName(stream int, function int, b Body) string {
+	return callName(stream, function, b.Actor) + b.Variant
+}
+
 // newFuncView builds the view model for one (message, body) pair.
 func newFuncView(stream int, m Message, b Body, items map[string]Item) funcView {
 	code := fmt.Sprintf("S%dF%d", stream, m.Function)
+	name := builderName(stream, m.Function, b)
 
-	name := code
-	if b.Actor == "host" {
-		name = code + "Host"
+	doc := messageDoc(name, code, m, b, items)
+	if b.Variant != "" {
+		doc = variantDoc(name, code, callName(stream, m.Function, b.Actor), m, b, items)
 	}
 
 	return funcView{
@@ -78,8 +98,33 @@ func newFuncView(stream int, m Message, b Body, items map[string]Item) funcView 
 		Stream:  stream,
 		Func:    m.Function,
 		WaitBit: b.ReplyExpected,
-		Doc:     messageDoc(name, code, m, b, items),
+		Doc:     doc,
 	}
+}
+
+// variantDoc renders the godoc comment lines for a variant body's builder:
+// a name-first summary calling it the short form of its message,
+// the builder and decoder of the main body it shortens,
+// and its own Body: shorthand.
+// The description and exception stay on the main builder, which the summary links to.
+func variantDoc(funcName string, code string, mainName string, m Message, b Body, items map[string]Item) []string {
+	doc := []string{
+		fmt.Sprintf("%s creates the short form of an %s (%s) message%s, direction: %s.", funcName, code, m.Name, actorClause(b.Actor), m.Direction),
+		"",
+		fmt.Sprintf("[%s] creates the full form,", mainName),
+		fmt.Sprintf("and [Decode%s] decodes both.", mainName),
+		"",
+	}
+	doc = append(doc, wrapParagraph(ensurePeriod("Body: "+BodyDoc(b.Structure, items)))...)
+	doc = append(doc, optionalBuilderDoc(b.Structure)...)
+	doc = append(doc, typedBuilderDoc(b.Structure, items)...)
+
+	if m.Source == "external" {
+		doc = append(doc, "")
+		doc = append(doc, wrapParagraph(externalSourceDisclaimer)...)
+	}
+
+	return doc
 }
 
 // messageDoc renders the godoc comment lines (each without the leading "// ")
@@ -92,16 +137,7 @@ func newFuncView(stream int, m Message, b Body, items map[string]Item) funcView 
 // into one run-on paragraph. When m.Source == "external", an additional
 // blank entry and a trailing provenance disclaimer paragraph are appended.
 func messageDoc(funcName, code string, m Message, b Body, items map[string]Item) []string {
-	actorClause := ""
-	switch b.Actor {
-	case "equipment":
-		actorClause = " for equipment"
-	case "host":
-		actorClause = " for host"
-	default: // "both": no actor clause
-	}
-
-	summary := fmt.Sprintf("%s creates the %s (%s) message%s, direction: %s.", funcName, code, m.Name, actorClause, m.Direction)
+	summary := fmt.Sprintf("%s creates the %s (%s) message%s, direction: %s.", funcName, code, m.Name, actorClause(b.Actor), m.Direction)
 
 	// summary is a generated fixed-format synopsis, not authored prose,
 	// so it is never wrapped: wrapping it would treat the "direction:" colon as a clause boundary and break a line that was never meant to span more than one.
@@ -109,6 +145,8 @@ func messageDoc(funcName, code string, m Message, b Body, items map[string]Item)
 	doc = append(doc, wrapParagraph(ensurePeriod(m.Description))...)
 	doc = append(doc, "")
 	doc = append(doc, wrapParagraph(ensurePeriod("Body: "+BodyDoc(b.Structure, items)))...)
+	doc = append(doc, optionalBuilderDoc(b.Structure)...)
+	doc = append(doc, typedBuilderDoc(b.Structure, items)...)
 	doc = append(doc, "")
 	doc = append(doc, wrapParagraph(ensurePeriod("Exception: "+m.Exception))...)
 

@@ -5,6 +5,7 @@ package gem
 import (
 	"fmt"
 	"math"
+	"strconv"
 
 	"github.com/arloliu/go-secs/v2/secs2"
 )
@@ -95,6 +96,9 @@ func optionalArity(c secs2.Cursor, field string, short int, full int) (int, erro
 }
 
 // decodeItems returns the children of the list at c, one per element of a repeated group.
+//
+// A zero-length list yields an empty slice;
+// whether it is nil is not part of the contract, so callers test it with len.
 func decodeItems(c secs2.Cursor, field string) ([]secs2.Item, error) {
 	item, err := listAt(c, field)
 	if err != nil {
@@ -104,6 +108,27 @@ func decodeItems(c secs2.Cursor, field string) ([]secs2.Item, error) {
 	values, err := item.ToList()
 	if err != nil {
 		return nil, wrapField(field, err)
+	}
+
+	return values, nil
+}
+
+// decodeEach decodes every child of the list at c with decode, one per element of a typed repeated group.
+//
+// An element's error names field and the element's index, e.g. STATUSLIST[2],
+// so a caller can tell which element of the list failed.
+// A zero-length list yields an empty slice, as for [decodeItems].
+func decodeEach[T any](c secs2.Cursor, field string, decode func(secs2.Cursor, string) (T, error)) ([]T, error) {
+	item, err := listAt(c, field)
+	if err != nil {
+		return nil, err
+	}
+
+	values := make([]T, item.Size())
+	for i := range values {
+		if values[i], err = decode(c.At(i), field+"["+strconv.Itoa(i)+"]"); err != nil {
+			return nil, err
+		}
 	}
 
 	return values, nil
@@ -123,6 +148,30 @@ func decodeItem(c secs2.Cursor, field string) (secs2.Item, error) {
 	return item, nil
 }
 
+// presentAt reports whether the optional field at c carries a value.
+//
+// SEMI E5 lets some data items be sent as a zero-length item to mean "no value".
+// Only a zero-length item of type T, the item type the field's own decode helper reads, means that:
+// presentAt reports any other item as present and leaves it to that helper,
+// which rejects a wrong-format item whether it is empty or not.
+// An unreachable position or a deferred construction error is an error, as for any field.
+func presentAt[T secs2.Item](c secs2.Cursor, field string) (bool, error) {
+	item, err := c.Item()
+	if err != nil {
+		return false, wrapField(field, err)
+	}
+
+	if err := item.Error(); err != nil {
+		return false, wrapField(field, err)
+	}
+
+	if _, ok := item.(T); ok && item.Size() == 0 {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 // decodeASCII returns the ASCII item at c as a string.
 func decodeASCII(c secs2.Cursor, field string) (string, error) {
 	value, err := c.ASCII()
@@ -131,6 +180,13 @@ func decodeASCII(c secs2.Cursor, field string) (string, error) {
 	}
 
 	return value, nil
+}
+
+// decodeASCIIAs returns the ASCII item at c as T, the E5 item's own defined string type.
+func decodeASCIIAs[T ~string](c secs2.Cursor, field string) (T, error) {
+	value, err := decodeASCII(c, field)
+
+	return T(value), err
 }
 
 // decodeBool returns the single-value boolean item at c.
