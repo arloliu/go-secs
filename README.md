@@ -133,8 +133,9 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   encoding/decoding, and the connection engine.
 * **hsmsss** — HSMS-SS (Single Session) transport per SEMI E37.1.
 * **sml** — the SML parser.
-* **gem** — helpers for constructing common GEM (SEMI E30) messages, plus generated body decoders
-  (`gem.DecodeS1F14`, `gem.DecodeS6F11`, …) that read a received reply back into a typed result struct.
+* **gem** — generated builders and body decoders for the SEMI E5 messages of streams 1–10 and 12–19
+  (`gem.S1F13`, `gem.DecodeS1F14`, …): each decoder reads a received body back into a typed result struct,
+  and E5 data items with defined values come with typed constants (`gem.COMMACKAccepted`).
 * **logger** — a small logging façade for integrating your own logging framework.
 
 ## Performance
