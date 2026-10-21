@@ -1,0 +1,288 @@
+stream: 13
+messages:
+  - function: 1
+    name: Send Data Set Send
+    mnemonic: DSSS
+    direction: bidirectional
+    description: Sent by the sending system to request that the other system read a data set.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: DSNAME}]}
+
+  - function: 2
+    name: Send Data Set Acknowledge
+    mnemonic: DSSA
+    direction: bidirectional
+    description: Sent by the receiving system in response to Send Data Set Send.
+    exception: >-
+      The possible ACKC13 codes for this message are 0 (O.K.), 1 (ERROR: Try later)
+      and 2 (ERROR: Unknown Data Set Name).
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: DSNAME}, {item: ACKC13}]}
+
+  - function: 3
+    name: Open Data Set Request
+    mnemonic: DSOR
+    direction: bidirectional
+    description: Sent by the receiving system to open a data set for reading.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: HANDLE}, {item: DSNAME}, {item: CKPNT}]}
+
+  # The markdown table drops code 10 out of the S13F4 exception; the PDF text lists it in the table.
+  - function: 4
+    name: Open Data Set Data
+    mnemonic: DSOD
+    direction: bidirectional
+    description: Sent by the sending system in response to Open Data Set Request.
+    exception: >-
+      The possible ACKC13 codes for this message are 0 (O.K.), 1 (ERROR: Try later),
+      2 (ERROR: Unknown Data Set Name), 3 (ERROR: Illegal Checkpoint value),
+      4 (ERROR: Too many open Data Sets), 5 (ERROR: Data set open too many times),
+      9 (ERROR: Handle in Use) and 10 (ERROR: Pending Transaction).
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: HANDLE}
+            - {item: DSNAME}
+            - {item: ACKC13}
+            - {item: RTYPE}
+            - {item: RECLEN}
+
+  - function: 5
+    name: Read Data Set Request
+    mnemonic: DSRR
+    direction: bidirectional
+    description: Sent by the receiving system to read data from an open data set.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: HANDLE}, {item: READLN}]}
+
+  # E5 says MaxItems is defined in "§ 10.17.10.2", a stale reference;
+  # the definition is NOTE 10 of §10.17.2.9.2.
+  - function: 6
+    name: Read Data Set Data
+    mnemonic: DSRD
+    direction: bidirectional
+    description: Sent by the sending system in response to Read Data Set Request.
+    exception: >-
+      The format, number and length of the FILDAT items depend on the RTYPE of the data set.
+      For a Stream data set, n is at most 1 and FILDAT is one binary item no longer than READLN.
+      For a Discrete data set, n is at most MaxItems (the larger of 1 and READLN divided by RECLEN, rounded down),
+      and each FILDAT is a binary or ASCII item no longer than RECLEN.
+      When ACKC13 = 0, n is at least 1; on any error n may be 0.
+      The possible ACKC13 codes for this message are 0 (O.K.), 6 (ERROR: No open Data Set),
+      7 (ERROR: Cannot Continue), 8 (ERROR: End of Data) and 10 (ERROR: Pending Transaction).
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: HANDLE}
+            - {item: ACKC13}
+            - {item: CKPNT}
+            - {type: list, repeat: fildats, of: {item: FILDAT}}
+
+  - function: 7
+    name: Close Data Set Send
+    mnemonic: DSCS
+    direction: bidirectional
+    description: Sent by the receiving system to close an open data set.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: HANDLE}]}
+
+  # E5 lists the ACKC13 codes above an "Exception: None" cell; they are kept as the exception.
+  - function: 8
+    name: Close Data Set Acknowledge
+    mnemonic: DSCA
+    direction: bidirectional
+    description: Sent by the sending system in response to Close Data Set Send (DSCS).
+    exception: >-
+      The possible ACKC13 codes for this message are 0 (O.K.), 6 (ERROR: No open Data Set)
+      and 10 (ERROR: Pending Transaction).
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: HANDLE}, {item: ACKC13}]}
+
+  - function: 9
+    name: Reset Data Set Send
+    mnemonic: DSRS
+    direction: bidirectional
+    description: Sent by either system to close all open data sets.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 10
+    name: Reset Data Set Acknowledge
+    mnemonic: DSRA
+    direction: bidirectional
+    description: Sent in response to Reset Data Set Send.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
+
+  # E5 prints the mnemonic as DSOMGI (its S13F12 sibling is DSOMBG); it is kept as printed.
+  - function: 11
+    name: Data Set Object Multi-Block Inquire
+    mnemonic: DSOMGI
+    direction: bidirectional
+    description: >-
+      Requests permission to send a multi-block data set.
+      If the receiving system does not grant permission in the reply, the multi-block data set may not be sent.
+      OBJSPEC identifies the data set object type and identifier and may include a destination.
+      DATALENGTH is the total message length, not the length of the data set.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: DATAID}, {item: OBJSPEC}, {item: DATALENGTH}]}
+
+  - function: 12
+    name: Data Set Object Multi-Block Grant
+    mnemonic: DSOMBG
+    direction: bidirectional
+    description: Grants or denies permission to send a multi-block data set.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: GRANT}
+
+  - function: 13
+    name: Table Data Send
+    mnemonic: TDS
+    direction: bidirectional
+    description: >-
+      Allows the host and the equipment to exchange predefined data sets in a tabular format.
+      Each row is a list of table elements;
+      the first element of every row is used to reference that row for all other elements.
+      If S13F13 is multi-block, it must be preceded by the S13F11/S13F12 Inquire/Grant transaction.
+    exception: >-
+      If OBJSPEC is a zero-length item, the owner of the table is the receiver of the message.
+      If r = 0, any existing table definition of the given type and id is to be deleted.
+      Otherwise, the element count of a row (E5's c1) may not be zero
+      and shall be less than or equal to the value of c.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: OBJSPEC}
+            - {item: TBLTYP}
+            - {item: TBLID}
+            - {item: TBLCMD}
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - {type: list, repeat: colhdrs, of: {item: COLHDR}}
+            - {type: list, repeat: rows, of: {type: list, repeat: tblelts, of: {item: TBLELT}}}
+
+  - function: 14
+    name: Table Data Acknowledge
+    mnemonic: TDA
+    direction: bidirectional
+    description: Acknowledges the receipt of a table and indicates any errors.
+    exception: p = 0 if and only if TBLACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TBLACK}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 15
+    name: Table Data Request
+    mnemonic: TDR
+    direction: bidirectional
+    description: >-
+      Allows the host or the equipment to request part or all of a specific table.
+      Either specific columns or specific rows may be requested, but not both at the same time.
+      If S13F15 is multi-block, it must be preceded by the S13F11/S13F12 Inquire/Grant transaction.
+    exception: >-
+      If OBJSPEC is a zero-length item, the owner of the table is the receiver of the message.
+      Either p or q, or both, must be zero.
+      If p = 0 and q = 0, all rows are requested;
+      otherwise, only the specified columns, or the rows referenced by TBLELT, are requested.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: OBJSPEC}
+            - {item: TBLTYP}
+            - {item: TBLID}
+            - {item: TBLCMD}
+            - {type: list, repeat: colhdrs, of: {item: COLHDR}}
+            - {type: list, repeat: tblelts, of: {item: TBLELT}}
+
+  # E5 writes the row length as "c11"; it means the element count of each row.
+  - function: 16
+    name: Table Data
+    mnemonic: TD
+    direction: bidirectional
+    description: >-
+      Returns data from the requested table.
+      Each row is a list of table elements.
+    exception: >-
+      p = 0 if, and only if, TBLACK indicates no errors.
+      The length of a table row may not exceed the value of c.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TBLTYP}
+            - {item: TBLID}
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - {type: list, repeat: colhdrs, of: {item: COLHDR}}
+            - {type: list, repeat: rows, of: {type: list, repeat: tblelts, of: {item: TBLELT}}}
+            - type: list
+              items:
+                - {item: TBLACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}

@@ -1,0 +1,695 @@
+stream: 14
+messages:
+  # E5 says that "if ATTRRELNi is omitted, the relationship of equality is intended".
+  # Every qualifier is drawn as a fixed L,3, so "omitted" is read as a zero-length ATTRRELN item inside the L,3,
+  # not as a shorter L,2 qualifier.
+  # Qualifiers are caller-built list items, so the builder and decoder do not depend on this reading.
+  - function: 1
+    name: GetAttr Request
+    mnemonic: GAR
+    direction: bidirectional
+    description: >-
+      Requests a set of specified attributes for one or more objects.
+      It carries an object specifier for the owner of the target objects, the target object type,
+      a list of identifiers of the target objects, a filter, and the attributes whose values are requested.
+      The filter is a list of qualifiers, each an L,3 of ATTRID, ATTRDATA and ATTRRELN;
+      the target objects of interest are those that meet all of the qualifications.
+      The target type may be omitted (sent as a zero-length item) only if object identifiers are unique
+      across all object types and the list of identifiers is not empty.
+      A qualifier selects the objects whose attribute value V makes "ATTRDATA ATTRRELN V" true;
+      if ATTRRELN is omitted, equality is intended.
+      In ASCII ATTRDATA, "?" matches any single character
+      and an embedded "*" matches any string, including an empty one;
+      the string "*" alone matches any string of non-zero length.
+      The comparison for text characters is case insensitive.
+      Equipment is not required to support wild characters or attribute filters.
+    exception: >-
+      If OBJSPEC is a zero-length item, no object specifier is provided.
+      If i = 0, only the filter is to be applied.
+      If q = 0, no filter is specified.
+      If both i and q = 0, information for all instances of the objects are requested.
+      If a = 0, all attributes are requested.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - {item: OBJTYPE}
+            - {type: list, repeat: objids, of: {item: OBJID}}
+            - type: list
+              repeat: qualifiers
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}, {item: ATTRRELN}]}
+            - {type: list, repeat: attrids, of: {item: ATTRID}}
+
+  # E5's exception also says "If OBJSPEC is a zero-length item, no object specifier is provided",
+  # but this body has no OBJSPEC; the sentence is a copy error and is left out.
+  - function: 2
+    name: GetAttr Data
+    mnemonic: GAD
+    direction: bidirectional
+    description: >-
+      Transfers the set of requested attributes for the specified objects.
+      Each object is an L,2 of OBJID and its list of ATTRID/ATTRDATA pairs.
+      The order of attributes is retained from the primary message.
+    exception: >-
+      If n = 0, no objects matched the specified filter.
+      If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: objects
+              of:
+                type: list
+                items:
+                  - {item: OBJID}
+                  - type: list
+                    repeat: attrs
+                    of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 3
+    name: SetAttr Request
+    mnemonic: SAR
+    direction: bidirectional
+    description: >-
+      Requests that a given set of attributes be assigned specified values
+      for all objects of the specified type and exactly matching the specified attribute requirements.
+      Certain attributes may not be changed through the interface.
+    exception: If OBJSPEC is a zero-length item, no object specifier is provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - {item: OBJTYPE}
+            - {type: list, repeat: objids, of: {item: OBJID}}
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+
+  - function: 4
+    name: SetAttr Data
+    mnemonic: SAD
+    direction: bidirectional
+    description: >-
+      Acknowledges that the attributes for the specified objects have been set as requested,
+      or indicates an error for each attribute value that was not set as requested.
+      Each object is an L,2 of OBJID and its list of ATTRID/ATTRDATA pairs.
+      The order of attributes is retained from the primary message.
+    exception: >-
+      If n = 0 for any object, the object was not found.
+      If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: objects
+              of:
+                type: list
+                items:
+                  - {item: OBJID}
+                  - type: list
+                    repeat: attrs
+                    of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 5
+    name: GetType Request
+    mnemonic: GTR
+    direction: bidirectional
+    description: >-
+      Requests the types of objects owned by an object.
+      This is an operation performed on an object type rather than on object instances.
+      Wild characters "?" and "*" may be used as a filter for object types;
+      equipment is not required to support wild characters.
+    exception: If OBJSPEC is a zero-length item, no object specifier is provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: OBJSPEC}
+
+  # E5 leaves the Direction and Description of S14F6 blank (markdown and PDF text alike).
+  # Both are inferred from its S14F5 primary:
+  # the direction is a reply in either direction, without a reply of its own,
+  # and the description states what S14F5 requests.
+  - function: 6
+    name: GetType Data
+    mnemonic: GTD
+    direction: bidirectional
+    description: Returns the types of objects owned by the object specified in S14F5.
+    exception: >-
+      If n = 0, there are no owned object types.
+      If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {type: list, repeat: objtypes, of: {item: OBJTYPE}}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  # The markdown structure stops at "2. L,n";
+  # the L,n list of OBJTYPE is recovered from the PDF text of E5.
+  - function: 7
+    name: GetAttrName Request
+    mnemonic: GANR
+    direction: bidirectional
+    description: >-
+      Requests the names of the attributes of specified types of owned objects.
+      This is an operation performed on an object type rather than on object instances.
+      Wild characters "?" and "*" may be used as a filter for object types;
+      equipment is not required to support wild characters.
+    exception: If OBJSPEC is a zero-length item, no object specifier is provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - {type: list, repeat: objtypes, of: {item: OBJTYPE}}
+
+  # E5's exception reads "If OBJSPEC is a zero-length item, no objects matched the specified filter",
+  # but this body has no OBJSPEC; the sentence is a copy error and is left out.
+  - function: 8
+    name: GetAttrName Data
+    mnemonic: GAND
+    direction: bidirectional
+    description: >-
+      Contains the names of the attributes of the requested objects.
+      Each object type is an L,2 of OBJTYPE and its list of ATTRID.
+    exception: If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: objtypes
+              of: {type: list, items: [{item: OBJTYPE}, {type: list, repeat: attrids, of: {item: ATTRID}}]}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 9
+    name: Create Object Request
+    mnemonic: COR
+    direction: bidirectional
+    description: >-
+      Requests an object owner to create an object instance.
+      OBJSPEC specifies the object owner.
+    exception: >-
+      If OBJSPEC is a null-length item, no object specifier is provided.
+      If a = 0, no specific attribute settings are requested for the new object.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - {item: OBJTYPE}
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+
+  # E5 prints the mnemonic as CAO; it is kept as printed.
+  - function: 10
+    name: Create Object Acknowledge
+    mnemonic: CAO
+    direction: bidirectional
+    description: >-
+      Acknowledges the success or failure of creating the new object specified.
+      If successful, OBJSPEC is the object specifier of the new object.
+      The list of attributes returned is dependent upon the type of object specified.
+    exception: >-
+      If OBJSPEC is a null-length item, no object was created.
+      If b = 0, no attributes of the new object are returned.
+      If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  # E5 prints no mnemonic for S14F11.
+  # Its exception names the attribute count n while the structure calls it a.
+  - function: 11
+    name: Delete Object Request
+    mnemonic: ""
+    direction: bidirectional
+    description: >-
+      Requests that the object specified in OBJSPEC be deleted.
+      The list of attribute settings depends upon the type of object to be deleted.
+    exception: If a = 0, no attribute settings are provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+
+  # E5's exception names the attribute count n while the structure calls it b.
+  - function: 12
+    name: Delete Object Acknowledge
+    mnemonic: DOA
+    direction: bidirectional
+    description: >-
+      Acknowledges the success or failure of deleting the object specified.
+      The list of attributes returned is dependent upon the type of object to be deleted.
+    exception: >-
+      If b = 0, no attribute values are returned.
+      If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 13
+    name: Object Attach Request
+    mnemonic: OAR
+    direction: bidirectional
+    description: >-
+      Sent by a supervisor to request the object specified in OBJSPEC
+      to attach or reattach itself to the requestor.
+    exception: If a = 0, no attribute settings are provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+
+  - function: 14
+    name: Object Attach Acknowledge
+    mnemonic: OAA
+    direction: bidirectional
+    description: >-
+      Acknowledges the success or failure of the requested attachment.
+      If successful, a non-zero token shall be returned for the supervisor's use
+      in subsequent communications with the attached object.
+    exception: >-
+      OBJTOKEN is zero if and only if p is non-zero.
+      If b = 0, no attribute values are returned.
+      If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: OBJTOKEN}
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 15
+    name: Attached Object Action Request
+    mnemonic: AOAR
+    direction: bidirectional
+    description: Used by a supervisor (only) to request an attached object to perform an action.
+    exception: If a = 0, no attribute settings are provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - {item: OBJCMD}
+            - {item: OBJTOKEN}
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+
+  # The markdown places S14F17's exception ("If a = 0, no attribute settings are provided") after this table;
+  # the PDF text shows it belongs to S14F17.
+  - function: 16
+    name: Attached Object Action Acknowledge
+    mnemonic: AOAA
+    direction: bidirectional
+    description: Acknowledges the success or failure of an action requested by a supervisor.
+    exception: If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  # The markdown leaves the exception cell empty; the exception comes from the PDF text of E5.
+  - function: 17
+    name: Supervised Object Action Request
+    mnemonic: SOAR
+    direction: bidirectional
+    description: >-
+      Requests a supervisor to have a supervised attached object perform an action.
+      OBJSPEC specifies the supervisor, and TARGETSPEC specifies the attached object.
+    exception: If a = 0, no attribute settings are provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - {item: OBJCMD}
+            - {item: TARGETSPEC}
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+
+  - function: 18
+    name: Supervised Object Action Acknowledge
+    mnemonic: SOAA
+    direction: bidirectional
+    description: Acknowledges the success or failure of an action requested of a supervisor.
+    exception: >-
+      If b = 0, no attributes are returned.
+      If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: attrs
+              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  # Each parameter group is a caller-built L,2 of SPNAME and SPVAL.
+  # SPVAL may be a single item, a list of items of one format, or a list of further SPNAME/SPVAL pairs,
+  # so the caller builds any nesting inside SPVAL.
+  - function: 19
+    name: Generic Service Request
+    mnemonic: GSR
+    direction: bidirectional
+    description: >-
+      The service requestor requests an object to perform the specified service with its associated parameters.
+      Each parameter group is an L,2 of SPNAME and SPVAL.
+      If multi-block, it shall be preceded by the S14F23/S14F24 Multi-Block Inquire/Grant transaction.
+      DATAID is given uniquely to each message.
+      OPID uniquely identifies delayed completion information for a time-consuming service;
+      it may be zero if and only if the service cannot take a long time.
+      If a specific SPNAME is defined to have a LIST SPVAL, it shall always be a LIST;
+      otherwise a LIST SPVAL results in a format error.
+      If SPVAL is a LIST, its items are either items of an identical format or SPNAME/SPVAL pairs.
+    exception: >-
+      A zero length list, m = 0, indicates that no parameter groups are sent with the service request.
+      OBJSPEC can be a null length item if no object providing the service is defined in the referring standards;
+      the "Service Provider" is then handled as if it is an object.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: OPID}
+            - {item: OBJSPEC}
+            - {item: SVCNAME}
+            - type: list
+              repeat: params
+              of: {type: list, items: [{item: SPNAME}, {item: SPVAL}]}
+
+  # E5 also documents a legacy L,3 form (SVCACK, LINKID and the parameter list, without the error block),
+  # "included for compatibility with previous implementations".
+  # Only the preferred L,4 form is generated.
+  # The second SVCACK, which E5 says must equal the first, is named ERRSVCACK after the error block it heads.
+  # E5's exception reads "If n = 0 parameters are returned", which is garbled;
+  # the text follows the matching S14F21 exception, "If n = 0 no parameters are returned".
+  - function: 20
+    name: Generic Service Acknowledge
+    mnemonic: GSA
+    direction: bidirectional
+    description: >-
+      The service provider acknowledges the requested service or reports any errors.
+      If the service is accepted and completed at once (SVCACK = 0), the response parameters are listed in this message;
+      if it is accepted but takes longer (SVCACK = 4), they are sent in S14F21 when the service is completed.
+      LINKID is set to a non-zero value if and only if additional completion reports will be sent.
+      Each parameter group is an L,2 of SPNAME and SPVAL.
+      SVCACK appears twice, the second time (ERRSVCACK) beside the error list as in other Stream 14 replies;
+      both values must be equal, which the decoder does not check.
+      Only the L,4 form is supported:
+      a reply in E5's legacy L,3 form, which lacks the error block, fails decoding.
+    exception: >-
+      If p = 0, no errors were detected.
+      If n = 0, no parameters are returned.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: SVCACK}
+            - {item: LINKID}
+            - type: list
+              repeat: params
+              of: {type: list, items: [{item: SPNAME}, {item: SPVAL}]}
+            - type: list
+              items:
+                - {item: SVCACK, as: ERRSVCACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  # E5 draws the error list with a single L,2 child;
+  # it is modeled as a list of p error pairs like every other Stream 14 reply.
+  - function: 21
+    name: Generic Service Completion Information
+    mnemonic: GSCI
+    direction: bidirectional
+    description: >-
+      The service provider notifies the original service requestor when a requested service on an object is completed,
+      either successfully or unsuccessfully, and may send information using reply parameters.
+      If the service was accepted and completed at once, the information was carried in S14F20 and this message is not sent.
+      OPID contains the value of OPID in the initial S14F19 request.
+      LINKID is set to a non-zero value if and only if additional completion reports with the same OPID will be sent.
+      Each parameter group is an L,2 of SPNAME and SPVAL.
+      If multi-block, it shall be preceded by the S14F23/S14F24 Multi-Block Inquire/Grant transaction.
+    exception: >-
+      If p = 0, no errors were detected.
+      If n = 0, no parameters are returned.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: OPID}
+            - {item: LINKID}
+            - type: list
+              repeat: params
+              of: {type: list, items: [{item: SPNAME}, {item: SPVAL}]}
+            - type: list
+              items:
+                - {item: SVCACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 22
+    name: Generic Service Completion Acknowledge
+    mnemonic: GSCA
+    direction: bidirectional
+    description: The acknowledgement of generic object service completion information (S14F21).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: DATAACK}
+
+  - function: 23
+    name: Multi-block Generic Service Data Inquire
+    mnemonic: GSDI
+    direction: bidirectional
+    description: If any Object Service message is larger than one block, this transaction must precede that message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: DATAID}, {item: DATALENGTH}]}
+
+  - function: 24
+    name: Multi-block Generic Service Data Grant
+    mnemonic: GSDG
+    direction: bidirectional
+    description: Indicates whether permission is granted to transmit a multi-block Object Service message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: GRANT}
+
+  - function: 25
+    name: Get Service Name Request
+    mnemonic: GSNR
+    direction: bidirectional
+    description: >-
+      Requests the list of services of specified types of owned objects.
+      This is an operation performed on an object type rather than on object instances.
+      Wild characters "?" and "*" may be used as a filter for object types;
+      the service provider is not required to support wild characters.
+    exception: If OBJSPEC is a zero-length item, no object specifier is provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - {type: list, repeat: objtypes, of: {item: OBJTYPE}}
+
+  # E5 wraps the OBJACK/error-list pair in an extra L,2 that has only one child,
+  # giving L,2{ L,n{..} L,2{ L,2{OBJACK L,p{..}} } } (markdown and PDF text alike).
+  # The message is modeled in the form every sibling reply uses: L,2{ L,n{..} L,2{OBJACK L,p{..}} }.
+  - function: 26
+    name: Get Service Name Data
+    mnemonic: GSND
+    direction: bidirectional
+    description: >-
+      Contains the list of the services of the requested objects.
+      Each object type is an L,2 of OBJTYPE and its list of SVCNAME.
+    exception: If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: objtypes
+              of: {type: list, items: [{item: OBJTYPE}, {type: list, repeat: svcnames, of: {item: SVCNAME}}]}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 27
+    name: Get Service Parameter Name Request
+    mnemonic: GPNR
+    direction: bidirectional
+    description: >-
+      Requests the list of the parameters of specified services of an owned object.
+      This is an operation performed on an object type rather than on object instances.
+    exception: If OBJSPEC is a zero-length item, no object specifier is provided.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJSPEC}
+            - {item: OBJTYPE}
+            - {type: list, repeat: svcnames, of: {item: SVCNAME}}
+
+  - function: 28
+    name: Get Service Parameter Name Data
+    mnemonic: GPND
+    direction: bidirectional
+    description: >-
+      Contains the list of the service parameters of the requested services for the specified object.
+      Each service is an L,2 of SVCNAME and its list of SPNAME.
+    exception: If p = 0, no errors were detected.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - type: list
+              repeat: services
+              of: {type: list, items: [{item: SVCNAME}, {type: list, repeat: spnames, of: {item: SPNAME}}]}
+            - type: list
+              items:
+                - {item: OBJACK}
+                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
