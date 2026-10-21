@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+`gem` covers every SEMI E5 message of streams 1 to 10 and 12 to 19.
+
+- Builders, decoders, and their tests are generated for streams 3, 4, 7, 8, 10, and 12 to 19: 315 more messages.
+- E5 data items with defined values get typed constants,
+  from the E5 tables and from the GEM300 standards that define value vocabularies for E5 items.
+- Builders for the short forms E5 names, presence fields for items E5 lets be sent zero-length,
+  and decoded values for repeated groups of one status item.
+- A fuzz target runs every generated decoder over arbitrary bytes.
+
+Several shipped `gem` signatures change; see Upgrade notes.
+
+### Upgrade notes
+
+- `gem`: acknowledge and status items that E5 defines values for now take and decode as named types instead of `byte` or `uint8`:
+  `S1F16` and `S1F16Reply.OFLACK` use `OFLACK`, `S1F18` and `S1F18Reply.ONLACK` use `ONLACK`,
+  `S6F6` and `S6F6Reply.GRANT6` use `GRANT6`, and `S6F23` and `S6F23Body.RSDC` use `RSDC`.
+  An untyped constant such as `0` still compiles; a `byte` or `uint8` variable needs a conversion.
+- `gem`: SPD in `S2F3` and `S2F6` is a binary item of any length, as E5 defines it,
+  so the builders take and the decoders return `[]byte` instead of a single `byte`.
+- `gem`: `S6F25Body` gains `LINKIDPresent`, which is false when LINKID arrived zero-length;
+  composite literals of `S6F25Body` without field names no longer compile.
+
+### Added
+
+- `gem`: generated builders, decoders, and result types for every E5 message of streams 3, 4, 7, 8, 10, and 12 to 19,
+  315 messages in all, with round-trip tests for each.
+  A body E5 lets be sent as an empty list decodes from `L,0` with every field zero.
+- `gem`: typed constants for E5 data items with defined values, from the E5 Table 3 value lists,
+  and from E40.1, E58, E58.1, E87.1, E90, E90.1, E94.1, and E116 for the GEM300 vocabularies
+  (for example `CARRIERACTION`, `PRCMDNAME`, `OBJTYPE`, `PRSTATE`).
+  An item with a single format gets a named type, a string type for an ASCII item,
+  used by the builder parameter and the decoder field;
+  an item the equipment may send in several formats gets untyped constants and keeps `secs2.Item`.
+  A constant from another standard than E5, or with a spelling another standard differs on, says so in its doc.
+- `gem`: short-form builders for the forms E5 names, decoded by the message's main decoder:
+  `S5F14Accepted`, `S5F15Success`, `S5F18Success`, `S15F41Delete`, `S16F27NoParams`, `S16F28Success`, and `S17F5Untriggered`.
+- `gem`: presence fields for items E5 lets be sent zero-length:
+  `S6F25Body.LINKIDPresent`, the FNLOC, FFROT, and ORLOC fields of S12F1 and S12F3,
+  the FNLOC and ORLOC fields of S12F4, and the TRAUTOD and RPTOC fields of S17F5.
+  The decoder accepts a zero-length item there and reports it absent; the builder always sends a value.
+- `gem`: the STATUS and CONDITION lists of stream 18 decode into `[]string` rather than `[]secs2.Item`.
+- `gem`: `FuzzDecoders` runs every generated decoder over arbitrary wire bytes, and `make fuzz-test` covers `gem`.
+
+### Changed
+
+- `gem`: `S1F16`, `S1F18`, `S6F6`, and `S6F23` and their result types
+  use the named types `OFLACK`, `ONLACK`, `GRANT6`, and `RSDC` (see Upgrade notes).
+- `gem`: `S2F3` and `S2F6` take SPD as `[]byte`, and their decoders return it so (see Upgrade notes).
+- `gem`: `DecodeS6F25` accepts a zero-length LINKID and reports it through `LINKIDPresent` (see Upgrade notes).
+- `gem`: `DecodeS6F8`, `DecodeS6F16`, and `DecodeS6F18` accept an empty body list, `L,0`,
+  which E5 allows when there is no data or no report for the CEID.
+  They previously rejected it as a list of the wrong length.
+- `gem`: godoc shows an empty list as `L[0]{}` instead of `L[0]{  }`.
+
 ## [2.6.0] - 2026-09-28
 
 Wire-level and socket-level observability for HSMS-SS,
