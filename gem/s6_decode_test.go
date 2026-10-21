@@ -351,6 +351,27 @@ func TestDecodeS6F8RoundTrip(t *testing.T) {
 	}
 }
 
+func TestDecodeS6F8EmptyList(t *testing.T) {
+	got, err := gem.DecodeS6F8(secs2.L())
+	if err != nil {
+		t.Fatalf("DecodeS6F8: %v", err)
+	}
+
+	var zero gem.S6F8Reply
+
+	if got.DATAID != zero.DATAID {
+		t.Errorf("DATAID: got %v, want the zero value", got.DATAID)
+	}
+
+	if got.CEID != zero.CEID {
+		t.Errorf("CEID: got %v, want the zero value", got.CEID)
+	}
+
+	if len(got.REPORTS) != 0 {
+		t.Errorf("REPORTS: got %d elements, want none", len(got.REPORTS))
+	}
+}
+
 func TestDecodeS6F9RoundTrip(t *testing.T) {
 	msg := gem.S6F9(0xf4, secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
 
@@ -547,6 +568,27 @@ func TestDecodeS6F16RoundTrip(t *testing.T) {
 	}
 }
 
+func TestDecodeS6F16EmptyList(t *testing.T) {
+	got, err := gem.DecodeS6F16(secs2.L())
+	if err != nil {
+		t.Fatalf("DecodeS6F16: %v", err)
+	}
+
+	var zero gem.S6F16Reply
+
+	if got.DATAID != zero.DATAID {
+		t.Errorf("DATAID: got %v, want the zero value", got.DATAID)
+	}
+
+	if got.CEID != zero.CEID {
+		t.Errorf("CEID: got %v, want the zero value", got.CEID)
+	}
+
+	if len(got.REPORTS) != 0 {
+		t.Errorf("REPORTS: got %d elements, want none", len(got.REPORTS))
+	}
+}
+
 func TestDecodeS6F17RoundTrip(t *testing.T) {
 	msg := gem.S6F17(secs2.A("ceid"))
 
@@ -592,6 +634,27 @@ func TestDecodeS6F18RoundTrip(t *testing.T) {
 
 	if !bytes.Equal(got.REPORTS[0].ToBytes(), secs2.A("reports").ToBytes()) {
 		t.Errorf("REPORTS: got %x, want %x", got.REPORTS[0].ToBytes(), secs2.A("reports").ToBytes())
+	}
+}
+
+func TestDecodeS6F18EmptyList(t *testing.T) {
+	got, err := gem.DecodeS6F18(secs2.L())
+	if err != nil {
+		t.Fatalf("DecodeS6F18: %v", err)
+	}
+
+	var zero gem.S6F18Reply
+
+	if got.DATAID != zero.DATAID {
+		t.Errorf("DATAID: got %v, want the zero value", got.DATAID)
+	}
+
+	if got.CEID != zero.CEID {
+		t.Errorf("CEID: got %v, want the zero value", got.CEID)
+	}
+
+	if len(got.REPORTS) != 0 {
+		t.Errorf("REPORTS: got %d elements, want none", len(got.REPORTS))
 	}
 }
 
@@ -736,6 +799,10 @@ func TestDecodeS6F25RoundTrip(t *testing.T) {
 		t.Errorf("LINKID: got %v, want %v", got.LINKID, 78)
 	}
 
+	if !got.LINKIDPresent {
+		t.Errorf("LINKIDPresent: got false, want true")
+	}
+
 	if got.RCPSPEC != "rcpspec" {
 		t.Errorf("RCPSPEC: got %v, want %v", got.RCPSPEC, "rcpspec")
 	}
@@ -762,6 +829,78 @@ func TestDecodeS6F25RoundTrip(t *testing.T) {
 
 	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
 		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
+	}
+}
+
+func TestDecodeS6F25LINKIDAbsent(t *testing.T) {
+	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []secs2.Item{secs2.A("attributes")}, 29, secs2.A("errors"))
+
+	full, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+
+	list0, err := full.ToList()
+	if err != nil {
+		t.Fatalf("list0: %v", err)
+	}
+
+	list0[2] = secs2.U4()
+
+	body, err := secs2.Decode(secs2.L(list0...).ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+
+	got, err := gem.DecodeS6F25(body)
+	if err != nil {
+		t.Fatalf("DecodeS6F25: %v", err)
+	}
+
+	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
+		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	}
+
+	if !bytes.Equal(got.OPID.ToBytes(), secs2.A("opid").ToBytes()) {
+		t.Errorf("OPID: got %x, want %x", got.OPID.ToBytes(), secs2.A("opid").ToBytes())
+	}
+
+	if got.RCPSPEC != "rcpspec" {
+		t.Errorf("RCPSPEC: got %v, want %v", got.RCPSPEC, "rcpspec")
+	}
+
+	if !bytes.Equal(got.RMCHGSTAT.ToBytes(), secs2.A("rmchgstat").ToBytes()) {
+		t.Errorf("RMCHGSTAT: got %x, want %x", got.RMCHGSTAT.ToBytes(), secs2.A("rmchgstat").ToBytes())
+	}
+
+	if len(got.ATTRIBUTES) != 1 {
+		t.Fatalf("ATTRIBUTES: got %d elements, want 1", len(got.ATTRIBUTES))
+	}
+
+	if !bytes.Equal(got.ATTRIBUTES[0].ToBytes(), secs2.A("attributes").ToBytes()) {
+		t.Errorf("ATTRIBUTES: got %x, want %x", got.ATTRIBUTES[0].ToBytes(), secs2.A("attributes").ToBytes())
+	}
+
+	if got.RMACK != 29 {
+		t.Errorf("RMACK: got %v, want %v", got.RMACK, 29)
+	}
+
+	if len(got.ERRORS) != 1 {
+		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
+	}
+
+	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
+		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
+	}
+
+	var zero gem.S6F25Body
+
+	if got.LINKID != zero.LINKID {
+		t.Errorf("LINKID: got %v, want the zero value", got.LINKID)
+	}
+
+	if got.LINKIDPresent != zero.LINKIDPresent {
+		t.Errorf("LINKIDPresent: got %v, want the zero value", got.LINKIDPresent)
 	}
 }
 

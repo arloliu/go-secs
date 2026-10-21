@@ -126,8 +126,12 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        # E5 says a zero-length item, and the body is a list,
+        # so the outer list takes L,0 or L,3; an empty report list also decodes.
         structure:
           type: list
+          minItems: 0
+          maxItems: 3
           items:
             - {item: DATAID}
             - {item: CEID}
@@ -296,8 +300,12 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        # E5 says a zero-length item, and the body is a list,
+        # so the outer list takes L,0 or L,3; an empty report list also decodes.
         structure:
           type: list
+          minItems: 0
+          maxItems: 3
           items:
             - {item: DATAID}
             - {item: CEID}
@@ -331,8 +339,12 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        # E5 says a zero-length item, and the body is a list,
+        # so the outer list takes L,0 or L,3; an empty report list also decodes.
         structure:
           type: list
+          minItems: 0
+          maxItems: 3
           items:
             - {item: DATAID}
             - {item: CEID}
@@ -450,7 +462,7 @@ messages:
           items:
             - {item: DATAID}
             - {item: OPID}
-            - {item: LINKID}
+            - {item: LINKID, optional: true}
             - {item: RCPSPEC}
             - {item: RMCHGSTAT}
             - type: list
