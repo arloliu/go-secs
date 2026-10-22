@@ -24,6 +24,9 @@ const (
 // Note is one sentence for the godoc of the item's values table,
 // such as a rule another standard adds for those values;
 // it is valid only on an item with a values table.
+// NamedType gives a fixed item without a values table a named type of its own,
+// which its parameters and decoder fields use as they would an enumeration's,
+// with no constants: a code E5 defines no values for.
 type Item struct {
 	Formats     []string    `yaml:"formats"`
 	Binding     Binding     `yaml:"binding"`
@@ -31,6 +34,7 @@ type Item struct {
 	Description string      `yaml:"description"`
 	Source      string      `yaml:"source"`
 	Note        string      `yaml:"note"`
+	NamedType   bool        `yaml:"namedType"`
 	Values      []ItemValue `yaml:"values"`
 }
 

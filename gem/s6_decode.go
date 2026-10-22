@@ -305,7 +305,7 @@ func DecodeS6F8(item secs2.Item, opts ...DecodeOption) (S6F8Reply, error) {
 //
 // It is filled by [DecodeS6F9] and mirrors the parameters of [S6F9], in order.
 type S6F9Body struct {
-	PFCD    byte
+	PFCD    PFCD
 	DATAID  secs2.Item
 	CEID    secs2.Item
 	REPORTS []DataSetValues
@@ -329,7 +329,7 @@ func DecodeS6F9(item secs2.Item, opts ...DecodeOption) (S6F9Body, error) {
 		return out, err
 	}
 
-	if out.PFCD, err = decodeByteAs[byte](root.At(0), "PFCD"); err != nil {
+	if out.PFCD, err = decodeByteAs[PFCD](root.At(0), "PFCD"); err != nil {
 		return out, err
 	}
 

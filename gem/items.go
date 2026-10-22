@@ -93,6 +93,23 @@ const (
 	ACKC7AOtherError          = 5
 )
 
+// ALCD enumerates the defined values of the ALCD item.
+// A code ORs a category in bits 7 to 1 with the set bit; categories above 8 are reserved or equipment-defined and decode as is.
+type ALCD byte
+
+const (
+	ALCDPersonalSafety          ALCD = 1
+	ALCDEquipmentSafety         ALCD = 2
+	ALCDParameterControlWarning ALCD = 3
+	ALCDParameterControlError   ALCD = 4
+	ALCDIrrecoverableError      ALCD = 5
+	ALCDEquipmentStatusWarning  ALCD = 6
+	ALCDAttentionFlags          ALCD = 7
+	ALCDDataIntegrity           ALCD = 8
+	// Bit 8: OR it with a category for an alarm set; without it the alarm is cleared.
+	ALCDAlarmSet ALCD = 128
+)
+
 // ATTRRELN enumerates the defined values of the ATTRRELN item.
 type ATTRRELN uint8
 
@@ -678,6 +695,10 @@ const (
 	PDEATTRIBUTENAMEUserInfo     PDEATTRIBUTENAME = 11
 	PDEATTRIBUTENAMESupplierInfo PDEATTRIBUTENAME = 12
 )
+
+// PFCD is the type of the PFCD item.
+// Predefined form code, 1 byte.
+type PFCD byte
 
 // PORTACTION enumerates the defined values of the PORTACTION item.
 type PORTACTION string

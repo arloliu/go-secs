@@ -44,6 +44,27 @@ func TestRenderItemsSkipsPlainItems(t *testing.T) {
 	require.NotContains(t, src, "type MDLN")
 }
 
+// TestRenderItemsNamedTypeWithoutValues proves a fixed item marked namedType without a values table
+// renders its named type alone, documented by its item description,
+// with no const block and no enumeration wording,
+// and that a builder parameter and a decoder field of the item use the type.
+func TestRenderItemsNamedTypeWithoutValues(t *testing.T) {
+	items := map[string]Item{
+		"PFCD": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte",
+			Description: "Predefined form code, 1 byte.", Source: "e5", NamedType: true},
+	}
+	out, err := renderItems(items)
+	require.NoError(t, err)
+	src := string(out)
+	require.Contains(t, src, "// PFCD is the type of the PFCD item.\n// Predefined form code, 1 byte.\ntype PFCD byte\n")
+	require.NotContains(t, src, "const (")
+	require.NotContains(t, src, "enumerates")
+
+	require.True(t, hasNamedType(items["PFCD"]))
+	require.Equal(t, "PFCD", fixedGoType("PFCD", items["PFCD"]))
+	require.Equal(t, "secs2.B(byte(pfcd))", fixedItemExpr(items["PFCD"], "pfcd"))
+}
+
 // TestRenderItemsStringEnum proves a fixed string item with string values renders a named string type
 // whose constants are quoted with Go syntax,
 // and that a value whose source differs from its item's carries a godoc line naming it.

@@ -14,8 +14,8 @@ import "github.com/arloliu/go-secs/v2/secs2"
 // Body: L[3]{ B[alcd] <alid> A[altx] }.
 //
 // Exception: None.
-func S5F1(alcd byte, alid secs2.Item, altx string) secs2.SECS2Message {
-	return secs2.NewMessage(5, 1, true, secs2.L(secs2.B(alcd), alid, secs2.A(altx)))
+func S5F1(alcd ALCD, alid secs2.Item, altx string) secs2.SECS2Message {
+	return secs2.NewMessage(5, 1, true, secs2.L(secs2.B(byte(alcd)), alid, secs2.A(altx)))
 }
 
 // S5F2 creates the S5F2 (Alarm Report Acknowledge) message, direction: host-to-equipment.

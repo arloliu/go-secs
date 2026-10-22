@@ -110,8 +110,8 @@ func S6F8(dataid secs2.Item, ceid secs2.Item, reports ...DataSet) secs2.SECS2Mes
 // Body: L[4]{ B[pfcd] <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // Exception: None.
-func S6F9(pfcd byte, dataid secs2.Item, ceid secs2.Item, reports ...DataSetValues) secs2.SECS2Message {
-	return secs2.NewMessage(6, 9, true, secs2.L(secs2.B(pfcd), dataid, ceid, secs2.L(groupItems(reports)...)))
+func S6F9(pfcd PFCD, dataid secs2.Item, ceid secs2.Item, reports ...DataSetValues) secs2.SECS2Message {
+	return secs2.NewMessage(6, 9, true, secs2.L(secs2.B(byte(pfcd)), dataid, ceid, secs2.L(groupItems(reports)...)))
 }
 
 // S6F10 creates the S6F10 (Formatted Variable Acknowledge) message, direction: host-to-equipment.

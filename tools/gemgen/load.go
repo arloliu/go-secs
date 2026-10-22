@@ -114,6 +114,7 @@ func decodeStrict(data []byte, out any) error {
 // matching what deriveGoType derives for it; every item's stored Binding must
 // match what deriveBinding derives from its Formats.
 // A values: table must suit its item (see checkValues),
+// namedType needs an item that can have a named type (see checkNamedType),
 // and the constants all tables generate must be distinct identifiers (see checkValueNames).
 func ValidateItems(items map[string]Item) error {
 	for name, it := range items {
@@ -137,6 +138,10 @@ func ValidateItems(items map[string]Item) error {
 		}
 
 		if err := checkValues(name, it); err != nil {
+			return err
+		}
+
+		if err := checkNamedType(name, it); err != nil {
 			return err
 		}
 	}
@@ -229,6 +234,32 @@ func checkValues(name string, it Item) error {
 	return nil
 }
 
+// checkNamedType checks an item marked namedType:
+// only a fixed item has a type of its own,
+// an item with a values table has its named type already,
+// and its goType must be one a values table could give a named type,
+// so the type reads and writes as an enumeration's does:
+// an integer or float, or a string on format A.
+func checkNamedType(name string, it Item) error {
+	if !it.NamedType {
+		return nil
+	}
+
+	if it.Binding != BindingFixed {
+		return fmt.Errorf("item %s: namedType needs a fixed item; an open item's fields stay secs2.Item", name)
+	}
+
+	if len(it.Values) > 0 {
+		return fmt.Errorf("item %s: namedType is for an item without values; a values table already gives the item its named type", name)
+	}
+
+	if _, ok := integerRanges[it.GoType]; !ok && (it.GoType != "string" || it.Formats[0] != "A") {
+		return fmt.Errorf("item %s: namedType needs an integer or float goType, or string on format A, got %s on %v", name, it.GoType, it.Formats)
+	}
+
+	return nil
+}
+
 // checkOpenValues checks an open item's values table,
 // of which strs values are strings:
 // all of one kind, and a kind one of the item's formats can carry.
@@ -268,7 +299,7 @@ func checkValueNames(items map[string]Item) error {
 	seen := map[string]string{}
 	for _, name := range names {
 		it := items[name]
-		if it.Binding == BindingFixed && len(it.Values) > 0 {
+		if hasNamedType(it) {
 			seen[name] = "the type of item " + name
 		}
 	}

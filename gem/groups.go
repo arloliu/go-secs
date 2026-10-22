@@ -405,7 +405,7 @@ func decodePortActionParam(c secs2.Cursor, field string, cfg *decodeConfig) (Por
 //
 // Used by S5F6 and S5F8.
 type Alarm struct {
-	ALCD byte
+	ALCD ALCD
 	ALID secs2.Item
 	ALTX string
 }
@@ -413,7 +413,7 @@ type Alarm struct {
 // Item returns the list item g is sent as.
 // Set every secs2.Item field: a nil one is dropped, which shortens the list.
 func (g Alarm) Item() secs2.Item {
-	return secs2.L(secs2.B(g.ALCD), g.ALID, secs2.A(g.ALTX))
+	return secs2.L(secs2.B(byte(g.ALCD)), g.ALID, secs2.A(g.ALTX))
 }
 
 // decodeAlarm decodes one [Alarm] from the list at c, with the decode options cfg, naming field in its errors.
@@ -426,7 +426,7 @@ func decodeAlarm(c secs2.Cursor, field string, cfg *decodeConfig) (Alarm, error)
 		return g, err
 	}
 
-	if g.ALCD, err = decodeByteAs[byte](c.At(0), field+".ALCD"); err != nil {
+	if g.ALCD, err = decodeByteAs[ALCD](c.At(0), field+".ALCD"); err != nil {
 		return g, err
 	}
 

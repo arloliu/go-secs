@@ -25,7 +25,8 @@ type constView struct {
 }
 
 // typeView is one enum item's const block,
-// and, for a fixed item, the named defined type its constants have.
+// and, for a fixed item, the named defined type its constants have;
+// a fixed item marked namedType without a values table has the type and no constants.
 type typeView struct {
 	Name   string
 	Typed  bool     // true: a named type over GoType; false: untyped constants of an open item
@@ -34,16 +35,19 @@ type typeView struct {
 	Consts []constView
 }
 
-// renderItems renders gem/items.go from every item with a non-empty `values:` table.
+// renderItems renders gem/items.go from every item with a non-empty `values:` table,
+// and from every fixed item marked namedType.
 //
 // A fixed item gets a named defined type over its goType and a const block of that type,
 // so its constants are assignable to the builder parameters and decoder fields that use the type.
+// A fixed item marked namedType without a values table gets the named type alone,
+// documented by its item description.
 // An open item, whose parameter and field stay secs2.Item,
 // gets an untyped const block only:
 // the caller passes a constant to the secs2 constructor of the format they send.
 // An item's note ends the godoc of its type or const block,
 // and a value's note ends the godoc of its constant.
-// Items without a values table contribute no output.
+// Other items contribute no output.
 // Item order is name-sorted and value order follows the YAML,
 // so the generated file is deterministic across runs.
 func renderItems(items map[string]Item) ([]byte, error) {
@@ -57,6 +61,10 @@ func renderItems(items map[string]Item) ([]byte, error) {
 	for _, name := range names {
 		it := items[name]
 		if len(it.Values) == 0 {
+			if hasNamedType(it) {
+				types = append(types, plainTypeView(name, it))
+			}
+
 			continue
 		}
 
@@ -116,6 +124,17 @@ func renderItems(items map[string]Item) ([]byte, error) {
 	}
 
 	return out, nil
+}
+
+// plainTypeView returns the declaration of a fixed item's named type that has no values table:
+// the type alone, documented by the item's description.
+func plainTypeView(name string, it Item) typeView {
+	doc := []string{fmt.Sprintf("%s is the type of the %s item.", name, name)}
+	if it.Description != "" {
+		doc = append(doc, it.Description)
+	}
+
+	return typeView{Name: name, Typed: true, GoType: it.GoType, Doc: doc}
 }
 
 // untypedValuesDoc renders the godoc lines of an open item's untyped const block:

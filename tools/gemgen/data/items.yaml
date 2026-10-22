@@ -133,6 +133,17 @@ ALCD:
   goType: byte
   description: Alarm code byte.
   source: e5
+  note: "A code ORs a category in bits 7 to 1 with the set bit; categories above 8 are reserved or equipment-defined and decode as is."
+  values:
+    - {name: PersonalSafety, value: 1}
+    - {name: EquipmentSafety, value: 2}
+    - {name: ParameterControlWarning, value: 3}
+    - {name: ParameterControlError, value: 4}
+    - {name: IrrecoverableError, value: 5}
+    - {name: EquipmentStatusWarning, value: 6}
+    - {name: AttentionFlags, value: 7}
+    - {name: DataIntegrity, value: 8}
+    - {name: AlarmSet, value: 128, note: "Bit 8: OR it with a category for an alarm set; without it the alarm is cleared."}
 ALED:
   formats: [B]
   binding: fixed
@@ -1301,6 +1312,7 @@ PFCD:
   goType: byte
   description: "Predefined form code, 1 byte."
   source: e5
+  namedType: true
 PGRPACTION:
   formats: [A]
   binding: fixed

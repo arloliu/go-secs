@@ -4,12 +4,12 @@ package gem
 {{range .Types}}
 {{range .Doc}}// {{.}}
 {{end}}{{if .Typed}}type {{.Name}} {{.GoType}}
-
+{{if .Consts}}
 const (
 {{$typeName := .Name}}{{range .Consts}}{{range .Doc}}    // {{.}}
 {{end}}    {{.Name}} {{$typeName}} = {{.Value}}
 {{end}})
-{{else}}const (
+{{end}}{{else}}const (
 {{range .Consts}}{{range .Doc}}    // {{.}}
 {{end}}    {{.Name}} = {{.Value}}
 {{end}})

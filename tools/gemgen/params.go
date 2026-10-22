@@ -377,10 +377,10 @@ func fixedGoType(name string, it Item) string {
 }
 
 // hasNamedType reports whether an item's parameters and decoder fields use the named type items.go declares for it:
-// a fixed item with a values table.
+// a fixed item with a values table or marked namedType.
 // An open item's values are untyped constants, and its parameters and fields stay secs2.Item.
 func hasNamedType(it Item) bool {
-	return it.Binding == BindingFixed && len(it.Values) > 0
+	return it.Binding == BindingFixed && (len(it.Values) > 0 || it.NamedType)
 }
 
 // derefOr returns the pointed-to int, or 0 when the pointer is nil.

@@ -10,7 +10,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // It is filled by [DecodeS5F1] and mirrors the parameters of [S5F1], in order.
 type S5F1Body struct {
-	ALCD byte
+	ALCD ALCD
 	ALID secs2.Item
 	ALTX string
 }
@@ -33,7 +33,7 @@ func DecodeS5F1(item secs2.Item, opts ...DecodeOption) (S5F1Body, error) {
 		return out, err
 	}
 
-	if out.ALCD, err = decodeByteAs[byte](root.At(0), "ALCD"); err != nil {
+	if out.ALCD, err = decodeByteAs[ALCD](root.At(0), "ALCD"); err != nil {
 		return out, err
 	}
 
