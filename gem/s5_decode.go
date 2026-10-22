@@ -141,11 +141,11 @@ func DecodeS5F4(item secs2.Item) (S5F4Reply, error) {
 
 // S5F5Body is the decoded body of the S5F5 (List Alarms Request) message.
 //
-// Body: L[n]{ <alids>... }.
+// Body: <alids>.
 //
 // It is filled by [DecodeS5F5] and mirrors the parameters of [S5F5], in order.
 type S5F5Body struct {
-	ALIDS []secs2.Item
+	ALIDS secs2.Item
 }
 
 // DecodeS5F5 decodes the body of an S5F5 (List Alarms Request) message into a [S5F5Body].
@@ -160,7 +160,7 @@ func DecodeS5F5(item secs2.Item) (S5F5Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.ALIDS, err = decodeItems(root, "ALIDS"); err != nil {
+	if out.ALIDS, err = decodeItem(root, "ALIDS"); err != nil {
 		return out, err
 	}
 

@@ -58,11 +58,11 @@ func S5F4(ackc5 ACKC5) secs2.SECS2Message {
 //
 // This message requests the equipment to send binary and analog alarm information to the host.
 //
-// Body: L[n]{ <alids>... }.
+// Body: <alids>.
 //
 // Exception: A zero-length item means send all possible alarms regardless of the state of ALED.
-func S5F5(alids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(5, 5, true, secs2.L(alids...))
+func S5F5(alids secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(5, 5, true, alids)
 }
 
 // S5F6 creates the S5F6 (List Alarm Data) message, direction: equipment-to-host.

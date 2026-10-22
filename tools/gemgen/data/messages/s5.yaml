@@ -66,7 +66,10 @@ messages:
     bodies:
       - actor: both
         replyExpected: true
-        structure: {type: list, repeat: alids, of: {item: ALID}}
+        # E5 defines the body as one item holding every ALID, <ALID1,...,ALIDn>, not a list of items.
+        # ALID may be any integer format, so the caller builds that item, e.g. secs2.U4(1, 2, 3),
+        # and a zero-length item such as secs2.U4() asks for every alarm.
+        structure: {item: ALID, as: ALIDS}
 
   - function: 6
     name: List Alarm Data
