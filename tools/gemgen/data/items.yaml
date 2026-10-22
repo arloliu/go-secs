@@ -1392,7 +1392,8 @@ PRCMDNAME:
   description: "Commands sent to a process job:"
   source: e5
   values:
-    - {name: Start, value: "START", note: "SEMI E40-0813 spells this command STARTPROCESS."}
+    - {name: Start, value: "START", note: "SEMI E40-0813 spells this command STARTPROCESS: see PRCMDNAMEStartProcess."}
+    - {name: StartProcess, value: "STARTPROCESS", source: e40, note: "SEMI E5 spells this command START."}
     - {name: Stop, value: "STOP"}
     - {name: Pause, value: "PAUSE"}
     - {name: Resume, value: "RESUME"}
