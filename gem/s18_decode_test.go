@@ -10,83 +10,83 @@ import (
 )
 
 func init() {
-	registerFuzzDecoder("DecodeS18F1", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F1(item)
+	registerFuzzDecoder("DecodeS18F1", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F1(item, opts...)
 
 		return err
 	}, gem.S18F1("targetid", secs2.A("attrids")).Item())
-	registerFuzzDecoder("DecodeS18F2", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F2(item)
+	registerFuzzDecoder("DecodeS18F2", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F2(item, opts...)
 
 		return err
 	}, gem.S18F2("targetid", "ssack", secs2.A("values")).Item())
-	registerFuzzDecoder("DecodeS18F3", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F3(item)
+	registerFuzzDecoder("DecodeS18F3", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F3(item, opts...)
 
 		return err
 	}, gem.S18F3("targetid", gem.Attribute{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}).Item())
-	registerFuzzDecoder("DecodeS18F4", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F4(item)
+	registerFuzzDecoder("DecodeS18F4", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F4(item, opts...)
 
 		return err
 	}, gem.S18F4("targetid", "ssack", "statuses").Item())
-	registerFuzzDecoder("DecodeS18F5", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F5(item)
+	registerFuzzDecoder("DecodeS18F5", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F5(item, opts...)
 
 		return err
 	}, gem.S18F5("targetid", "dataseg", secs2.A("datalength")).Item())
-	registerFuzzDecoder("DecodeS18F6", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F6(item)
+	registerFuzzDecoder("DecodeS18F6", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F6(item, opts...)
 
 		return err
 	}, gem.S18F6("targetid", "ssack", "data", "statuses").Item())
-	registerFuzzDecoder("DecodeS18F7", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F7(item)
+	registerFuzzDecoder("DecodeS18F7", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F7(item, opts...)
 
 		return err
 	}, gem.S18F7("targetid", "dataseg", secs2.A("datalength"), "data").Item())
-	registerFuzzDecoder("DecodeS18F8", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F8(item)
+	registerFuzzDecoder("DecodeS18F8", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F8(item, opts...)
 
 		return err
 	}, gem.S18F8("targetid", "ssack", "statuses").Item())
-	registerFuzzDecoder("DecodeS18F9", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F9(item)
+	registerFuzzDecoder("DecodeS18F9", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F9(item, opts...)
 
 		return err
 	}, gem.S18F9("targetid").Item())
-	registerFuzzDecoder("DecodeS18F10", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F10(item)
+	registerFuzzDecoder("DecodeS18F10", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F10(item, opts...)
 
 		return err
 	}, gem.S18F10("targetid", "ssack", secs2.A("mid"), "statuses").Item())
-	registerFuzzDecoder("DecodeS18F11", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F11(item)
+	registerFuzzDecoder("DecodeS18F11", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F11(item, opts...)
 
 		return err
 	}, gem.S18F11("targetid", secs2.A("mid")).Item())
-	registerFuzzDecoder("DecodeS18F12", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F12(item)
+	registerFuzzDecoder("DecodeS18F12", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F12(item, opts...)
 
 		return err
 	}, gem.S18F12("targetid", "ssack", "statuses").Item())
-	registerFuzzDecoder("DecodeS18F13", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F13(item)
+	registerFuzzDecoder("DecodeS18F13", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F13(item, opts...)
 
 		return err
 	}, gem.S18F13("targetid", "sscmd", secs2.A("params")).Item())
-	registerFuzzDecoder("DecodeS18F14", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F14(item)
+	registerFuzzDecoder("DecodeS18F14", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F14(item, opts...)
 
 		return err
 	}, gem.S18F14("targetid", "ssack", "statuses").Item())
-	registerFuzzDecoder("DecodeS18F15", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F15(item)
+	registerFuzzDecoder("DecodeS18F15", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F15(item, opts...)
 
 		return err
 	}, gem.S18F15("targetid").Item())
-	registerFuzzDecoder("DecodeS18F16", func(item secs2.Item) error {
-		_, err := gem.DecodeS18F16(item)
+	registerFuzzDecoder("DecodeS18F16", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS18F16(item, opts...)
 
 		return err
 	}, gem.S18F16("targetid", "ssack", secs2.A("mid"), []string{"statuses"}, "conditions").Item())

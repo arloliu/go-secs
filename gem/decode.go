@@ -10,6 +10,56 @@ import (
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
+// DecodeOption changes how a generated decoder checks a body against the shape SEMI E5 declares for it.
+//
+// Every DecodeSxFy takes any number of options after the body item;
+// with none, the decoder accepts exactly the E5 shape.
+type DecodeOption func(*decodeConfig)
+
+// decodeConfig holds the settings the options of one decoder call select.
+type decodeConfig struct {
+	allowTrailing bool
+}
+
+// AllowTrailing returns the option that accepts a list holding more children than its E5 shape declares:
+// the decoder reads the declared children and ignores the rest,
+// for equipment that appends its own items to a standard body.
+//
+// It applies to every list of fixed length, in the body and in every group.
+// A list E5 lets be sent short or full decodes as full when it holds more children than the full form,
+// and a list E5 lets be sent as L[0] still decodes L[0] as nil.
+// A list holding fewer children than declared is still an error,
+// as is a list between the short and the full form.
+// A repeat declares no length, so it is unaffected.
+// Only the list length is relaxed: every item is still checked against its format,
+// and a list where E5 excludes one is still an error.
+func AllowTrailing() DecodeOption {
+	return func(c *decodeConfig) {
+		c.allowTrailing = true
+	}
+}
+
+// strictDecodeConfig is the settings of a decoder call without options.
+// It is shared, so a call without options allocates no settings,
+// and never changed: options apply only to a fresh value.
+var strictDecodeConfig = &decodeConfig{}
+
+// newDecodeConfig returns the settings opts select, skipping a nil option.
+func newDecodeConfig(opts []DecodeOption) *decodeConfig {
+	if len(opts) == 0 {
+		return strictDecodeConfig
+	}
+
+	cfg := &decodeConfig{}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(cfg)
+		}
+	}
+
+	return cfg
+}
+
 // wrapField labels a [secs2.Cursor] error with the E5 field the generated decoder was reading.
 //
 // The cursor's own message already carries the position and the got/want type family; the label
@@ -23,8 +73,13 @@ func errNotList(field string, got string) error {
 	return fmt.Errorf("gem: %s: got %s, want %s", field, got, secs2.ListType)
 }
 
-// errArity reports that a list holds a different number of children than the E5 body shape declares.
-func errArity(field string, got int, want int) error {
+// errArity reports that a list holds a different number of children than the E5 body shape declares,
+// or, with trailing children allowed, fewer.
+func errArity(field string, got int, want int, cfg *decodeConfig) error {
+	if cfg.allowTrailing {
+		return fmt.Errorf("gem: %s: list length %d, want at least %d", field, got, want)
+	}
+
 	return fmt.Errorf("gem: %s: list length %d, want %d", field, got, want)
 }
 
@@ -62,15 +117,16 @@ func listAt(c secs2.Cursor, field string) (secs2.Item, error) {
 	return item, nil
 }
 
-// requireArity checks that the item at c is a list holding exactly want children.
-func requireArity(c secs2.Cursor, field string, want int) error {
+// requireArity checks that the item at c is a list holding exactly want children,
+// or, with [AllowTrailing], at least want.
+func requireArity(c secs2.Cursor, field string, want int, cfg *decodeConfig) error {
 	item, err := listAt(c, field)
 	if err != nil {
 		return err
 	}
 
-	if got := item.Size(); got != want {
-		return errArity(field, got, want)
+	if got := item.Size(); got != want && (got < want || !cfg.allowTrailing) {
+		return errArity(field, got, want, cfg)
 	}
 
 	return nil
@@ -81,13 +137,19 @@ func requireArity(c secs2.Cursor, field string, want int) error {
 // It implements the DSL's minItems / maxItems bound: SEMI E5 declares a few trailing groups
 // (an error code and its text, a set of limit attributes) that a body may omit entirely.
 // A count between the two forms is rejected, since a partially filled group names no field.
-func optionalArity(c secs2.Cursor, field string, short int, full int) (int, error) {
+// With [AllowTrailing], a count above full returns full,
+// so the caller reads every declared child and ignores the rest.
+func optionalArity(c secs2.Cursor, field string, short int, full int, cfg *decodeConfig) (int, error) {
 	item, err := listAt(c, field)
 	if err != nil {
 		return 0, err
 	}
 
 	got := item.Size()
+	if got > full && cfg.allowTrailing {
+		return full, nil
+	}
+
 	if got != short && got != full {
 		return 0, errArityRange(field, got, short, full)
 	}
@@ -143,27 +205,38 @@ func eachOf[T any](decode func(secs2.Cursor, string) (T, error)) func(secs2.Curs
 	}
 }
 
+// withConfig returns the function that decodes a group with decode, the group's decode function, and cfg:
+// the element decoder of a repeat whose elements are groups,
+// in the form [decodeEach] calls.
+func withConfig[T any](cfg *decodeConfig, decode func(secs2.Cursor, string, *decodeConfig) (T, error)) func(secs2.Cursor, string) (T, error) {
+	return func(c secs2.Cursor, field string) (T, error) {
+		return decode(c, field, cfg)
+	}
+}
+
 // decodeOptionalGroup decodes the list at c with decode, a group's decode function,
 // or returns nil when the list is the zero-length L[0],
 // which SEMI E5 lets stand for an omitted list.
 //
 // Any other length but full, the group's own, is an error,
-// since a partly filled group names no field.
-func decodeOptionalGroup[T any](c secs2.Cursor, field string, full int, decode func(secs2.Cursor, string) (T, error)) (*T, error) {
+// since a partly filled group names no field;
+// with [AllowTrailing], so is any other length below full,
+// while a longer list decodes as the group, its extra children ignored.
+func decodeOptionalGroup[T any](c secs2.Cursor, field string, full int, cfg *decodeConfig, decode func(secs2.Cursor, string, *decodeConfig) (T, error)) (*T, error) {
 	item, err := listAt(c, field)
 	if err != nil {
 		return nil, err
 	}
 
-	switch got := item.Size(); got {
-	case 0:
+	switch got := item.Size(); {
+	case got == 0:
 		return nil, nil //nolint:nilnil // nil is the omitted group, which a zero-length list stands for
-	case full:
+	case got == full, got > full && cfg.allowTrailing:
 	default:
 		return nil, errArityRange(field, got, 0, full)
 	}
 
-	g, err := decode(c, field)
+	g, err := decode(c, field, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -171,11 +244,11 @@ func decodeOptionalGroup[T any](c secs2.Cursor, field string, full int, decode f
 	return &g, nil
 }
 
-// optionalGroup returns the function that decodes, with [decodeOptionalGroup], a group of length full:
+// optionalGroup returns the function that decodes, with [decodeOptionalGroup] and cfg, a group of length full:
 // the element decoder of a repeat whose elements are optional groups.
-func optionalGroup[T any](full int, decode func(secs2.Cursor, string) (T, error)) func(secs2.Cursor, string) (*T, error) {
+func optionalGroup[T any](cfg *decodeConfig, full int, decode func(secs2.Cursor, string, *decodeConfig) (T, error)) func(secs2.Cursor, string) (*T, error) {
 	return func(c secs2.Cursor, field string) (*T, error) {
-		return decodeOptionalGroup(c, field, full, decode)
+		return decodeOptionalGroup(c, field, full, cfg, decode)
 	}
 }
 

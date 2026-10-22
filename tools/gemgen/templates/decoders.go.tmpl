@@ -10,13 +10,14 @@ import "github.com/arloliu/go-secs/v2/secs2"
 {{end}}}{{else}}type {{.TypeName}} struct{}{{end}}
 
 {{range .FuncDoc}}// {{.}}
-{{end}}func {{.FuncName}}(item secs2.Item) ({{.TypeName}}, error) {
+{{end}}func {{.FuncName}}(item secs2.Item, opts ...DecodeOption) ({{.TypeName}}, error) {
 	var out {{.TypeName}}
 
 	var err error
 
 	root := secs2.NewCursor(item)
-{{range .Lines}}
+{{if .UsesCfg}}	cfg := newDecodeConfig(opts)
+{{end}}{{range .Lines}}
 	{{.}}{{end}}
 	return out, nil
 }

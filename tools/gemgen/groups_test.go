@@ -217,13 +217,13 @@ func TestRenderGroups(t *testing.T) {
 		"type Holder struct {\n\tTSIP  byte\n\tBAND  *Band\n\tMDLN  string\n\tEXTRA secs2.Item\n\tPAIRS []Pair\n\tTSIPS []byte\n}",
 		"func (g Holder) Item() secs2.Item {\n\treturn secs2.L(secs2.B(g.TSIP), optionalGroupItem(g.BAND), secs2.L(secs2.A(g.MDLN), g.EXTRA), " +
 			"secs2.L(groupItems(g.PAIRS)...), secs2.L(valueItems(g.TSIPS, func(v byte) secs2.Item { return secs2.B(v) })...))\n}",
-		"func decodeHolder(c secs2.Cursor, field string) (Holder, error) {",
-		"if err = requireArity(c, field, 5); err != nil {\n\t\treturn g, err",
-		`if g.BAND, err = decodeOptionalGroup(c.At(1), field+".BAND", 2, decodeBand); err != nil {`,
-		`if err = requireArity(c.At(2), field+"[2]", 2); err != nil {`,
+		"func decodeHolder(c secs2.Cursor, field string, cfg *decodeConfig) (Holder, error) {",
+		"if err = requireArity(c, field, 5, cfg); err != nil {\n\t\treturn g, err",
+		`if g.BAND, err = decodeOptionalGroup(c.At(1), field+".BAND", 2, cfg, decodeBand); err != nil {`,
+		`if err = requireArity(c.At(2), field+"[2]", 2, cfg); err != nil {`,
 		// An opaque node reports its parameter name, as at body level.
 		`if g.EXTRA, err = decodeItem(c.At(2, 1), field+".extra"); err != nil {`,
-		`if g.PAIRS, err = decodeEach(c.At(3), field+".PAIRS", decodePair); err != nil {`,
+		`if g.PAIRS, err = decodeEach(c.At(3), field+".PAIRS", withConfig(cfg, decodePair)); err != nil {`,
 		`if g.TSIPS, err = decodeEach(c.At(4), field+".TSIPS", decodeByteAs[byte]); err != nil {`,
 		"// Holder is one holder.\n//\n// Shape: L[5]{ B[tsip] <band> L[2]{ A[mdln] <extra> } L[n]{ <pairs>... } L[n]{ <tsips>... } }.\n" +
 			"// BAND is nil when it is sent as L[0].\n//\n// Used by S1F2.\n",
@@ -265,9 +265,9 @@ func TestGroupRepeatsInMessages(t *testing.T) {
 	decoders, err := renderDecoders(mf, items)
 	require.NoError(t, err)
 	require.Contains(t, string(decoders), "HOLDERS []Holder\n\tROWS    [][]Pair\n\tBANDS   []*Band")
-	require.Contains(t, string(decoders), `out.HOLDERS, err = decodeEach(root.At(1), "HOLDERS", decodeHolder)`)
-	require.Contains(t, string(decoders), `out.ROWS, err = decodeEach(root.At(2), "ROWS", eachOf(decodePair))`)
-	require.Contains(t, string(decoders), `out.BANDS, err = decodeEach(root.At(3), "BANDS", optionalGroup(2, decodeBand))`)
+	require.Contains(t, string(decoders), `out.HOLDERS, err = decodeEach(root.At(1), "HOLDERS", withConfig(cfg, decodeHolder))`)
+	require.Contains(t, string(decoders), `out.ROWS, err = decodeEach(root.At(2), "ROWS", eachOf(withConfig(cfg, decodePair)))`)
+	require.Contains(t, string(decoders), `out.BANDS, err = decodeEach(root.At(3), "BANDS", optionalGroup(cfg, 2, decodeBand))`)
 
 	decodeTests, err := renderDecodeTests(mf, items)
 	require.NoError(t, err)

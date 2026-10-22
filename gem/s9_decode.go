@@ -18,7 +18,8 @@ type S9F1Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS9F1(item secs2.Item) (S9F1Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS9F1(item secs2.Item, opts ...DecodeOption) (S9F1Body, error) {
 	var out S9F1Body
 
 	var err error
@@ -53,7 +54,8 @@ type S9F3Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS9F3(item secs2.Item) (S9F3Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS9F3(item secs2.Item, opts ...DecodeOption) (S9F3Body, error) {
 	var out S9F3Body
 
 	var err error
@@ -88,7 +90,8 @@ type S9F5Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS9F5(item secs2.Item) (S9F5Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS9F5(item secs2.Item, opts ...DecodeOption) (S9F5Body, error) {
 	var out S9F5Body
 
 	var err error
@@ -123,7 +126,8 @@ type S9F7Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS9F7(item secs2.Item) (S9F7Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS9F7(item secs2.Item, opts ...DecodeOption) (S9F7Body, error) {
 	var out S9F7Body
 
 	var err error
@@ -158,7 +162,8 @@ type S9F9Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS9F9(item secs2.Item) (S9F9Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS9F9(item secs2.Item, opts ...DecodeOption) (S9F9Body, error) {
 	var out S9F9Body
 
 	var err error
@@ -193,7 +198,8 @@ type S9F11Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS9F11(item secs2.Item) (S9F11Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS9F11(item secs2.Item, opts ...DecodeOption) (S9F11Body, error) {
 	var out S9F11Body
 
 	var err error
@@ -229,14 +235,16 @@ type S9F13Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F13Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS9F13(item secs2.Item) (S9F13Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS9F13(item secs2.Item, opts ...DecodeOption) (S9F13Body, error) {
 	var out S9F13Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S9F13 body", 2); err != nil {
+	if err = requireArity(root, "S9F13 body", 2, cfg); err != nil {
 		return out, err
 	}
 

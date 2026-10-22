@@ -11,8 +11,8 @@ import (
 {{if .Tests}}
 func init() {
 {{- range .Tests}}
-	registerFuzzDecoder("{{.DecodeName}}", func(item secs2.Item) error {
-		_, err := gem.{{.DecodeName}}(item)
+	registerFuzzDecoder("{{.DecodeName}}", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.{{.DecodeName}}(item, opts...)
 
 		return err
 	}, gem.{{.CallName}}({{.CallArgs}}).Item())

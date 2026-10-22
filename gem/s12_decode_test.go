@@ -10,98 +10,98 @@ import (
 )
 
 func init() {
-	registerFuzzDecoder("DecodeS12F1", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F1(item)
+	registerFuzzDecoder("DecodeS12F1", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F1(item, opts...)
 
 		return err
 	}, gem.S12F1(secs2.A("mid"), 0xff, 12, 9, 0x16, 45, []secs2.Item{secs2.A("refps")}, "dutms", secs2.A("xdies"), secs2.A("ydies"), secs2.A("rowct"), secs2.A("colct"), secs2.A("nulbc"), secs2.A("prdct"), 0xc1).Item())
-	registerFuzzDecoder("DecodeS12F2", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F2(item)
+	registerFuzzDecoder("DecodeS12F2", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F2(item, opts...)
 
 		return err
 	}, gem.S12F2(0x15).Item())
-	registerFuzzDecoder("DecodeS12F3", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F3(item)
+	registerFuzzDecoder("DecodeS12F3", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F3(item, opts...)
 
 		return err
 	}, gem.S12F3(secs2.A("mid"), 0xff, 0xf6, 12, 9, 0x16, 0xc1, secs2.A("bcequ"), secs2.A("nulbc")).Item())
-	registerFuzzDecoder("DecodeS12F4", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F4(item)
+	registerFuzzDecoder("DecodeS12F4", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F4(item, opts...)
 
 		return err
 	}, gem.S12F4(secs2.A("mid"), 0xff, 12, 0x16, 45, []secs2.Item{secs2.A("refps")}, "dutms", secs2.A("xdies"), secs2.A("ydies"), secs2.A("rowct"), secs2.A("colct"), secs2.A("prdct"), secs2.A("bcequ"), secs2.A("nulbc"), secs2.A("mlcl")).Item())
-	registerFuzzDecoder("DecodeS12F5", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F5(item)
+	registerFuzzDecoder("DecodeS12F5", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F5(item, opts...)
 
 		return err
 	}, gem.S12F5(secs2.A("mid"), 0xff, 0xf6, secs2.A("mlcl")).Item())
-	registerFuzzDecoder("DecodeS12F6", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F6(item)
+	registerFuzzDecoder("DecodeS12F6", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F6(item, opts...)
 
 		return err
 	}, gem.S12F6(0x50).Item())
-	registerFuzzDecoder("DecodeS12F7", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F7(item)
+	registerFuzzDecoder("DecodeS12F7", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F7(item, opts...)
 
 		return err
 	}, gem.S12F7(secs2.A("mid"), 0xff, gem.MapRow{RSINF: secs2.A("rsinf"), BINLT: secs2.A("binlt")}).Item())
-	registerFuzzDecoder("DecodeS12F8", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F8(item)
+	registerFuzzDecoder("DecodeS12F8", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F8(item, opts...)
 
 		return err
 	}, gem.S12F8(0xae).Item())
-	registerFuzzDecoder("DecodeS12F9", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F9(item)
+	registerFuzzDecoder("DecodeS12F9", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F9(item, opts...)
 
 		return err
 	}, gem.S12F9(secs2.A("mid"), 0xff, secs2.A("strp"), secs2.A("binlt")).Item())
-	registerFuzzDecoder("DecodeS12F10", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F10(item)
+	registerFuzzDecoder("DecodeS12F10", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F10(item, opts...)
 
 		return err
 	}, gem.S12F10(0xae).Item())
-	registerFuzzDecoder("DecodeS12F11", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F11(item)
+	registerFuzzDecoder("DecodeS12F11", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F11(item, opts...)
 
 		return err
 	}, gem.S12F11(secs2.A("mid"), 0xff, gem.MapPosition{XYPOS: secs2.A("xypos"), BINLT: secs2.A("binlt")}).Item())
-	registerFuzzDecoder("DecodeS12F12", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F12(item)
+	registerFuzzDecoder("DecodeS12F12", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F12(item, opts...)
 
 		return err
 	}, gem.S12F12(0xae).Item())
-	registerFuzzDecoder("DecodeS12F13", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F13(item)
+	registerFuzzDecoder("DecodeS12F13", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F13(item, opts...)
 
 		return err
 	}, gem.S12F13(secs2.A("mid"), 0xff).Item())
-	registerFuzzDecoder("DecodeS12F14", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F14(item)
+	registerFuzzDecoder("DecodeS12F14", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F14(item, opts...)
 
 		return err
 	}, gem.S12F14(secs2.A("mid"), 0xff, gem.MapRow{RSINF: secs2.A("rsinf"), BINLT: secs2.A("binlt")}).Item())
-	registerFuzzDecoder("DecodeS12F15", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F15(item)
+	registerFuzzDecoder("DecodeS12F15", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F15(item, opts...)
 
 		return err
 	}, gem.S12F15(secs2.A("mid"), 0xff).Item())
-	registerFuzzDecoder("DecodeS12F16", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F16(item)
+	registerFuzzDecoder("DecodeS12F16", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F16(item, opts...)
 
 		return err
 	}, gem.S12F16(secs2.A("mid"), 0xff, secs2.A("strp"), secs2.A("binlt")).Item())
-	registerFuzzDecoder("DecodeS12F17", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F17(item)
+	registerFuzzDecoder("DecodeS12F17", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F17(item, opts...)
 
 		return err
 	}, gem.S12F17(secs2.A("mid"), 0xff, 0x73).Item())
-	registerFuzzDecoder("DecodeS12F18", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F18(item)
+	registerFuzzDecoder("DecodeS12F18", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F18(item, opts...)
 
 		return err
 	}, gem.S12F18(secs2.A("mid"), 0xff, gem.MapPosition{XYPOS: secs2.A("xypos"), BINLT: secs2.A("binlt")}).Item())
-	registerFuzzDecoder("DecodeS12F19", func(item secs2.Item) error {
-		_, err := gem.DecodeS12F19(item)
+	registerFuzzDecoder("DecodeS12F19", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS12F19(item, opts...)
 
 		return err
 	}, gem.S12F19(0xc6, 82).Item())

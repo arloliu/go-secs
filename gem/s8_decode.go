@@ -18,7 +18,8 @@ type S8F2Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S8F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS8F2(item secs2.Item) (S8F2Reply, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS8F2(item secs2.Item, opts ...DecodeOption) (S8F2Reply, error) {
 	var out S8F2Reply
 
 	var err error
@@ -46,7 +47,8 @@ type S8F4Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S8F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS8F4(item secs2.Item) (S8F4Reply, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS8F4(item secs2.Item, opts ...DecodeOption) (S8F4Reply, error) {
 	var out S8F4Reply
 
 	var err error

@@ -20,14 +20,16 @@ type S15F1Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F1(item secs2.Item) (S15F1Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F1(item secs2.Item, opts ...DecodeOption) (S15F1Body, error) {
 	var out S15F1Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F1 body", 3); err != nil {
+	if err = requireArity(root, "S15F1 body", 3, cfg); err != nil {
 		return out, err
 	}
 
@@ -60,7 +62,8 @@ type S15F2Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F2(item secs2.Item) (S15F2Reply, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS15F2(item secs2.Item, opts ...DecodeOption) (S15F2Reply, error) {
 	var out S15F2Reply
 
 	var err error
@@ -89,14 +92,16 @@ type S15F3Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F3(item secs2.Item) (S15F3Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F3(item secs2.Item, opts ...DecodeOption) (S15F3Body, error) {
 	var out S15F3Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F3 body", 2); err != nil {
+	if err = requireArity(root, "S15F3 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -126,14 +131,16 @@ type S15F4Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F4(item secs2.Item) (S15F4Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F4(item secs2.Item, opts ...DecodeOption) (S15F4Reply, error) {
 	var out S15F4Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F4 body", 2); err != nil {
+	if err = requireArity(root, "S15F4 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -141,7 +148,7 @@ func DecodeS15F4(item secs2.Item) (S15F4Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -163,14 +170,16 @@ type S15F5Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F5(item secs2.Item) (S15F5Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F5(item secs2.Item, opts ...DecodeOption) (S15F5Body, error) {
 	var out S15F5Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F5 body", 2); err != nil {
+	if err = requireArity(root, "S15F5 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -200,14 +209,16 @@ type S15F6Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F6(item secs2.Item) (S15F6Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F6(item secs2.Item, opts ...DecodeOption) (S15F6Reply, error) {
 	var out S15F6Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F6 body", 2); err != nil {
+	if err = requireArity(root, "S15F6 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -215,7 +226,7 @@ func DecodeS15F6(item secs2.Item) (S15F6Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -236,7 +247,8 @@ type S15F7Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F7(item secs2.Item) (S15F7Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS15F7(item secs2.Item, opts ...DecodeOption) (S15F7Body, error) {
 	var out S15F7Body
 
 	var err error
@@ -266,14 +278,16 @@ type S15F8Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F8Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F8(item secs2.Item) (S15F8Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F8(item secs2.Item, opts ...DecodeOption) (S15F8Reply, error) {
 	var out S15F8Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F8 body", 2); err != nil {
+	if err = requireArity(root, "S15F8 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -281,7 +295,7 @@ func DecodeS15F8(item secs2.Item) (S15F8Reply, error) {
 		return out, err
 	}
 
-	if err = requireArity(root.At(1), "S15F8 body[1]", 2); err != nil {
+	if err = requireArity(root.At(1), "S15F8 body[1]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -289,7 +303,7 @@ func DecodeS15F8(item secs2.Item) (S15F8Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -310,7 +324,8 @@ type S15F9Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F9(item secs2.Item) (S15F9Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS15F9(item secs2.Item, opts ...DecodeOption) (S15F9Body, error) {
 	var out S15F9Body
 
 	var err error
@@ -341,14 +356,16 @@ type S15F10Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F10Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F10(item secs2.Item) (S15F10Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F10(item secs2.Item, opts ...DecodeOption) (S15F10Reply, error) {
 	var out S15F10Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F10 body", 3); err != nil {
+	if err = requireArity(root, "S15F10 body", 3, cfg); err != nil {
 		return out, err
 	}
 
@@ -360,7 +377,7 @@ func DecodeS15F10(item secs2.Item) (S15F10Reply, error) {
 		return out, err
 	}
 
-	if err = requireArity(root.At(2), "S15F10 body[2]", 2); err != nil {
+	if err = requireArity(root.At(2), "S15F10 body[2]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -368,7 +385,7 @@ func DecodeS15F10(item secs2.Item) (S15F10Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -392,14 +409,16 @@ type S15F11Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F11(item secs2.Item) (S15F11Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F11(item secs2.Item, opts ...DecodeOption) (S15F11Body, error) {
 	var out S15F11Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F11 body", 4); err != nil {
+	if err = requireArity(root, "S15F11 body", 4, cfg); err != nil {
 		return out, err
 	}
 
@@ -439,14 +458,16 @@ type S15F12Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F12Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F12(item secs2.Item) (S15F12Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F12(item secs2.Item, opts ...DecodeOption) (S15F12Reply, error) {
 	var out S15F12Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F12 body", 3); err != nil {
+	if err = requireArity(root, "S15F12 body", 3, cfg); err != nil {
 		return out, err
 	}
 
@@ -458,7 +479,7 @@ func DecodeS15F12(item secs2.Item) (S15F12Reply, error) {
 		return out, err
 	}
 
-	if err = requireArity(root.At(2), "S15F12 body[2]", 2); err != nil {
+	if err = requireArity(root.At(2), "S15F12 body[2]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -466,7 +487,7 @@ func DecodeS15F12(item secs2.Item) (S15F12Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -491,14 +512,16 @@ type S15F13Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F13Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F13(item secs2.Item) (S15F13Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F13(item secs2.Item, opts ...DecodeOption) (S15F13Body, error) {
 	var out S15F13Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F13 body", 5); err != nil {
+	if err = requireArity(root, "S15F13 body", 5, cfg); err != nil {
 		return out, err
 	}
 
@@ -514,7 +537,7 @@ func DecodeS15F13(item secs2.Item) (S15F13Body, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeEach(root.At(3), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(3), "ATTRIBUTES", withConfig(cfg, decodeRecipeAttribute)); err != nil {
 		return out, err
 	}
 
@@ -540,14 +563,16 @@ type S15F14Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F14Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F14(item secs2.Item) (S15F14Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F14(item secs2.Item, opts ...DecodeOption) (S15F14Reply, error) {
 	var out S15F14Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F14 body", 2); err != nil {
+	if err = requireArity(root, "S15F14 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -555,7 +580,7 @@ func DecodeS15F14(item secs2.Item) (S15F14Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -579,14 +604,16 @@ type S15F15Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F15Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F15(item secs2.Item) (S15F15Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F15(item secs2.Item, opts ...DecodeOption) (S15F15Body, error) {
 	var out S15F15Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F15 body", 4); err != nil {
+	if err = requireArity(root, "S15F15 body", 4, cfg); err != nil {
 		return out, err
 	}
 
@@ -625,14 +652,16 @@ type S15F16Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F16Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F16(item secs2.Item) (S15F16Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F16(item secs2.Item, opts ...DecodeOption) (S15F16Reply, error) {
 	var out S15F16Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F16 body", 2); err != nil {
+	if err = requireArity(root, "S15F16 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -640,7 +669,7 @@ func DecodeS15F16(item secs2.Item) (S15F16Reply, error) {
 		return out, err
 	}
 
-	if err = requireArity(root.At(1), "S15F16 body[1]", 2); err != nil {
+	if err = requireArity(root.At(1), "S15F16 body[1]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -648,7 +677,7 @@ func DecodeS15F16(item secs2.Item) (S15F16Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -670,14 +699,16 @@ type S15F17Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F17Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F17(item secs2.Item) (S15F17Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F17(item secs2.Item, opts ...DecodeOption) (S15F17Body, error) {
 	var out S15F17Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F17 body", 2); err != nil {
+	if err = requireArity(root, "S15F17 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -708,14 +739,16 @@ type S15F18Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F18Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F18(item secs2.Item) (S15F18Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F18(item secs2.Item, opts ...DecodeOption) (S15F18Reply, error) {
 	var out S15F18Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F18 body", 2); err != nil {
+	if err = requireArity(root, "S15F18 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -723,7 +756,7 @@ func DecodeS15F18(item secs2.Item) (S15F18Reply, error) {
 		return out, err
 	}
 
-	if err = requireArity(root.At(1), "S15F18 body[1]", 2); err != nil {
+	if err = requireArity(root.At(1), "S15F18 body[1]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -731,7 +764,7 @@ func DecodeS15F18(item secs2.Item) (S15F18Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -754,14 +787,16 @@ type S15F19Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F19Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F19(item secs2.Item) (S15F19Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F19(item secs2.Item, opts ...DecodeOption) (S15F19Body, error) {
 	var out S15F19Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F19 body", 3); err != nil {
+	if err = requireArity(root, "S15F19 body", 3, cfg); err != nil {
 		return out, err
 	}
 
@@ -795,14 +830,16 @@ type S15F20Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F20Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F20(item secs2.Item) (S15F20Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F20(item secs2.Item, opts ...DecodeOption) (S15F20Reply, error) {
 	var out S15F20Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F20 body", 2); err != nil {
+	if err = requireArity(root, "S15F20 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -810,7 +847,7 @@ func DecodeS15F20(item secs2.Item) (S15F20Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -836,14 +873,16 @@ type S15F21Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F21Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F21(item secs2.Item) (S15F21Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F21(item secs2.Item, opts ...DecodeOption) (S15F21Body, error) {
 	var out S15F21Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F21 body", 6); err != nil {
+	if err = requireArity(root, "S15F21 body", 6, cfg); err != nil {
 		return out, err
 	}
 
@@ -892,14 +931,16 @@ type S15F22Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F22Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F22(item secs2.Item) (S15F22Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F22(item secs2.Item, opts ...DecodeOption) (S15F22Reply, error) {
 	var out S15F22Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F22 body", 4); err != nil {
+	if err = requireArity(root, "S15F22 body", 4, cfg); err != nil {
 		return out, err
 	}
 
@@ -915,7 +956,7 @@ func DecodeS15F22(item secs2.Item) (S15F22Reply, error) {
 		return out, err
 	}
 
-	if err = requireArity(root.At(3), "S15F22 body[3]", 2); err != nil {
+	if err = requireArity(root.At(3), "S15F22 body[3]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -923,7 +964,7 @@ func DecodeS15F22(item secs2.Item) (S15F22Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(3, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(3, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -946,14 +987,16 @@ type S15F23Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F23Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F23(item secs2.Item) (S15F23Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F23(item secs2.Item, opts ...DecodeOption) (S15F23Body, error) {
 	var out S15F23Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F23 body", 3); err != nil {
+	if err = requireArity(root, "S15F23 body", 3, cfg); err != nil {
 		return out, err
 	}
 
@@ -988,22 +1031,24 @@ type S15F24Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F24Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F24(item secs2.Item) (S15F24Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F24(item secs2.Item, opts ...DecodeOption) (S15F24Reply, error) {
 	var out S15F24Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F24 body", 2); err != nil {
+	if err = requireArity(root, "S15F24 body", 2, cfg); err != nil {
 		return out, err
 	}
 
-	if out.RECIPES, err = decodeEach(root.At(0), "RECIPES", eachOf(optionalGroup(3, decodeRecipeDescriptor))); err != nil {
+	if out.RECIPES, err = decodeEach(root.At(0), "RECIPES", eachOf(optionalGroup(cfg, 3, decodeRecipeDescriptor))); err != nil {
 		return out, err
 	}
 
-	if err = requireArity(root.At(1), "S15F24 body[1]", 2); err != nil {
+	if err = requireArity(root.At(1), "S15F24 body[1]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1011,7 +1056,7 @@ func DecodeS15F24(item secs2.Item) (S15F24Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1035,14 +1080,16 @@ type S15F25Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F25Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F25(item secs2.Item) (S15F25Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F25(item secs2.Item, opts ...DecodeOption) (S15F25Body, error) {
 	var out S15F25Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F25 body", 4); err != nil {
+	if err = requireArity(root, "S15F25 body", 4, cfg); err != nil {
 		return out, err
 	}
 
@@ -1058,7 +1105,7 @@ func DecodeS15F25(item secs2.Item) (S15F25Body, error) {
 		return out, err
 	}
 
-	if out.PARAMETERS, err = decodeEach(root.At(3), "PARAMETERS", decodeRecipeParamRule); err != nil {
+	if out.PARAMETERS, err = decodeEach(root.At(3), "PARAMETERS", withConfig(cfg, decodeRecipeParamRule)); err != nil {
 		return out, err
 	}
 
@@ -1080,14 +1127,16 @@ type S15F26Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F26Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F26(item secs2.Item) (S15F26Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F26(item secs2.Item, opts ...DecodeOption) (S15F26Reply, error) {
 	var out S15F26Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F26 body", 2); err != nil {
+	if err = requireArity(root, "S15F26 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1095,7 +1144,7 @@ func DecodeS15F26(item secs2.Item) (S15F26Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1120,14 +1169,16 @@ type S15F27Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F27Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F27(item secs2.Item) (S15F27Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F27(item secs2.Item, opts ...DecodeOption) (S15F27Body, error) {
 	var out S15F27Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F27 body", 5); err != nil {
+	if err = requireArity(root, "S15F27 body", 5, cfg); err != nil {
 		return out, err
 	}
 
@@ -1143,7 +1194,7 @@ func DecodeS15F27(item secs2.Item) (S15F27Body, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeEach(root.At(3), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(3), "ATTRIBUTES", withConfig(cfg, decodeRecipeAttribute)); err != nil {
 		return out, err
 	}
 
@@ -1171,14 +1222,16 @@ type S15F28Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F28Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F28(item secs2.Item) (S15F28Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F28(item secs2.Item, opts ...DecodeOption) (S15F28Reply, error) {
 	var out S15F28Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F28 body", 3); err != nil {
+	if err = requireArity(root, "S15F28 body", 3, cfg); err != nil {
 		return out, err
 	}
 
@@ -1186,11 +1239,11 @@ func DecodeS15F28(item secs2.Item) (S15F28Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeEach(root.At(1), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(1), "ATTRIBUTES", withConfig(cfg, decodeRecipeAttribute)); err != nil {
 		return out, err
 	}
 
-	if err = requireArity(root.At(2), "S15F28 body[2]", 2); err != nil {
+	if err = requireArity(root.At(2), "S15F28 body[2]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1198,7 +1251,7 @@ func DecodeS15F28(item secs2.Item) (S15F28Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1222,14 +1275,16 @@ type S15F29Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F29Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F29(item secs2.Item) (S15F29Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F29(item secs2.Item, opts ...DecodeOption) (S15F29Body, error) {
 	var out S15F29Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F29 body", 4); err != nil {
+	if err = requireArity(root, "S15F29 body", 4, cfg); err != nil {
 		return out, err
 	}
 
@@ -1271,14 +1326,16 @@ type S15F30Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F30Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F30(item secs2.Item) (S15F30Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F30(item secs2.Item, opts ...DecodeOption) (S15F30Reply, error) {
 	var out S15F30Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F30 body", 5); err != nil {
+	if err = requireArity(root, "S15F30 body", 5, cfg); err != nil {
 		return out, err
 	}
 
@@ -1294,11 +1351,11 @@ func DecodeS15F30(item secs2.Item) (S15F30Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeEach(root.At(3), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(3), "ATTRIBUTES", withConfig(cfg, decodeRecipeAttribute)); err != nil {
 		return out, err
 	}
 
-	if err = requireArity(root.At(4), "S15F30 body[4]", 2); err != nil {
+	if err = requireArity(root.At(4), "S15F30 body[4]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1306,7 +1363,7 @@ func DecodeS15F30(item secs2.Item) (S15F30Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(4, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(4, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1327,7 +1384,8 @@ type S15F31Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F31Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F31(item secs2.Item) (S15F31Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS15F31(item secs2.Item, opts ...DecodeOption) (S15F31Body, error) {
 	var out S15F31Body
 
 	var err error
@@ -1359,14 +1417,16 @@ type S15F32Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F32Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F32(item secs2.Item) (S15F32Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F32(item secs2.Item, opts ...DecodeOption) (S15F32Reply, error) {
 	var out S15F32Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F32 body", 4); err != nil {
+	if err = requireArity(root, "S15F32 body", 4, cfg); err != nil {
 		return out, err
 	}
 
@@ -1374,7 +1434,7 @@ func DecodeS15F32(item secs2.Item) (S15F32Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeEach(root.At(1), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(1), "ATTRIBUTES", withConfig(cfg, decodeRecipeAttribute)); err != nil {
 		return out, err
 	}
 
@@ -1382,7 +1442,7 @@ func DecodeS15F32(item secs2.Item) (S15F32Reply, error) {
 		return out, err
 	}
 
-	if err = requireArity(root.At(3), "S15F32 body[3]", 2); err != nil {
+	if err = requireArity(root.At(3), "S15F32 body[3]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1390,7 +1450,7 @@ func DecodeS15F32(item secs2.Item) (S15F32Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(3, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(3, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1413,14 +1473,16 @@ type S15F33Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F33Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F33(item secs2.Item) (S15F33Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F33(item secs2.Item, opts ...DecodeOption) (S15F33Body, error) {
 	var out S15F33Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F33 body", 3); err != nil {
+	if err = requireArity(root, "S15F33 body", 3, cfg); err != nil {
 		return out, err
 	}
 
@@ -1432,7 +1494,7 @@ func DecodeS15F33(item secs2.Item) (S15F33Body, error) {
 		return out, err
 	}
 
-	if out.SELECTIONS, err = decodeEach(root.At(2), "SELECTIONS", decodeRecipeSelection); err != nil {
+	if out.SELECTIONS, err = decodeEach(root.At(2), "SELECTIONS", withConfig(cfg, decodeRecipeSelection)); err != nil {
 		return out, err
 	}
 
@@ -1454,14 +1516,16 @@ type S15F34Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F34Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F34(item secs2.Item) (S15F34Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F34(item secs2.Item, opts ...DecodeOption) (S15F34Reply, error) {
 	var out S15F34Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F34 body", 2); err != nil {
+	if err = requireArity(root, "S15F34 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1469,7 +1533,7 @@ func DecodeS15F34(item secs2.Item) (S15F34Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1493,14 +1557,16 @@ type S15F35Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F35Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F35(item secs2.Item) (S15F35Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F35(item secs2.Item, opts ...DecodeOption) (S15F35Body, error) {
 	var out S15F35Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F35 body", 4); err != nil {
+	if err = requireArity(root, "S15F35 body", 4, cfg); err != nil {
 		return out, err
 	}
 
@@ -1538,14 +1604,16 @@ type S15F36Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F36Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F36(item secs2.Item) (S15F36Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F36(item secs2.Item, opts ...DecodeOption) (S15F36Reply, error) {
 	var out S15F36Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F36 body", 2); err != nil {
+	if err = requireArity(root, "S15F36 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1553,7 +1621,7 @@ func DecodeS15F36(item secs2.Item) (S15F36Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1579,14 +1647,16 @@ type S15F37Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F37Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F37(item secs2.Item) (S15F37Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F37(item secs2.Item, opts ...DecodeOption) (S15F37Body, error) {
 	var out S15F37Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F37 body", 6); err != nil {
+	if err = requireArity(root, "S15F37 body", 6, cfg); err != nil {
 		return out, err
 	}
 
@@ -1632,14 +1702,16 @@ type S15F38Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F38Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F38(item secs2.Item) (S15F38Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F38(item secs2.Item, opts ...DecodeOption) (S15F38Reply, error) {
 	var out S15F38Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F38 body", 2); err != nil {
+	if err = requireArity(root, "S15F38 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1647,7 +1719,7 @@ func DecodeS15F38(item secs2.Item) (S15F38Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1672,14 +1744,16 @@ type S15F39Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F39Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F39(item secs2.Item) (S15F39Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F39(item secs2.Item, opts ...DecodeOption) (S15F39Body, error) {
 	var out S15F39Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F39 body", 5); err != nil {
+	if err = requireArity(root, "S15F39 body", 5, cfg); err != nil {
 		return out, err
 	}
 
@@ -1721,14 +1795,16 @@ type S15F40Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F40Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F40(item secs2.Item) (S15F40Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F40(item secs2.Item, opts ...DecodeOption) (S15F40Reply, error) {
 	var out S15F40Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F40 body", 2); err != nil {
+	if err = requireArity(root, "S15F40 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1736,7 +1812,7 @@ func DecodeS15F40(item secs2.Item) (S15F40Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1767,14 +1843,16 @@ type S15F41Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F41Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F41(item secs2.Item) (S15F41Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F41(item secs2.Item, opts ...DecodeOption) (S15F41Body, error) {
 	var out S15F41Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F41 body", 5); err != nil {
+	if err = requireArity(root, "S15F41 body", 5, cfg); err != nil {
 		return out, err
 	}
 
@@ -1794,7 +1872,7 @@ func DecodeS15F41(item secs2.Item) (S15F41Body, error) {
 		return out, err
 	}
 
-	n1, err := optionalArity(root.At(4), "S15F41 body[4]", 1, 7)
+	n1, err := optionalArity(root.At(4), "S15F41 body[4]", 1, 7, cfg)
 	if err != nil {
 		return out, err
 	}
@@ -1847,14 +1925,16 @@ type S15F42Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F42Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F42(item secs2.Item) (S15F42Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F42(item secs2.Item, opts ...DecodeOption) (S15F42Reply, error) {
 	var out S15F42Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F42 body", 2); err != nil {
+	if err = requireArity(root, "S15F42 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1862,7 +1942,7 @@ func DecodeS15F42(item secs2.Item) (S15F42Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1885,14 +1965,16 @@ type S15F43Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F43Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F43(item secs2.Item) (S15F43Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F43(item secs2.Item, opts ...DecodeOption) (S15F43Body, error) {
 	var out S15F43Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F43 body", 3); err != nil {
+	if err = requireArity(root, "S15F43 body", 3, cfg); err != nil {
 		return out, err
 	}
 
@@ -1927,22 +2009,24 @@ type S15F44Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F44Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F44(item secs2.Item) (S15F44Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F44(item secs2.Item, opts ...DecodeOption) (S15F44Reply, error) {
 	var out S15F44Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F44 body", 2); err != nil {
+	if err = requireArity(root, "S15F44 body", 2, cfg); err != nil {
 		return out, err
 	}
 
-	if out.CHANGES, err = decodeEach(root.At(0), "CHANGES", decodeRecipeChange); err != nil {
+	if out.CHANGES, err = decodeEach(root.At(0), "CHANGES", withConfig(cfg, decodeRecipeChange)); err != nil {
 		return out, err
 	}
 
-	if err = requireArity(root.At(1), "S15F44 body[1]", 2); err != nil {
+	if err = requireArity(root.At(1), "S15F44 body[1]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -1950,7 +2034,7 @@ func DecodeS15F44(item secs2.Item) (S15F44Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -1974,14 +2058,16 @@ type S15F45Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F45Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F45(item secs2.Item) (S15F45Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F45(item secs2.Item, opts ...DecodeOption) (S15F45Body, error) {
 	var out S15F45Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F45 body", 4); err != nil {
+	if err = requireArity(root, "S15F45 body", 4, cfg); err != nil {
 		return out, err
 	}
 
@@ -2020,14 +2106,16 @@ type S15F46Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F46Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F46(item secs2.Item) (S15F46Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F46(item secs2.Item, opts ...DecodeOption) (S15F46Reply, error) {
 	var out S15F46Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F46 body", 3); err != nil {
+	if err = requireArity(root, "S15F46 body", 3, cfg); err != nil {
 		return out, err
 	}
 
@@ -2064,14 +2152,16 @@ type S15F47Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F47Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F47(item secs2.Item) (S15F47Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F47(item secs2.Item, opts ...DecodeOption) (S15F47Body, error) {
 	var out S15F47Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F47 body", 5); err != nil {
+	if err = requireArity(root, "S15F47 body", 5, cfg); err != nil {
 		return out, err
 	}
 
@@ -2113,14 +2203,16 @@ type S15F48Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F48Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F48(item secs2.Item) (S15F48Reply, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F48(item secs2.Item, opts ...DecodeOption) (S15F48Reply, error) {
 	var out S15F48Reply
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F48 body", 2); err != nil {
+	if err = requireArity(root, "S15F48 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -2128,7 +2220,7 @@ func DecodeS15F48(item secs2.Item) (S15F48Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 
@@ -2150,14 +2242,16 @@ type S15F49Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F49Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F49(item secs2.Item) (S15F49Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F49(item secs2.Item, opts ...DecodeOption) (S15F49Body, error) {
 	var out S15F49Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F49 body", 2); err != nil {
+	if err = requireArity(root, "S15F49 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -2186,7 +2280,8 @@ type S15F50Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F50Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F50(item secs2.Item) (S15F50Reply, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS15F50(item secs2.Item, opts ...DecodeOption) (S15F50Reply, error) {
 	var out S15F50Reply
 
 	var err error
@@ -2214,7 +2309,8 @@ type S15F51Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F51Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F51(item secs2.Item) (S15F51Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS15F51(item secs2.Item, opts ...DecodeOption) (S15F51Body, error) {
 	var out S15F51Body
 
 	var err error
@@ -2242,7 +2338,8 @@ type S15F52Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F52Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F52(item secs2.Item) (S15F52Reply, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS15F52(item secs2.Item, opts ...DecodeOption) (S15F52Reply, error) {
 	var out S15F52Reply
 
 	var err error
@@ -2273,14 +2370,16 @@ type S15F53Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F53Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS15F53(item secs2.Item) (S15F53Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS15F53(item secs2.Item, opts ...DecodeOption) (S15F53Body, error) {
 	var out S15F53Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S15F53 body", 3); err != nil {
+	if err = requireArity(root, "S15F53 body", 3, cfg); err != nil {
 		return out, err
 	}
 
@@ -2292,7 +2391,7 @@ func DecodeS15F53(item secs2.Item) (S15F53Body, error) {
 		return out, err
 	}
 
-	if err = requireArity(root.At(2), "S15F53 body[2]", 2); err != nil {
+	if err = requireArity(root.At(2), "S15F53 body[2]", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -2300,7 +2399,7 @@ func DecodeS15F53(item secs2.Item) (S15F53Body, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", withConfig(cfg, decodeErrorInfo)); err != nil {
 		return out, err
 	}
 

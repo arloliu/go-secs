@@ -15,8 +15,8 @@ func (g {{.Name}}) Item() secs2.Item {
 	return {{.ItemExpr}}
 }
 
-// decode{{.Name}} decodes one [{{.Name}}] from the list at c, naming field in its errors.
-func decode{{.Name}}(c secs2.Cursor, field string) ({{.Name}}, error) {
+// decode{{.Name}} decodes one [{{.Name}}] from the list at c, with the decode options cfg, naming field in its errors.
+func decode{{.Name}}(c secs2.Cursor, field string, cfg *decodeConfig) ({{.Name}}, error) {
 	var g {{.Name}}
 
 	var err error

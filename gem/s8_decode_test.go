@@ -10,13 +10,13 @@ import (
 )
 
 func init() {
-	registerFuzzDecoder("DecodeS8F2", func(item secs2.Item) error {
-		_, err := gem.DecodeS8F2(item)
+	registerFuzzDecoder("DecodeS8F2", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS8F2(item, opts...)
 
 		return err
 	}, gem.S8F2([]byte{0x6d, 0xfe, 0x4c, 0xd1}).Item())
-	registerFuzzDecoder("DecodeS8F4", func(item secs2.Item) error {
-		_, err := gem.DecodeS8F4(item)
+	registerFuzzDecoder("DecodeS8F4", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS8F4(item, opts...)
 
 		return err
 	}, gem.S8F4([]byte{0x9b, 0x0c, 0x72, 0x94}).Item())

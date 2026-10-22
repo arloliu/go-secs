@@ -19,14 +19,16 @@ type S10F1Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS10F1(item secs2.Item) (S10F1Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS10F1(item secs2.Item, opts ...DecodeOption) (S10F1Body, error) {
 	var out S10F1Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S10F1 body", 2); err != nil {
+	if err = requireArity(root, "S10F1 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -55,7 +57,8 @@ type S10F2Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS10F2(item secs2.Item) (S10F2Reply, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS10F2(item secs2.Item, opts ...DecodeOption) (S10F2Reply, error) {
 	var out S10F2Reply
 
 	var err error
@@ -84,14 +87,16 @@ type S10F3Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS10F3(item secs2.Item) (S10F3Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS10F3(item secs2.Item, opts ...DecodeOption) (S10F3Body, error) {
 	var out S10F3Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S10F3 body", 2); err != nil {
+	if err = requireArity(root, "S10F3 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -120,7 +125,8 @@ type S10F4Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS10F4(item secs2.Item) (S10F4Reply, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS10F4(item secs2.Item, opts ...DecodeOption) (S10F4Reply, error) {
 	var out S10F4Reply
 
 	var err error
@@ -149,14 +155,16 @@ type S10F5Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS10F5(item secs2.Item) (S10F5Body, error) {
+// With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
+func DecodeS10F5(item secs2.Item, opts ...DecodeOption) (S10F5Body, error) {
 	var out S10F5Body
 
 	var err error
 
 	root := secs2.NewCursor(item)
+	cfg := newDecodeConfig(opts)
 
-	if err = requireArity(root, "S10F5 body", 2); err != nil {
+	if err = requireArity(root, "S10F5 body", 2, cfg); err != nil {
 		return out, err
 	}
 
@@ -185,7 +193,8 @@ type S10F6Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS10F6(item secs2.Item) (S10F6Reply, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS10F6(item secs2.Item, opts ...DecodeOption) (S10F6Reply, error) {
 	var out S10F6Reply
 
 	var err error
@@ -213,7 +222,8 @@ type S10F7Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS10F7(item secs2.Item) (S10F7Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS10F7(item secs2.Item, opts ...DecodeOption) (S10F7Body, error) {
 	var out S10F7Body
 
 	var err error
@@ -241,7 +251,8 @@ type S10F9Body struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS10F9(item secs2.Item) (S10F9Body, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS10F9(item secs2.Item, opts ...DecodeOption) (S10F9Body, error) {
 	var out S10F9Body
 
 	var err error
@@ -269,7 +280,8 @@ type S10F10Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F10Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
-func DecodeS10F10(item secs2.Item) (S10F10Reply, error) {
+// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
+func DecodeS10F10(item secs2.Item, opts ...DecodeOption) (S10F10Reply, error) {
 	var out S10F10Reply
 
 	var err error

@@ -10,268 +10,268 @@ import (
 )
 
 func init() {
-	registerFuzzDecoder("DecodeS15F1", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F1(item)
+	registerFuzzDecoder("DecodeS15F1", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F1(item, opts...)
 
 		return err
 	}, gem.S15F1(secs2.A("dataid"), "rcpspec", secs2.A("rmdatasize")).Item())
-	registerFuzzDecoder("DecodeS15F2", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F2(item)
+	registerFuzzDecoder("DecodeS15F2", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F2(item, opts...)
 
 		return err
 	}, gem.S15F2(0x9c).Item())
-	registerFuzzDecoder("DecodeS15F3", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F3(item)
+	registerFuzzDecoder("DecodeS15F3", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F3(item, opts...)
 
 		return err
 	}, gem.S15F3("rmnsspec", 27).Item())
-	registerFuzzDecoder("DecodeS15F4", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F4(item)
+	registerFuzzDecoder("DecodeS15F4", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F4(item, opts...)
 
 		return err
 	}, gem.S15F4(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F5", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F5(item)
+	registerFuzzDecoder("DecodeS15F5", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F5(item, opts...)
 
 		return err
 	}, gem.S15F5("rmnsspec", "rmnewns").Item())
-	registerFuzzDecoder("DecodeS15F6", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F6(item)
+	registerFuzzDecoder("DecodeS15F6", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F6(item, opts...)
 
 		return err
 	}, gem.S15F6(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F7", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F7(item)
+	registerFuzzDecoder("DecodeS15F7", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F7(item, opts...)
 
 		return err
 	}, gem.S15F7("objspec").Item())
-	registerFuzzDecoder("DecodeS15F8", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F8(item)
+	registerFuzzDecoder("DecodeS15F8", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F8(item, opts...)
 
 		return err
 	}, gem.S15F8(secs2.A("rmspace"), 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F9", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F9(item)
+	registerFuzzDecoder("DecodeS15F9", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F9(item, opts...)
 
 		return err
 	}, gem.S15F9("rcpspec").Item())
-	registerFuzzDecoder("DecodeS15F10", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F10(item)
+	registerFuzzDecoder("DecodeS15F10", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F10(item, opts...)
 
 		return err
 	}, gem.S15F10(96, "rcpvers", 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F11", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F11(item)
+	registerFuzzDecoder("DecodeS15F11", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F11(item, opts...)
 
 		return err
 	}, gem.S15F11("rmnsspec", "rcpclass", "rcpname", "agent").Item())
-	registerFuzzDecoder("DecodeS15F12", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F12(item)
+	registerFuzzDecoder("DecodeS15F12", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F12(item, opts...)
 
 		return err
 	}, gem.S15F12("agent", "rcpvers", 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F13", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F13(item)
+	registerFuzzDecoder("DecodeS15F13", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F13(item, opts...)
 
 		return err
 	}, gem.S15F13(secs2.A("dataid"), true, "rcpspec", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, secs2.A("rcpbody")).Item())
-	registerFuzzDecoder("DecodeS15F14", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F14(item)
+	registerFuzzDecoder("DecodeS15F14", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F14(item, opts...)
 
 		return err
 	}, gem.S15F14(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F15", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F15(item)
+	registerFuzzDecoder("DecodeS15F15", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F15(item, opts...)
 
 		return err
 	}, gem.S15F15(secs2.A("dataid"), "rcpspec", 0x12, secs2.A("sections")).Item())
-	registerFuzzDecoder("DecodeS15F16", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F16(item)
+	registerFuzzDecoder("DecodeS15F16", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F16(item, opts...)
 
 		return err
 	}, gem.S15F16(0x12, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F17", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F17(item)
+	registerFuzzDecoder("DecodeS15F17", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F17(item, opts...)
 
 		return err
 	}, gem.S15F17("rcpspec", 0x12).Item())
-	registerFuzzDecoder("DecodeS15F18", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F18(item)
+	registerFuzzDecoder("DecodeS15F18", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F18(item, opts...)
 
 		return err
 	}, gem.S15F18(secs2.A("sections"), 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F19", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F19(item)
+	registerFuzzDecoder("DecodeS15F19", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F19(item, opts...)
 
 		return err
 	}, gem.S15F19("rcpspec", true, "rcpnewid").Item())
-	registerFuzzDecoder("DecodeS15F20", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F20(item)
+	registerFuzzDecoder("DecodeS15F20", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F20(item, opts...)
 
 		return err
 	}, gem.S15F20(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F21", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F21(item)
+	registerFuzzDecoder("DecodeS15F21", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F21(item, opts...)
 
 		return err
 	}, gem.S15F21(secs2.A("dataid"), 58, "rmnsspec", secs2.A("opid"), "agent", "recipes").Item())
-	registerFuzzDecoder("DecodeS15F22", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F22(item)
+	registerFuzzDecoder("DecodeS15F22", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F22(item, opts...)
 
 		return err
 	}, gem.S15F22("agent", 78, 58, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F23", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F23(item)
+	registerFuzzDecoder("DecodeS15F23", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F23(item, opts...)
 
 		return err
 	}, gem.S15F23(secs2.A("dataid"), "objspec", "recipes").Item())
-	registerFuzzDecoder("DecodeS15F24", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F24(item)
+	registerFuzzDecoder("DecodeS15F24", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F24(item, opts...)
 
 		return err
 	}, gem.S15F24([][]*gem.RecipeDescriptor{{{RCPDESCNM: "rcpdescnm", RCPDESCTIME: "rcpdesctime", RCPDESCLTH: secs2.A("rcpdesclth")}}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F25", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F25(item)
+	registerFuzzDecoder("DecodeS15F25", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F25(item, opts...)
 
 		return err
 	}, gem.S15F25(secs2.A("dataid"), "rmnsspec", "agent", gem.RecipeParamRule{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval"), RCPPARRULE: "rcpparrule"}).Item())
-	registerFuzzDecoder("DecodeS15F26", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F26(item)
+	registerFuzzDecoder("DecodeS15F26", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F26(item, opts...)
 
 		return err
 	}, gem.S15F26(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F27", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F27(item)
+	registerFuzzDecoder("DecodeS15F27", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F27(item, opts...)
 
 		return err
 	}, gem.S15F27(secs2.A("dataid"), true, "rcpspec", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, secs2.A("rcpbody")).Item())
-	registerFuzzDecoder("DecodeS15F28", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F28(item)
+	registerFuzzDecoder("DecodeS15F28", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F28(item, opts...)
 
 		return err
 	}, gem.S15F28("rcpid", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F29", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F29(item)
+	registerFuzzDecoder("DecodeS15F29", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F29(item, opts...)
 
 		return err
 	}, gem.S15F29(secs2.A("dataid"), secs2.A("opid"), "respec", "recipes").Item())
-	registerFuzzDecoder("DecodeS15F30", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F30(item)
+	registerFuzzDecoder("DecodeS15F30", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F30(item, opts...)
 
 		return err
 	}, gem.S15F30(secs2.A("opid"), 78, "rcpid", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F31", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F31(item)
+	registerFuzzDecoder("DecodeS15F31", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F31(item, opts...)
 
 		return err
 	}, gem.S15F31("rcpspec").Item())
-	registerFuzzDecoder("DecodeS15F32", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F32(item)
+	registerFuzzDecoder("DecodeS15F32", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F32(item, opts...)
 
 		return err
 	}, gem.S15F32("rcpspec", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, secs2.A("rcpbody"), 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F33", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F33(item)
+	registerFuzzDecoder("DecodeS15F33", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F33(item, opts...)
 
 		return err
 	}, gem.S15F33(secs2.A("dataid"), "respec", gem.RecipeSelection{RCPID: "rcpid", PARAMETERS: []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}}).Item())
-	registerFuzzDecoder("DecodeS15F34", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F34(item)
+	registerFuzzDecoder("DecodeS15F34", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F34(item, opts...)
 
 		return err
 	}, gem.S15F34(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F35", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F35(item)
+	registerFuzzDecoder("DecodeS15F35", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F35(item, opts...)
 
 		return err
 	}, gem.S15F35(secs2.A("dataid"), "respec", 38, "recipes").Item())
-	registerFuzzDecoder("DecodeS15F36", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F36(item)
+	registerFuzzDecoder("DecodeS15F36", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F36(item, opts...)
 
 		return err
 	}, gem.S15F36(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F37", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F37(item)
+	registerFuzzDecoder("DecodeS15F37", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F37(item, opts...)
 
 		return err
 	}, gem.S15F37("rmsegspec", 11, 0x9c, secs2.A("opid"), "rcpid", secs2.A("rmchgtype")).Item())
-	registerFuzzDecoder("DecodeS15F38", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F38(item)
+	registerFuzzDecoder("DecodeS15F38", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F38(item, opts...)
 
 		return err
 	}, gem.S15F38(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F39", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F39(item)
+	registerFuzzDecoder("DecodeS15F39", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F39(item, opts...)
 
 		return err
 	}, gem.S15F39(secs2.A("dataid"), 27, "rmrecspec", "rmsegspec", 11).Item())
-	registerFuzzDecoder("DecodeS15F40", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F40(item)
+	registerFuzzDecoder("DecodeS15F40", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F40(item, opts...)
 
 		return err
 	}, gem.S15F40(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F41", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F41(item)
+	registerFuzzDecoder("DecodeS15F41", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F41(item, opts...)
 
 		return err
 	}, gem.S15F41(secs2.A("dataid"), "rmrecspec", 11, 27, "rcpid", "rcpnewid", "rmsegspec", secs2.A("rmchgtype"), secs2.A("opid"), "timestamp", true).Item())
-	registerFuzzDecoder("DecodeS15F42", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F42(item)
+	registerFuzzDecoder("DecodeS15F42", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F42(item, opts...)
 
 		return err
 	}, gem.S15F42(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F43", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F43(item)
+	registerFuzzDecoder("DecodeS15F43", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F43(item, opts...)
 
 		return err
 	}, gem.S15F43(secs2.A("dataid"), "objspec", "targetspec").Item())
-	registerFuzzDecoder("DecodeS15F44", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F44(item)
+	registerFuzzDecoder("DecodeS15F44", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F44(item, opts...)
 
 		return err
 	}, gem.S15F44([]gem.RecipeChange{{RCPID: "rcpid", RCPNEWID: "rcpnewid", RMSEGSPEC: "rmsegspec", RMCHGTYPE: secs2.A("rmchgtype"), OPID: secs2.A("opid"), TIMESTAMP: "timestamp", RMREQUESTOR: true}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F45", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F45(item)
+	registerFuzzDecoder("DecodeS15F45", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F45(item, opts...)
 
 		return err
 	}, gem.S15F45(secs2.A("dataid"), "rcpspec", "rcpnewid", secs2.A("rmchgtype")).Item())
-	registerFuzzDecoder("DecodeS15F46", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F46(item)
+	registerFuzzDecoder("DecodeS15F46", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F46(item, opts...)
 
 		return err
 	}, gem.S15F46(secs2.A("rmchgtype"), 0x9c, secs2.A("opid")).Item())
-	registerFuzzDecoder("DecodeS15F47", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F47(item)
+	registerFuzzDecoder("DecodeS15F47", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F47(item, opts...)
 
 		return err
 	}, gem.S15F47(secs2.A("dataid"), "objspec", "rmnsspec", "rmrecspec", "segments").Item())
-	registerFuzzDecoder("DecodeS15F48", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F48(item)
+	registerFuzzDecoder("DecodeS15F48", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F48(item, opts...)
 
 		return err
 	}, gem.S15F48(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS15F49", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F49(item)
+	registerFuzzDecoder("DecodeS15F49", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F49(item, opts...)
 
 		return err
 	}, gem.S15F49("dsname", true).Item())
-	registerFuzzDecoder("DecodeS15F50", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F50(item)
+	registerFuzzDecoder("DecodeS15F50", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F50(item, opts...)
 
 		return err
 	}, gem.S15F50(0x66).Item())
-	registerFuzzDecoder("DecodeS15F51", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F51(item)
+	registerFuzzDecoder("DecodeS15F51", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F51(item, opts...)
 
 		return err
 	}, gem.S15F51("dsname").Item())
-	registerFuzzDecoder("DecodeS15F52", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F52(item)
+	registerFuzzDecoder("DecodeS15F52", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F52(item, opts...)
 
 		return err
 	}, gem.S15F52(0x66).Item())
-	registerFuzzDecoder("DecodeS15F53", func(item secs2.Item) error {
-		_, err := gem.DecodeS15F53(item)
+	registerFuzzDecoder("DecodeS15F53", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS15F53(item, opts...)
 
 		return err
 	}, gem.S15F53("rcpspec", "rcpid", 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())

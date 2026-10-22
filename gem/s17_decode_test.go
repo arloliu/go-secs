@@ -10,73 +10,73 @@ import (
 )
 
 func init() {
-	registerFuzzDecoder("DecodeS17F1", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F1(item)
+	registerFuzzDecoder("DecodeS17F1", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F1(item, opts...)
 
 		return err
 	}, gem.S17F1(secs2.A("dataid"), secs2.A("rptid"), "datasrc", secs2.A("vids")).Item())
-	registerFuzzDecoder("DecodeS17F2", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F2(item)
+	registerFuzzDecoder("DecodeS17F2", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F2(item, opts...)
 
 		return err
 	}, gem.S17F2(secs2.A("rptid"), secs2.A("errcode")).Item())
-	registerFuzzDecoder("DecodeS17F3", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F3(item)
+	registerFuzzDecoder("DecodeS17F3", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F3(item, opts...)
 
 		return err
 	}, gem.S17F3(secs2.A("rptids")).Item())
-	registerFuzzDecoder("DecodeS17F4", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F4(item)
+	registerFuzzDecoder("DecodeS17F4", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F4(item, opts...)
 
 		return err
 	}, gem.S17F4(true, gem.ReportError{RPTID: secs2.A("rptid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS17F5", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F5(item)
+	registerFuzzDecoder("DecodeS17F5", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F5(item, opts...)
 
 		return err
 	}, gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), false, true).Item())
-	registerFuzzDecoder("DecodeS17F6", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F6(item)
+	registerFuzzDecoder("DecodeS17F6", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F6(item, opts...)
 
 		return err
 	}, gem.S17F6(secs2.A("trid"), secs2.A("errcode")).Item())
-	registerFuzzDecoder("DecodeS17F7", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F7(item)
+	registerFuzzDecoder("DecodeS17F7", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F7(item, opts...)
 
 		return err
 	}, gem.S17F7(secs2.A("trids")).Item())
-	registerFuzzDecoder("DecodeS17F8", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F8(item)
+	registerFuzzDecoder("DecodeS17F8", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F8(item, opts...)
 
 		return err
 	}, gem.S17F8(true, gem.TraceError{TRID: secs2.A("trid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS17F9", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F9(item)
+	registerFuzzDecoder("DecodeS17F9", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F9(item, opts...)
 
 		return err
 	}, gem.S17F9(secs2.A("dataid"), "evntsrc", secs2.A("ceid"), secs2.A("rptids")).Item())
-	registerFuzzDecoder("DecodeS17F10", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F10(item)
+	registerFuzzDecoder("DecodeS17F10", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F10(item, opts...)
 
 		return err
 	}, gem.S17F10("evntsrc", secs2.A("ceid"), secs2.A("errcode")).Item())
-	registerFuzzDecoder("DecodeS17F11", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F11(item)
+	registerFuzzDecoder("DecodeS17F11", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F11(item, opts...)
 
 		return err
 	}, gem.S17F11("evntsrc", secs2.A("ceid"), secs2.A("rptid")).Item())
-	registerFuzzDecoder("DecodeS17F12", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F12(item)
+	registerFuzzDecoder("DecodeS17F12", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F12(item, opts...)
 
 		return err
 	}, gem.S17F12("evntsrc", secs2.A("ceid"), secs2.A("rptid"), secs2.A("errcode")).Item())
-	registerFuzzDecoder("DecodeS17F13", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F13(item)
+	registerFuzzDecoder("DecodeS17F13", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F13(item, opts...)
 
 		return err
 	}, gem.S17F13(secs2.A("trids")).Item())
-	registerFuzzDecoder("DecodeS17F14", func(item secs2.Item) error {
-		_, err := gem.DecodeS17F14(item)
+	registerFuzzDecoder("DecodeS17F14", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS17F14(item, opts...)
 
 		return err
 	}, gem.S17F14(true, gem.TraceError{TRID: secs2.A("trid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())

@@ -10,38 +10,38 @@ import (
 )
 
 func init() {
-	registerFuzzDecoder("DecodeS9F1", func(item secs2.Item) error {
-		_, err := gem.DecodeS9F1(item)
+	registerFuzzDecoder("DecodeS9F1", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS9F1(item, opts...)
 
 		return err
 	}, gem.S9F1([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc}).Item())
-	registerFuzzDecoder("DecodeS9F3", func(item secs2.Item) error {
-		_, err := gem.DecodeS9F3(item)
+	registerFuzzDecoder("DecodeS9F3", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS9F3(item, opts...)
 
 		return err
 	}, gem.S9F3([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc}).Item())
-	registerFuzzDecoder("DecodeS9F5", func(item secs2.Item) error {
-		_, err := gem.DecodeS9F5(item)
+	registerFuzzDecoder("DecodeS9F5", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS9F5(item, opts...)
 
 		return err
 	}, gem.S9F5([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc}).Item())
-	registerFuzzDecoder("DecodeS9F7", func(item secs2.Item) error {
-		_, err := gem.DecodeS9F7(item)
+	registerFuzzDecoder("DecodeS9F7", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS9F7(item, opts...)
 
 		return err
 	}, gem.S9F7([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc}).Item())
-	registerFuzzDecoder("DecodeS9F9", func(item secs2.Item) error {
-		_, err := gem.DecodeS9F9(item)
+	registerFuzzDecoder("DecodeS9F9", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS9F9(item, opts...)
 
 		return err
 	}, gem.S9F9([10]byte{0x87, 0x3a, 0xa4, 0xd6, 0xc5, 0x50, 0xe2, 0x0d, 0x44, 0x8e}).Item())
-	registerFuzzDecoder("DecodeS9F11", func(item secs2.Item) error {
-		_, err := gem.DecodeS9F11(item)
+	registerFuzzDecoder("DecodeS9F11", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS9F11(item, opts...)
 
 		return err
 	}, gem.S9F11([10]byte{0xe7, 0x49, 0x80, 0x12, 0x36, 0x87, 0xde, 0xa8, 0x1b, 0xfc}).Item())
-	registerFuzzDecoder("DecodeS9F13", func(item secs2.Item) error {
-		_, err := gem.DecodeS9F13(item)
+	registerFuzzDecoder("DecodeS9F13", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS9F13(item, opts...)
 
 		return err
 	}, gem.S9F13("mexp", secs2.A("edid")).Item())
