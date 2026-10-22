@@ -15,11 +15,12 @@ type S5F1Body struct {
 	ALTX string
 }
 
-// DecodeS5F1 decodes the body of an S5F1 (Alarm Report Send) message into a [S5F1Body].
+// DecodeS5F1 decodes the body of an S5F1 (Alarm Report Send) message into an [S5F1Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS5F1(item secs2.Item, opts ...DecodeOption) (S5F1Body, error) {
 	var out S5F1Body
@@ -57,11 +58,12 @@ type S5F2Reply struct {
 	ACKC5 ACKC5
 }
 
-// DecodeS5F2 decodes the body of an S5F2 (Alarm Report Acknowledge) message into a [S5F2Reply].
+// DecodeS5F2 decodes the body of an S5F2 (Alarm Report Acknowledge) message into an [S5F2Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS5F2(item secs2.Item, opts ...DecodeOption) (S5F2Reply, error) {
 	var out S5F2Reply
@@ -87,11 +89,12 @@ type S5F3Body struct {
 	ALID secs2.Item
 }
 
-// DecodeS5F3 decodes the body of an S5F3 (Enable/Disable Alarm Send) message into a [S5F3Body].
+// DecodeS5F3 decodes the body of an S5F3 (Enable/Disable Alarm Send) message into an [S5F3Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS5F3(item secs2.Item, opts ...DecodeOption) (S5F3Body, error) {
 	var out S5F3Body
@@ -125,11 +128,12 @@ type S5F4Reply struct {
 	ACKC5 ACKC5
 }
 
-// DecodeS5F4 decodes the body of an S5F4 (Enable/Disable Alarm Acknowledge) message into a [S5F4Reply].
+// DecodeS5F4 decodes the body of an S5F4 (Enable/Disable Alarm Acknowledge) message into an [S5F4Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS5F4(item secs2.Item, opts ...DecodeOption) (S5F4Reply, error) {
 	var out S5F4Reply
@@ -154,11 +158,12 @@ type S5F5Body struct {
 	ALIDS secs2.Item
 }
 
-// DecodeS5F5 decodes the body of an S5F5 (List Alarms Request) message into a [S5F5Body].
+// DecodeS5F5 decodes the body of an S5F5 (List Alarms Request) message into an [S5F5Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS5F5(item secs2.Item, opts ...DecodeOption) (S5F5Body, error) {
 	var out S5F5Body
@@ -183,11 +188,12 @@ type S5F6Reply struct {
 	ALARMS []Alarm
 }
 
-// DecodeS5F6 decodes the body of an S5F6 (List Alarm Data) message into a [S5F6Reply].
+// DecodeS5F6 decodes the body of an S5F6 (List Alarm Data) message into an [S5F6Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS5F6(item secs2.Item, opts ...DecodeOption) (S5F6Reply, error) {
 	var out S5F6Reply
@@ -213,11 +219,12 @@ type S5F8Reply struct {
 	ALARMS []Alarm
 }
 
-// DecodeS5F8 decodes the body of an S5F8 (List Enabled Alarm Data) message into a [S5F8Reply].
+// DecodeS5F8 decodes the body of an S5F8 (List Enabled Alarm Data) message into an [S5F8Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F8Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS5F8(item secs2.Item, opts ...DecodeOption) (S5F8Reply, error) {
 	var out S5F8Reply
@@ -247,11 +254,12 @@ type S5F9Body struct {
 	RECOVERYACTIONS []string
 }
 
-// DecodeS5F9 decodes the body of an S5F9 (Exception Post Notify) message into a [S5F9Body].
+// DecodeS5F9 decodes the body of an S5F9 (Exception Post Notify) message into an [S5F9Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS5F9(item secs2.Item, opts ...DecodeOption) (S5F9Body, error) {
 	var out S5F9Body
@@ -300,11 +308,12 @@ type S5F11Body struct {
 	EXMESSAGE string
 }
 
-// DecodeS5F11 decodes the body of an S5F11 (Exception Clear Notify) message into a [S5F11Body].
+// DecodeS5F11 decodes the body of an S5F11 (Exception Clear Notify) message into an [S5F11Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS5F11(item secs2.Item, opts ...DecodeOption) (S5F11Body, error) {
 	var out S5F11Body
@@ -347,11 +356,12 @@ type S5F13Body struct {
 	EXRECVRA string
 }
 
-// DecodeS5F13 decodes the body of an S5F13 (Exception Recover Request) message into a [S5F13Body].
+// DecodeS5F13 decodes the body of an S5F13 (Exception Recover Request) message into an [S5F13Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F13Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS5F13(item secs2.Item, opts ...DecodeOption) (S5F13Body, error) {
 	var out S5F13Body
@@ -388,11 +398,12 @@ type S5F14Reply struct {
 	ERRTEXT string
 }
 
-// DecodeS5F14 decodes the body of an S5F14 (Exception Recover Acknowledge) message into a [S5F14Reply].
+// DecodeS5F14 decodes the body of an S5F14 (Exception Recover Acknowledge) message into an [S5F14Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F14Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS5F14(item secs2.Item, opts ...DecodeOption) (S5F14Reply, error) {
 	var out S5F14Reply
@@ -449,11 +460,12 @@ type S5F15Body struct {
 	ERRTEXT   string
 }
 
-// DecodeS5F15 decodes the body of an S5F15 (Exception Recovery Complete Notify) message into a [S5F15Body].
+// DecodeS5F15 decodes the body of an S5F15 (Exception Recovery Complete Notify) message into an [S5F15Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F15Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS5F15(item secs2.Item, opts ...DecodeOption) (S5F15Body, error) {
 	var out S5F15Body
@@ -510,11 +522,12 @@ type S5F17Body struct {
 	EXID string
 }
 
-// DecodeS5F17 decodes the body of an S5F17 (Exception Recovery Abort Request) message into a [S5F17Body].
+// DecodeS5F17 decodes the body of an S5F17 (Exception Recovery Abort Request) message into an [S5F17Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F17Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS5F17(item secs2.Item, opts ...DecodeOption) (S5F17Body, error) {
 	var out S5F17Body
@@ -542,11 +555,12 @@ type S5F18Reply struct {
 	ERRTEXT string
 }
 
-// DecodeS5F18 decodes the body of an S5F18 (Exception Recovery Abort Acknowledge) message into a [S5F18Reply].
+// DecodeS5F18 decodes the body of an S5F18 (Exception Recovery Abort Acknowledge) message into an [S5F18Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S5F18Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS5F18(item secs2.Item, opts ...DecodeOption) (S5F18Reply, error) {
 	var out S5F18Reply

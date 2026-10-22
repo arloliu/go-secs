@@ -13,11 +13,12 @@ type S8F2Reply struct {
 	BPD []byte
 }
 
-// DecodeS8F2 decodes the body of an S8F2 (Boot Program Data) message into a [S8F2Reply].
+// DecodeS8F2 decodes the body of an S8F2 (Boot Program Data) message into an [S8F2Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S8F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS8F2(item secs2.Item, opts ...DecodeOption) (S8F2Reply, error) {
 	var out S8F2Reply
@@ -42,11 +43,12 @@ type S8F4Reply struct {
 	EPD []byte
 }
 
-// DecodeS8F4 decodes the body of an S8F4 (Executive Program Data) message into a [S8F4Reply].
+// DecodeS8F4 decodes the body of an S8F4 (Executive Program Data) message into an [S8F4Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S8F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS8F4(item secs2.Item, opts ...DecodeOption) (S8F4Reply, error) {
 	var out S8F4Reply

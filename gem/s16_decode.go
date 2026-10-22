@@ -14,11 +14,12 @@ type S16F1Body struct {
 	DATALENGTH secs2.Item
 }
 
-// DecodeS16F1 decodes the body of an S16F1 (Multi-block Process Job Data Inquire) message into a [S16F1Body].
+// DecodeS16F1 decodes the body of an S16F1 (Multi-block Process Job Data Inquire) message into an [S16F1Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F1(item secs2.Item, opts ...DecodeOption) (S16F1Body, error) {
 	var out S16F1Body
@@ -52,11 +53,12 @@ type S16F2Reply struct {
 	GRANT GRANT
 }
 
-// DecodeS16F2 decodes the body of an S16F2 (Multi-block Process Job Data Grant) message into a [S16F2Reply].
+// DecodeS16F2 decodes the body of an S16F2 (Multi-block Process Job Data Grant) message into an [S16F2Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS16F2(item secs2.Item, opts ...DecodeOption) (S16F2Reply, error) {
 	var out S16F2Reply
@@ -87,11 +89,12 @@ type S16F3Body struct {
 	PRPROCESSSTART bool
 }
 
-// DecodeS16F3 decodes the body of an S16F3 (Process Job Create Request) message into a [S16F3Body].
+// DecodeS16F3 decodes the body of an S16F3 (Process Job Create Request) message into an [S16F3Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F3(item secs2.Item, opts ...DecodeOption) (S16F3Body, error) {
 	var out S16F3Body
@@ -151,11 +154,12 @@ type S16F4Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS16F4 decodes the body of an S16F4 (Process Job Create Acknowledge) message into a [S16F4Reply].
+// DecodeS16F4 decodes the body of an S16F4 (Process Job Create Acknowledge) message into an [S16F4Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F4(item secs2.Item, opts ...DecodeOption) (S16F4Reply, error) {
 	var out S16F4Reply
@@ -200,11 +204,12 @@ type S16F5Body struct {
 	PARAMS    []CommandParam
 }
 
-// DecodeS16F5 decodes the body of an S16F5 (Process Job Command Request) message into a [S16F5Body].
+// DecodeS16F5 decodes the body of an S16F5 (Process Job Command Request) message into an [S16F5Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F5(item secs2.Item, opts ...DecodeOption) (S16F5Body, error) {
 	var out S16F5Body
@@ -251,11 +256,12 @@ type S16F6Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS16F6 decodes the body of an S16F6 (Process Job Command Acknowledge) message into a [S16F6Reply].
+// DecodeS16F6 decodes the body of an S16F6 (Process Job Command Acknowledge) message into an [S16F6Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F6(item secs2.Item, opts ...DecodeOption) (S16F6Reply, error) {
 	var out S16F6Reply
@@ -301,11 +307,12 @@ type S16F7Body struct {
 	ERRORS         []ErrorInfo
 }
 
-// DecodeS16F7 decodes the body of an S16F7 (Process Job Alert Notify) message into a [S16F7Body].
+// DecodeS16F7 decodes the body of an S16F7 (Process Job Alert Notify) message into an [S16F7Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F7(item secs2.Item, opts ...DecodeOption) (S16F7Body, error) {
 	var out S16F7Body
@@ -358,11 +365,12 @@ type S16F9Body struct {
 	VARIABLES []VariableValue
 }
 
-// DecodeS16F9 decodes the body of an S16F9 (Process Job Event Notify) message into a [S16F9Body].
+// DecodeS16F9 decodes the body of an S16F9 (Process Job Event Notify) message into an [S16F9Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F9(item secs2.Item, opts ...DecodeOption) (S16F9Body, error) {
 	var out S16F9Body
@@ -412,11 +420,12 @@ type S16F11Body struct {
 	PRPAUSEEVENT   secs2.Item
 }
 
-// DecodeS16F11 decodes the body of an S16F11 (PRJobCreateEnh) message into a [S16F11Body].
+// DecodeS16F11 decodes the body of an S16F11 (PRJobCreateEnh) message into an [S16F11Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F11(item secs2.Item, opts ...DecodeOption) (S16F11Body, error) {
 	var out S16F11Body
@@ -484,11 +493,12 @@ type S16F12Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS16F12 decodes the body of an S16F12 (PRJobCreateEnh Acknowledge) message into a [S16F12Reply].
+// DecodeS16F12 decodes the body of an S16F12 (PRJobCreateEnh Acknowledge) message into an [S16F12Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F12Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F12(item secs2.Item, opts ...DecodeOption) (S16F12Reply, error) {
 	var out S16F12Reply
@@ -531,11 +541,12 @@ type S16F15Body struct {
 	JOBS   []ProcessJob
 }
 
-// DecodeS16F15 decodes the body of an S16F15 (PRJobMultiCreate) message into a [S16F15Body].
+// DecodeS16F15 decodes the body of an S16F15 (PRJobMultiCreate) message into an [S16F15Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F15Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F15(item secs2.Item, opts ...DecodeOption) (S16F15Body, error) {
 	var out S16F15Body
@@ -571,11 +582,12 @@ type S16F16Reply struct {
 	ERRORS   []ErrorInfo
 }
 
-// DecodeS16F16 decodes the body of an S16F16 (PRJobMultiCreate Acknowledge) message into a [S16F16Reply].
+// DecodeS16F16 decodes the body of an S16F16 (PRJobMultiCreate Acknowledge) message into an [S16F16Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F16Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F16(item secs2.Item, opts ...DecodeOption) (S16F16Reply, error) {
 	var out S16F16Reply
@@ -617,11 +629,12 @@ type S16F17Body struct {
 	PRJOBIDS []string
 }
 
-// DecodeS16F17 decodes the body of an S16F17 (PRJobDequeue) message into a [S16F17Body].
+// DecodeS16F17 decodes the body of an S16F17 (PRJobDequeue) message into an [S16F17Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F17Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS16F17(item secs2.Item, opts ...DecodeOption) (S16F17Body, error) {
 	var out S16F17Body
@@ -648,11 +661,12 @@ type S16F18Reply struct {
 	ERRORS   []ErrorInfo
 }
 
-// DecodeS16F18 decodes the body of an S16F18 (PRJobDequeue Acknowledge) message into a [S16F18Reply].
+// DecodeS16F18 decodes the body of an S16F18 (PRJobDequeue Acknowledge) message into an [S16F18Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F18Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F18(item secs2.Item, opts ...DecodeOption) (S16F18Reply, error) {
 	var out S16F18Reply
@@ -694,11 +708,12 @@ type S16F20Reply struct {
 	JOBS []ProcessJobState
 }
 
-// DecodeS16F20 decodes the body of an S16F20 (PRGetAllJobs Send) message into a [S16F20Reply].
+// DecodeS16F20 decodes the body of an S16F20 (PRGetAllJobs Send) message into an [S16F20Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F20Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F20(item secs2.Item, opts ...DecodeOption) (S16F20Reply, error) {
 	var out S16F20Reply
@@ -724,11 +739,12 @@ type S16F22Reply struct {
 	PRJOBSPACE uint16
 }
 
-// DecodeS16F22 decodes the body of an S16F22 (PRGetSpace Send) message into a [S16F22Reply].
+// DecodeS16F22 decodes the body of an S16F22 (PRGetSpace Send) message into an [S16F22Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F22Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS16F22(item secs2.Item, opts ...DecodeOption) (S16F22Reply, error) {
 	var out S16F22Reply
@@ -754,11 +770,12 @@ type S16F23Body struct {
 	RECIPEPARAMS []RecipeParam
 }
 
-// DecodeS16F23 decodes the body of an S16F23 (PRJobSetRecipeVariable) message into a [S16F23Body].
+// DecodeS16F23 decodes the body of an S16F23 (PRJobSetRecipeVariable) message into an [S16F23Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F23Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F23(item secs2.Item, opts ...DecodeOption) (S16F23Body, error) {
 	var out S16F23Body
@@ -793,11 +810,12 @@ type S16F24Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS16F24 decodes the body of an S16F24 (PRJobSetRecipeVariable Acknowledge) message into a [S16F24Reply].
+// DecodeS16F24 decodes the body of an S16F24 (PRJobSetRecipeVariable Acknowledge) message into an [S16F24Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F24Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F24(item secs2.Item, opts ...DecodeOption) (S16F24Reply, error) {
 	var out S16F24Reply
@@ -832,11 +850,12 @@ type S16F25Body struct {
 	PRPROCESSSTART bool
 }
 
-// DecodeS16F25 decodes the body of an S16F25 (PRJobSetStartMethod) message into a [S16F25Body].
+// DecodeS16F25 decodes the body of an S16F25 (PRJobSetStartMethod) message into an [S16F25Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F25Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F25(item secs2.Item, opts ...DecodeOption) (S16F25Body, error) {
 	var out S16F25Body
@@ -872,11 +891,12 @@ type S16F26Reply struct {
 	ERRORS   []ErrorInfo
 }
 
-// DecodeS16F26 decodes the body of an S16F26 (PRJobSetStartMethod Acknowledge) message into a [S16F26Reply].
+// DecodeS16F26 decodes the body of an S16F26 (PRJobSetStartMethod Acknowledge) message into an [S16F26Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F26Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F26(item secs2.Item, opts ...DecodeOption) (S16F26Reply, error) {
 	var out S16F26Reply
@@ -921,11 +941,12 @@ type S16F27Body struct {
 	CPVAL     secs2.Item
 }
 
-// DecodeS16F27 decodes the body of an S16F27 (Control Job Command Request) message into a [S16F27Body].
+// DecodeS16F27 decodes the body of an S16F27 (Control Job Command Request) message into an [S16F27Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F27Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F27(item secs2.Item, opts ...DecodeOption) (S16F27Body, error) {
 	var out S16F27Body
@@ -976,11 +997,12 @@ type S16F28Reply struct {
 	ERRTEXT string
 }
 
-// DecodeS16F28 decodes the body of an S16F28 (Control Job Command Acknowledge) message into a [S16F28Reply].
+// DecodeS16F28 decodes the body of an S16F28 (Control Job Command Acknowledge) message into an [S16F28Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F28Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS16F28(item secs2.Item, opts ...DecodeOption) (S16F28Reply, error) {
 	var out S16F28Reply
@@ -1025,11 +1047,12 @@ type S16F29Body struct {
 	PRMTRLORDER PRMTRLORDER
 }
 
-// DecodeS16F29 decodes the body of an S16F29 (PRSetMtrlOrder) message into a [S16F29Body].
+// DecodeS16F29 decodes the body of an S16F29 (PRSetMtrlOrder) message into an [S16F29Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F29Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS16F29(item secs2.Item, opts ...DecodeOption) (S16F29Body, error) {
 	var out S16F29Body
@@ -1054,11 +1077,12 @@ type S16F30Reply struct {
 	ACKA bool
 }
 
-// DecodeS16F30 decodes the body of an S16F30 (PRSetMtrlOrder Acknowledge) message into a [S16F30Reply].
+// DecodeS16F30 decodes the body of an S16F30 (PRSetMtrlOrder Acknowledge) message into an [S16F30Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S16F30Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS16F30(item secs2.Item, opts ...DecodeOption) (S16F30Reply, error) {
 	var out S16F30Reply

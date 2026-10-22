@@ -5,6 +5,8 @@ Status: Phase 1 shipped (v2.0.0-rc, Stream 1). Phase 2 design addendum added
 2026-07-07 (S2/S5/S6/S9), independently fact-checked against the local E5
 spec.
 Streams S3–S19 addendum added 2026-10-20; it corrects the Scope section below.
+Groups, decode options, and catalog addendum added 2026-10-22;
+it replaces the `optional: true` rule of the S3–S19 addendum and the hand-written `Report()` helper of Phase 2.
 
 ## Goal
 
@@ -275,6 +277,7 @@ raw table layout at face value.
 **Non-goals within Phase 2:** `gem/report.go`'s hand-written `Report()`
 helper (used by `S6F11`/`S6F16`'s `reports` parameter) is unaffected — it
 stays hand-written; Phase 2 only replaces the four listed stream files.
+The groups addendum later replaced the helper with the generated `Report` group.
 Streams S3, S4, S7, S8, S10 and S12–S21 remain out of scope for this phase.
 
 ## Streams S3–S19 addendum
@@ -332,8 +335,8 @@ State machines, object models and attribute-name sets stay out of `gem`.
 - **Nested `opaque`**: an opaque node may sit below the root,
   so only the value-dependent part of a body is built by hand (S15F15/F18 recipe sections, S16F11 material list).
 - **`optional: true`** on a fixed scalar leaf outside any repeat:
-  the decoder accepts a zero-length item there and reports it through a `<FIELD>Present` field.
-  The builder always sends the value.
+  the decoder accepts a zero-length item there.
+  The pointer form it now takes is described under "Optional items and omittable lists" below.
 - **`variant:`** on a body generates an extra builder for a short form E5 names;
   the main body's decoder decodes it, and the variant has no decoder of its own.
   Its generated test builds the variant and decodes it with that main decoder.
@@ -357,8 +360,11 @@ State machines, object models and attribute-name sets stay out of `gem`.
 Packed groups stay format `B` only.
 A packed group of a numeric format was planned for S16 SLOTID,
 but E5 prints SLOTID as a list (an array only in a note),
-and it sits inside S16F11's opaque material node and S16F15's repeat element, which the decoders do not visit;
+and it sits inside the material list of S16F11 and of each S16F15 process job,
+which stays an opaque node the decoders do not visit;
 no other stream uses a packed group, so it was not built.
+The S16F15 decoder does check each process job around that node, as a `ProcessJob` group
+(see "Groups, decode options, and catalog addendum" below).
 
 ### Zero-length bodies
 
@@ -379,6 +385,106 @@ with the hand-written fuzz harness `gem/fuzz_test.go`;
 
 Unifying the duplicated structure walkers (see Non-goals) remains deferred;
 each extension instead carries an integration test that compiles and runs generated code.
+
+## Groups, decode options, and catalog addendum
+
+Added 2026-10-22.
+Covers typed groups for repeated lists, the rejection of lists E5 excludes, the ALCD and PFCD types,
+decode options, optional items as pointers, and the message catalog.
+
+### Groups
+
+`tools/gemgen/data/groups.yaml` declares the named list shapes that message bodies repeat.
+Each group has a `name`, an exported Go identifier in plain English rather than an E5 mnemonic (`Report`, `ErrorInfo`),
+a `description`, and a `structure` that is always a fixed list of declared children;
+a list inside a group cannot be bounded with `minItems` or `maxItems`.
+A message references a group as a repeat's element, `of: {group: Name}`,
+and a group's fixed list may hold another group as an omittable child, `{group: Name, as: field, optional: true}`.
+The loader rejects an unknown, duplicated, unused, or self-containing group,
+a name that collides with another generated identifier, and colliding field names.
+
+The generator writes `gem/groups.go`:
+one struct per group, its `Item` method, which builds its list,
+and an unexported decode function that every decoder reaching the group calls,
+so each element is checked at full depth and an error names its path from the body, such as `REPORTS[1].VIDS`.
+A group's godoc is its description and its shape,
+with a "Used by" line only when at most three messages or groups use it.
+The hand-written `Report()` helper is gone; `Report` is now the group of an event report's reports.
+
+### Repeat elements
+
+A repeat's `of` alone decides the Go type of its elements, as builder parameter and as decoder field:
+
+- a `binding: fixed` leaf with a scalar `goType`: values of that type, or of the item's named type;
+- a group reference: values of the group's struct;
+- another repeat: one slice per element, so `S6F27` takes a `[]Report` per sample and `S1F20` takes `[][]secs2.Item`;
+- any other leaf: `secs2.Item`.
+
+A repeat element may not be an inline fixed or bounded list, nor a packed group:
+the loader rejects one and asks for a group instead.
+
+### Optional items and omittable lists
+
+`optional: true` on a leaf makes its builder parameter, decoder field, and group field a pointer,
+and nil sends and decodes as the zero-length item of the leaf's format.
+It is valid on a `binding: fixed` leaf with a scalar `goType` other than an ASCII string,
+in a body or in a group, but not inside a repeat's or packed group's `of`.
+This replaces the `<FIELD>Present` field of the S3–S19 addendum.
+
+On a group reference, `optional: true` marks a list E5 lets be sent as `L,0`:
+the field or repeat element is a pointer to the group, nil for `L[0]`,
+and a list between empty and full is an error (`Deadband`, `LimitAck`, `LimitAttributes`, and S15F24's `RecipeDescriptor`).
+A bounded list in a body keeps its earlier behavior:
+the builder sends the full form, a variant sends a short one,
+and the decoder accepts either, leaving the omitted fields zero.
+
+### Lists E5 excludes
+
+A leaf of a `binding: open` item whose `formats` exclude `L` decodes a list as an error,
+in the body, in a group, and as a repeat element.
+The other formats are not enforced, since ASCII ALIDs and CEIDs occur on the wire.
+`allowEmptyList: true` on such a leaf accepts `L[0]` as well, for a position where E5 gives the empty list a meaning;
+S2F14's ECV is the one use.
+
+### Named types without values
+
+`namedType: true` on a fixed item without a values table gives it a named Go type and no constants,
+used by its parameters and fields as an enumeration's would be; PFCD is the one use.
+ALCD has a values table for the E5 categories and the set bit,
+and its `Set` and `Category` methods are hand-written in `gem/alcd.go`.
+
+### Decode options
+
+Every decoder takes `opts ...DecodeOption`, which the generated `gem/decode.go` defines with its one option, `AllowTrailing`.
+A decoder whose body holds a list of fixed length reads its options:
+with `AllowTrailing`, such a list, in the body or in a group, may hold more children than declared,
+the extra ones are ignored, and an over-full bounded list counts as full.
+A decoder whose body declares no fixed-length list ignores its options, and its godoc says so.
+The fuzz harness runs every decoder both strictly and with `AllowTrailing`.
+
+### Catalog
+
+The generator writes `gem/catalog.go` from every stream file:
+the `Role`, `Direction`, and `MessageInfo` types, a table holding two forms of every message, and `Lookup` and `AcceptReply` over it.
+A role's form of a message is the main body of that role's actor, else the body for `both`,
+else the message's only main body, which the other side sends.
+`Verified` is false for a `source: external` message,
+and `Decode` wraps the form's own decoder and passes its options through.
+The generated `gem/catalog_lookup_test.go` checks every form against the stream files,
+and that `Lookup` finds no message they do not define.
+
+`acceptReply:` on a reply body marks the reply that accepts its primary as a whole:
+`acceptReply: {value: Accepted}` names the value of the body's one values-table leaf,
+and `acceptReply: {}` marks a body without parameters.
+The loader requires an even function whose primary is defined and expects a reply, a main body rather than a variant,
+parameters that are one fixed, non-optional leaf with a values table plus any number of repeats, or none at all,
+and a value that leaf defines.
+`AcceptReply` calls the body's builder with that value and every repeat empty.
+Each annotation was audited against E5 as a whole response:
+the value must mean acceptance, and each empty list must mean that nothing went wrong, never that there is no data.
+A table written by hand in `gem/catalog_test.go` pins the result.
+The reply asserts what E5 says the value means,
+which for HCACK, CAACK, RMACK, and several other codes is that the request was carried out, not only received.
 
 ## DSL schema
 
@@ -494,8 +600,13 @@ Fields:
 
 - `function`, `name`, `mnemonic`: from E5 §10 (mnemonic is the parenthesized
   abbreviation, e.g. "(R)", "(D)", "(SSR)").
-- `direction`: for godoc only; derived from E5's Direction column
+- `direction`: derived from E5's Direction column
   (`S,H<->E` → `bidirectional`, `S,H->E,reply` → `host-to-equipment`, etc.).
+  It appears in the godoc,
+  `Lookup` reports it as `MessageInfo.Direction`,
+  and `AcceptReply` uses it to decide which role may send the primary and the reply,
+  so changing it changes which replies `AcceptReply` builds
+  (see "Catalog" in the groups addendum).
 - `description`, `exception`: short prose, copied/condensed from E5's
   *Description* / *Exception* sections (or a third-party reference for
   S12–S21 where the owning standard isn't available locally).
@@ -529,6 +640,8 @@ Fields:
     body expression `secs2.L(<name>...)` (generalizes the existing
     hand-written `gem.Report()` helper for S6F11-style repeating groups,
     planned for Phase 2).
+    The element type now depends on `of`, and a fixed or bounded list element must be a group;
+    see "Repeat elements" in the groups addendum.
   - `{type: list, packed: <name>, of: {item: NAME}}` — E5's **packed
     multi-value single item** notation (`<v1,,vn>`): one item header holding
     several values of the same fixed format, as distinct from `repeat`'s

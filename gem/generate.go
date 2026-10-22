@@ -9,8 +9,10 @@ package gem
 // decode.go holds the shared helpers every generated decoder calls.
 // It carries no per-message data,
 // but the generator writes it too, so the decoders and the helpers they need never drift apart.
+// catalog.go holds the catalog of every stream's messages, behind Lookup and AcceptReply,
+// and catalog_lookup_test.go its test over every form.
 // Everything else here is hand-written:
-// doc.go, this file, and the test files outside the per-stream set.
+// doc.go, this file, alcd.go, and the test files outside the per-stream set and catalog_lookup_test.go.
 // Run `go generate ./...` from the repository root (or `go generate .` from this directory)
 // to regenerate the files after editing the YAML.
 //

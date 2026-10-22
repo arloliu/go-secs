@@ -15,11 +15,12 @@ type S15F1Body struct {
 	RMDATASIZE secs2.Item
 }
 
-// DecodeS15F1 decodes the body of an S15F1 (Recipe Management Multi-block Inquire) message into a [S15F1Body].
+// DecodeS15F1 decodes the body of an S15F1 (Recipe Management Multi-block Inquire) message into an [S15F1Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F1(item secs2.Item, opts ...DecodeOption) (S15F1Body, error) {
 	var out S15F1Body
@@ -57,11 +58,12 @@ type S15F2Reply struct {
 	RMGRNT RMGRNT
 }
 
-// DecodeS15F2 decodes the body of an S15F2 (Recipe Management Multi-block Grant) message into a [S15F2Reply].
+// DecodeS15F2 decodes the body of an S15F2 (Recipe Management Multi-block Grant) message into an [S15F2Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS15F2(item secs2.Item, opts ...DecodeOption) (S15F2Reply, error) {
 	var out S15F2Reply
@@ -87,11 +89,12 @@ type S15F3Body struct {
 	RMNSCMD  RMNSCMD
 }
 
-// DecodeS15F3 decodes the body of an S15F3 (Recipe Namespace Action Request) message into a [S15F3Body].
+// DecodeS15F3 decodes the body of an S15F3 (Recipe Namespace Action Request) message into an [S15F3Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F3(item secs2.Item, opts ...DecodeOption) (S15F3Body, error) {
 	var out S15F3Body
@@ -126,11 +129,12 @@ type S15F4Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F4 decodes the body of an S15F4 (Recipe Namespace Action Acknowledge) message into a [S15F4Reply].
+// DecodeS15F4 decodes the body of an S15F4 (Recipe Namespace Action Acknowledge) message into an [S15F4Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F4(item secs2.Item, opts ...DecodeOption) (S15F4Reply, error) {
 	var out S15F4Reply
@@ -165,11 +169,12 @@ type S15F5Body struct {
 	RMNEWNS  string
 }
 
-// DecodeS15F5 decodes the body of an S15F5 (Recipe Namespace Rename Request) message into a [S15F5Body].
+// DecodeS15F5 decodes the body of an S15F5 (Recipe Namespace Rename Request) message into an [S15F5Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F5(item secs2.Item, opts ...DecodeOption) (S15F5Body, error) {
 	var out S15F5Body
@@ -204,11 +209,12 @@ type S15F6Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F6 decodes the body of an S15F6 (Recipe Namespace Rename Acknowledge) message into a [S15F6Reply].
+// DecodeS15F6 decodes the body of an S15F6 (Recipe Namespace Rename Acknowledge) message into an [S15F6Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F6(item secs2.Item, opts ...DecodeOption) (S15F6Reply, error) {
 	var out S15F6Reply
@@ -242,11 +248,12 @@ type S15F7Body struct {
 	OBJSPEC string
 }
 
-// DecodeS15F7 decodes the body of an S15F7 (Recipe Space Request) message into a [S15F7Body].
+// DecodeS15F7 decodes the body of an S15F7 (Recipe Space Request) message into an [S15F7Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS15F7(item secs2.Item, opts ...DecodeOption) (S15F7Body, error) {
 	var out S15F7Body
@@ -273,11 +280,12 @@ type S15F8Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS15F8 decodes the body of an S15F8 (Recipe Space Data) message into a [S15F8Reply].
+// DecodeS15F8 decodes the body of an S15F8 (Recipe Space Data) message into an [S15F8Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F8Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F8(item secs2.Item, opts ...DecodeOption) (S15F8Reply, error) {
 	var out S15F8Reply
@@ -319,11 +327,12 @@ type S15F9Body struct {
 	RCPSPEC string
 }
 
-// DecodeS15F9 decodes the body of an S15F9 (Recipe Status Request) message into a [S15F9Body].
+// DecodeS15F9 decodes the body of an S15F9 (Recipe Status Request) message into an [S15F9Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS15F9(item secs2.Item, opts ...DecodeOption) (S15F9Body, error) {
 	var out S15F9Body
@@ -351,11 +360,12 @@ type S15F10Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS15F10 decodes the body of an S15F10 (Recipe Status Data) message into a [S15F10Reply].
+// DecodeS15F10 decodes the body of an S15F10 (Recipe Status Data) message into an [S15F10Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F10Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F10(item secs2.Item, opts ...DecodeOption) (S15F10Reply, error) {
 	var out S15F10Reply
@@ -404,11 +414,12 @@ type S15F11Body struct {
 	AGENT    string
 }
 
-// DecodeS15F11 decodes the body of an S15F11 (Recipe Version Request) message into a [S15F11Body].
+// DecodeS15F11 decodes the body of an S15F11 (Recipe Version Request) message into an [S15F11Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F11(item secs2.Item, opts ...DecodeOption) (S15F11Body, error) {
 	var out S15F11Body
@@ -453,11 +464,12 @@ type S15F12Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS15F12 decodes the body of an S15F12 (Recipe Version Data) message into a [S15F12Reply].
+// DecodeS15F12 decodes the body of an S15F12 (Recipe Version Data) message into an [S15F12Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F12Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F12(item secs2.Item, opts ...DecodeOption) (S15F12Reply, error) {
 	var out S15F12Reply
@@ -507,11 +519,12 @@ type S15F13Body struct {
 	RCPBODY    secs2.Item
 }
 
-// DecodeS15F13 decodes the body of an S15F13 (Recipe Create Request) message into a [S15F13Body].
+// DecodeS15F13 decodes the body of an S15F13 (Recipe Create Request) message into an [S15F13Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F13Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F13(item secs2.Item, opts ...DecodeOption) (S15F13Body, error) {
 	var out S15F13Body
@@ -558,11 +571,12 @@ type S15F14Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F14 decodes the body of an S15F14 (Recipe Create Acknowledge) message into a [S15F14Reply].
+// DecodeS15F14 decodes the body of an S15F14 (Recipe Create Acknowledge) message into an [S15F14Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F14Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F14(item secs2.Item, opts ...DecodeOption) (S15F14Reply, error) {
 	var out S15F14Reply
@@ -599,11 +613,12 @@ type S15F15Body struct {
 	SECTIONS   secs2.Item
 }
 
-// DecodeS15F15 decodes the body of an S15F15 (Recipe Store Request) message into a [S15F15Body].
+// DecodeS15F15 decodes the body of an S15F15 (Recipe Store Request) message into an [S15F15Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F15Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F15(item secs2.Item, opts ...DecodeOption) (S15F15Body, error) {
 	var out S15F15Body
@@ -647,11 +662,12 @@ type S15F16Reply struct {
 	ERRORS     []ErrorInfo
 }
 
-// DecodeS15F16 decodes the body of an S15F16 (Recipe Store Acknowledge) message into a [S15F16Reply].
+// DecodeS15F16 decodes the body of an S15F16 (Recipe Store Acknowledge) message into an [S15F16Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F16Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F16(item secs2.Item, opts ...DecodeOption) (S15F16Reply, error) {
 	var out S15F16Reply
@@ -694,11 +710,12 @@ type S15F17Body struct {
 	RCPSECCODE RCPSECCODE
 }
 
-// DecodeS15F17 decodes the body of an S15F17 (Recipe Retrieve Request) message into a [S15F17Body].
+// DecodeS15F17 decodes the body of an S15F17 (Recipe Retrieve Request) message into an [S15F17Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F17Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F17(item secs2.Item, opts ...DecodeOption) (S15F17Body, error) {
 	var out S15F17Body
@@ -734,11 +751,12 @@ type S15F18Reply struct {
 	ERRORS   []ErrorInfo
 }
 
-// DecodeS15F18 decodes the body of an S15F18 (Recipe Retrieve Data) message into a [S15F18Reply].
+// DecodeS15F18 decodes the body of an S15F18 (Recipe Retrieve Data) message into an [S15F18Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F18Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F18(item secs2.Item, opts ...DecodeOption) (S15F18Reply, error) {
 	var out S15F18Reply
@@ -782,11 +800,12 @@ type S15F19Body struct {
 	RCPNEWID  string
 }
 
-// DecodeS15F19 decodes the body of an S15F19 (Recipe Rename Request) message into a [S15F19Body].
+// DecodeS15F19 decodes the body of an S15F19 (Recipe Rename Request) message into an [S15F19Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F19Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F19(item secs2.Item, opts ...DecodeOption) (S15F19Body, error) {
 	var out S15F19Body
@@ -825,11 +844,12 @@ type S15F20Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F20 decodes the body of an S15F20 (Recipe Rename Acknowledge) message into a [S15F20Reply].
+// DecodeS15F20 decodes the body of an S15F20 (Recipe Rename Acknowledge) message into an [S15F20Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F20Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F20(item secs2.Item, opts ...DecodeOption) (S15F20Reply, error) {
 	var out S15F20Reply
@@ -868,11 +888,12 @@ type S15F21Body struct {
 	RECIPES  []string
 }
 
-// DecodeS15F21 decodes the body of an S15F21 (Recipe Action Request) message into a [S15F21Body].
+// DecodeS15F21 decodes the body of an S15F21 (Recipe Action Request) message into an [S15F21Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F21Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F21(item secs2.Item, opts ...DecodeOption) (S15F21Body, error) {
 	var out S15F21Body
@@ -926,11 +947,12 @@ type S15F22Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F22 decodes the body of an S15F22 (Recipe Action Acknowledge) message into a [S15F22Reply].
+// DecodeS15F22 decodes the body of an S15F22 (Recipe Action Acknowledge) message into an [S15F22Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F22Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F22(item secs2.Item, opts ...DecodeOption) (S15F22Reply, error) {
 	var out S15F22Reply
@@ -982,11 +1004,12 @@ type S15F23Body struct {
 	RECIPES []string
 }
 
-// DecodeS15F23 decodes the body of an S15F23 (Recipe Descriptor Request) message into a [S15F23Body].
+// DecodeS15F23 decodes the body of an S15F23 (Recipe Descriptor Request) message into an [S15F23Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F23Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F23(item secs2.Item, opts ...DecodeOption) (S15F23Body, error) {
 	var out S15F23Body
@@ -1026,11 +1049,12 @@ type S15F24Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS15F24 decodes the body of an S15F24 (Recipe Descriptor Data) message into a [S15F24Reply].
+// DecodeS15F24 decodes the body of an S15F24 (Recipe Descriptor Data) message into an [S15F24Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F24Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F24(item secs2.Item, opts ...DecodeOption) (S15F24Reply, error) {
 	var out S15F24Reply
@@ -1075,11 +1099,12 @@ type S15F25Body struct {
 	PARAMETERS []RecipeParamRule
 }
 
-// DecodeS15F25 decodes the body of an S15F25 (Recipe Parameter Update Request) message into a [S15F25Body].
+// DecodeS15F25 decodes the body of an S15F25 (Recipe Parameter Update Request) message into an [S15F25Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F25Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F25(item secs2.Item, opts ...DecodeOption) (S15F25Body, error) {
 	var out S15F25Body
@@ -1122,11 +1147,12 @@ type S15F26Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F26 decodes the body of an S15F26 (Recipe Parameter Update Acknowledge) message into a [S15F26Reply].
+// DecodeS15F26 decodes the body of an S15F26 (Recipe Parameter Update Acknowledge) message into an [S15F26Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F26Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F26(item secs2.Item, opts ...DecodeOption) (S15F26Reply, error) {
 	var out S15F26Reply
@@ -1164,11 +1190,12 @@ type S15F27Body struct {
 	RCPBODY    secs2.Item
 }
 
-// DecodeS15F27 decodes the body of an S15F27 (Recipe Download Request) message into a [S15F27Body].
+// DecodeS15F27 decodes the body of an S15F27 (Recipe Download Request) message into an [S15F27Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F27Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F27(item secs2.Item, opts ...DecodeOption) (S15F27Body, error) {
 	var out S15F27Body
@@ -1217,11 +1244,12 @@ type S15F28Reply struct {
 	ERRORS     []ErrorInfo
 }
 
-// DecodeS15F28 decodes the body of an S15F28 (Recipe Download Acknowledge) message into a [S15F28Reply].
+// DecodeS15F28 decodes the body of an S15F28 (Recipe Download Acknowledge) message into an [S15F28Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F28Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F28(item secs2.Item, opts ...DecodeOption) (S15F28Reply, error) {
 	var out S15F28Reply
@@ -1270,11 +1298,12 @@ type S15F29Body struct {
 	RECIPES []string
 }
 
-// DecodeS15F29 decodes the body of an S15F29 (Recipe Verify Request) message into a [S15F29Body].
+// DecodeS15F29 decodes the body of an S15F29 (Recipe Verify Request) message into an [S15F29Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F29Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F29(item secs2.Item, opts ...DecodeOption) (S15F29Body, error) {
 	var out S15F29Body
@@ -1321,11 +1350,12 @@ type S15F30Reply struct {
 	ERRORS     []ErrorInfo
 }
 
-// DecodeS15F30 decodes the body of an S15F30 (Recipe Verify Acknowledge) message into a [S15F30Reply].
+// DecodeS15F30 decodes the body of an S15F30 (Recipe Verify Acknowledge) message into an [S15F30Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F30Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F30(item secs2.Item, opts ...DecodeOption) (S15F30Reply, error) {
 	var out S15F30Reply
@@ -1379,11 +1409,12 @@ type S15F31Body struct {
 	RCPSPEC string
 }
 
-// DecodeS15F31 decodes the body of an S15F31 (Recipe Upload Request) message into a [S15F31Body].
+// DecodeS15F31 decodes the body of an S15F31 (Recipe Upload Request) message into an [S15F31Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F31Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS15F31(item secs2.Item, opts ...DecodeOption) (S15F31Body, error) {
 	var out S15F31Body
@@ -1412,11 +1443,12 @@ type S15F32Reply struct {
 	ERRORS     []ErrorInfo
 }
 
-// DecodeS15F32 decodes the body of an S15F32 (Recipe Upload Data) message into a [S15F32Reply].
+// DecodeS15F32 decodes the body of an S15F32 (Recipe Upload Data) message into an [S15F32Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F32Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F32(item secs2.Item, opts ...DecodeOption) (S15F32Reply, error) {
 	var out S15F32Reply
@@ -1468,11 +1500,12 @@ type S15F33Body struct {
 	SELECTIONS []RecipeSelection
 }
 
-// DecodeS15F33 decodes the body of an S15F33 (Recipe Select Request) message into a [S15F33Body].
+// DecodeS15F33 decodes the body of an S15F33 (Recipe Select Request) message into an [S15F33Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F33Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F33(item secs2.Item, opts ...DecodeOption) (S15F33Body, error) {
 	var out S15F33Body
@@ -1511,11 +1544,12 @@ type S15F34Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F34 decodes the body of an S15F34 (Recipe Select Acknowledge) message into a [S15F34Reply].
+// DecodeS15F34 decodes the body of an S15F34 (Recipe Select Acknowledge) message into an [S15F34Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F34Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F34(item secs2.Item, opts ...DecodeOption) (S15F34Reply, error) {
 	var out S15F34Reply
@@ -1552,11 +1586,12 @@ type S15F35Body struct {
 	RECIPES []string
 }
 
-// DecodeS15F35 decodes the body of an S15F35 (Recipe Delete Request) message into a [S15F35Body].
+// DecodeS15F35 decodes the body of an S15F35 (Recipe Delete Request) message into an [S15F35Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F35Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F35(item secs2.Item, opts ...DecodeOption) (S15F35Body, error) {
 	var out S15F35Body
@@ -1599,11 +1634,12 @@ type S15F36Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F36 decodes the body of an S15F36 (Recipe Delete Acknowledge) message into a [S15F36Reply].
+// DecodeS15F36 decodes the body of an S15F36 (Recipe Delete Acknowledge) message into an [S15F36Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F36Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F36(item secs2.Item, opts ...DecodeOption) (S15F36Reply, error) {
 	var out S15F36Reply
@@ -1642,11 +1678,12 @@ type S15F37Body struct {
 	RMCHGTYPE secs2.Item
 }
 
-// DecodeS15F37 decodes the body of an S15F37 (DRNS Segment Approve Action Request) message into a [S15F37Body].
+// DecodeS15F37 decodes the body of an S15F37 (DRNS Segment Approve Action Request) message into an [S15F37Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F37Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F37(item secs2.Item, opts ...DecodeOption) (S15F37Body, error) {
 	var out S15F37Body
@@ -1697,11 +1734,12 @@ type S15F38Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F38 decodes the body of an S15F38 (DRNS Segment Approve Action Acknowledge) message into a [S15F38Reply].
+// DecodeS15F38 decodes the body of an S15F38 (DRNS Segment Approve Action Acknowledge) message into an [S15F38Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F38Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F38(item secs2.Item, opts ...DecodeOption) (S15F38Reply, error) {
 	var out S15F38Reply
@@ -1739,11 +1777,12 @@ type S15F39Body struct {
 	OBJTOKEN  uint32
 }
 
-// DecodeS15F39 decodes the body of an S15F39 (DRNS Recorder Segment Request) message into a [S15F39Body].
+// DecodeS15F39 decodes the body of an S15F39 (DRNS Recorder Segment Request) message into an [S15F39Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F39Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F39(item secs2.Item, opts ...DecodeOption) (S15F39Body, error) {
 	var out S15F39Body
@@ -1790,11 +1829,12 @@ type S15F40Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F40 decodes the body of an S15F40 (DRNS Recorder Segment Acknowledge) message into a [S15F40Reply].
+// DecodeS15F40 decodes the body of an S15F40 (DRNS Recorder Segment Acknowledge) message into an [S15F40Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F40Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F40(item secs2.Item, opts ...DecodeOption) (S15F40Reply, error) {
 	var out S15F40Reply
@@ -1838,11 +1878,12 @@ type S15F41Body struct {
 	RMREQUESTOR bool
 }
 
-// DecodeS15F41 decodes the body of an S15F41 (DRNS Recorder Modify Request) message into a [S15F41Body].
+// DecodeS15F41 decodes the body of an S15F41 (DRNS Recorder Modify Request) message into an [S15F41Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F41Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F41(item secs2.Item, opts ...DecodeOption) (S15F41Body, error) {
 	var out S15F41Body
@@ -1920,11 +1961,12 @@ type S15F42Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F42 decodes the body of an S15F42 (DRNS Recorder Modify Acknowledge) message into a [S15F42Reply].
+// DecodeS15F42 decodes the body of an S15F42 (DRNS Recorder Modify Acknowledge) message into an [S15F42Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F42Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F42(item secs2.Item, opts ...DecodeOption) (S15F42Reply, error) {
 	var out S15F42Reply
@@ -1960,11 +2002,12 @@ type S15F43Body struct {
 	TARGETSPEC string
 }
 
-// DecodeS15F43 decodes the body of an S15F43 (DRNS Get Change Request) message into a [S15F43Body].
+// DecodeS15F43 decodes the body of an S15F43 (DRNS Get Change Request) message into an [S15F43Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F43Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F43(item secs2.Item, opts ...DecodeOption) (S15F43Body, error) {
 	var out S15F43Body
@@ -2004,11 +2047,12 @@ type S15F44Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS15F44 decodes the body of an S15F44 (DRNS Get Change Request Data) message into a [S15F44Reply].
+// DecodeS15F44 decodes the body of an S15F44 (DRNS Get Change Request Data) message into an [S15F44Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F44Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F44(item secs2.Item, opts ...DecodeOption) (S15F44Reply, error) {
 	var out S15F44Reply
@@ -2053,11 +2097,12 @@ type S15F45Body struct {
 	RMCHGTYPE secs2.Item
 }
 
-// DecodeS15F45 decodes the body of an S15F45 (DRNS Manager Segment Change Approval Request) message into a [S15F45Body].
+// DecodeS15F45 decodes the body of an S15F45 (DRNS Manager Segment Change Approval Request) message into an [S15F45Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F45Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F45(item secs2.Item, opts ...DecodeOption) (S15F45Body, error) {
 	var out S15F45Body
@@ -2101,11 +2146,12 @@ type S15F46Reply struct {
 	OPID      secs2.Item
 }
 
-// DecodeS15F46 decodes the body of an S15F46 (DRNS Manager Segment Approval Acknowledge) message into a [S15F46Reply].
+// DecodeS15F46 decodes the body of an S15F46 (DRNS Manager Segment Approval Acknowledge) message into an [S15F46Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F46Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F46(item secs2.Item, opts ...DecodeOption) (S15F46Reply, error) {
 	var out S15F46Reply
@@ -2147,11 +2193,12 @@ type S15F47Body struct {
 	SEGMENTS  []string
 }
 
-// DecodeS15F47 decodes the body of an S15F47 (DRNS Manager Rebuild Request) message into a [S15F47Body].
+// DecodeS15F47 decodes the body of an S15F47 (DRNS Manager Rebuild Request) message into an [S15F47Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F47Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F47(item secs2.Item, opts ...DecodeOption) (S15F47Body, error) {
 	var out S15F47Body
@@ -2198,11 +2245,12 @@ type S15F48Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS15F48 decodes the body of an S15F48 (DRNS Manager Rebuild Acknowledge) message into a [S15F48Reply].
+// DecodeS15F48 decodes the body of an S15F48 (DRNS Manager Rebuild Acknowledge) message into an [S15F48Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F48Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F48(item secs2.Item, opts ...DecodeOption) (S15F48Reply, error) {
 	var out S15F48Reply
@@ -2237,11 +2285,12 @@ type S15F49Body struct {
 	RCPOWCODE bool
 }
 
-// DecodeS15F49 decodes the body of an S15F49 (Large Recipe Download Request) message into a [S15F49Body].
+// DecodeS15F49 decodes the body of an S15F49 (Large Recipe Download Request) message into an [S15F49Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F49Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F49(item secs2.Item, opts ...DecodeOption) (S15F49Body, error) {
 	var out S15F49Body
@@ -2275,11 +2324,12 @@ type S15F50Reply struct {
 	ACKC15 ACKC15
 }
 
-// DecodeS15F50 decodes the body of an S15F50 (Large Recipe Download Acknowledge) message into a [S15F50Reply].
+// DecodeS15F50 decodes the body of an S15F50 (Large Recipe Download Acknowledge) message into an [S15F50Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F50Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS15F50(item secs2.Item, opts ...DecodeOption) (S15F50Reply, error) {
 	var out S15F50Reply
@@ -2304,11 +2354,12 @@ type S15F51Body struct {
 	DSNAME string
 }
 
-// DecodeS15F51 decodes the body of an S15F51 (Large Recipe Upload Request) message into a [S15F51Body].
+// DecodeS15F51 decodes the body of an S15F51 (Large Recipe Upload Request) message into an [S15F51Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F51Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS15F51(item secs2.Item, opts ...DecodeOption) (S15F51Body, error) {
 	var out S15F51Body
@@ -2333,11 +2384,12 @@ type S15F52Reply struct {
 	ACKC15 ACKC15
 }
 
-// DecodeS15F52 decodes the body of an S15F52 (Large Recipe Upload Acknowledge) message into a [S15F52Reply].
+// DecodeS15F52 decodes the body of an S15F52 (Large Recipe Upload Acknowledge) message into an [S15F52Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F52Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS15F52(item secs2.Item, opts ...DecodeOption) (S15F52Reply, error) {
 	var out S15F52Reply
@@ -2365,11 +2417,12 @@ type S15F53Body struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS15F53 decodes the body of an S15F53 (Recipe Verification Send) message into a [S15F53Body].
+// DecodeS15F53 decodes the body of an S15F53 (Recipe Verification Send) message into an [S15F53Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S15F53Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS15F53(item secs2.Item, opts ...DecodeOption) (S15F53Body, error) {
 	var out S15F53Body

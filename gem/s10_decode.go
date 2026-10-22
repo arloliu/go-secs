@@ -14,11 +14,12 @@ type S10F1Body struct {
 	TEXT secs2.Item
 }
 
-// DecodeS10F1 decodes the body of an S10F1 (Terminal Request) message into a [S10F1Body].
+// DecodeS10F1 decodes the body of an S10F1 (Terminal Request) message into an [S10F1Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS10F1(item secs2.Item, opts ...DecodeOption) (S10F1Body, error) {
 	var out S10F1Body
@@ -52,11 +53,12 @@ type S10F2Reply struct {
 	ACKC10 ACKC10
 }
 
-// DecodeS10F2 decodes the body of an S10F2 (Terminal Request Acknowledge) message into a [S10F2Reply].
+// DecodeS10F2 decodes the body of an S10F2 (Terminal Request Acknowledge) message into an [S10F2Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS10F2(item secs2.Item, opts ...DecodeOption) (S10F2Reply, error) {
 	var out S10F2Reply
@@ -82,11 +84,12 @@ type S10F3Body struct {
 	TEXT secs2.Item
 }
 
-// DecodeS10F3 decodes the body of an S10F3 (Terminal Display, Single) message into a [S10F3Body].
+// DecodeS10F3 decodes the body of an S10F3 (Terminal Display, Single) message into an [S10F3Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS10F3(item secs2.Item, opts ...DecodeOption) (S10F3Body, error) {
 	var out S10F3Body
@@ -120,11 +123,12 @@ type S10F4Reply struct {
 	ACKC10 ACKC10
 }
 
-// DecodeS10F4 decodes the body of an S10F4 (Terminal Display, Single Acknowledge) message into a [S10F4Reply].
+// DecodeS10F4 decodes the body of an S10F4 (Terminal Display, Single Acknowledge) message into an [S10F4Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS10F4(item secs2.Item, opts ...DecodeOption) (S10F4Reply, error) {
 	var out S10F4Reply
@@ -150,11 +154,12 @@ type S10F5Body struct {
 	TEXTS []secs2.Item
 }
 
-// DecodeS10F5 decodes the body of an S10F5 (Terminal Display, Multi-Block) message into a [S10F5Body].
+// DecodeS10F5 decodes the body of an S10F5 (Terminal Display, Multi-Block) message into an [S10F5Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS10F5(item secs2.Item, opts ...DecodeOption) (S10F5Body, error) {
 	var out S10F5Body
@@ -188,11 +193,12 @@ type S10F6Reply struct {
 	ACKC10 ACKC10
 }
 
-// DecodeS10F6 decodes the body of an S10F6 (Terminal Display, Multi-block Acknowledge) message into a [S10F6Reply].
+// DecodeS10F6 decodes the body of an S10F6 (Terminal Display, Multi-block Acknowledge) message into an [S10F6Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS10F6(item secs2.Item, opts ...DecodeOption) (S10F6Reply, error) {
 	var out S10F6Reply
@@ -217,11 +223,12 @@ type S10F7Body struct {
 	TID TID
 }
 
-// DecodeS10F7 decodes the body of an S10F7 (Multi-block Not Allowed) message into a [S10F7Body].
+// DecodeS10F7 decodes the body of an S10F7 (Multi-block Not Allowed) message into an [S10F7Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS10F7(item secs2.Item, opts ...DecodeOption) (S10F7Body, error) {
 	var out S10F7Body
@@ -246,11 +253,12 @@ type S10F9Body struct {
 	TEXT secs2.Item
 }
 
-// DecodeS10F9 decodes the body of an S10F9 (Broadcast) message into a [S10F9Body].
+// DecodeS10F9 decodes the body of an S10F9 (Broadcast) message into an [S10F9Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS10F9(item secs2.Item, opts ...DecodeOption) (S10F9Body, error) {
 	var out S10F9Body
@@ -275,11 +283,12 @@ type S10F10Reply struct {
 	ACKC10 ACKC10
 }
 
-// DecodeS10F10 decodes the body of an S10F10 (Broadcast Acknowledge) message into a [S10F10Reply].
+// DecodeS10F10 decodes the body of an S10F10 (Broadcast Acknowledge) message into an [S10F10Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S10F10Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS10F10(item secs2.Item, opts ...DecodeOption) (S10F10Reply, error) {
 	var out S10F10Reply

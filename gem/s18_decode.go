@@ -14,11 +14,12 @@ type S18F1Body struct {
 	ATTRIDS  []secs2.Item
 }
 
-// DecodeS18F1 decodes the body of an S18F1 (Read Attribute Request) message into a [S18F1Body].
+// DecodeS18F1 decodes the body of an S18F1 (Read Attribute Request) message into an [S18F1Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F1(item secs2.Item, opts ...DecodeOption) (S18F1Body, error) {
 	var out S18F1Body
@@ -54,11 +55,12 @@ type S18F2Reply struct {
 	VALUES   []secs2.Item
 }
 
-// DecodeS18F2 decodes the body of an S18F2 (Read Attribute Data) message into a [S18F2Reply].
+// DecodeS18F2 decodes the body of an S18F2 (Read Attribute Data) message into an [S18F2Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F2(item secs2.Item, opts ...DecodeOption) (S18F2Reply, error) {
 	var out S18F2Reply
@@ -97,11 +99,12 @@ type S18F3Body struct {
 	ATTRIBUTES []Attribute
 }
 
-// DecodeS18F3 decodes the body of an S18F3 (Write Attribute Request) message into a [S18F3Body].
+// DecodeS18F3 decodes the body of an S18F3 (Write Attribute Request) message into an [S18F3Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F3(item secs2.Item, opts ...DecodeOption) (S18F3Body, error) {
 	var out S18F3Body
@@ -137,11 +140,12 @@ type S18F4Reply struct {
 	STATUSES []string
 }
 
-// DecodeS18F4 decodes the body of an S18F4 (Write Attribute Acknowledge) message into a [S18F4Reply].
+// DecodeS18F4 decodes the body of an S18F4 (Write Attribute Acknowledge) message into an [S18F4Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F4(item secs2.Item, opts ...DecodeOption) (S18F4Reply, error) {
 	var out S18F4Reply
@@ -181,11 +185,12 @@ type S18F5Body struct {
 	DATALENGTH secs2.Item
 }
 
-// DecodeS18F5 decodes the body of an S18F5 (Read Request) message into a [S18F5Body].
+// DecodeS18F5 decodes the body of an S18F5 (Read Request) message into an [S18F5Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F5(item secs2.Item, opts ...DecodeOption) (S18F5Body, error) {
 	var out S18F5Body
@@ -226,11 +231,12 @@ type S18F6Reply struct {
 	STATUSES []string
 }
 
-// DecodeS18F6 decodes the body of an S18F6 (Read Data) message into a [S18F6Reply].
+// DecodeS18F6 decodes the body of an S18F6 (Read Data) message into an [S18F6Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F6(item secs2.Item, opts ...DecodeOption) (S18F6Reply, error) {
 	var out S18F6Reply
@@ -275,11 +281,12 @@ type S18F7Body struct {
 	DATA       string
 }
 
-// DecodeS18F7 decodes the body of an S18F7 (Write Data Request) message into a [S18F7Body].
+// DecodeS18F7 decodes the body of an S18F7 (Write Data Request) message into an [S18F7Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F7(item secs2.Item, opts ...DecodeOption) (S18F7Body, error) {
 	var out S18F7Body
@@ -323,11 +330,12 @@ type S18F8Reply struct {
 	STATUSES []string
 }
 
-// DecodeS18F8 decodes the body of an S18F8 (Write Data Acknowledge) message into a [S18F8Reply].
+// DecodeS18F8 decodes the body of an S18F8 (Write Data Acknowledge) message into an [S18F8Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F8Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F8(item secs2.Item, opts ...DecodeOption) (S18F8Reply, error) {
 	var out S18F8Reply
@@ -365,11 +373,12 @@ type S18F9Body struct {
 	TARGETID string
 }
 
-// DecodeS18F9 decodes the body of an S18F9 (Read ID Request) message into a [S18F9Body].
+// DecodeS18F9 decodes the body of an S18F9 (Read ID Request) message into an [S18F9Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS18F9(item secs2.Item, opts ...DecodeOption) (S18F9Body, error) {
 	var out S18F9Body
@@ -397,11 +406,12 @@ type S18F10Reply struct {
 	STATUSES []string
 }
 
-// DecodeS18F10 decodes the body of an S18F10 (Read ID Data) message into a [S18F10Reply].
+// DecodeS18F10 decodes the body of an S18F10 (Read ID Data) message into an [S18F10Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F10Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F10(item secs2.Item, opts ...DecodeOption) (S18F10Reply, error) {
 	var out S18F10Reply
@@ -444,11 +454,12 @@ type S18F11Body struct {
 	MID      secs2.Item
 }
 
-// DecodeS18F11 decodes the body of an S18F11 (Write ID Request) message into a [S18F11Body].
+// DecodeS18F11 decodes the body of an S18F11 (Write ID Request) message into an [S18F11Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F11(item secs2.Item, opts ...DecodeOption) (S18F11Body, error) {
 	var out S18F11Body
@@ -484,11 +495,12 @@ type S18F12Reply struct {
 	STATUSES []string
 }
 
-// DecodeS18F12 decodes the body of an S18F12 (Write ID Acknowledge) message into a [S18F12Reply].
+// DecodeS18F12 decodes the body of an S18F12 (Write ID Acknowledge) message into an [S18F12Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F12Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F12(item secs2.Item, opts ...DecodeOption) (S18F12Reply, error) {
 	var out S18F12Reply
@@ -528,11 +540,12 @@ type S18F13Body struct {
 	PARAMS   []secs2.Item
 }
 
-// DecodeS18F13 decodes the body of an S18F13 (Subsystem Command Request) message into a [S18F13Body].
+// DecodeS18F13 decodes the body of an S18F13 (Subsystem Command Request) message into an [S18F13Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F13Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F13(item secs2.Item, opts ...DecodeOption) (S18F13Body, error) {
 	var out S18F13Body
@@ -572,11 +585,12 @@ type S18F14Reply struct {
 	STATUSES []string
 }
 
-// DecodeS18F14 decodes the body of an S18F14 (Subsystem Command Acknowledge) message into a [S18F14Reply].
+// DecodeS18F14 decodes the body of an S18F14 (Subsystem Command Acknowledge) message into an [S18F14Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F14Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F14(item secs2.Item, opts ...DecodeOption) (S18F14Reply, error) {
 	var out S18F14Reply
@@ -614,11 +628,12 @@ type S18F15Body struct {
 	TARGETID string
 }
 
-// DecodeS18F15 decodes the body of an S18F15 (Read 2D Code Condition Request) message into a [S18F15Body].
+// DecodeS18F15 decodes the body of an S18F15 (Read 2D Code Condition Request) message into an [S18F15Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F15Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS18F15(item secs2.Item, opts ...DecodeOption) (S18F15Body, error) {
 	var out S18F15Body
@@ -647,11 +662,12 @@ type S18F16Reply struct {
 	CONDITIONS []string
 }
 
-// DecodeS18F16 decodes the body of an S18F16 (Read 2D Code Condition Data) message into a [S18F16Reply].
+// DecodeS18F16 decodes the body of an S18F16 (Read 2D Code Condition Data) message into an [S18F16Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S18F16Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS18F16(item secs2.Item, opts ...DecodeOption) (S18F16Reply, error) {
 	var out S18F16Reply

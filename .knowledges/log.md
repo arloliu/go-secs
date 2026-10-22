@@ -1,5 +1,10 @@
 # Log
 
+## 2026-10-22
+* **Update**: [gem](/gem/index.md) responsibility and entry points name the group structs, decode options, and the catalog;
+  the generated `gem/groups.go` and `gem/catalog.go` join the declined list.
+  No entries changed.
+
 ## 2026-09-30
 * **Update**: the nine draft entries from this sync independently verified against source by `openai/gpt-5.6-terra` and promoted to stable: [selected gates](/hsms/selected-gates.md), [send error accounting](/hsms/send-error-accounting.md), [transaction observer chokepoints](/hsms/transaction-observer-chokepoints.md), [handler panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md), [synchronous commit gate](/hsms/synchronous-commit-gate.md), [transition cause injection sites](/hsms/transition-cause-injection-sites.md), [E37.1 narrows E37](/hsmsss/e37-1-narrows-e37-generic.md), [activity stamps](/hsmsss/activity-stamps.md), [passive refusal exchange](/hsmsss/passive-refusal-exchange.md).
 * Sync to `be7a75b` (25 commits since `207066b`: socket and wire observers, socket identity, close reasons, `sendNoReplyOn`).

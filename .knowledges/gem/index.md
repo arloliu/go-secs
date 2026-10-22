@@ -10,6 +10,8 @@ Pure value builders for GEM role messages, plus a decoder per builder that reads
 Every builder returns a `secs2.SECS2Message` sendable over any established connection via `SendSECS2Message`;
 every decoder takes the body as a `secs2.Item`, never a message, so the package stays free of transport imports.
 Equipment-defined identifiers are taken as `secs2.Item` so callers choose the SECS-II type.
+Repeated lists are named group structs shared across messages, decoders take options such as `AllowTrailing`,
+and a catalog (`Lookup`, `AcceptReply`) describes, decodes, and accepts any message by stream and function.
 
 # Boundary
 
@@ -23,6 +25,7 @@ None yet — this unit fills on miss via `/memex capture`.
 
 - base builder: `secs2/` → `NewMessage`
 - generated builders: `gem/` (see `tools/gemgen`, which generates much of this package)
+- groups: `gem/groups.go`; decode options: `gem/decode.go`; catalog: `gem/catalog.go` (all generated)
 
 # Read first
 

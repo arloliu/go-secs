@@ -17,11 +17,12 @@ type S14F1Body struct {
 	ATTRIDS    []secs2.Item
 }
 
-// DecodeS14F1 decodes the body of an S14F1 (GetAttr Request) message into a [S14F1Body].
+// DecodeS14F1 decodes the body of an S14F1 (GetAttr Request) message into an [S14F1Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F1(item secs2.Item, opts ...DecodeOption) (S14F1Body, error) {
 	var out S14F1Body
@@ -69,11 +70,12 @@ type S14F2Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS14F2 decodes the body of an S14F2 (GetAttr Data) message into a [S14F2Reply].
+// DecodeS14F2 decodes the body of an S14F2 (GetAttr Data) message into an [S14F2Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F2(item secs2.Item, opts ...DecodeOption) (S14F2Reply, error) {
 	var out S14F2Reply
@@ -118,11 +120,12 @@ type S14F3Body struct {
 	ATTRS   []Attribute
 }
 
-// DecodeS14F3 decodes the body of an S14F3 (SetAttr Request) message into a [S14F3Body].
+// DecodeS14F3 decodes the body of an S14F3 (SetAttr Request) message into an [S14F3Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F3(item secs2.Item, opts ...DecodeOption) (S14F3Body, error) {
 	var out S14F3Body
@@ -166,11 +169,12 @@ type S14F4Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS14F4 decodes the body of an S14F4 (SetAttr Data) message into a [S14F4Reply].
+// DecodeS14F4 decodes the body of an S14F4 (SetAttr Data) message into an [S14F4Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F4(item secs2.Item, opts ...DecodeOption) (S14F4Reply, error) {
 	var out S14F4Reply
@@ -212,11 +216,12 @@ type S14F5Body struct {
 	OBJSPEC string
 }
 
-// DecodeS14F5 decodes the body of an S14F5 (GetType Request) message into a [S14F5Body].
+// DecodeS14F5 decodes the body of an S14F5 (GetType Request) message into an [S14F5Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS14F5(item secs2.Item, opts ...DecodeOption) (S14F5Body, error) {
 	var out S14F5Body
@@ -243,11 +248,12 @@ type S14F6Reply struct {
 	ERRORS   []ErrorInfo
 }
 
-// DecodeS14F6 decodes the body of an S14F6 (GetType Data) message into a [S14F6Reply].
+// DecodeS14F6 decodes the body of an S14F6 (GetType Data) message into an [S14F6Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F6(item secs2.Item, opts ...DecodeOption) (S14F6Reply, error) {
 	var out S14F6Reply
@@ -290,11 +296,12 @@ type S14F7Body struct {
 	OBJTYPES []secs2.Item
 }
 
-// DecodeS14F7 decodes the body of an S14F7 (GetAttrName Request) message into a [S14F7Body].
+// DecodeS14F7 decodes the body of an S14F7 (GetAttrName Request) message into an [S14F7Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F7(item secs2.Item, opts ...DecodeOption) (S14F7Body, error) {
 	var out S14F7Body
@@ -330,11 +337,12 @@ type S14F8Reply struct {
 	ERRORS   []ErrorInfo
 }
 
-// DecodeS14F8 decodes the body of an S14F8 (GetAttrName Data) message into a [S14F8Reply].
+// DecodeS14F8 decodes the body of an S14F8 (GetAttrName Data) message into an [S14F8Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F8Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F8(item secs2.Item, opts ...DecodeOption) (S14F8Reply, error) {
 	var out S14F8Reply
@@ -378,11 +386,12 @@ type S14F9Body struct {
 	ATTRS   []Attribute
 }
 
-// DecodeS14F9 decodes the body of an S14F9 (Create Object Request) message into a [S14F9Body].
+// DecodeS14F9 decodes the body of an S14F9 (Create Object Request) message into an [S14F9Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F9(item secs2.Item, opts ...DecodeOption) (S14F9Body, error) {
 	var out S14F9Body
@@ -423,11 +432,12 @@ type S14F10Reply struct {
 	ERRORS  []ErrorInfo
 }
 
-// DecodeS14F10 decodes the body of an S14F10 (Create Object Acknowledge) message into a [S14F10Reply].
+// DecodeS14F10 decodes the body of an S14F10 (Create Object Acknowledge) message into an [S14F10Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F10Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F10(item secs2.Item, opts ...DecodeOption) (S14F10Reply, error) {
 	var out S14F10Reply
@@ -474,11 +484,12 @@ type S14F11Body struct {
 	ATTRS   []Attribute
 }
 
-// DecodeS14F11 decodes the body of an S14F11 (Delete Object Request) message into a [S14F11Body].
+// DecodeS14F11 decodes the body of an S14F11 (Delete Object Request) message into an [S14F11Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F11(item secs2.Item, opts ...DecodeOption) (S14F11Body, error) {
 	var out S14F11Body
@@ -514,11 +525,12 @@ type S14F12Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS14F12 decodes the body of an S14F12 (Delete Object Acknowledge) message into a [S14F12Reply].
+// DecodeS14F12 decodes the body of an S14F12 (Delete Object Acknowledge) message into an [S14F12Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F12Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F12(item secs2.Item, opts ...DecodeOption) (S14F12Reply, error) {
 	var out S14F12Reply
@@ -561,11 +573,12 @@ type S14F13Body struct {
 	ATTRS   []Attribute
 }
 
-// DecodeS14F13 decodes the body of an S14F13 (Object Attach Request) message into a [S14F13Body].
+// DecodeS14F13 decodes the body of an S14F13 (Object Attach Request) message into an [S14F13Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F13Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F13(item secs2.Item, opts ...DecodeOption) (S14F13Body, error) {
 	var out S14F13Body
@@ -602,11 +615,12 @@ type S14F14Reply struct {
 	ERRORS   []ErrorInfo
 }
 
-// DecodeS14F14 decodes the body of an S14F14 (Object Attach Acknowledge) message into a [S14F14Reply].
+// DecodeS14F14 decodes the body of an S14F14 (Object Attach Acknowledge) message into an [S14F14Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F14Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F14(item secs2.Item, opts ...DecodeOption) (S14F14Reply, error) {
 	var out S14F14Reply
@@ -655,11 +669,12 @@ type S14F15Body struct {
 	ATTRS    []Attribute
 }
 
-// DecodeS14F15 decodes the body of an S14F15 (Attached Object Action Request) message into a [S14F15Body].
+// DecodeS14F15 decodes the body of an S14F15 (Attached Object Action Request) message into an [S14F15Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F15Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F15(item secs2.Item, opts ...DecodeOption) (S14F15Body, error) {
 	var out S14F15Body
@@ -703,11 +718,12 @@ type S14F16Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS14F16 decodes the body of an S14F16 (Attached Object Action Acknowledge) message into a [S14F16Reply].
+// DecodeS14F16 decodes the body of an S14F16 (Attached Object Action Acknowledge) message into an [S14F16Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F16Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F16(item secs2.Item, opts ...DecodeOption) (S14F16Reply, error) {
 	var out S14F16Reply
@@ -752,11 +768,12 @@ type S14F17Body struct {
 	ATTRS      []Attribute
 }
 
-// DecodeS14F17 decodes the body of an S14F17 (Supervised Object Action Request) message into a [S14F17Body].
+// DecodeS14F17 decodes the body of an S14F17 (Supervised Object Action Request) message into an [S14F17Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F17Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F17(item secs2.Item, opts ...DecodeOption) (S14F17Body, error) {
 	var out S14F17Body
@@ -800,11 +817,12 @@ type S14F18Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS14F18 decodes the body of an S14F18 (Supervised Object Action Acknowledge) message into a [S14F18Reply].
+// DecodeS14F18 decodes the body of an S14F18 (Supervised Object Action Acknowledge) message into an [S14F18Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F18Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F18(item secs2.Item, opts ...DecodeOption) (S14F18Reply, error) {
 	var out S14F18Reply
@@ -850,11 +868,12 @@ type S14F19Body struct {
 	PARAMS  []ServiceParam
 }
 
-// DecodeS14F19 decodes the body of an S14F19 (Generic Service Request) message into a [S14F19Body].
+// DecodeS14F19 decodes the body of an S14F19 (Generic Service Request) message into an [S14F19Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F19Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F19(item secs2.Item, opts ...DecodeOption) (S14F19Body, error) {
 	var out S14F19Body
@@ -907,11 +926,12 @@ type S14F20Reply struct {
 	ERRORS    []ErrorInfo
 }
 
-// DecodeS14F20 decodes the body of an S14F20 (Generic Service Acknowledge) message into a [S14F20Reply].
+// DecodeS14F20 decodes the body of an S14F20 (Generic Service Acknowledge) message into an [S14F20Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F20Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F20(item secs2.Item, opts ...DecodeOption) (S14F20Reply, error) {
 	var out S14F20Reply
@@ -966,11 +986,12 @@ type S14F21Body struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS14F21 decodes the body of an S14F21 (Generic Service Completion Information) message into a [S14F21Body].
+// DecodeS14F21 decodes the body of an S14F21 (Generic Service Completion Information) message into an [S14F21Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F21Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F21(item secs2.Item, opts ...DecodeOption) (S14F21Body, error) {
 	var out S14F21Body
@@ -1024,11 +1045,12 @@ type S14F22Reply struct {
 	DATAACK DATAACK
 }
 
-// DecodeS14F22 decodes the body of an S14F22 (Generic Service Completion Acknowledge) message into a [S14F22Reply].
+// DecodeS14F22 decodes the body of an S14F22 (Generic Service Completion Acknowledge) message into an [S14F22Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F22Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS14F22(item secs2.Item, opts ...DecodeOption) (S14F22Reply, error) {
 	var out S14F22Reply
@@ -1054,11 +1076,12 @@ type S14F23Body struct {
 	DATALENGTH secs2.Item
 }
 
-// DecodeS14F23 decodes the body of an S14F23 (Multi-block Generic Service Data Inquire) message into a [S14F23Body].
+// DecodeS14F23 decodes the body of an S14F23 (Multi-block Generic Service Data Inquire) message into an [S14F23Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F23Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F23(item secs2.Item, opts ...DecodeOption) (S14F23Body, error) {
 	var out S14F23Body
@@ -1092,11 +1115,12 @@ type S14F24Reply struct {
 	GRANT GRANT
 }
 
-// DecodeS14F24 decodes the body of an S14F24 (Multi-block Generic Service Data Grant) message into a [S14F24Reply].
+// DecodeS14F24 decodes the body of an S14F24 (Multi-block Generic Service Data Grant) message into an [S14F24Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F24Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS14F24(item secs2.Item, opts ...DecodeOption) (S14F24Reply, error) {
 	var out S14F24Reply
@@ -1122,11 +1146,12 @@ type S14F25Body struct {
 	OBJTYPES []secs2.Item
 }
 
-// DecodeS14F25 decodes the body of an S14F25 (Get Service Name Request) message into a [S14F25Body].
+// DecodeS14F25 decodes the body of an S14F25 (Get Service Name Request) message into an [S14F25Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F25Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F25(item secs2.Item, opts ...DecodeOption) (S14F25Body, error) {
 	var out S14F25Body
@@ -1162,11 +1187,12 @@ type S14F26Reply struct {
 	ERRORS   []ErrorInfo
 }
 
-// DecodeS14F26 decodes the body of an S14F26 (Get Service Name Data) message into a [S14F26Reply].
+// DecodeS14F26 decodes the body of an S14F26 (Get Service Name Data) message into an [S14F26Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F26Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F26(item secs2.Item, opts ...DecodeOption) (S14F26Reply, error) {
 	var out S14F26Reply
@@ -1210,11 +1236,12 @@ type S14F27Body struct {
 	SVCNAMES []SVCNAME
 }
 
-// DecodeS14F27 decodes the body of an S14F27 (Get Service Parameter Name Request) message into a [S14F27Body].
+// DecodeS14F27 decodes the body of an S14F27 (Get Service Parameter Name Request) message into an [S14F27Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F27Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F27(item secs2.Item, opts ...DecodeOption) (S14F27Body, error) {
 	var out S14F27Body
@@ -1254,11 +1281,12 @@ type S14F28Reply struct {
 	ERRORS   []ErrorInfo
 }
 
-// DecodeS14F28 decodes the body of an S14F28 (Get Service Parameter Name Data) message into a [S14F28Reply].
+// DecodeS14F28 decodes the body of an S14F28 (Get Service Parameter Name Data) message into an [S14F28Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S14F28Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS14F28(item secs2.Item, opts ...DecodeOption) (S14F28Reply, error) {
 	var out S14F28Reply

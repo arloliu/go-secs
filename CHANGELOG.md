@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and values in and out for repeated groups of one fixed-format item.
 - A named struct for each list shape a message repeats, such as `Report` and `ErrorInfo`,
   which builders take and decoders return, checked element by element.
+- Decoders reject a list where E5 excludes one, such as a list sent as an ALID.
 - Decoder options, starting with `AllowTrailing`, which accepts a list holding more items than E5 declares.
 - A catalog: `Lookup` describes and decodes any message by stream and function, and `AcceptReply` builds the reply that accepts one.
 - A fuzz target runs every generated decoder over arbitrary bytes.

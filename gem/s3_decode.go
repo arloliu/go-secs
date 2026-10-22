@@ -14,11 +14,12 @@ type S3F2Reply struct {
 	LOCATIONS []MaterialLocation
 }
 
-// DecodeS3F2 decodes the body of an S3F2 (Material Status Data) message into a [S3F2Reply].
+// DecodeS3F2 decodes the body of an S3F2 (Material Status Data) message into an [S3F2Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F2(item secs2.Item, opts ...DecodeOption) (S3F2Reply, error) {
 	var out S3F2Reply
@@ -56,11 +57,12 @@ type S3F4Reply struct {
 	MATERIALS []MaterialTimeToCompletion
 }
 
-// DecodeS3F4 decodes the body of an S3F4 (Time to Completion Data) message into a [S3F4Reply].
+// DecodeS3F4 decodes the body of an S3F4 (Time to Completion Data) message into an [S3F4Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F4(item secs2.Item, opts ...DecodeOption) (S3F4Reply, error) {
 	var out S3F4Reply
@@ -98,11 +100,12 @@ type S3F5Body struct {
 	QUA byte
 }
 
-// DecodeS3F5 decodes the body of an S3F5 (Material Found Send) message into a [S3F5Body].
+// DecodeS3F5 decodes the body of an S3F5 (Material Found Send) message into an [S3F5Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F5(item secs2.Item, opts ...DecodeOption) (S3F5Body, error) {
 	var out S3F5Body
@@ -136,11 +139,12 @@ type S3F6Reply struct {
 	ACKC3 ACKC3
 }
 
-// DecodeS3F6 decodes the body of an S3F6 (Material Found Acknowledge) message into a [S3F6Reply].
+// DecodeS3F6 decodes the body of an S3F6 (Material Found Acknowledge) message into an [S3F6Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS3F6(item secs2.Item, opts ...DecodeOption) (S3F6Reply, error) {
 	var out S3F6Reply
@@ -167,11 +171,12 @@ type S3F7Body struct {
 	MID secs2.Item
 }
 
-// DecodeS3F7 decodes the body of an S3F7 (Material Lost Send) message into a [S3F7Body].
+// DecodeS3F7 decodes the body of an S3F7 (Material Lost Send) message into an [S3F7Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F7(item secs2.Item, opts ...DecodeOption) (S3F7Body, error) {
 	var out S3F7Body
@@ -209,11 +214,12 @@ type S3F8Reply struct {
 	ACKC3 ACKC3
 }
 
-// DecodeS3F8 decodes the body of an S3F8 (Material Lost Acknowledge) message into a [S3F8Reply].
+// DecodeS3F8 decodes the body of an S3F8 (Material Lost Acknowledge) message into an [S3F8Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F8Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS3F8(item secs2.Item, opts ...DecodeOption) (S3F8Reply, error) {
 	var out S3F8Reply
@@ -239,11 +245,12 @@ type S3F9Body struct {
 	EMID secs2.Item
 }
 
-// DecodeS3F9 decodes the body of an S3F9 (Material ID Equate Send) message into a [S3F9Body].
+// DecodeS3F9 decodes the body of an S3F9 (Material ID Equate Send) message into an [S3F9Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F9(item secs2.Item, opts ...DecodeOption) (S3F9Body, error) {
 	var out S3F9Body
@@ -277,11 +284,12 @@ type S3F10Reply struct {
 	ACKC3 ACKC3
 }
 
-// DecodeS3F10 decodes the body of an S3F10 (Material ID Equate Acknowledge) message into a [S3F10Reply].
+// DecodeS3F10 decodes the body of an S3F10 (Material ID Equate Acknowledge) message into an [S3F10Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F10Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS3F10(item secs2.Item, opts ...DecodeOption) (S3F10Reply, error) {
 	var out S3F10Reply
@@ -306,11 +314,12 @@ type S3F11Body struct {
 	PTN secs2.Item
 }
 
-// DecodeS3F11 decodes the body of an S3F11 (Material ID Request) message into a [S3F11Body].
+// DecodeS3F11 decodes the body of an S3F11 (Material ID Request) message into an [S3F11Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS3F11(item secs2.Item, opts ...DecodeOption) (S3F11Body, error) {
 	var out S3F11Body
@@ -337,11 +346,12 @@ type S3F12Reply struct {
 	MID   secs2.Item
 }
 
-// DecodeS3F12 decodes the body of an S3F12 (Material ID Request Acknowledge) message into a [S3F12Reply].
+// DecodeS3F12 decodes the body of an S3F12 (Material ID Request Acknowledge) message into an [S3F12Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F12Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F12(item secs2.Item, opts ...DecodeOption) (S3F12Reply, error) {
 	var out S3F12Reply
@@ -380,11 +390,12 @@ type S3F13Body struct {
 	MID secs2.Item
 }
 
-// DecodeS3F13 decodes the body of an S3F13 (Material ID Send) message into a [S3F13Body].
+// DecodeS3F13 decodes the body of an S3F13 (Material ID Send) message into an [S3F13Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F13Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F13(item secs2.Item, opts ...DecodeOption) (S3F13Body, error) {
 	var out S3F13Body
@@ -418,11 +429,12 @@ type S3F14Reply struct {
 	MIDAC MIDAC
 }
 
-// DecodeS3F14 decodes the body of an S3F14 (Material ID Acknowledge) message into a [S3F14Reply].
+// DecodeS3F14 decodes the body of an S3F14 (Material ID Acknowledge) message into an [S3F14Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F14Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS3F14(item secs2.Item, opts ...DecodeOption) (S3F14Reply, error) {
 	var out S3F14Reply
@@ -448,11 +460,12 @@ type S3F15Body struct {
 	DATALENGTH secs2.Item
 }
 
-// DecodeS3F15 decodes the body of an S3F15 (Materials Multi-Block Inquire) message into a [S3F15Body].
+// DecodeS3F15 decodes the body of an S3F15 (Materials Multi-Block Inquire) message into an [S3F15Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F15Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F15(item secs2.Item, opts ...DecodeOption) (S3F15Body, error) {
 	var out S3F15Body
@@ -486,11 +499,12 @@ type S3F16Reply struct {
 	GRANT GRANT
 }
 
-// DecodeS3F16 decodes the body of an S3F16 (Materials Multi-Block Grant) message into a [S3F16Reply].
+// DecodeS3F16 decodes the body of an S3F16 (Materials Multi-Block Grant) message into an [S3F16Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F16Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS3F16(item secs2.Item, opts ...DecodeOption) (S3F16Reply, error) {
 	var out S3F16Reply
@@ -519,11 +533,12 @@ type S3F17Body struct {
 	ATTRIBUTES    []CarrierAttribute
 }
 
-// DecodeS3F17 decodes the body of an S3F17 (Carrier Action Request) message into a [S3F17Body].
+// DecodeS3F17 decodes the body of an S3F17 (Carrier Action Request) message into an [S3F17Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F17Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F17(item secs2.Item, opts ...DecodeOption) (S3F17Body, error) {
 	var out S3F17Body
@@ -573,11 +588,12 @@ type S3F18Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS3F18 decodes the body of an S3F18 (Carrier Action Acknowledge) message into a [S3F18Reply].
+// DecodeS3F18 decodes the body of an S3F18 (Carrier Action Acknowledge) message into an [S3F18Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F18Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F18(item secs2.Item, opts ...DecodeOption) (S3F18Reply, error) {
 	var out S3F18Reply
@@ -612,11 +628,12 @@ type S3F20Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS3F20 decodes the body of an S3F20 (Cancel All Carrier Out Acknowledge) message into a [S3F20Reply].
+// DecodeS3F20 decodes the body of an S3F20 (Cancel All Carrier Out Acknowledge) message into an [S3F20Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F20Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F20(item secs2.Item, opts ...DecodeOption) (S3F20Reply, error) {
 	var out S3F20Reply
@@ -652,11 +669,12 @@ type S3F21Body struct {
 	PORTS       []secs2.Item
 }
 
-// DecodeS3F21 decodes the body of an S3F21 (Port Group Definition) message into a [S3F21Body].
+// DecodeS3F21 decodes the body of an S3F21 (Port Group Definition) message into an [S3F21Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F21Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F21(item secs2.Item, opts ...DecodeOption) (S3F21Body, error) {
 	var out S3F21Body
@@ -695,11 +713,12 @@ type S3F22Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS3F22 decodes the body of an S3F22 (Port Group Definition Acknowledge) message into a [S3F22Reply].
+// DecodeS3F22 decodes the body of an S3F22 (Port Group Definition Acknowledge) message into an [S3F22Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F22Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F22(item secs2.Item, opts ...DecodeOption) (S3F22Reply, error) {
 	var out S3F22Reply
@@ -735,11 +754,12 @@ type S3F23Body struct {
 	PARAMS      []PortActionParam
 }
 
-// DecodeS3F23 decodes the body of an S3F23 (Port Group Action Request) message into a [S3F23Body].
+// DecodeS3F23 decodes the body of an S3F23 (Port Group Action Request) message into an [S3F23Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F23Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F23(item secs2.Item, opts ...DecodeOption) (S3F23Body, error) {
 	var out S3F23Body
@@ -778,11 +798,12 @@ type S3F24Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS3F24 decodes the body of an S3F24 (Port Group Action Acknowledge) message into a [S3F24Reply].
+// DecodeS3F24 decodes the body of an S3F24 (Port Group Action Acknowledge) message into an [S3F24Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F24Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F24(item secs2.Item, opts ...DecodeOption) (S3F24Reply, error) {
 	var out S3F24Reply
@@ -818,11 +839,12 @@ type S3F25Body struct {
 	PARAMS     []PortActionParam
 }
 
-// DecodeS3F25 decodes the body of an S3F25 (Port Action Request) message into a [S3F25Body].
+// DecodeS3F25 decodes the body of an S3F25 (Port Action Request) message into an [S3F25Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F25Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F25(item secs2.Item, opts ...DecodeOption) (S3F25Body, error) {
 	var out S3F25Body
@@ -864,11 +886,12 @@ type S3F26Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS3F26 decodes the body of an S3F26 (Port Action Acknowledge) message into a [S3F26Reply].
+// DecodeS3F26 decodes the body of an S3F26 (Port Action Acknowledge) message into an [S3F26Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F26Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F26(item secs2.Item, opts ...DecodeOption) (S3F26Reply, error) {
 	var out S3F26Reply
@@ -903,11 +926,12 @@ type S3F27Body struct {
 	PORTS      []secs2.Item
 }
 
-// DecodeS3F27 decodes the body of an S3F27 (Change Access) message into a [S3F27Body].
+// DecodeS3F27 decodes the body of an S3F27 (Change Access) message into an [S3F27Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F27Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F27(item secs2.Item, opts ...DecodeOption) (S3F27Body, error) {
 	var out S3F27Body
@@ -942,11 +966,12 @@ type S3F28Reply struct {
 	ERRORS []PortError
 }
 
-// DecodeS3F28 decodes the body of an S3F28 (Change Access Acknowledge) message into a [S3F28Reply].
+// DecodeS3F28 decodes the body of an S3F28 (Change Access Acknowledge) message into an [S3F28Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F28Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F28(item secs2.Item, opts ...DecodeOption) (S3F28Reply, error) {
 	var out S3F28Reply
@@ -983,11 +1008,12 @@ type S3F29Body struct {
 	DATALENGTH  secs2.Item
 }
 
-// DecodeS3F29 decodes the body of an S3F29 (Carrier Tag Read Request) message into a [S3F29Body].
+// DecodeS3F29 decodes the body of an S3F29 (Carrier Tag Read Request) message into an [S3F29Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F29Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F29(item secs2.Item, opts ...DecodeOption) (S3F29Body, error) {
 	var out S3F29Body
@@ -1031,11 +1057,12 @@ type S3F30Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS3F30 decodes the body of an S3F30 (Carrier Tag Read Data) message into a [S3F30Reply].
+// DecodeS3F30 decodes the body of an S3F30 (Carrier Tag Read Data) message into an [S3F30Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F30Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F30(item secs2.Item, opts ...DecodeOption) (S3F30Reply, error) {
 	var out S3F30Reply
@@ -1081,11 +1108,12 @@ type S3F31Body struct {
 	DATA        string
 }
 
-// DecodeS3F31 decodes the body of an S3F31 (Carrier Tag Write Data Request) message into a [S3F31Body].
+// DecodeS3F31 decodes the body of an S3F31 (Carrier Tag Write Data Request) message into an [S3F31Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F31Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F31(item secs2.Item, opts ...DecodeOption) (S3F31Body, error) {
 	var out S3F31Body
@@ -1132,11 +1160,12 @@ type S3F32Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS3F32 decodes the body of an S3F32 (Carrier Tag Write Data Acknowledge) message into a [S3F32Reply].
+// DecodeS3F32 decodes the body of an S3F32 (Carrier Tag Write Data Acknowledge) message into an [S3F32Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F32Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F32(item secs2.Item, opts ...DecodeOption) (S3F32Reply, error) {
 	var out S3F32Reply
@@ -1171,11 +1200,12 @@ type S3F34Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS3F34 decodes the body of an S3F34 (Cancel All Pod Out Acknowledge) message into a [S3F34Reply].
+// DecodeS3F34 decodes the body of an S3F34 (Cancel All Pod Out Acknowledge) message into an [S3F34Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F34Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F34(item secs2.Item, opts ...DecodeOption) (S3F34Reply, error) {
 	var out S3F34Reply
@@ -1215,11 +1245,12 @@ type S3F35Body struct {
 	PLACEMENTS []ReticlePlacement
 }
 
-// DecodeS3F35 decodes the body of an S3F35 (Reticle Transfer Job Request) message into a [S3F35Body].
+// DecodeS3F35 decodes the body of an S3F35 (Reticle Transfer Job Request) message into an [S3F35Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F35Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F35(item secs2.Item, opts ...DecodeOption) (S3F35Body, error) {
 	var out S3F35Body
@@ -1274,11 +1305,12 @@ type S3F36Reply struct {
 	ERRORS []ErrorInfo
 }
 
-// DecodeS3F36 decodes the body of an S3F36 (Reticle Transfer Job Request Acknowledgement) message into a [S3F36Reply].
+// DecodeS3F36 decodes the body of an S3F36 (Reticle Transfer Job Request Acknowledgement) message into an [S3F36Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S3F36Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS3F36(item secs2.Item, opts ...DecodeOption) (S3F36Reply, error) {
 	var out S3F36Reply

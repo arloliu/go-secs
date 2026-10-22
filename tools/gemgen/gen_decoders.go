@@ -796,12 +796,14 @@ func resultTypeDoc(typeName string, code string, mainName string, m Message, b B
 // usesCfg says whether the decoder reads its options, which only a body with a list of fixed length does.
 func decoderDoc(typeName string, code string, mainName string, m Message, b Body, usesCfg bool) []string {
 	doc := []string{
-		fmt.Sprintf("Decode%s decodes the body of an %s (%s) message%s into a [%s].", mainName, code, m.Name, actorClause(b.Actor), typeName),
+		fmt.Sprintf("Decode%s decodes the body of an %s (%s) message%s into an [%s].", mainName, code, m.Name, actorClause(b.Actor), typeName),
 		"",
 		"item is the message body, as returned by SECS2Message.Item.",
 		"The body must match the shape [" + typeName + "] documents:",
 		"a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.",
 	}
+
+	doc = append(doc, "")
 
 	if usesCfg {
 		doc = append(doc, "With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.")
