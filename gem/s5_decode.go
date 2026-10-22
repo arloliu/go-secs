@@ -233,7 +233,7 @@ type S5F9Body struct {
 	EXID            string
 	EXTYPE          string
 	EXMESSAGE       string
-	RECOVERYACTIONS []secs2.Item
+	RECOVERYACTIONS []string
 }
 
 // DecodeS5F9 decodes the body of an S5F9 (Exception Post Notify) message into a [S5F9Body].
@@ -268,7 +268,7 @@ func DecodeS5F9(item secs2.Item) (S5F9Body, error) {
 		return out, err
 	}
 
-	if out.RECOVERYACTIONS, err = decodeItems(root.At(4), "RECOVERYACTIONS"); err != nil {
+	if out.RECOVERYACTIONS, err = decodeEach(root.At(4), "RECOVERYACTIONS", decodeASCII); err != nil {
 		return out, err
 	}
 

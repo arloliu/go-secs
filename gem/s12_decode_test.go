@@ -3,7 +3,6 @@
 package gem_test
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -121,81 +120,28 @@ func TestDecodeS12F1RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F1: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F1Body{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		FNLOC:        12,
+		FNLOCPresent: true,
+		FFROT:        9,
+		FFROTPresent: true,
+		ORLOC:        0x16,
+		ORLOCPresent: true,
+		RPSEL:        45,
+		REFPS:        []secs2.Item{secs2.A("refps")},
+		DUTMS:        "dutms",
+		XDIES:        secs2.A("xdies"),
+		YDIES:        secs2.A("ydies"),
+		ROWCT:        secs2.A("rowct"),
+		COLCT:        secs2.A("colct"),
+		NULBC:        secs2.A("nulbc"),
+		PRDCT:        secs2.A("prdct"),
+		PRAXI:        0xc1,
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.FNLOC != 12 {
-		t.Errorf("FNLOC: got %v, want %v", got.FNLOC, 12)
-	}
-
-	if !got.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got false, want true")
-	}
-
-	if got.FFROT != 9 {
-		t.Errorf("FFROT: got %v, want %v", got.FFROT, 9)
-	}
-
-	if !got.FFROTPresent {
-		t.Errorf("FFROTPresent: got false, want true")
-	}
-
-	if got.ORLOC != 0x16 {
-		t.Errorf("ORLOC: got %v, want %v", got.ORLOC, 0x16)
-	}
-
-	if !got.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got false, want true")
-	}
-
-	if got.RPSEL != 45 {
-		t.Errorf("RPSEL: got %v, want %v", got.RPSEL, 45)
-	}
-
-	if len(got.REFPS) != 1 {
-		t.Fatalf("REFPS: got %d elements, want 1", len(got.REFPS))
-	}
-
-	if !bytes.Equal(got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes()) {
-		t.Errorf("REFPS: got %x, want %x", got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes())
-	}
-
-	if got.DUTMS != "dutms" {
-		t.Errorf("DUTMS: got %v, want %v", got.DUTMS, "dutms")
-	}
-
-	if !bytes.Equal(got.XDIES.ToBytes(), secs2.A("xdies").ToBytes()) {
-		t.Errorf("XDIES: got %x, want %x", got.XDIES.ToBytes(), secs2.A("xdies").ToBytes())
-	}
-
-	if !bytes.Equal(got.YDIES.ToBytes(), secs2.A("ydies").ToBytes()) {
-		t.Errorf("YDIES: got %x, want %x", got.YDIES.ToBytes(), secs2.A("ydies").ToBytes())
-	}
-
-	if !bytes.Equal(got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes()) {
-		t.Errorf("ROWCT: got %x, want %x", got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes())
-	}
-
-	if !bytes.Equal(got.COLCT.ToBytes(), secs2.A("colct").ToBytes()) {
-		t.Errorf("COLCT: got %x, want %x", got.COLCT.ToBytes(), secs2.A("colct").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
-
-	if !bytes.Equal(got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes()) {
-		t.Errorf("PRDCT: got %x, want %x", got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes())
-	}
-
-	if got.PRAXI != 0xc1 {
-		t.Errorf("PRAXI: got %v, want %v", got.PRAXI, 0xc1)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F1FNLOCAbsent(t *testing.T) {
@@ -223,83 +169,26 @@ func TestDecodeS12F1FNLOCAbsent(t *testing.T) {
 		t.Fatalf("DecodeS12F1: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F1Body{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		FFROT:        9,
+		FFROTPresent: true,
+		ORLOC:        0x16,
+		ORLOCPresent: true,
+		RPSEL:        45,
+		REFPS:        []secs2.Item{secs2.A("refps")},
+		DUTMS:        "dutms",
+		XDIES:        secs2.A("xdies"),
+		YDIES:        secs2.A("ydies"),
+		ROWCT:        secs2.A("rowct"),
+		COLCT:        secs2.A("colct"),
+		NULBC:        secs2.A("nulbc"),
+		PRDCT:        secs2.A("prdct"),
+		PRAXI:        0xc1,
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.FFROT != 9 {
-		t.Errorf("FFROT: got %v, want %v", got.FFROT, 9)
-	}
-
-	if !got.FFROTPresent {
-		t.Errorf("FFROTPresent: got false, want true")
-	}
-
-	if got.ORLOC != 0x16 {
-		t.Errorf("ORLOC: got %v, want %v", got.ORLOC, 0x16)
-	}
-
-	if !got.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got false, want true")
-	}
-
-	if got.RPSEL != 45 {
-		t.Errorf("RPSEL: got %v, want %v", got.RPSEL, 45)
-	}
-
-	if len(got.REFPS) != 1 {
-		t.Fatalf("REFPS: got %d elements, want 1", len(got.REFPS))
-	}
-
-	if !bytes.Equal(got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes()) {
-		t.Errorf("REFPS: got %x, want %x", got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes())
-	}
-
-	if got.DUTMS != "dutms" {
-		t.Errorf("DUTMS: got %v, want %v", got.DUTMS, "dutms")
-	}
-
-	if !bytes.Equal(got.XDIES.ToBytes(), secs2.A("xdies").ToBytes()) {
-		t.Errorf("XDIES: got %x, want %x", got.XDIES.ToBytes(), secs2.A("xdies").ToBytes())
-	}
-
-	if !bytes.Equal(got.YDIES.ToBytes(), secs2.A("ydies").ToBytes()) {
-		t.Errorf("YDIES: got %x, want %x", got.YDIES.ToBytes(), secs2.A("ydies").ToBytes())
-	}
-
-	if !bytes.Equal(got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes()) {
-		t.Errorf("ROWCT: got %x, want %x", got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes())
-	}
-
-	if !bytes.Equal(got.COLCT.ToBytes(), secs2.A("colct").ToBytes()) {
-		t.Errorf("COLCT: got %x, want %x", got.COLCT.ToBytes(), secs2.A("colct").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
-
-	if !bytes.Equal(got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes()) {
-		t.Errorf("PRDCT: got %x, want %x", got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes())
-	}
-
-	if got.PRAXI != 0xc1 {
-		t.Errorf("PRAXI: got %v, want %v", got.PRAXI, 0xc1)
-	}
-
-	var zero gem.S12F1Body
-
-	if got.FNLOC != zero.FNLOC {
-		t.Errorf("FNLOC: got %v, want the zero value", got.FNLOC)
-	}
-
-	if got.FNLOCPresent != zero.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got %v, want the zero value", got.FNLOCPresent)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F1FFROTAbsent(t *testing.T) {
@@ -327,83 +216,26 @@ func TestDecodeS12F1FFROTAbsent(t *testing.T) {
 		t.Fatalf("DecodeS12F1: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F1Body{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		FNLOC:        12,
+		FNLOCPresent: true,
+		ORLOC:        0x16,
+		ORLOCPresent: true,
+		RPSEL:        45,
+		REFPS:        []secs2.Item{secs2.A("refps")},
+		DUTMS:        "dutms",
+		XDIES:        secs2.A("xdies"),
+		YDIES:        secs2.A("ydies"),
+		ROWCT:        secs2.A("rowct"),
+		COLCT:        secs2.A("colct"),
+		NULBC:        secs2.A("nulbc"),
+		PRDCT:        secs2.A("prdct"),
+		PRAXI:        0xc1,
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.FNLOC != 12 {
-		t.Errorf("FNLOC: got %v, want %v", got.FNLOC, 12)
-	}
-
-	if !got.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got false, want true")
-	}
-
-	if got.ORLOC != 0x16 {
-		t.Errorf("ORLOC: got %v, want %v", got.ORLOC, 0x16)
-	}
-
-	if !got.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got false, want true")
-	}
-
-	if got.RPSEL != 45 {
-		t.Errorf("RPSEL: got %v, want %v", got.RPSEL, 45)
-	}
-
-	if len(got.REFPS) != 1 {
-		t.Fatalf("REFPS: got %d elements, want 1", len(got.REFPS))
-	}
-
-	if !bytes.Equal(got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes()) {
-		t.Errorf("REFPS: got %x, want %x", got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes())
-	}
-
-	if got.DUTMS != "dutms" {
-		t.Errorf("DUTMS: got %v, want %v", got.DUTMS, "dutms")
-	}
-
-	if !bytes.Equal(got.XDIES.ToBytes(), secs2.A("xdies").ToBytes()) {
-		t.Errorf("XDIES: got %x, want %x", got.XDIES.ToBytes(), secs2.A("xdies").ToBytes())
-	}
-
-	if !bytes.Equal(got.YDIES.ToBytes(), secs2.A("ydies").ToBytes()) {
-		t.Errorf("YDIES: got %x, want %x", got.YDIES.ToBytes(), secs2.A("ydies").ToBytes())
-	}
-
-	if !bytes.Equal(got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes()) {
-		t.Errorf("ROWCT: got %x, want %x", got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes())
-	}
-
-	if !bytes.Equal(got.COLCT.ToBytes(), secs2.A("colct").ToBytes()) {
-		t.Errorf("COLCT: got %x, want %x", got.COLCT.ToBytes(), secs2.A("colct").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
-
-	if !bytes.Equal(got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes()) {
-		t.Errorf("PRDCT: got %x, want %x", got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes())
-	}
-
-	if got.PRAXI != 0xc1 {
-		t.Errorf("PRAXI: got %v, want %v", got.PRAXI, 0xc1)
-	}
-
-	var zero gem.S12F1Body
-
-	if got.FFROT != zero.FFROT {
-		t.Errorf("FFROT: got %v, want the zero value", got.FFROT)
-	}
-
-	if got.FFROTPresent != zero.FFROTPresent {
-		t.Errorf("FFROTPresent: got %v, want the zero value", got.FFROTPresent)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F1ORLOCAbsent(t *testing.T) {
@@ -431,83 +263,26 @@ func TestDecodeS12F1ORLOCAbsent(t *testing.T) {
 		t.Fatalf("DecodeS12F1: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F1Body{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		FNLOC:        12,
+		FNLOCPresent: true,
+		FFROT:        9,
+		FFROTPresent: true,
+		RPSEL:        45,
+		REFPS:        []secs2.Item{secs2.A("refps")},
+		DUTMS:        "dutms",
+		XDIES:        secs2.A("xdies"),
+		YDIES:        secs2.A("ydies"),
+		ROWCT:        secs2.A("rowct"),
+		COLCT:        secs2.A("colct"),
+		NULBC:        secs2.A("nulbc"),
+		PRDCT:        secs2.A("prdct"),
+		PRAXI:        0xc1,
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.FNLOC != 12 {
-		t.Errorf("FNLOC: got %v, want %v", got.FNLOC, 12)
-	}
-
-	if !got.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got false, want true")
-	}
-
-	if got.FFROT != 9 {
-		t.Errorf("FFROT: got %v, want %v", got.FFROT, 9)
-	}
-
-	if !got.FFROTPresent {
-		t.Errorf("FFROTPresent: got false, want true")
-	}
-
-	if got.RPSEL != 45 {
-		t.Errorf("RPSEL: got %v, want %v", got.RPSEL, 45)
-	}
-
-	if len(got.REFPS) != 1 {
-		t.Fatalf("REFPS: got %d elements, want 1", len(got.REFPS))
-	}
-
-	if !bytes.Equal(got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes()) {
-		t.Errorf("REFPS: got %x, want %x", got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes())
-	}
-
-	if got.DUTMS != "dutms" {
-		t.Errorf("DUTMS: got %v, want %v", got.DUTMS, "dutms")
-	}
-
-	if !bytes.Equal(got.XDIES.ToBytes(), secs2.A("xdies").ToBytes()) {
-		t.Errorf("XDIES: got %x, want %x", got.XDIES.ToBytes(), secs2.A("xdies").ToBytes())
-	}
-
-	if !bytes.Equal(got.YDIES.ToBytes(), secs2.A("ydies").ToBytes()) {
-		t.Errorf("YDIES: got %x, want %x", got.YDIES.ToBytes(), secs2.A("ydies").ToBytes())
-	}
-
-	if !bytes.Equal(got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes()) {
-		t.Errorf("ROWCT: got %x, want %x", got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes())
-	}
-
-	if !bytes.Equal(got.COLCT.ToBytes(), secs2.A("colct").ToBytes()) {
-		t.Errorf("COLCT: got %x, want %x", got.COLCT.ToBytes(), secs2.A("colct").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
-
-	if !bytes.Equal(got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes()) {
-		t.Errorf("PRDCT: got %x, want %x", got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes())
-	}
-
-	if got.PRAXI != 0xc1 {
-		t.Errorf("PRAXI: got %v, want %v", got.PRAXI, 0xc1)
-	}
-
-	var zero gem.S12F1Body
-
-	if got.ORLOC != zero.ORLOC {
-		t.Errorf("ORLOC: got %v, want the zero value", got.ORLOC)
-	}
-
-	if got.ORLOCPresent != zero.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got %v, want the zero value", got.ORLOCPresent)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F2RoundTrip(t *testing.T) {
@@ -523,9 +298,11 @@ func TestDecodeS12F2RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F2: %v", err)
 	}
 
-	if got.SDACK != 0x15 {
-		t.Errorf("SDACK: got %v, want %v", got.SDACK, 0x15)
+	want := gem.S12F2Reply{
+		SDACK: 0x15,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F3RoundTrip(t *testing.T) {
@@ -541,53 +318,22 @@ func TestDecodeS12F3RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F3: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F3Body{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		MAPFT:        0xf6,
+		FNLOC:        12,
+		FNLOCPresent: true,
+		FFROT:        9,
+		FFROTPresent: true,
+		ORLOC:        0x16,
+		ORLOCPresent: true,
+		PRAXI:        0xc1,
+		BCEQU:        secs2.A("bcequ"),
+		NULBC:        secs2.A("nulbc"),
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.MAPFT != 0xf6 {
-		t.Errorf("MAPFT: got %v, want %v", got.MAPFT, 0xf6)
-	}
-
-	if got.FNLOC != 12 {
-		t.Errorf("FNLOC: got %v, want %v", got.FNLOC, 12)
-	}
-
-	if !got.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got false, want true")
-	}
-
-	if got.FFROT != 9 {
-		t.Errorf("FFROT: got %v, want %v", got.FFROT, 9)
-	}
-
-	if !got.FFROTPresent {
-		t.Errorf("FFROTPresent: got false, want true")
-	}
-
-	if got.ORLOC != 0x16 {
-		t.Errorf("ORLOC: got %v, want %v", got.ORLOC, 0x16)
-	}
-
-	if !got.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got false, want true")
-	}
-
-	if got.PRAXI != 0xc1 {
-		t.Errorf("PRAXI: got %v, want %v", got.PRAXI, 0xc1)
-	}
-
-	if !bytes.Equal(got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes()) {
-		t.Errorf("BCEQU: got %x, want %x", got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F3FNLOCAbsent(t *testing.T) {
@@ -615,55 +361,20 @@ func TestDecodeS12F3FNLOCAbsent(t *testing.T) {
 		t.Fatalf("DecodeS12F3: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F3Body{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		MAPFT:        0xf6,
+		FFROT:        9,
+		FFROTPresent: true,
+		ORLOC:        0x16,
+		ORLOCPresent: true,
+		PRAXI:        0xc1,
+		BCEQU:        secs2.A("bcequ"),
+		NULBC:        secs2.A("nulbc"),
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.MAPFT != 0xf6 {
-		t.Errorf("MAPFT: got %v, want %v", got.MAPFT, 0xf6)
-	}
-
-	if got.FFROT != 9 {
-		t.Errorf("FFROT: got %v, want %v", got.FFROT, 9)
-	}
-
-	if !got.FFROTPresent {
-		t.Errorf("FFROTPresent: got false, want true")
-	}
-
-	if got.ORLOC != 0x16 {
-		t.Errorf("ORLOC: got %v, want %v", got.ORLOC, 0x16)
-	}
-
-	if !got.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got false, want true")
-	}
-
-	if got.PRAXI != 0xc1 {
-		t.Errorf("PRAXI: got %v, want %v", got.PRAXI, 0xc1)
-	}
-
-	if !bytes.Equal(got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes()) {
-		t.Errorf("BCEQU: got %x, want %x", got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
-
-	var zero gem.S12F3Body
-
-	if got.FNLOC != zero.FNLOC {
-		t.Errorf("FNLOC: got %v, want the zero value", got.FNLOC)
-	}
-
-	if got.FNLOCPresent != zero.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got %v, want the zero value", got.FNLOCPresent)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F3FFROTAbsent(t *testing.T) {
@@ -691,55 +402,20 @@ func TestDecodeS12F3FFROTAbsent(t *testing.T) {
 		t.Fatalf("DecodeS12F3: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F3Body{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		MAPFT:        0xf6,
+		FNLOC:        12,
+		FNLOCPresent: true,
+		ORLOC:        0x16,
+		ORLOCPresent: true,
+		PRAXI:        0xc1,
+		BCEQU:        secs2.A("bcequ"),
+		NULBC:        secs2.A("nulbc"),
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.MAPFT != 0xf6 {
-		t.Errorf("MAPFT: got %v, want %v", got.MAPFT, 0xf6)
-	}
-
-	if got.FNLOC != 12 {
-		t.Errorf("FNLOC: got %v, want %v", got.FNLOC, 12)
-	}
-
-	if !got.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got false, want true")
-	}
-
-	if got.ORLOC != 0x16 {
-		t.Errorf("ORLOC: got %v, want %v", got.ORLOC, 0x16)
-	}
-
-	if !got.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got false, want true")
-	}
-
-	if got.PRAXI != 0xc1 {
-		t.Errorf("PRAXI: got %v, want %v", got.PRAXI, 0xc1)
-	}
-
-	if !bytes.Equal(got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes()) {
-		t.Errorf("BCEQU: got %x, want %x", got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
-
-	var zero gem.S12F3Body
-
-	if got.FFROT != zero.FFROT {
-		t.Errorf("FFROT: got %v, want the zero value", got.FFROT)
-	}
-
-	if got.FFROTPresent != zero.FFROTPresent {
-		t.Errorf("FFROTPresent: got %v, want the zero value", got.FFROTPresent)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F3ORLOCAbsent(t *testing.T) {
@@ -767,55 +443,20 @@ func TestDecodeS12F3ORLOCAbsent(t *testing.T) {
 		t.Fatalf("DecodeS12F3: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F3Body{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		MAPFT:        0xf6,
+		FNLOC:        12,
+		FNLOCPresent: true,
+		FFROT:        9,
+		FFROTPresent: true,
+		PRAXI:        0xc1,
+		BCEQU:        secs2.A("bcequ"),
+		NULBC:        secs2.A("nulbc"),
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.MAPFT != 0xf6 {
-		t.Errorf("MAPFT: got %v, want %v", got.MAPFT, 0xf6)
-	}
-
-	if got.FNLOC != 12 {
-		t.Errorf("FNLOC: got %v, want %v", got.FNLOC, 12)
-	}
-
-	if !got.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got false, want true")
-	}
-
-	if got.FFROT != 9 {
-		t.Errorf("FFROT: got %v, want %v", got.FFROT, 9)
-	}
-
-	if !got.FFROTPresent {
-		t.Errorf("FFROTPresent: got false, want true")
-	}
-
-	if got.PRAXI != 0xc1 {
-		t.Errorf("PRAXI: got %v, want %v", got.PRAXI, 0xc1)
-	}
-
-	if !bytes.Equal(got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes()) {
-		t.Errorf("BCEQU: got %x, want %x", got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
-
-	var zero gem.S12F3Body
-
-	if got.ORLOC != zero.ORLOC {
-		t.Errorf("ORLOC: got %v, want the zero value", got.ORLOC)
-	}
-
-	if got.ORLOCPresent != zero.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got %v, want the zero value", got.ORLOCPresent)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F4RoundTrip(t *testing.T) {
@@ -831,77 +472,27 @@ func TestDecodeS12F4RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F4: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F4Reply{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		FNLOC:        12,
+		FNLOCPresent: true,
+		ORLOC:        0x16,
+		ORLOCPresent: true,
+		RPSEL:        45,
+		REFPS:        []secs2.Item{secs2.A("refps")},
+		DUTMS:        "dutms",
+		XDIES:        secs2.A("xdies"),
+		YDIES:        secs2.A("ydies"),
+		ROWCT:        secs2.A("rowct"),
+		COLCT:        secs2.A("colct"),
+		PRDCT:        secs2.A("prdct"),
+		BCEQU:        secs2.A("bcequ"),
+		NULBC:        secs2.A("nulbc"),
+		MLCL:         secs2.A("mlcl"),
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.FNLOC != 12 {
-		t.Errorf("FNLOC: got %v, want %v", got.FNLOC, 12)
-	}
-
-	if !got.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got false, want true")
-	}
-
-	if got.ORLOC != 0x16 {
-		t.Errorf("ORLOC: got %v, want %v", got.ORLOC, 0x16)
-	}
-
-	if !got.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got false, want true")
-	}
-
-	if got.RPSEL != 45 {
-		t.Errorf("RPSEL: got %v, want %v", got.RPSEL, 45)
-	}
-
-	if len(got.REFPS) != 1 {
-		t.Fatalf("REFPS: got %d elements, want 1", len(got.REFPS))
-	}
-
-	if !bytes.Equal(got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes()) {
-		t.Errorf("REFPS: got %x, want %x", got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes())
-	}
-
-	if got.DUTMS != "dutms" {
-		t.Errorf("DUTMS: got %v, want %v", got.DUTMS, "dutms")
-	}
-
-	if !bytes.Equal(got.XDIES.ToBytes(), secs2.A("xdies").ToBytes()) {
-		t.Errorf("XDIES: got %x, want %x", got.XDIES.ToBytes(), secs2.A("xdies").ToBytes())
-	}
-
-	if !bytes.Equal(got.YDIES.ToBytes(), secs2.A("ydies").ToBytes()) {
-		t.Errorf("YDIES: got %x, want %x", got.YDIES.ToBytes(), secs2.A("ydies").ToBytes())
-	}
-
-	if !bytes.Equal(got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes()) {
-		t.Errorf("ROWCT: got %x, want %x", got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes())
-	}
-
-	if !bytes.Equal(got.COLCT.ToBytes(), secs2.A("colct").ToBytes()) {
-		t.Errorf("COLCT: got %x, want %x", got.COLCT.ToBytes(), secs2.A("colct").ToBytes())
-	}
-
-	if !bytes.Equal(got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes()) {
-		t.Errorf("PRDCT: got %x, want %x", got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes())
-	}
-
-	if !bytes.Equal(got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes()) {
-		t.Errorf("BCEQU: got %x, want %x", got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
-
-	if !bytes.Equal(got.MLCL.ToBytes(), secs2.A("mlcl").ToBytes()) {
-		t.Errorf("MLCL: got %x, want %x", got.MLCL.ToBytes(), secs2.A("mlcl").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F4EmptyList(t *testing.T) {
@@ -910,75 +501,7 @@ func TestDecodeS12F4EmptyList(t *testing.T) {
 		t.Fatalf("DecodeS12F4: %v", err)
 	}
 
-	var zero gem.S12F4Reply
-
-	if got.MID != zero.MID {
-		t.Errorf("MID: got %v, want the zero value", got.MID)
-	}
-
-	if got.IDTYP != zero.IDTYP {
-		t.Errorf("IDTYP: got %v, want the zero value", got.IDTYP)
-	}
-
-	if got.FNLOC != zero.FNLOC {
-		t.Errorf("FNLOC: got %v, want the zero value", got.FNLOC)
-	}
-
-	if got.FNLOCPresent != zero.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got %v, want the zero value", got.FNLOCPresent)
-	}
-
-	if got.ORLOC != zero.ORLOC {
-		t.Errorf("ORLOC: got %v, want the zero value", got.ORLOC)
-	}
-
-	if got.ORLOCPresent != zero.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got %v, want the zero value", got.ORLOCPresent)
-	}
-
-	if got.RPSEL != zero.RPSEL {
-		t.Errorf("RPSEL: got %v, want the zero value", got.RPSEL)
-	}
-
-	if len(got.REFPS) != 0 {
-		t.Errorf("REFPS: got %d elements, want none", len(got.REFPS))
-	}
-
-	if got.DUTMS != zero.DUTMS {
-		t.Errorf("DUTMS: got %v, want the zero value", got.DUTMS)
-	}
-
-	if got.XDIES != zero.XDIES {
-		t.Errorf("XDIES: got %v, want the zero value", got.XDIES)
-	}
-
-	if got.YDIES != zero.YDIES {
-		t.Errorf("YDIES: got %v, want the zero value", got.YDIES)
-	}
-
-	if got.ROWCT != zero.ROWCT {
-		t.Errorf("ROWCT: got %v, want the zero value", got.ROWCT)
-	}
-
-	if got.COLCT != zero.COLCT {
-		t.Errorf("COLCT: got %v, want the zero value", got.COLCT)
-	}
-
-	if got.PRDCT != zero.PRDCT {
-		t.Errorf("PRDCT: got %v, want the zero value", got.PRDCT)
-	}
-
-	if got.BCEQU != zero.BCEQU {
-		t.Errorf("BCEQU: got %v, want the zero value", got.BCEQU)
-	}
-
-	if got.NULBC != zero.NULBC {
-		t.Errorf("NULBC: got %v, want the zero value", got.NULBC)
-	}
-
-	if got.MLCL != zero.MLCL {
-		t.Errorf("MLCL: got %v, want the zero value", got.MLCL)
-	}
+	assertDecoded(t, got, gem.S12F4Reply{})
 }
 
 func TestDecodeS12F4FNLOCAbsent(t *testing.T) {
@@ -1006,79 +529,25 @@ func TestDecodeS12F4FNLOCAbsent(t *testing.T) {
 		t.Fatalf("DecodeS12F4: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F4Reply{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		ORLOC:        0x16,
+		ORLOCPresent: true,
+		RPSEL:        45,
+		REFPS:        []secs2.Item{secs2.A("refps")},
+		DUTMS:        "dutms",
+		XDIES:        secs2.A("xdies"),
+		YDIES:        secs2.A("ydies"),
+		ROWCT:        secs2.A("rowct"),
+		COLCT:        secs2.A("colct"),
+		PRDCT:        secs2.A("prdct"),
+		BCEQU:        secs2.A("bcequ"),
+		NULBC:        secs2.A("nulbc"),
+		MLCL:         secs2.A("mlcl"),
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.ORLOC != 0x16 {
-		t.Errorf("ORLOC: got %v, want %v", got.ORLOC, 0x16)
-	}
-
-	if !got.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got false, want true")
-	}
-
-	if got.RPSEL != 45 {
-		t.Errorf("RPSEL: got %v, want %v", got.RPSEL, 45)
-	}
-
-	if len(got.REFPS) != 1 {
-		t.Fatalf("REFPS: got %d elements, want 1", len(got.REFPS))
-	}
-
-	if !bytes.Equal(got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes()) {
-		t.Errorf("REFPS: got %x, want %x", got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes())
-	}
-
-	if got.DUTMS != "dutms" {
-		t.Errorf("DUTMS: got %v, want %v", got.DUTMS, "dutms")
-	}
-
-	if !bytes.Equal(got.XDIES.ToBytes(), secs2.A("xdies").ToBytes()) {
-		t.Errorf("XDIES: got %x, want %x", got.XDIES.ToBytes(), secs2.A("xdies").ToBytes())
-	}
-
-	if !bytes.Equal(got.YDIES.ToBytes(), secs2.A("ydies").ToBytes()) {
-		t.Errorf("YDIES: got %x, want %x", got.YDIES.ToBytes(), secs2.A("ydies").ToBytes())
-	}
-
-	if !bytes.Equal(got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes()) {
-		t.Errorf("ROWCT: got %x, want %x", got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes())
-	}
-
-	if !bytes.Equal(got.COLCT.ToBytes(), secs2.A("colct").ToBytes()) {
-		t.Errorf("COLCT: got %x, want %x", got.COLCT.ToBytes(), secs2.A("colct").ToBytes())
-	}
-
-	if !bytes.Equal(got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes()) {
-		t.Errorf("PRDCT: got %x, want %x", got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes())
-	}
-
-	if !bytes.Equal(got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes()) {
-		t.Errorf("BCEQU: got %x, want %x", got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
-
-	if !bytes.Equal(got.MLCL.ToBytes(), secs2.A("mlcl").ToBytes()) {
-		t.Errorf("MLCL: got %x, want %x", got.MLCL.ToBytes(), secs2.A("mlcl").ToBytes())
-	}
-
-	var zero gem.S12F4Reply
-
-	if got.FNLOC != zero.FNLOC {
-		t.Errorf("FNLOC: got %v, want the zero value", got.FNLOC)
-	}
-
-	if got.FNLOCPresent != zero.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got %v, want the zero value", got.FNLOCPresent)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F4ORLOCAbsent(t *testing.T) {
@@ -1106,79 +575,25 @@ func TestDecodeS12F4ORLOCAbsent(t *testing.T) {
 		t.Fatalf("DecodeS12F4: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F4Reply{
+		MID:          secs2.A("mid"),
+		IDTYP:        0xff,
+		FNLOC:        12,
+		FNLOCPresent: true,
+		RPSEL:        45,
+		REFPS:        []secs2.Item{secs2.A("refps")},
+		DUTMS:        "dutms",
+		XDIES:        secs2.A("xdies"),
+		YDIES:        secs2.A("ydies"),
+		ROWCT:        secs2.A("rowct"),
+		COLCT:        secs2.A("colct"),
+		PRDCT:        secs2.A("prdct"),
+		BCEQU:        secs2.A("bcequ"),
+		NULBC:        secs2.A("nulbc"),
+		MLCL:         secs2.A("mlcl"),
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.FNLOC != 12 {
-		t.Errorf("FNLOC: got %v, want %v", got.FNLOC, 12)
-	}
-
-	if !got.FNLOCPresent {
-		t.Errorf("FNLOCPresent: got false, want true")
-	}
-
-	if got.RPSEL != 45 {
-		t.Errorf("RPSEL: got %v, want %v", got.RPSEL, 45)
-	}
-
-	if len(got.REFPS) != 1 {
-		t.Fatalf("REFPS: got %d elements, want 1", len(got.REFPS))
-	}
-
-	if !bytes.Equal(got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes()) {
-		t.Errorf("REFPS: got %x, want %x", got.REFPS[0].ToBytes(), secs2.A("refps").ToBytes())
-	}
-
-	if got.DUTMS != "dutms" {
-		t.Errorf("DUTMS: got %v, want %v", got.DUTMS, "dutms")
-	}
-
-	if !bytes.Equal(got.XDIES.ToBytes(), secs2.A("xdies").ToBytes()) {
-		t.Errorf("XDIES: got %x, want %x", got.XDIES.ToBytes(), secs2.A("xdies").ToBytes())
-	}
-
-	if !bytes.Equal(got.YDIES.ToBytes(), secs2.A("ydies").ToBytes()) {
-		t.Errorf("YDIES: got %x, want %x", got.YDIES.ToBytes(), secs2.A("ydies").ToBytes())
-	}
-
-	if !bytes.Equal(got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes()) {
-		t.Errorf("ROWCT: got %x, want %x", got.ROWCT.ToBytes(), secs2.A("rowct").ToBytes())
-	}
-
-	if !bytes.Equal(got.COLCT.ToBytes(), secs2.A("colct").ToBytes()) {
-		t.Errorf("COLCT: got %x, want %x", got.COLCT.ToBytes(), secs2.A("colct").ToBytes())
-	}
-
-	if !bytes.Equal(got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes()) {
-		t.Errorf("PRDCT: got %x, want %x", got.PRDCT.ToBytes(), secs2.A("prdct").ToBytes())
-	}
-
-	if !bytes.Equal(got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes()) {
-		t.Errorf("BCEQU: got %x, want %x", got.BCEQU.ToBytes(), secs2.A("bcequ").ToBytes())
-	}
-
-	if !bytes.Equal(got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes()) {
-		t.Errorf("NULBC: got %x, want %x", got.NULBC.ToBytes(), secs2.A("nulbc").ToBytes())
-	}
-
-	if !bytes.Equal(got.MLCL.ToBytes(), secs2.A("mlcl").ToBytes()) {
-		t.Errorf("MLCL: got %x, want %x", got.MLCL.ToBytes(), secs2.A("mlcl").ToBytes())
-	}
-
-	var zero gem.S12F4Reply
-
-	if got.ORLOC != zero.ORLOC {
-		t.Errorf("ORLOC: got %v, want the zero value", got.ORLOC)
-	}
-
-	if got.ORLOCPresent != zero.ORLOCPresent {
-		t.Errorf("ORLOCPresent: got %v, want the zero value", got.ORLOCPresent)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F5RoundTrip(t *testing.T) {
@@ -1194,21 +609,14 @@ func TestDecodeS12F5RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F5: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F5Body{
+		MID:   secs2.A("mid"),
+		IDTYP: 0xff,
+		MAPFT: 0xf6,
+		MLCL:  secs2.A("mlcl"),
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.MAPFT != 0xf6 {
-		t.Errorf("MAPFT: got %v, want %v", got.MAPFT, 0xf6)
-	}
-
-	if !bytes.Equal(got.MLCL.ToBytes(), secs2.A("mlcl").ToBytes()) {
-		t.Errorf("MLCL: got %x, want %x", got.MLCL.ToBytes(), secs2.A("mlcl").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F6RoundTrip(t *testing.T) {
@@ -1224,9 +632,11 @@ func TestDecodeS12F6RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F6: %v", err)
 	}
 
-	if got.GRNT1 != 0x50 {
-		t.Errorf("GRNT1: got %v, want %v", got.GRNT1, 0x50)
+	want := gem.S12F6Reply{
+		GRNT1: 0x50,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F7RoundTrip(t *testing.T) {
@@ -1242,21 +652,13 @@ func TestDecodeS12F7RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F7: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F7Body{
+		MID:   secs2.A("mid"),
+		IDTYP: 0xff,
+		ROWS:  []secs2.Item{secs2.A("rows")},
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if len(got.ROWS) != 1 {
-		t.Fatalf("ROWS: got %d elements, want 1", len(got.ROWS))
-	}
-
-	if !bytes.Equal(got.ROWS[0].ToBytes(), secs2.A("rows").ToBytes()) {
-		t.Errorf("ROWS: got %x, want %x", got.ROWS[0].ToBytes(), secs2.A("rows").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F8RoundTrip(t *testing.T) {
@@ -1272,9 +674,11 @@ func TestDecodeS12F8RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F8: %v", err)
 	}
 
-	if got.MDACK != 0xae {
-		t.Errorf("MDACK: got %v, want %v", got.MDACK, 0xae)
+	want := gem.S12F8Reply{
+		MDACK: 0xae,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F9RoundTrip(t *testing.T) {
@@ -1290,21 +694,14 @@ func TestDecodeS12F9RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F9: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F9Body{
+		MID:   secs2.A("mid"),
+		IDTYP: 0xff,
+		STRP:  secs2.A("strp"),
+		BINLT: secs2.A("binlt"),
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if !bytes.Equal(got.STRP.ToBytes(), secs2.A("strp").ToBytes()) {
-		t.Errorf("STRP: got %x, want %x", got.STRP.ToBytes(), secs2.A("strp").ToBytes())
-	}
-
-	if !bytes.Equal(got.BINLT.ToBytes(), secs2.A("binlt").ToBytes()) {
-		t.Errorf("BINLT: got %x, want %x", got.BINLT.ToBytes(), secs2.A("binlt").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F10RoundTrip(t *testing.T) {
@@ -1320,9 +717,11 @@ func TestDecodeS12F10RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F10: %v", err)
 	}
 
-	if got.MDACK != 0xae {
-		t.Errorf("MDACK: got %v, want %v", got.MDACK, 0xae)
+	want := gem.S12F10Reply{
+		MDACK: 0xae,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F11RoundTrip(t *testing.T) {
@@ -1338,21 +737,13 @@ func TestDecodeS12F11RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F11: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F11Body{
+		MID:       secs2.A("mid"),
+		IDTYP:     0xff,
+		POSITIONS: []secs2.Item{secs2.A("positions")},
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if len(got.POSITIONS) != 1 {
-		t.Fatalf("POSITIONS: got %d elements, want 1", len(got.POSITIONS))
-	}
-
-	if !bytes.Equal(got.POSITIONS[0].ToBytes(), secs2.A("positions").ToBytes()) {
-		t.Errorf("POSITIONS: got %x, want %x", got.POSITIONS[0].ToBytes(), secs2.A("positions").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F12RoundTrip(t *testing.T) {
@@ -1368,9 +759,11 @@ func TestDecodeS12F12RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F12: %v", err)
 	}
 
-	if got.MDACK != 0xae {
-		t.Errorf("MDACK: got %v, want %v", got.MDACK, 0xae)
+	want := gem.S12F12Reply{
+		MDACK: 0xae,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F13RoundTrip(t *testing.T) {
@@ -1386,13 +779,12 @@ func TestDecodeS12F13RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F13: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F13Body{
+		MID:   secs2.A("mid"),
+		IDTYP: 0xff,
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F14RoundTrip(t *testing.T) {
@@ -1408,21 +800,13 @@ func TestDecodeS12F14RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F14: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F14Reply{
+		MID:   secs2.A("mid"),
+		IDTYP: 0xff,
+		ROWS:  []secs2.Item{secs2.A("rows")},
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if len(got.ROWS) != 1 {
-		t.Fatalf("ROWS: got %d elements, want 1", len(got.ROWS))
-	}
-
-	if !bytes.Equal(got.ROWS[0].ToBytes(), secs2.A("rows").ToBytes()) {
-		t.Errorf("ROWS: got %x, want %x", got.ROWS[0].ToBytes(), secs2.A("rows").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F15RoundTrip(t *testing.T) {
@@ -1438,13 +822,12 @@ func TestDecodeS12F15RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F15: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F15Body{
+		MID:   secs2.A("mid"),
+		IDTYP: 0xff,
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F16RoundTrip(t *testing.T) {
@@ -1460,21 +843,14 @@ func TestDecodeS12F16RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F16: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F16Reply{
+		MID:   secs2.A("mid"),
+		IDTYP: 0xff,
+		STRP:  secs2.A("strp"),
+		BINLT: secs2.A("binlt"),
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if !bytes.Equal(got.STRP.ToBytes(), secs2.A("strp").ToBytes()) {
-		t.Errorf("STRP: got %x, want %x", got.STRP.ToBytes(), secs2.A("strp").ToBytes())
-	}
-
-	if !bytes.Equal(got.BINLT.ToBytes(), secs2.A("binlt").ToBytes()) {
-		t.Errorf("BINLT: got %x, want %x", got.BINLT.ToBytes(), secs2.A("binlt").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F16EmptyList(t *testing.T) {
@@ -1483,23 +859,7 @@ func TestDecodeS12F16EmptyList(t *testing.T) {
 		t.Fatalf("DecodeS12F16: %v", err)
 	}
 
-	var zero gem.S12F16Reply
-
-	if got.MID != zero.MID {
-		t.Errorf("MID: got %v, want the zero value", got.MID)
-	}
-
-	if got.IDTYP != zero.IDTYP {
-		t.Errorf("IDTYP: got %v, want the zero value", got.IDTYP)
-	}
-
-	if got.STRP != zero.STRP {
-		t.Errorf("STRP: got %v, want the zero value", got.STRP)
-	}
-
-	if got.BINLT != zero.BINLT {
-		t.Errorf("BINLT: got %v, want the zero value", got.BINLT)
-	}
+	assertDecoded(t, got, gem.S12F16Reply{})
 }
 
 func TestDecodeS12F17RoundTrip(t *testing.T) {
@@ -1515,17 +875,13 @@ func TestDecodeS12F17RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F17: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F17Body{
+		MID:   secs2.A("mid"),
+		IDTYP: 0xff,
+		SDBIN: 0x73,
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if got.SDBIN != 0x73 {
-		t.Errorf("SDBIN: got %v, want %v", got.SDBIN, 0x73)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F18RoundTrip(t *testing.T) {
@@ -1541,21 +897,13 @@ func TestDecodeS12F18RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F18: %v", err)
 	}
 
-	if !bytes.Equal(got.MID.ToBytes(), secs2.A("mid").ToBytes()) {
-		t.Errorf("MID: got %x, want %x", got.MID.ToBytes(), secs2.A("mid").ToBytes())
+	want := gem.S12F18Reply{
+		MID:       secs2.A("mid"),
+		IDTYP:     0xff,
+		POSITIONS: []secs2.Item{secs2.A("positions")},
 	}
 
-	if got.IDTYP != 0xff {
-		t.Errorf("IDTYP: got %v, want %v", got.IDTYP, 0xff)
-	}
-
-	if len(got.POSITIONS) != 1 {
-		t.Fatalf("POSITIONS: got %d elements, want 1", len(got.POSITIONS))
-	}
-
-	if !bytes.Equal(got.POSITIONS[0].ToBytes(), secs2.A("positions").ToBytes()) {
-		t.Errorf("POSITIONS: got %x, want %x", got.POSITIONS[0].ToBytes(), secs2.A("positions").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS12F18EmptyList(t *testing.T) {
@@ -1564,19 +912,7 @@ func TestDecodeS12F18EmptyList(t *testing.T) {
 		t.Fatalf("DecodeS12F18: %v", err)
 	}
 
-	var zero gem.S12F18Reply
-
-	if got.MID != zero.MID {
-		t.Errorf("MID: got %v, want the zero value", got.MID)
-	}
-
-	if got.IDTYP != zero.IDTYP {
-		t.Errorf("IDTYP: got %v, want the zero value", got.IDTYP)
-	}
-
-	if len(got.POSITIONS) != 0 {
-		t.Errorf("POSITIONS: got %d elements, want none", len(got.POSITIONS))
-	}
+	assertDecoded(t, got, gem.S12F18Reply{})
 }
 
 func TestDecodeS12F19RoundTrip(t *testing.T) {
@@ -1592,11 +928,10 @@ func TestDecodeS12F19RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS12F19: %v", err)
 	}
 
-	if got.MAPER != 0xc6 {
-		t.Errorf("MAPER: got %v, want %v", got.MAPER, 0xc6)
+	want := gem.S12F19Body{
+		MAPER: 0xc6,
+		DATLC: 82,
 	}
 
-	if got.DATLC != 82 {
-		t.Errorf("DATLC: got %v, want %v", got.DATLC, 82)
-	}
+	assertDecoded(t, got, want)
 }

@@ -354,9 +354,7 @@ func TestRenderTestsAlternateBooleanSamples(t *testing.T) {
 	out, err = renderDecodeTests(mf, items)
 	require.NoError(t, err)
 	parseGoSource(t, out)
-	require.Contains(t, string(out), "if !got.START {")
-	require.Contains(t, string(out), "if got.STOP {")
-	require.Contains(t, string(out), "if !got.ABORT {")
+	require.Contains(t, string(out), "\t\tSTART: true,\n\t\tSTOP:  false,\n\t\tABORT: true,\n")
 }
 
 // TestRenderTestsByteArrayLeaf proves the byte-array/byte-slice leaf body

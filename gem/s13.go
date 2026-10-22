@@ -159,8 +159,8 @@ func S13F12(grant GRANT) secs2.SECS2Message {
 // Exception: If OBJSPEC is a zero-length item, the owner of the table is the receiver of the message.
 // If r = 0, any existing table definition of the given type and id is to be deleted.
 // Otherwise, the element count of a row (E5's c1) may not be zero and shall be less than or equal to the value of c.
-func S13F13(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblcmd TBLCMD, attrs []secs2.Item, colhdrs []secs2.Item, rows ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 13, true, secs2.L(dataid, secs2.A(objspec), secs2.A(string(tbltyp)), secs2.A(tblid), secs2.U1(uint8(tblcmd)), secs2.L(attrs...), secs2.L(colhdrs...), secs2.L(rows...)))
+func S13F13(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblcmd TBLCMD, attrs []secs2.Item, colhdrs []string, rows ...secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(13, 13, true, secs2.L(dataid, secs2.A(objspec), secs2.A(string(tbltyp)), secs2.A(tblid), secs2.U1(uint8(tblcmd)), secs2.L(attrs...), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(rows...)))
 }
 
 // S13F14 creates the S13F14 (Table Data Acknowledge) message, direction: bidirectional.
@@ -185,8 +185,8 @@ func S13F14(tblack TBLACK, errors ...secs2.Item) secs2.SECS2Message {
 // Exception: If OBJSPEC is a zero-length item, the owner of the table is the receiver of the message.
 // Either p or q, or both, must be zero.
 // If p = 0 and q = 0, all rows are requested; otherwise, only the specified columns, or the rows referenced by TBLELT, are requested.
-func S13F15(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblcmd TBLCMD, colhdrs []secs2.Item, tblelts ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 15, true, secs2.L(dataid, secs2.A(objspec), secs2.A(string(tbltyp)), secs2.A(tblid), secs2.U1(uint8(tblcmd)), secs2.L(colhdrs...), secs2.L(tblelts...)))
+func S13F15(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblcmd TBLCMD, colhdrs []string, tblelts ...secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(13, 15, true, secs2.L(dataid, secs2.A(objspec), secs2.A(string(tbltyp)), secs2.A(tblid), secs2.U1(uint8(tblcmd)), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(tblelts...)))
 }
 
 // S13F16 creates the S13F16 (Table Data) message, direction: bidirectional.
@@ -198,6 +198,6 @@ func S13F15(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblc
 //
 // Exception: p = 0 if, and only if, TBLACK indicates no errors.
 // The length of a table row may not exceed the value of c.
-func S13F16(tbltyp TBLTYP, tblid string, attrs []secs2.Item, colhdrs []secs2.Item, rows []secs2.Item, tblack TBLACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 16, false, secs2.L(secs2.A(string(tbltyp)), secs2.A(tblid), secs2.L(attrs...), secs2.L(colhdrs...), secs2.L(rows...), secs2.L(secs2.U1(uint8(tblack)), secs2.L(errors...))))
+func S13F16(tbltyp TBLTYP, tblid string, attrs []secs2.Item, colhdrs []string, rows []secs2.Item, tblack TBLACK, errors ...secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(13, 16, false, secs2.L(secs2.A(string(tbltyp)), secs2.A(tblid), secs2.L(attrs...), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(rows...), secs2.L(secs2.U1(uint8(tblack)), secs2.L(errors...))))
 }

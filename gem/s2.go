@@ -133,8 +133,8 @@ func S2F11() secs2.SECS2Message {
 // Body: L[n]{ <spids>... }.
 //
 // Exception: If n = 0, there are no service programs.
-func S2F12(spids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 12, false, secs2.L(spids...))
+func S2F12(spids ...string) secs2.SECS2Message {
+	return secs2.NewMessage(2, 12, false, secs2.L(valueItems(spids, secs2.A)...))
 }
 
 // S2F13 creates the S2F13 (Equipment Constant Request) message, direction: host-to-equipment.

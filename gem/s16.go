@@ -177,8 +177,8 @@ func S16F15(dataid secs2.Item, jobs ...secs2.Item) secs2.SECS2Message {
 // Body: L[2]{ L[n]{ <prjobids>... } L[2]{ BOOLEAN[acka] L[n]{ <errors>... } } }.
 //
 // Exception: If n = 0, no errors exist.
-func S16F16(prjobids []secs2.Item, acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 16, false, secs2.L(secs2.L(prjobids...), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
+func S16F16(prjobids []string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(16, 16, false, secs2.L(secs2.L(valueItems(prjobids, secs2.A)...), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
 }
 
 // S16F17 creates the S16F17 (PRJobDequeue) message, direction: host-to-equipment.
@@ -188,8 +188,8 @@ func S16F16(prjobids []secs2.Item, acka bool, errors ...secs2.Item) secs2.SECS2M
 // Body: L[n]{ <prjobids>... }.
 //
 // Exception: If m = 0, then de-queue all.
-func S16F17(prjobids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 17, true, secs2.L(prjobids...))
+func S16F17(prjobids ...string) secs2.SECS2Message {
+	return secs2.NewMessage(16, 17, true, secs2.L(valueItems(prjobids, secs2.A)...))
 }
 
 // S16F18 creates the S16F18 (PRJobDequeue Acknowledge) message, direction: equipment-to-host.
@@ -201,8 +201,8 @@ func S16F17(prjobids ...secs2.Item) secs2.SECS2Message {
 // Body: L[2]{ L[n]{ <prjobids>... } L[2]{ BOOLEAN[acka] L[n]{ <errors>... } } }.
 //
 // Exception: If n = 0, no errors exist.
-func S16F18(prjobids []secs2.Item, acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 18, false, secs2.L(secs2.L(prjobids...), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
+func S16F18(prjobids []string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(16, 18, false, secs2.L(secs2.L(valueItems(prjobids, secs2.A)...), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
 }
 
 // S16F19 creates the S16F19 (PRGetAllJobs) message, direction: host-to-equipment.
@@ -281,8 +281,8 @@ func S16F24(acka bool, errors ...secs2.Item) secs2.SECS2Message {
 // Body: L[2]{ L[n]{ <prjobids>... } BOOLEAN[prprocessstart] }.
 //
 // Exception: None.
-func S16F25(prjobids []secs2.Item, prprocessstart bool) secs2.SECS2Message {
-	return secs2.NewMessage(16, 25, true, secs2.L(secs2.L(prjobids...), secs2.BOOLEAN(prprocessstart)))
+func S16F25(prjobids []string, prprocessstart bool) secs2.SECS2Message {
+	return secs2.NewMessage(16, 25, true, secs2.L(secs2.L(valueItems(prjobids, secs2.A)...), secs2.BOOLEAN(prprocessstart)))
 }
 
 // S16F26 creates the S16F26 (PRJobSetStartMethod Acknowledge) message, direction: equipment-to-host.
@@ -294,8 +294,8 @@ func S16F25(prjobids []secs2.Item, prprocessstart bool) secs2.SECS2Message {
 // Body: L[2]{ L[n]{ <prjobids>... } L[2]{ BOOLEAN[acka] L[n]{ <errors>... } } }.
 //
 // Exception: None.
-func S16F26(prjobids []secs2.Item, acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 26, false, secs2.L(secs2.L(prjobids...), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
+func S16F26(prjobids []string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(16, 26, false, secs2.L(secs2.L(valueItems(prjobids, secs2.A)...), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
 }
 
 // S16F27 creates the S16F27 (Control Job Command Request) message, direction: host-to-equipment.

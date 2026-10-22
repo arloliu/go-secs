@@ -281,7 +281,7 @@ func TestOptionalLeavesCompileAndRunAgainstRealSecs2(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(out), 0o600))
 	}
 
-	plantFuzzHarness(t, rootDir, checkDir, pkg)
+	plantTestSupport(t, rootDir, checkDir, pkg)
 
 	extra := strings.Replace(optionalExtraTest, "package PKG\n", "package "+pkg+"\n", 1)
 	require.NoError(t, os.WriteFile(filepath.Join(checkDir, "optional_extra_test.go"), []byte(extra), 0o600))

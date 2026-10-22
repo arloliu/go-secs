@@ -3,7 +3,6 @@
 package gem_test
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -71,13 +70,12 @@ func TestDecodeS10F1RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS10F1: %v", err)
 	}
 
-	if got.TID != 0x5d {
-		t.Errorf("TID: got %v, want %v", got.TID, 0x5d)
+	want := gem.S10F1Body{
+		TID:  0x5d,
+		TEXT: secs2.A("text"),
 	}
 
-	if !bytes.Equal(got.TEXT.ToBytes(), secs2.A("text").ToBytes()) {
-		t.Errorf("TEXT: got %x, want %x", got.TEXT.ToBytes(), secs2.A("text").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS10F2RoundTrip(t *testing.T) {
@@ -93,9 +91,11 @@ func TestDecodeS10F2RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS10F2: %v", err)
 	}
 
-	if got.ACKC10 != 0x29 {
-		t.Errorf("ACKC10: got %v, want %v", got.ACKC10, 0x29)
+	want := gem.S10F2Reply{
+		ACKC10: 0x29,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS10F3RoundTrip(t *testing.T) {
@@ -111,13 +111,12 @@ func TestDecodeS10F3RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS10F3: %v", err)
 	}
 
-	if got.TID != 0x5d {
-		t.Errorf("TID: got %v, want %v", got.TID, 0x5d)
+	want := gem.S10F3Body{
+		TID:  0x5d,
+		TEXT: secs2.A("text"),
 	}
 
-	if !bytes.Equal(got.TEXT.ToBytes(), secs2.A("text").ToBytes()) {
-		t.Errorf("TEXT: got %x, want %x", got.TEXT.ToBytes(), secs2.A("text").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS10F4RoundTrip(t *testing.T) {
@@ -133,9 +132,11 @@ func TestDecodeS10F4RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS10F4: %v", err)
 	}
 
-	if got.ACKC10 != 0x29 {
-		t.Errorf("ACKC10: got %v, want %v", got.ACKC10, 0x29)
+	want := gem.S10F4Reply{
+		ACKC10: 0x29,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS10F5RoundTrip(t *testing.T) {
@@ -151,17 +152,12 @@ func TestDecodeS10F5RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS10F5: %v", err)
 	}
 
-	if got.TID != 0x5d {
-		t.Errorf("TID: got %v, want %v", got.TID, 0x5d)
+	want := gem.S10F5Body{
+		TID:   0x5d,
+		TEXTS: []secs2.Item{secs2.A("texts")},
 	}
 
-	if len(got.TEXTS) != 1 {
-		t.Fatalf("TEXTS: got %d elements, want 1", len(got.TEXTS))
-	}
-
-	if !bytes.Equal(got.TEXTS[0].ToBytes(), secs2.A("texts").ToBytes()) {
-		t.Errorf("TEXTS: got %x, want %x", got.TEXTS[0].ToBytes(), secs2.A("texts").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS10F6RoundTrip(t *testing.T) {
@@ -177,9 +173,11 @@ func TestDecodeS10F6RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS10F6: %v", err)
 	}
 
-	if got.ACKC10 != 0x29 {
-		t.Errorf("ACKC10: got %v, want %v", got.ACKC10, 0x29)
+	want := gem.S10F6Reply{
+		ACKC10: 0x29,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS10F7RoundTrip(t *testing.T) {
@@ -195,9 +193,11 @@ func TestDecodeS10F7RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS10F7: %v", err)
 	}
 
-	if got.TID != 0x5d {
-		t.Errorf("TID: got %v, want %v", got.TID, 0x5d)
+	want := gem.S10F7Body{
+		TID: 0x5d,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS10F9RoundTrip(t *testing.T) {
@@ -213,9 +213,11 @@ func TestDecodeS10F9RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS10F9: %v", err)
 	}
 
-	if !bytes.Equal(got.TEXT.ToBytes(), secs2.A("text").ToBytes()) {
-		t.Errorf("TEXT: got %x, want %x", got.TEXT.ToBytes(), secs2.A("text").ToBytes())
+	want := gem.S10F9Body{
+		TEXT: secs2.A("text"),
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS10F10RoundTrip(t *testing.T) {
@@ -231,7 +233,9 @@ func TestDecodeS10F10RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS10F10: %v", err)
 	}
 
-	if got.ACKC10 != 0x29 {
-		t.Errorf("ACKC10: got %v, want %v", got.ACKC10, 0x29)
+	want := gem.S10F10Reply{
+		ACKC10: 0x29,
 	}
+
+	assertDecoded(t, got, want)
 }

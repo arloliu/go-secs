@@ -11,7 +11,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 // It is filled by [DecodeS19F1] and mirrors the parameters of [S19F1], in order.
 type S19F1Body struct {
 	FILTERS    []secs2.Item
-	ATTRIBUTES []secs2.Item
+	ATTRIBUTES []PDEATTRIBUTE
 }
 
 // DecodeS19F1 decodes the body of an S19F1 (Get PDE Directory) message into a [S19F1Body].
@@ -34,7 +34,7 @@ func DecodeS19F1(item secs2.Item) (S19F1Body, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeItems(root.At(1), "ATTRIBUTES"); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(1), "ATTRIBUTES", decodeUintAs[PDEATTRIBUTE]); err != nil {
 		return out, err
 	}
 
@@ -89,7 +89,7 @@ func DecodeS19F2(item secs2.Item) (S19F2Reply, error) {
 //
 // It is filled by [DecodeS19F3] and mirrors the parameters of [S19F3], in order.
 type S19F3Body struct {
-	UIDS []secs2.Item
+	UIDS []string
 }
 
 // DecodeS19F3 decodes the body of an S19F3 (Delete PDE) message into a [S19F3Body].
@@ -104,7 +104,7 @@ func DecodeS19F3(item secs2.Item) (S19F3Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.UIDS, err = decodeItems(root, "UIDS"); err != nil {
+	if out.UIDS, err = decodeEach(root, "UIDS", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -145,7 +145,7 @@ func DecodeS19F4(item secs2.Item) (S19F4Reply, error) {
 //
 // It is filled by [DecodeS19F5] and mirrors the parameters of [S19F5], in order.
 type S19F5Body struct {
-	UIDS []secs2.Item
+	UIDS []string
 }
 
 // DecodeS19F5 decodes the body of an S19F5 (Get PDE Header) message into a [S19F5Body].
@@ -160,7 +160,7 @@ func DecodeS19F5(item secs2.Item) (S19F5Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.UIDS, err = decodeItems(root, "UIDS"); err != nil {
+	if out.UIDS, err = decodeEach(root, "UIDS", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -210,7 +210,7 @@ func DecodeS19F6(item secs2.Item) (S19F6Reply, error) {
 //
 // It is filled by [DecodeS19F7] and mirrors the parameters of [S19F7], in order.
 type S19F7Body struct {
-	UIDS []secs2.Item
+	UIDS []string
 }
 
 // DecodeS19F7 decodes the body of an S19F7 (Get PDE) message into a [S19F7Body].
@@ -225,7 +225,7 @@ func DecodeS19F7(item secs2.Item) (S19F7Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.UIDS, err = decodeItems(root, "UIDS"); err != nil {
+	if out.UIDS, err = decodeEach(root, "UIDS", decodeASCII); err != nil {
 		return out, err
 	}
 

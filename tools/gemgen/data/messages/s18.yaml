@@ -79,7 +79,7 @@ messages:
           items:
             - {item: TARGETID}
             - {item: SSACK}
-            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+            - {type: list, repeat: statuses, of: {item: STATUS}}
 
   - function: 5
     name: Read Request
@@ -117,7 +117,7 @@ messages:
             - {item: TARGETID}
             - {item: SSACK}
             - {item: DATA}
-            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+            - {type: list, repeat: statuses, of: {item: STATUS}}
 
   - function: 7
     name: Write Data Request
@@ -158,7 +158,7 @@ messages:
           items:
             - {item: TARGETID}
             - {item: SSACK}
-            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+            - {type: list, repeat: statuses, of: {item: STATUS}}
 
   - function: 9
     name: Read ID Request
@@ -190,7 +190,7 @@ messages:
             - {item: TARGETID}
             - {item: SSACK}
             - {item: MID}
-            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+            - {type: list, repeat: statuses, of: {item: STATUS}}
 
   - function: 11
     name: Write ID Request
@@ -221,7 +221,7 @@ messages:
           items:
             - {item: TARGETID}
             - {item: SSACK}
-            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+            - {type: list, repeat: statuses, of: {item: STATUS}}
 
   - function: 13
     name: Subsystem Command Request
@@ -259,7 +259,7 @@ messages:
           items:
             - {item: TARGETID}
             - {item: SSACK}
-            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
+            - {type: list, repeat: statuses, of: {item: STATUS}}
 
   - function: 15
     name: Read 2D Code Condition Request
@@ -293,5 +293,5 @@ messages:
             - {item: TARGETID}
             - {item: SSACK}
             - {item: MID}
-            - {type: list, repeat: statuses, of: {item: STATUS}, typed: true}
-            - {type: list, repeat: conditions, of: {item: CONDITION}, typed: true}
+            - {type: list, repeat: statuses, of: {item: STATUS}}
+            - {type: list, repeat: conditions, of: {item: CONDITION}}

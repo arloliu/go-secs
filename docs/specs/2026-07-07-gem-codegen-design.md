@@ -346,8 +346,10 @@ State machines, object models and attribute-name sets stay out of `gem`.
 - **`note:`** on an item or on one of its values adds a sentence to the godoc of its type or constant,
   for a fact the value table does not carry
   (another standard's spelling of a value, E58.1's case-insensitive matching of RCMD and CPNAME names).
-- **`typed: true`** on a repeat of one fixed leaf decodes it into a typed slice (S18 STATUSLIST, CONDITIONLIST);
-  the builder still takes `secs2.Item` elements.
+- **A repeat of one fixed leaf with a scalar `goType`** is a slice of values in both directions
+  (S18 STATUSLIST and CONDITIONLIST, S16 PRJOBID lists):
+  the builder takes the values and sends each as an item of the leaf's format through `valueItems`,
+  and the decoder returns them as a slice of the leaf's Go type, or of its named type.
   Numeric and binary enumeration elements decode through the generic helpers,
   a string enumeration through a string-conversion helper;
   any other named element type (a `BOOLEAN` enumeration) is a generation error.

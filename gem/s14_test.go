@@ -1293,7 +1293,7 @@ func TestS14F26(t *testing.T) {
 }
 
 func TestS14F27(t *testing.T) {
-	msg := gem.S14F27("objspec", secs2.A("objtype"), secs2.A("svcnames"))
+	msg := gem.S14F27("objspec", secs2.A("objtype"), "svcnames")
 
 	assertS14Header(t, msg, 27, true)
 
@@ -1327,10 +1327,12 @@ func TestS14F27(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("svcnames").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("svcnames: got %x, want %x", got5, want5)
+	v5, err := list4[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[0].ToASCII: %v", err)
+	}
+	if v5 != "svcnames" {
+		t.Errorf("svcnames: got %q, want %q", v5, "svcnames")
 	}
 }
 

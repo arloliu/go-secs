@@ -372,7 +372,7 @@ func TestS13F12(t *testing.T) {
 }
 
 func TestS13F13(t *testing.T) {
-	msg := gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("attrs")}, []secs2.Item{secs2.A("colhdrs")}, secs2.A("rows"))
+	msg := gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("attrs")}, []string{"colhdrs"}, secs2.A("rows"))
 
 	assertS13Header(t, msg, 13, true)
 
@@ -439,10 +439,12 @@ func TestS13F13(t *testing.T) {
 	if len(list9) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list9))
 	}
-	got10 := list9[0].ToBytes()
-	want10 := secs2.A("colhdrs").ToBytes()
-	if !bytes.Equal(got10, want10) {
-		t.Errorf("colhdrs: got %x, want %x", got10, want10)
+	v10, err := list9[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list9[0].ToASCII: %v", err)
+	}
+	if v10 != "colhdrs" {
+		t.Errorf("colhdrs: got %q, want %q", v10, "colhdrs")
 	}
 	list11, err := list1[7].ToList()
 	if err != nil {
@@ -496,7 +498,7 @@ func TestS13F14(t *testing.T) {
 }
 
 func TestS13F15(t *testing.T) {
-	msg := gem.S13F15(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("colhdrs")}, secs2.A("tblelts"))
+	msg := gem.S13F15(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []string{"colhdrs"}, secs2.A("tblelts"))
 
 	assertS13Header(t, msg, 15, true)
 
@@ -551,10 +553,12 @@ func TestS13F15(t *testing.T) {
 	if len(list7) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list7))
 	}
-	got8 := list7[0].ToBytes()
-	want8 := secs2.A("colhdrs").ToBytes()
-	if !bytes.Equal(got8, want8) {
-		t.Errorf("colhdrs: got %x, want %x", got8, want8)
+	v8, err := list7[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list7[0].ToASCII: %v", err)
+	}
+	if v8 != "colhdrs" {
+		t.Errorf("colhdrs: got %q, want %q", v8, "colhdrs")
 	}
 	list9, err := list1[6].ToList()
 	if err != nil {
@@ -571,7 +575,7 @@ func TestS13F15(t *testing.T) {
 }
 
 func TestS13F16(t *testing.T) {
-	msg := gem.S13F16("tbltyp", "tblid", []secs2.Item{secs2.A("attrs")}, []secs2.Item{secs2.A("colhdrs")}, []secs2.Item{secs2.A("rows")}, 82, secs2.A("errors"))
+	msg := gem.S13F16("tbltyp", "tblid", []secs2.Item{secs2.A("attrs")}, []string{"colhdrs"}, []secs2.Item{secs2.A("rows")}, 82, secs2.A("errors"))
 
 	assertS13Header(t, msg, 16, false)
 
@@ -619,10 +623,12 @@ func TestS13F16(t *testing.T) {
 	if len(list6) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
-	got7 := list6[0].ToBytes()
-	want7 := secs2.A("colhdrs").ToBytes()
-	if !bytes.Equal(got7, want7) {
-		t.Errorf("colhdrs: got %x, want %x", got7, want7)
+	v7, err := list6[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list6[0].ToASCII: %v", err)
+	}
+	if v7 != "colhdrs" {
+		t.Errorf("colhdrs: got %q, want %q", v7, "colhdrs")
 	}
 	list8, err := list1[4].ToList()
 	if err != nil {

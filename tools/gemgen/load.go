@@ -310,7 +310,7 @@ func LoadMessageFile(data []byte) (MessageFile, error) {
 // combine more than one of repeat, packed, or minItems/maxItems, since they are
 // mutually exclusive node shapes; and a packed node's of.item must resolve to a
 // binding: fixed item, since packing needs one shared format for every value.
-// optional: and typed: are valid only on the nodes checkOptional and checkTyped accept.
+// optional: is valid only on the nodes checkOptional accepts.
 // as: is valid only on a leaf or opaque node and must be a plain identifier,
 // and every body's emitted names must be usable Go identifiers that do not collide
 // (see checkNames).
@@ -597,18 +597,14 @@ func walkNode(n *StructureNode, items map[string]Item, s, fn int, inOf bool) err
 	return nil
 }
 
-// checkNodeOptions checks the as:, optional:, and typed: settings of one node,
+// checkNodeOptions checks the as: and optional: settings of one node,
 // leaving its children to walkNode.
 func checkNodeOptions(n *StructureNode, items map[string]Item, s, fn int, inOf bool) error {
 	if err := checkAs(n, s, fn); err != nil {
 		return err
 	}
 
-	if err := checkOptional(n, items, s, fn, inOf); err != nil {
-		return err
-	}
-
-	return checkTyped(n, items, s, fn, inOf)
+	return checkOptional(n, items, s, fn, inOf)
 }
 
 // checkAs rejects an as: name on a list, repeat, or packed node,
@@ -660,48 +656,6 @@ func checkOptional(n *StructureNode, items map[string]Item, s, fn int, inOf bool
 
 	if isByteArrayGoType(it.GoType) {
 		return fmt.Errorf("S%dF%d: optional item %s must have a scalar goType, not %s", s, fn, n.Item, it.GoType)
-	}
-
-	return nil
-}
-
-// checkTyped rejects typed: true anywhere but on a repeat whose elements the decoder can read as values.
-//
-// The repeat's of must be one leaf whose item is binding: fixed with a scalar goType,
-// the shapes the scalar decode helpers read:
-// an open item has no single Go type,
-// a byte-slice or byte-array goType is not one value per item,
-// and a list or opaque element is not a single item at all.
-// The repeat must also sit outside any repeat's or packed group's of,
-// which the decoder returns unvisited.
-func checkTyped(n *StructureNode, items map[string]Item, s, fn int, inOf bool) error {
-	if !n.Typed {
-		return nil
-	}
-
-	if n.Kind() != "list" || n.Repeat == "" {
-		return fmt.Errorf("S%dF%d: typed is valid only on a repeat, not a leaf, opaque node, fixed list, or packed group", s, fn)
-	}
-
-	if inOf {
-		return fmt.Errorf("S%dF%d: typed repeat %s is inside a repeat's or packed group's of, which the decoder does not visit", s, fn, n.Repeat)
-	}
-
-	if n.Of == nil || n.Of.Kind() != "leaf" {
-		return fmt.Errorf("S%dF%d: typed repeat %s needs an of that is a single item leaf", s, fn, n.Repeat)
-	}
-
-	it, ok := items[n.Of.Item]
-	if !ok {
-		return fmt.Errorf("S%dF%d: unknown item %q", s, fn, n.Of.Item)
-	}
-
-	if it.Binding != BindingFixed {
-		return fmt.Errorf("S%dF%d: typed repeat %s's item %s must be binding: fixed (an open item has no single Go type)", s, fn, n.Repeat, n.Of.Item)
-	}
-
-	if isByteArrayGoType(it.GoType) {
-		return fmt.Errorf("S%dF%d: typed repeat %s's item %s must have a scalar goType, not %s", s, fn, n.Repeat, n.Of.Item, it.GoType)
 	}
 
 	return nil

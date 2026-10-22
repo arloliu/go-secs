@@ -18,8 +18,8 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Exception: If m = 0, all PDEs stored by the service provider are reported.
 // If n = 0, no additional attributes are requested for each PDE (UID is always returned).
-func S19F1(filters []secs2.Item, attributes ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 1, true, secs2.L(secs2.L(filters...), secs2.L(attributes...)))
+func S19F1(filters []secs2.Item, attributes ...PDEATTRIBUTE) secs2.SECS2Message {
+	return secs2.NewMessage(19, 1, true, secs2.L(secs2.L(filters...), secs2.L(valueItems(attributes, func(v PDEATTRIBUTE) secs2.Item { return secs2.U1(uint8(v)) })...)))
 }
 
 // S19F2 creates the S19F2 (PDE Directory Data) message, direction: bidirectional.
@@ -43,8 +43,8 @@ func S19F2(dirrspstat DIRRSPSTAT, statustxt string, pdes ...secs2.Item) secs2.SE
 // Body: L[n]{ <uids>... }.
 //
 // Exception: n = 0 is not allowed; at least one UID is required.
-func S19F3(uids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 3, true, secs2.L(uids...))
+func S19F3(uids ...string) secs2.SECS2Message {
+	return secs2.NewMessage(19, 3, true, secs2.L(valueItems(uids, secs2.A)...))
 }
 
 // S19F4 creates the S19F4 (Delete PDE Acknowledge) message, direction: equipment-to-host.
@@ -67,8 +67,8 @@ func S19F4(results ...secs2.Item) secs2.SECS2Message {
 // Body: L[n]{ <uids>... }.
 //
 // Exception: n = 0 is not allowed; at least one UID is required.
-func S19F5(uids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 5, true, secs2.L(uids...))
+func S19F5(uids ...string) secs2.SECS2Message {
+	return secs2.NewMessage(19, 5, true, secs2.L(valueItems(uids, secs2.A)...))
 }
 
 // S19F6 creates the S19F6 (PDE Header Data) message, direction: bidirectional.
@@ -96,8 +96,8 @@ func S19F6(tcid string, results ...secs2.Item) secs2.SECS2Message {
 // Body: L[n]{ <uids>... }.
 //
 // Exception: n = 0 is not allowed; at least one UID is required.
-func S19F7(uids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 7, true, secs2.L(uids...))
+func S19F7(uids ...string) secs2.SECS2Message {
+	return secs2.NewMessage(19, 7, true, secs2.L(valueItems(uids, secs2.A)...))
 }
 
 // S19F8 creates the S19F8 (PDE Data) message, direction: bidirectional.

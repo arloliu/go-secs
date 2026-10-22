@@ -3,7 +3,6 @@
 package gem_test
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -50,7 +49,7 @@ func init() {
 		_, err := gem.DecodeS5F9(item)
 
 		return err
-	}, gem.S5F9("timestamp", "exid", "extype", "exmessage", secs2.A("recoveryActions")).Item())
+	}, gem.S5F9("timestamp", "exid", "extype", "exmessage", "recoveryActions").Item())
 	registerFuzzDecoder("DecodeS5F11", func(item secs2.Item) error {
 		_, err := gem.DecodeS5F11(item)
 
@@ -96,17 +95,13 @@ func TestDecodeS5F1RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F1: %v", err)
 	}
 
-	if got.ALCD != 0x87 {
-		t.Errorf("ALCD: got %v, want %v", got.ALCD, 0x87)
+	want := gem.S5F1Body{
+		ALCD: 0x87,
+		ALID: secs2.A("alid"),
+		ALTX: "altx",
 	}
 
-	if !bytes.Equal(got.ALID.ToBytes(), secs2.A("alid").ToBytes()) {
-		t.Errorf("ALID: got %x, want %x", got.ALID.ToBytes(), secs2.A("alid").ToBytes())
-	}
-
-	if got.ALTX != "altx" {
-		t.Errorf("ALTX: got %v, want %v", got.ALTX, "altx")
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F2RoundTrip(t *testing.T) {
@@ -122,9 +117,11 @@ func TestDecodeS5F2RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F2: %v", err)
 	}
 
-	if got.ACKC5 != 0xe0 {
-		t.Errorf("ACKC5: got %v, want %v", got.ACKC5, 0xe0)
+	want := gem.S5F2Reply{
+		ACKC5: 0xe0,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F3RoundTrip(t *testing.T) {
@@ -140,13 +137,12 @@ func TestDecodeS5F3RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F3: %v", err)
 	}
 
-	if got.ALED != 0x85 {
-		t.Errorf("ALED: got %v, want %v", got.ALED, 0x85)
+	want := gem.S5F3Body{
+		ALED: 0x85,
+		ALID: secs2.A("alid"),
 	}
 
-	if !bytes.Equal(got.ALID.ToBytes(), secs2.A("alid").ToBytes()) {
-		t.Errorf("ALID: got %x, want %x", got.ALID.ToBytes(), secs2.A("alid").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F4RoundTrip(t *testing.T) {
@@ -162,9 +158,11 @@ func TestDecodeS5F4RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F4: %v", err)
 	}
 
-	if got.ACKC5 != 0xe0 {
-		t.Errorf("ACKC5: got %v, want %v", got.ACKC5, 0xe0)
+	want := gem.S5F4Reply{
+		ACKC5: 0xe0,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F5RoundTrip(t *testing.T) {
@@ -180,9 +178,11 @@ func TestDecodeS5F5RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F5: %v", err)
 	}
 
-	if !bytes.Equal(got.ALIDS.ToBytes(), secs2.A("alids").ToBytes()) {
-		t.Errorf("ALIDS: got %x, want %x", got.ALIDS.ToBytes(), secs2.A("alids").ToBytes())
+	want := gem.S5F5Body{
+		ALIDS: secs2.A("alids"),
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F6RoundTrip(t *testing.T) {
@@ -198,13 +198,11 @@ func TestDecodeS5F6RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F6: %v", err)
 	}
 
-	if len(got.ALARMS) != 1 {
-		t.Fatalf("ALARMS: got %d elements, want 1", len(got.ALARMS))
+	want := gem.S5F6Reply{
+		ALARMS: []secs2.Item{secs2.A("alarms")},
 	}
 
-	if !bytes.Equal(got.ALARMS[0].ToBytes(), secs2.A("alarms").ToBytes()) {
-		t.Errorf("ALARMS: got %x, want %x", got.ALARMS[0].ToBytes(), secs2.A("alarms").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F8RoundTrip(t *testing.T) {
@@ -220,17 +218,15 @@ func TestDecodeS5F8RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F8: %v", err)
 	}
 
-	if len(got.ALARMS) != 1 {
-		t.Fatalf("ALARMS: got %d elements, want 1", len(got.ALARMS))
+	want := gem.S5F8Reply{
+		ALARMS: []secs2.Item{secs2.A("alarms")},
 	}
 
-	if !bytes.Equal(got.ALARMS[0].ToBytes(), secs2.A("alarms").ToBytes()) {
-		t.Errorf("ALARMS: got %x, want %x", got.ALARMS[0].ToBytes(), secs2.A("alarms").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F9RoundTrip(t *testing.T) {
-	msg := gem.S5F9("timestamp", "exid", "extype", "exmessage", secs2.A("recoveryActions"))
+	msg := gem.S5F9("timestamp", "exid", "extype", "exmessage", "recoveryActions")
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -242,29 +238,15 @@ func TestDecodeS5F9RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F9: %v", err)
 	}
 
-	if got.TIMESTAMP != "timestamp" {
-		t.Errorf("TIMESTAMP: got %v, want %v", got.TIMESTAMP, "timestamp")
+	want := gem.S5F9Body{
+		TIMESTAMP:       "timestamp",
+		EXID:            "exid",
+		EXTYPE:          "extype",
+		EXMESSAGE:       "exmessage",
+		RECOVERYACTIONS: []string{"recoveryActions"},
 	}
 
-	if got.EXID != "exid" {
-		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
-	}
-
-	if got.EXTYPE != "extype" {
-		t.Errorf("EXTYPE: got %v, want %v", got.EXTYPE, "extype")
-	}
-
-	if got.EXMESSAGE != "exmessage" {
-		t.Errorf("EXMESSAGE: got %v, want %v", got.EXMESSAGE, "exmessage")
-	}
-
-	if len(got.RECOVERYACTIONS) != 1 {
-		t.Fatalf("RECOVERYACTIONS: got %d elements, want 1", len(got.RECOVERYACTIONS))
-	}
-
-	if !bytes.Equal(got.RECOVERYACTIONS[0].ToBytes(), secs2.A("recoveryActions").ToBytes()) {
-		t.Errorf("RECOVERYACTIONS: got %x, want %x", got.RECOVERYACTIONS[0].ToBytes(), secs2.A("recoveryActions").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F11RoundTrip(t *testing.T) {
@@ -280,21 +262,14 @@ func TestDecodeS5F11RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F11: %v", err)
 	}
 
-	if got.TIMESTAMP != "timestamp" {
-		t.Errorf("TIMESTAMP: got %v, want %v", got.TIMESTAMP, "timestamp")
+	want := gem.S5F11Body{
+		TIMESTAMP: "timestamp",
+		EXID:      "exid",
+		EXTYPE:    "extype",
+		EXMESSAGE: "exmessage",
 	}
 
-	if got.EXID != "exid" {
-		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
-	}
-
-	if got.EXTYPE != "extype" {
-		t.Errorf("EXTYPE: got %v, want %v", got.EXTYPE, "extype")
-	}
-
-	if got.EXMESSAGE != "exmessage" {
-		t.Errorf("EXMESSAGE: got %v, want %v", got.EXMESSAGE, "exmessage")
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F13RoundTrip(t *testing.T) {
@@ -310,13 +285,12 @@ func TestDecodeS5F13RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F13: %v", err)
 	}
 
-	if got.EXID != "exid" {
-		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
+	want := gem.S5F13Body{
+		EXID:     "exid",
+		EXRECVRA: "exrecvra",
 	}
 
-	if got.EXRECVRA != "exrecvra" {
-		t.Errorf("EXRECVRA: got %v, want %v", got.EXRECVRA, "exrecvra")
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F14RoundTrip(t *testing.T) {
@@ -332,21 +306,14 @@ func TestDecodeS5F14RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F14: %v", err)
 	}
 
-	if got.EXID != "exid" {
-		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
+	want := gem.S5F14Reply{
+		EXID:    "exid",
+		ACKA:    true,
+		ERRCODE: secs2.A("errcode"),
+		ERRTEXT: "errtext",
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	if !bytes.Equal(got.ERRCODE.ToBytes(), secs2.A("errcode").ToBytes()) {
-		t.Errorf("ERRCODE: got %x, want %x", got.ERRCODE.ToBytes(), secs2.A("errcode").ToBytes())
-	}
-
-	if got.ERRTEXT != "errtext" {
-		t.Errorf("ERRTEXT: got %v, want %v", got.ERRTEXT, "errtext")
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F15RoundTrip(t *testing.T) {
@@ -362,25 +329,15 @@ func TestDecodeS5F15RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F15: %v", err)
 	}
 
-	if got.TIMESTAMP != "timestamp" {
-		t.Errorf("TIMESTAMP: got %v, want %v", got.TIMESTAMP, "timestamp")
+	want := gem.S5F15Body{
+		TIMESTAMP: "timestamp",
+		EXID:      "exid",
+		ACKA:      true,
+		ERRCODE:   secs2.A("errcode"),
+		ERRTEXT:   "errtext",
 	}
 
-	if got.EXID != "exid" {
-		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
-	}
-
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	if !bytes.Equal(got.ERRCODE.ToBytes(), secs2.A("errcode").ToBytes()) {
-		t.Errorf("ERRCODE: got %x, want %x", got.ERRCODE.ToBytes(), secs2.A("errcode").ToBytes())
-	}
-
-	if got.ERRTEXT != "errtext" {
-		t.Errorf("ERRTEXT: got %v, want %v", got.ERRTEXT, "errtext")
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F17RoundTrip(t *testing.T) {
@@ -396,9 +353,11 @@ func TestDecodeS5F17RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F17: %v", err)
 	}
 
-	if got.EXID != "exid" {
-		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
+	want := gem.S5F17Body{
+		EXID: "exid",
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F18RoundTrip(t *testing.T) {
@@ -414,19 +373,12 @@ func TestDecodeS5F18RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F18: %v", err)
 	}
 
-	if got.EXID != "exid" {
-		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
+	want := gem.S5F18Reply{
+		EXID:    "exid",
+		ACKA:    true,
+		ERRCODE: secs2.A("errcode"),
+		ERRTEXT: "errtext",
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	if !bytes.Equal(got.ERRCODE.ToBytes(), secs2.A("errcode").ToBytes()) {
-		t.Errorf("ERRCODE: got %x, want %x", got.ERRCODE.ToBytes(), secs2.A("errcode").ToBytes())
-	}
-
-	if got.ERRTEXT != "errtext" {
-		t.Errorf("ERRTEXT: got %v, want %v", got.ERRTEXT, "errtext")
-	}
+	assertDecoded(t, got, want)
 }

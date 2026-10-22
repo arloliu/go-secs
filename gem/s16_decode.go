@@ -545,7 +545,7 @@ func DecodeS16F15(item secs2.Item) (S16F15Body, error) {
 //
 // It is filled by [DecodeS16F16] and mirrors the parameters of [S16F16], in order.
 type S16F16Reply struct {
-	PRJOBIDS []secs2.Item
+	PRJOBIDS []string
 	ACKA     bool
 	ERRORS   []secs2.Item
 }
@@ -566,7 +566,7 @@ func DecodeS16F16(item secs2.Item) (S16F16Reply, error) {
 		return out, err
 	}
 
-	if out.PRJOBIDS, err = decodeItems(root.At(0), "PRJOBIDS"); err != nil {
+	if out.PRJOBIDS, err = decodeEach(root.At(0), "PRJOBIDS", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -591,7 +591,7 @@ func DecodeS16F16(item secs2.Item) (S16F16Reply, error) {
 //
 // It is filled by [DecodeS16F17] and mirrors the parameters of [S16F17], in order.
 type S16F17Body struct {
-	PRJOBIDS []secs2.Item
+	PRJOBIDS []string
 }
 
 // DecodeS16F17 decodes the body of an S16F17 (PRJobDequeue) message into a [S16F17Body].
@@ -606,7 +606,7 @@ func DecodeS16F17(item secs2.Item) (S16F17Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.PRJOBIDS, err = decodeItems(root, "PRJOBIDS"); err != nil {
+	if out.PRJOBIDS, err = decodeEach(root, "PRJOBIDS", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -619,7 +619,7 @@ func DecodeS16F17(item secs2.Item) (S16F17Body, error) {
 //
 // It is filled by [DecodeS16F18] and mirrors the parameters of [S16F18], in order.
 type S16F18Reply struct {
-	PRJOBIDS []secs2.Item
+	PRJOBIDS []string
 	ACKA     bool
 	ERRORS   []secs2.Item
 }
@@ -640,7 +640,7 @@ func DecodeS16F18(item secs2.Item) (S16F18Reply, error) {
 		return out, err
 	}
 
-	if out.PRJOBIDS, err = decodeItems(root.At(0), "PRJOBIDS"); err != nil {
+	if out.PRJOBIDS, err = decodeEach(root.At(0), "PRJOBIDS", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -795,7 +795,7 @@ func DecodeS16F24(item secs2.Item) (S16F24Reply, error) {
 //
 // It is filled by [DecodeS16F25] and mirrors the parameters of [S16F25], in order.
 type S16F25Body struct {
-	PRJOBIDS       []secs2.Item
+	PRJOBIDS       []string
 	PRPROCESSSTART bool
 }
 
@@ -815,7 +815,7 @@ func DecodeS16F25(item secs2.Item) (S16F25Body, error) {
 		return out, err
 	}
 
-	if out.PRJOBIDS, err = decodeItems(root.At(0), "PRJOBIDS"); err != nil {
+	if out.PRJOBIDS, err = decodeEach(root.At(0), "PRJOBIDS", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -832,7 +832,7 @@ func DecodeS16F25(item secs2.Item) (S16F25Body, error) {
 //
 // It is filled by [DecodeS16F26] and mirrors the parameters of [S16F26], in order.
 type S16F26Reply struct {
-	PRJOBIDS []secs2.Item
+	PRJOBIDS []string
 	ACKA     bool
 	ERRORS   []secs2.Item
 }
@@ -853,7 +853,7 @@ func DecodeS16F26(item secs2.Item) (S16F26Reply, error) {
 		return out, err
 	}
 
-	if out.PRJOBIDS, err = decodeItems(root.At(0), "PRJOBIDS"); err != nil {
+	if out.PRJOBIDS, err = decodeEach(root.At(0), "PRJOBIDS", decodeASCII); err != nil {
 		return out, err
 	}
 

@@ -402,7 +402,7 @@ type S13F13Body struct {
 	TBLID   string
 	TBLCMD  TBLCMD
 	ATTRS   []secs2.Item
-	COLHDRS []secs2.Item
+	COLHDRS []string
 	ROWS    []secs2.Item
 }
 
@@ -449,7 +449,7 @@ func DecodeS13F13(item secs2.Item) (S13F13Body, error) {
 		return out, err
 	}
 
-	if out.COLHDRS, err = decodeItems(root.At(6), "COLHDRS"); err != nil {
+	if out.COLHDRS, err = decodeEach(root.At(6), "COLHDRS", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -508,7 +508,7 @@ type S13F15Body struct {
 	TBLTYP  TBLTYP
 	TBLID   string
 	TBLCMD  TBLCMD
-	COLHDRS []secs2.Item
+	COLHDRS []string
 	TBLELTS []secs2.Item
 }
 
@@ -551,7 +551,7 @@ func DecodeS13F15(item secs2.Item) (S13F15Body, error) {
 		return out, err
 	}
 
-	if out.COLHDRS, err = decodeItems(root.At(5), "COLHDRS"); err != nil {
+	if out.COLHDRS, err = decodeEach(root.At(5), "COLHDRS", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -571,7 +571,7 @@ type S13F16Reply struct {
 	TBLTYP  TBLTYP
 	TBLID   string
 	ATTRS   []secs2.Item
-	COLHDRS []secs2.Item
+	COLHDRS []string
 	ROWS    []secs2.Item
 	TBLACK  TBLACK
 	ERRORS  []secs2.Item
@@ -608,7 +608,7 @@ func DecodeS13F16(item secs2.Item) (S13F16Reply, error) {
 		return out, err
 	}
 
-	if out.COLHDRS, err = decodeItems(root.At(3), "COLHDRS"); err != nil {
+	if out.COLHDRS, err = decodeEach(root.At(3), "COLHDRS", decodeASCII); err != nil {
 		return out, err
 	}
 

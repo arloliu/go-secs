@@ -40,15 +40,14 @@
 // so gem stays independent of any transport package.
 // The result struct's fields mirror the builder's parameters in order, under the E5 data item names,
 // so a body built by [S1F14] decodes through [DecodeS1F14] into the same three values.
-// Two kinds of field differ from the builder, and the result type's doc names them:
+// One kind of field differs from the builder, and the result type's doc names it:
+// an item SEMI E5 lets be sent zero-length, such as the LINKID of S6F25,
+// has a companion presence field: [S6F25Body] carries LINKIDPresent,
+// false when LINKID arrived zero-length and LINKID holds the zero value.
+// The builder always sends a value.
 //
-//   - An item SEMI E5 lets be sent zero-length, such as the LINKID of S6F25,
-//     has a companion presence field: [S6F25Body] carries LINKIDPresent,
-//     false when LINKID arrived zero-length and LINKID holds the zero value.
-//     The builder always sends a value.
-//   - A repeated group of one fixed-format item may decode into a slice of values:
-//     [S18F4] takes its statuses as [secs2.Item] elements,
-//     while [S18F4Reply.STATUSES] holds them as strings.
+// A repeated group of one fixed-format item is a slice of values both ways:
+// [S18F4] takes its statuses as strings, and [S18F4Reply.STATUSES] holds them so.
 //
 // # The strict-shape contract
 //

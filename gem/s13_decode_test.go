@@ -3,7 +3,6 @@
 package gem_test
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -65,7 +64,7 @@ func init() {
 		_, err := gem.DecodeS13F13(item)
 
 		return err
-	}, gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("attrs")}, []secs2.Item{secs2.A("colhdrs")}, secs2.A("rows")).Item())
+	}, gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("attrs")}, []string{"colhdrs"}, secs2.A("rows")).Item())
 	registerFuzzDecoder("DecodeS13F14", func(item secs2.Item) error {
 		_, err := gem.DecodeS13F14(item)
 
@@ -75,12 +74,12 @@ func init() {
 		_, err := gem.DecodeS13F15(item)
 
 		return err
-	}, gem.S13F15(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("colhdrs")}, secs2.A("tblelts")).Item())
+	}, gem.S13F15(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []string{"colhdrs"}, secs2.A("tblelts")).Item())
 	registerFuzzDecoder("DecodeS13F16", func(item secs2.Item) error {
 		_, err := gem.DecodeS13F16(item)
 
 		return err
-	}, gem.S13F16("tbltyp", "tblid", []secs2.Item{secs2.A("attrs")}, []secs2.Item{secs2.A("colhdrs")}, []secs2.Item{secs2.A("rows")}, 82, secs2.A("errors")).Item())
+	}, gem.S13F16("tbltyp", "tblid", []secs2.Item{secs2.A("attrs")}, []string{"colhdrs"}, []secs2.Item{secs2.A("rows")}, 82, secs2.A("errors")).Item())
 }
 
 func TestDecodeS13F1RoundTrip(t *testing.T) {
@@ -96,9 +95,11 @@ func TestDecodeS13F1RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F1: %v", err)
 	}
 
-	if got.DSNAME != "dsname" {
-		t.Errorf("DSNAME: got %v, want %v", got.DSNAME, "dsname")
+	want := gem.S13F1Body{
+		DSNAME: "dsname",
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F2RoundTrip(t *testing.T) {
@@ -114,13 +115,12 @@ func TestDecodeS13F2RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F2: %v", err)
 	}
 
-	if got.DSNAME != "dsname" {
-		t.Errorf("DSNAME: got %v, want %v", got.DSNAME, "dsname")
+	want := gem.S13F2Reply{
+		DSNAME: "dsname",
+		ACKC13: 0x87,
 	}
 
-	if got.ACKC13 != 0x87 {
-		t.Errorf("ACKC13: got %v, want %v", got.ACKC13, 0x87)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F3RoundTrip(t *testing.T) {
@@ -136,17 +136,13 @@ func TestDecodeS13F3RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F3: %v", err)
 	}
 
-	if !bytes.Equal(got.HANDLE.ToBytes(), secs2.A("handle").ToBytes()) {
-		t.Errorf("HANDLE: got %x, want %x", got.HANDLE.ToBytes(), secs2.A("handle").ToBytes())
+	want := gem.S13F3Body{
+		HANDLE: secs2.A("handle"),
+		DSNAME: "dsname",
+		CKPNT:  25,
 	}
 
-	if got.DSNAME != "dsname" {
-		t.Errorf("DSNAME: got %v, want %v", got.DSNAME, "dsname")
-	}
-
-	if got.CKPNT != 25 {
-		t.Errorf("CKPNT: got %v, want %v", got.CKPNT, 25)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F4RoundTrip(t *testing.T) {
@@ -162,25 +158,15 @@ func TestDecodeS13F4RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F4: %v", err)
 	}
 
-	if !bytes.Equal(got.HANDLE.ToBytes(), secs2.A("handle").ToBytes()) {
-		t.Errorf("HANDLE: got %x, want %x", got.HANDLE.ToBytes(), secs2.A("handle").ToBytes())
+	want := gem.S13F4Reply{
+		HANDLE: secs2.A("handle"),
+		DSNAME: "dsname",
+		ACKC13: 0x87,
+		RTYPE:  secs2.A("rtype"),
+		RECLEN: secs2.A("reclen"),
 	}
 
-	if got.DSNAME != "dsname" {
-		t.Errorf("DSNAME: got %v, want %v", got.DSNAME, "dsname")
-	}
-
-	if got.ACKC13 != 0x87 {
-		t.Errorf("ACKC13: got %v, want %v", got.ACKC13, 0x87)
-	}
-
-	if !bytes.Equal(got.RTYPE.ToBytes(), secs2.A("rtype").ToBytes()) {
-		t.Errorf("RTYPE: got %x, want %x", got.RTYPE.ToBytes(), secs2.A("rtype").ToBytes())
-	}
-
-	if !bytes.Equal(got.RECLEN.ToBytes(), secs2.A("reclen").ToBytes()) {
-		t.Errorf("RECLEN: got %x, want %x", got.RECLEN.ToBytes(), secs2.A("reclen").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F5RoundTrip(t *testing.T) {
@@ -196,13 +182,12 @@ func TestDecodeS13F5RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F5: %v", err)
 	}
 
-	if !bytes.Equal(got.HANDLE.ToBytes(), secs2.A("handle").ToBytes()) {
-		t.Errorf("HANDLE: got %x, want %x", got.HANDLE.ToBytes(), secs2.A("handle").ToBytes())
+	want := gem.S13F5Body{
+		HANDLE: secs2.A("handle"),
+		READLN: secs2.A("readln"),
 	}
 
-	if !bytes.Equal(got.READLN.ToBytes(), secs2.A("readln").ToBytes()) {
-		t.Errorf("READLN: got %x, want %x", got.READLN.ToBytes(), secs2.A("readln").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F6RoundTrip(t *testing.T) {
@@ -218,25 +203,14 @@ func TestDecodeS13F6RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F6: %v", err)
 	}
 
-	if !bytes.Equal(got.HANDLE.ToBytes(), secs2.A("handle").ToBytes()) {
-		t.Errorf("HANDLE: got %x, want %x", got.HANDLE.ToBytes(), secs2.A("handle").ToBytes())
+	want := gem.S13F6Reply{
+		HANDLE:  secs2.A("handle"),
+		ACKC13:  0x87,
+		CKPNT:   25,
+		FILDATS: []secs2.Item{secs2.A("fildats")},
 	}
 
-	if got.ACKC13 != 0x87 {
-		t.Errorf("ACKC13: got %v, want %v", got.ACKC13, 0x87)
-	}
-
-	if got.CKPNT != 25 {
-		t.Errorf("CKPNT: got %v, want %v", got.CKPNT, 25)
-	}
-
-	if len(got.FILDATS) != 1 {
-		t.Fatalf("FILDATS: got %d elements, want 1", len(got.FILDATS))
-	}
-
-	if !bytes.Equal(got.FILDATS[0].ToBytes(), secs2.A("fildats").ToBytes()) {
-		t.Errorf("FILDATS: got %x, want %x", got.FILDATS[0].ToBytes(), secs2.A("fildats").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F7RoundTrip(t *testing.T) {
@@ -252,9 +226,11 @@ func TestDecodeS13F7RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F7: %v", err)
 	}
 
-	if !bytes.Equal(got.HANDLE.ToBytes(), secs2.A("handle").ToBytes()) {
-		t.Errorf("HANDLE: got %x, want %x", got.HANDLE.ToBytes(), secs2.A("handle").ToBytes())
+	want := gem.S13F7Body{
+		HANDLE: secs2.A("handle"),
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F8RoundTrip(t *testing.T) {
@@ -270,13 +246,12 @@ func TestDecodeS13F8RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F8: %v", err)
 	}
 
-	if !bytes.Equal(got.HANDLE.ToBytes(), secs2.A("handle").ToBytes()) {
-		t.Errorf("HANDLE: got %x, want %x", got.HANDLE.ToBytes(), secs2.A("handle").ToBytes())
+	want := gem.S13F8Reply{
+		HANDLE: secs2.A("handle"),
+		ACKC13: 0x87,
 	}
 
-	if got.ACKC13 != 0x87 {
-		t.Errorf("ACKC13: got %v, want %v", got.ACKC13, 0x87)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F11RoundTrip(t *testing.T) {
@@ -292,17 +267,13 @@ func TestDecodeS13F11RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F11: %v", err)
 	}
 
-	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
-		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	want := gem.S13F11Body{
+		DATAID:     secs2.A("dataid"),
+		OBJSPEC:    "objspec",
+		DATALENGTH: secs2.A("datalength"),
 	}
 
-	if got.OBJSPEC != "objspec" {
-		t.Errorf("OBJSPEC: got %v, want %v", got.OBJSPEC, "objspec")
-	}
-
-	if !bytes.Equal(got.DATALENGTH.ToBytes(), secs2.A("datalength").ToBytes()) {
-		t.Errorf("DATALENGTH: got %x, want %x", got.DATALENGTH.ToBytes(), secs2.A("datalength").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F12RoundTrip(t *testing.T) {
@@ -318,13 +289,15 @@ func TestDecodeS13F12RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F12: %v", err)
 	}
 
-	if got.GRANT != 0xee {
-		t.Errorf("GRANT: got %v, want %v", got.GRANT, 0xee)
+	want := gem.S13F12Reply{
+		GRANT: 0xee,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F13RoundTrip(t *testing.T) {
-	msg := gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("attrs")}, []secs2.Item{secs2.A("colhdrs")}, secs2.A("rows"))
+	msg := gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("attrs")}, []string{"colhdrs"}, secs2.A("rows"))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -336,49 +309,18 @@ func TestDecodeS13F13RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F13: %v", err)
 	}
 
-	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
-		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	want := gem.S13F13Body{
+		DATAID:  secs2.A("dataid"),
+		OBJSPEC: "objspec",
+		TBLTYP:  "tbltyp",
+		TBLID:   "tblid",
+		TBLCMD:  36,
+		ATTRS:   []secs2.Item{secs2.A("attrs")},
+		COLHDRS: []string{"colhdrs"},
+		ROWS:    []secs2.Item{secs2.A("rows")},
 	}
 
-	if got.OBJSPEC != "objspec" {
-		t.Errorf("OBJSPEC: got %v, want %v", got.OBJSPEC, "objspec")
-	}
-
-	if got.TBLTYP != "tbltyp" {
-		t.Errorf("TBLTYP: got %v, want %v", got.TBLTYP, "tbltyp")
-	}
-
-	if got.TBLID != "tblid" {
-		t.Errorf("TBLID: got %v, want %v", got.TBLID, "tblid")
-	}
-
-	if got.TBLCMD != 36 {
-		t.Errorf("TBLCMD: got %v, want %v", got.TBLCMD, 36)
-	}
-
-	if len(got.ATTRS) != 1 {
-		t.Fatalf("ATTRS: got %d elements, want 1", len(got.ATTRS))
-	}
-
-	if !bytes.Equal(got.ATTRS[0].ToBytes(), secs2.A("attrs").ToBytes()) {
-		t.Errorf("ATTRS: got %x, want %x", got.ATTRS[0].ToBytes(), secs2.A("attrs").ToBytes())
-	}
-
-	if len(got.COLHDRS) != 1 {
-		t.Fatalf("COLHDRS: got %d elements, want 1", len(got.COLHDRS))
-	}
-
-	if !bytes.Equal(got.COLHDRS[0].ToBytes(), secs2.A("colhdrs").ToBytes()) {
-		t.Errorf("COLHDRS: got %x, want %x", got.COLHDRS[0].ToBytes(), secs2.A("colhdrs").ToBytes())
-	}
-
-	if len(got.ROWS) != 1 {
-		t.Fatalf("ROWS: got %d elements, want 1", len(got.ROWS))
-	}
-
-	if !bytes.Equal(got.ROWS[0].ToBytes(), secs2.A("rows").ToBytes()) {
-		t.Errorf("ROWS: got %x, want %x", got.ROWS[0].ToBytes(), secs2.A("rows").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F14RoundTrip(t *testing.T) {
@@ -394,21 +336,16 @@ func TestDecodeS13F14RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F14: %v", err)
 	}
 
-	if got.TBLACK != 82 {
-		t.Errorf("TBLACK: got %v, want %v", got.TBLACK, 82)
+	want := gem.S13F14Reply{
+		TBLACK: 82,
+		ERRORS: []secs2.Item{secs2.A("errors")},
 	}
 
-	if len(got.ERRORS) != 1 {
-		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
-	}
-
-	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
-		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F15RoundTrip(t *testing.T) {
-	msg := gem.S13F15(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("colhdrs")}, secs2.A("tblelts"))
+	msg := gem.S13F15(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []string{"colhdrs"}, secs2.A("tblelts"))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -420,45 +357,21 @@ func TestDecodeS13F15RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F15: %v", err)
 	}
 
-	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
-		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	want := gem.S13F15Body{
+		DATAID:  secs2.A("dataid"),
+		OBJSPEC: "objspec",
+		TBLTYP:  "tbltyp",
+		TBLID:   "tblid",
+		TBLCMD:  36,
+		COLHDRS: []string{"colhdrs"},
+		TBLELTS: []secs2.Item{secs2.A("tblelts")},
 	}
 
-	if got.OBJSPEC != "objspec" {
-		t.Errorf("OBJSPEC: got %v, want %v", got.OBJSPEC, "objspec")
-	}
-
-	if got.TBLTYP != "tbltyp" {
-		t.Errorf("TBLTYP: got %v, want %v", got.TBLTYP, "tbltyp")
-	}
-
-	if got.TBLID != "tblid" {
-		t.Errorf("TBLID: got %v, want %v", got.TBLID, "tblid")
-	}
-
-	if got.TBLCMD != 36 {
-		t.Errorf("TBLCMD: got %v, want %v", got.TBLCMD, 36)
-	}
-
-	if len(got.COLHDRS) != 1 {
-		t.Fatalf("COLHDRS: got %d elements, want 1", len(got.COLHDRS))
-	}
-
-	if !bytes.Equal(got.COLHDRS[0].ToBytes(), secs2.A("colhdrs").ToBytes()) {
-		t.Errorf("COLHDRS: got %x, want %x", got.COLHDRS[0].ToBytes(), secs2.A("colhdrs").ToBytes())
-	}
-
-	if len(got.TBLELTS) != 1 {
-		t.Fatalf("TBLELTS: got %d elements, want 1", len(got.TBLELTS))
-	}
-
-	if !bytes.Equal(got.TBLELTS[0].ToBytes(), secs2.A("tblelts").ToBytes()) {
-		t.Errorf("TBLELTS: got %x, want %x", got.TBLELTS[0].ToBytes(), secs2.A("tblelts").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F16RoundTrip(t *testing.T) {
-	msg := gem.S13F16("tbltyp", "tblid", []secs2.Item{secs2.A("attrs")}, []secs2.Item{secs2.A("colhdrs")}, []secs2.Item{secs2.A("rows")}, 82, secs2.A("errors"))
+	msg := gem.S13F16("tbltyp", "tblid", []secs2.Item{secs2.A("attrs")}, []string{"colhdrs"}, []secs2.Item{secs2.A("rows")}, 82, secs2.A("errors"))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -470,47 +383,15 @@ func TestDecodeS13F16RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS13F16: %v", err)
 	}
 
-	if got.TBLTYP != "tbltyp" {
-		t.Errorf("TBLTYP: got %v, want %v", got.TBLTYP, "tbltyp")
+	want := gem.S13F16Reply{
+		TBLTYP:  "tbltyp",
+		TBLID:   "tblid",
+		ATTRS:   []secs2.Item{secs2.A("attrs")},
+		COLHDRS: []string{"colhdrs"},
+		ROWS:    []secs2.Item{secs2.A("rows")},
+		TBLACK:  82,
+		ERRORS:  []secs2.Item{secs2.A("errors")},
 	}
 
-	if got.TBLID != "tblid" {
-		t.Errorf("TBLID: got %v, want %v", got.TBLID, "tblid")
-	}
-
-	if len(got.ATTRS) != 1 {
-		t.Fatalf("ATTRS: got %d elements, want 1", len(got.ATTRS))
-	}
-
-	if !bytes.Equal(got.ATTRS[0].ToBytes(), secs2.A("attrs").ToBytes()) {
-		t.Errorf("ATTRS: got %x, want %x", got.ATTRS[0].ToBytes(), secs2.A("attrs").ToBytes())
-	}
-
-	if len(got.COLHDRS) != 1 {
-		t.Fatalf("COLHDRS: got %d elements, want 1", len(got.COLHDRS))
-	}
-
-	if !bytes.Equal(got.COLHDRS[0].ToBytes(), secs2.A("colhdrs").ToBytes()) {
-		t.Errorf("COLHDRS: got %x, want %x", got.COLHDRS[0].ToBytes(), secs2.A("colhdrs").ToBytes())
-	}
-
-	if len(got.ROWS) != 1 {
-		t.Fatalf("ROWS: got %d elements, want 1", len(got.ROWS))
-	}
-
-	if !bytes.Equal(got.ROWS[0].ToBytes(), secs2.A("rows").ToBytes()) {
-		t.Errorf("ROWS: got %x, want %x", got.ROWS[0].ToBytes(), secs2.A("rows").ToBytes())
-	}
-
-	if got.TBLACK != 82 {
-		t.Errorf("TBLACK: got %v, want %v", got.TBLACK, 82)
-	}
-
-	if len(got.ERRORS) != 1 {
-		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
-	}
-
-	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
-		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }

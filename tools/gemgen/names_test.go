@@ -183,9 +183,10 @@ func TestRenamedAndNestedOpaqueNodes(t *testing.T) {
 	decodeTests, err := renderDecodeTests(mf, items)
 	require.NoError(t, err)
 	require.Contains(t, string(decodeTests), `gem.S1F2("mdln", "mdlnb", secs2.A("params"), secs2.A("body"))`)
-	require.Contains(t, string(decodeTests), `if got.MDLNB != "mdlnb" {`)
-	require.Contains(t, string(decodeTests), `bytes.Equal(got.PARAMS.ToBytes(), secs2.A("params").ToBytes())`)
-	require.Contains(t, string(decodeTests), `bytes.Equal(got.BODY.ToBytes(), secs2.A("body").ToBytes())`)
+	require.Contains(t, string(decodeTests), "\t\tMDLN:   \"mdln\",\n"+
+		"\t\tMDLNB:  \"mdlnb\",\n"+
+		"\t\tPARAMS: secs2.A(\"params\"),\n"+
+		"\t\tBODY:   secs2.A(\"body\"),\n")
 }
 
 // TestAsInsideRepeatIsInert proves an as: below a repeat's or packed group's of changes no emitted name:

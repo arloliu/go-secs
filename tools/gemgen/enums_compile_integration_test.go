@@ -204,7 +204,7 @@ func TestEnumsCompileAndRunAgainstRealSecs2(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(out), 0o600))
 	}
 
-	plantFuzzHarness(t, rootDir, checkDir, pkg)
+	plantTestSupport(t, rootDir, checkDir, pkg)
 
 	constants := strings.Replace(enumsConstantsTest, "package PKG\n", "package "+pkg+"\n", 1)
 	require.NoError(t, os.WriteFile(filepath.Join(checkDir, "constants_test.go"), []byte(constants), 0o600))

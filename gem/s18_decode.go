@@ -124,8 +124,7 @@ func DecodeS18F3(item secs2.Item) (S18F3Body, error) {
 //
 // Body: L[3]{ A[targetid] A[ssack] L[n]{ <statuses>... } }.
 //
-// It is filled by [DecodeS18F4] and mirrors the parameters of [S18F4], in order,
-// except that STATUSES holds decoded values where [S18F4] takes [secs2.Item] elements.
+// It is filled by [DecodeS18F4] and mirrors the parameters of [S18F4], in order.
 type S18F4Reply struct {
 	TARGETID string
 	SSACK    string
@@ -209,8 +208,7 @@ func DecodeS18F5(item secs2.Item) (S18F5Body, error) {
 //
 // Body: L[4]{ A[targetid] A[ssack] A[data] L[n]{ <statuses>... } }.
 //
-// It is filled by [DecodeS18F6] and mirrors the parameters of [S18F6], in order,
-// except that STATUSES holds decoded values where [S18F6] takes [secs2.Item] elements.
+// It is filled by [DecodeS18F6] and mirrors the parameters of [S18F6], in order.
 type S18F6Reply struct {
 	TARGETID string
 	SSACK    string
@@ -304,8 +302,7 @@ func DecodeS18F7(item secs2.Item) (S18F7Body, error) {
 //
 // Body: L[3]{ A[targetid] A[ssack] L[n]{ <statuses>... } }.
 //
-// It is filled by [DecodeS18F8] and mirrors the parameters of [S18F8], in order,
-// except that STATUSES holds decoded values where [S18F8] takes [secs2.Item] elements.
+// It is filled by [DecodeS18F8] and mirrors the parameters of [S18F8], in order.
 type S18F8Reply struct {
 	TARGETID string
 	SSACK    string
@@ -375,8 +372,7 @@ func DecodeS18F9(item secs2.Item) (S18F9Body, error) {
 //
 // Body: L[4]{ A[targetid] A[ssack] <mid> L[n]{ <statuses>... } }.
 //
-// It is filled by [DecodeS18F10] and mirrors the parameters of [S18F10], in order,
-// except that STATUSES holds decoded values where [S18F10] takes [secs2.Item] elements.
+// It is filled by [DecodeS18F10] and mirrors the parameters of [S18F10], in order.
 type S18F10Reply struct {
 	TARGETID string
 	SSACK    string
@@ -460,8 +456,7 @@ func DecodeS18F11(item secs2.Item) (S18F11Body, error) {
 //
 // Body: L[3]{ A[targetid] A[ssack] L[n]{ <statuses>... } }.
 //
-// It is filled by [DecodeS18F12] and mirrors the parameters of [S18F12], in order,
-// except that STATUSES holds decoded values where [S18F12] takes [secs2.Item] elements.
+// It is filled by [DecodeS18F12] and mirrors the parameters of [S18F12], in order.
 type S18F12Reply struct {
 	TARGETID string
 	SSACK    string
@@ -545,8 +540,7 @@ func DecodeS18F13(item secs2.Item) (S18F13Body, error) {
 //
 // Body: L[3]{ A[targetid] A[ssack] L[n]{ <statuses>... } }.
 //
-// It is filled by [DecodeS18F14] and mirrors the parameters of [S18F14], in order,
-// except that STATUSES holds decoded values where [S18F14] takes [secs2.Item] elements.
+// It is filled by [DecodeS18F14] and mirrors the parameters of [S18F14], in order.
 type S18F14Reply struct {
 	TARGETID string
 	SSACK    string
@@ -616,8 +610,7 @@ func DecodeS18F15(item secs2.Item) (S18F15Body, error) {
 //
 // Body: L[5]{ A[targetid] A[ssack] <mid> L[n]{ <statuses>... } L[n]{ <conditions>... } }.
 //
-// It is filled by [DecodeS18F16] and mirrors the parameters of [S18F16], in order,
-// except that STATUSES and CONDITIONS hold decoded values where [S18F16] takes [secs2.Item] elements.
+// It is filled by [DecodeS18F16] and mirrors the parameters of [S18F16], in order.
 type S18F16Reply struct {
 	TARGETID   string
 	SSACK      string

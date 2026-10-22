@@ -93,6 +93,24 @@ docs-check: ## Check docs/ against .agents/rules/450-doc-lifecycle.md (Status li
 	@printf "Run docs check...\n"
 	@python3 scripts/docs-check.py
 
+# lint-gem-generated lints the gemgen output in gem/, which `lint` skips as generated code.
+# Its config is a copy of .golangci.yaml with the generated-code exclusions turned off,
+# minus the structural linters on the generated files:
+# one function per message makes duplication and complexity inherent there,
+# while every other finding is a generator or template fix.
+GEM_GENERATED_LINT_CONFIG := $(or $(TMPDIR),/tmp)/golangci-gem-generated.yaml
+GEM_GENERATED_FILES       := ^gem/(s[0-9]+(_decode)?(_test)?|items|groups|catalog)\.go$$
+
+lint-gem-generated: ## Run golangci-lint on gem/ with generated files included
+	@printf "Run linter on generated gem code...\n"
+	@awk '{ sub(/generated: lax/, "generated: disable"); print } \
+		/^    rules:$$/ && !done { \
+			print "      - linters: [dupl, cyclop, gocyclo, gocognit, funlen, maintidx]"; \
+			print "        path: $(GEM_GENERATED_FILES)"; \
+			done = 1 } \
+		END { print "run:"; print "  relative-path-mode: gomod" }' .golangci.yaml > $(GEM_GENERATED_LINT_CONFIG)
+	@$(GOLANGCI) run --config $(GEM_GENERATED_LINT_CONFIG) ./gem/...
+
 ##@ Generator (tools/gemgen)
 
 # tools/gemgen is its own Go module (see docs/specs/2026-07-07-gem-codegen-design.md)
@@ -288,7 +306,7 @@ update-pkg-cache: ## Prime the Go module proxy (and transitively pkg.go.dev) wit
 ci: check docs-check test test-gemgen test-gemgen-integration lint-gemgen lint-tracepack test-tracepack ## Single entry point for CI (lint + vet + docs check + -short tests + gemgen and tracepack module gates)
 
 .PHONY: help lint fmt vet check docs-check \
-        lint-gemgen test-gemgen test-gemgen-integration \
+        lint-gem-generated lint-gemgen test-gemgen test-gemgen-integration \
         work lint-tracepack test-tracepack test-tracepack-386 check-tracepack-consumer corpus-tracepack fuzz-tracepack update-pkg-cache-tracepack \
         clean clean-coverage build-tests test test-all bench \
         stress-test stress-quick fuzz-test \

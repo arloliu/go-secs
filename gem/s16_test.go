@@ -608,7 +608,7 @@ func TestS16F15(t *testing.T) {
 }
 
 func TestS16F16(t *testing.T) {
-	msg := gem.S16F16([]secs2.Item{secs2.A("prjobids")}, true, secs2.A("errors"))
+	msg := gem.S16F16([]string{"prjobids"}, true, secs2.A("errors"))
 
 	assertS16Header(t, msg, 16, false)
 
@@ -630,10 +630,12 @@ func TestS16F16(t *testing.T) {
 	if len(list2) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list2))
 	}
-	got3 := list2[0].ToBytes()
-	want3 := secs2.A("prjobids").ToBytes()
-	if !bytes.Equal(got3, want3) {
-		t.Errorf("prjobids: got %x, want %x", got3, want3)
+	v3, err := list2[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[0].ToASCII: %v", err)
+	}
+	if v3 != "prjobids" {
+		t.Errorf("prjobids: got %q, want %q", v3, "prjobids")
 	}
 	list4, err := list1[1].ToList()
 	if err != nil {
@@ -664,7 +666,7 @@ func TestS16F16(t *testing.T) {
 }
 
 func TestS16F17(t *testing.T) {
-	msg := gem.S16F17(secs2.A("prjobids"))
+	msg := gem.S16F17("prjobids")
 
 	assertS16Header(t, msg, 17, true)
 
@@ -679,15 +681,17 @@ func TestS16F17(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("prjobids").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("prjobids: got %x, want %x", got2, want2)
+	v2, err := list1[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[0].ToASCII: %v", err)
+	}
+	if v2 != "prjobids" {
+		t.Errorf("prjobids: got %q, want %q", v2, "prjobids")
 	}
 }
 
 func TestS16F18(t *testing.T) {
-	msg := gem.S16F18([]secs2.Item{secs2.A("prjobids")}, true, secs2.A("errors"))
+	msg := gem.S16F18([]string{"prjobids"}, true, secs2.A("errors"))
 
 	assertS16Header(t, msg, 18, false)
 
@@ -709,10 +713,12 @@ func TestS16F18(t *testing.T) {
 	if len(list2) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list2))
 	}
-	got3 := list2[0].ToBytes()
-	want3 := secs2.A("prjobids").ToBytes()
-	if !bytes.Equal(got3, want3) {
-		t.Errorf("prjobids: got %x, want %x", got3, want3)
+	v3, err := list2[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[0].ToASCII: %v", err)
+	}
+	if v3 != "prjobids" {
+		t.Errorf("prjobids: got %q, want %q", v3, "prjobids")
 	}
 	list4, err := list1[1].ToList()
 	if err != nil {
@@ -878,7 +884,7 @@ func TestS16F24(t *testing.T) {
 }
 
 func TestS16F25(t *testing.T) {
-	msg := gem.S16F25([]secs2.Item{secs2.A("prjobids")}, true)
+	msg := gem.S16F25([]string{"prjobids"}, true)
 
 	assertS16Header(t, msg, 25, true)
 
@@ -900,10 +906,12 @@ func TestS16F25(t *testing.T) {
 	if len(list2) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list2))
 	}
-	got3 := list2[0].ToBytes()
-	want3 := secs2.A("prjobids").ToBytes()
-	if !bytes.Equal(got3, want3) {
-		t.Errorf("prjobids: got %x, want %x", got3, want3)
+	v3, err := list2[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[0].ToASCII: %v", err)
+	}
+	if v3 != "prjobids" {
+		t.Errorf("prjobids: got %q, want %q", v3, "prjobids")
 	}
 	v4, err := list1[1].ToBoolean()
 	if err != nil {
@@ -915,7 +923,7 @@ func TestS16F25(t *testing.T) {
 }
 
 func TestS16F26(t *testing.T) {
-	msg := gem.S16F26([]secs2.Item{secs2.A("prjobids")}, true, secs2.A("errors"))
+	msg := gem.S16F26([]string{"prjobids"}, true, secs2.A("errors"))
 
 	assertS16Header(t, msg, 26, false)
 
@@ -937,10 +945,12 @@ func TestS16F26(t *testing.T) {
 	if len(list2) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list2))
 	}
-	got3 := list2[0].ToBytes()
-	want3 := secs2.A("prjobids").ToBytes()
-	if !bytes.Equal(got3, want3) {
-		t.Errorf("prjobids: got %x, want %x", got3, want3)
+	v3, err := list2[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[0].ToASCII: %v", err)
+	}
+	if v3 != "prjobids" {
+		t.Errorf("prjobids: got %q, want %q", v3, "prjobids")
 	}
 	list4, err := list1[1].ToList()
 	if err != nil {
@@ -1062,23 +1072,12 @@ func TestS16F27NoParams(t *testing.T) {
 		t.Fatalf("DecodeS16F27: %v", err)
 	}
 
-	if got.CTLJOBID != "ctljobid" {
-		t.Errorf("CTLJOBID: got %v, want %v", got.CTLJOBID, "ctljobid")
+	want := gem.S16F27Body{
+		CTLJOBID:  "ctljobid",
+		CTLJOBCMD: 19,
 	}
 
-	if got.CTLJOBCMD != 19 {
-		t.Errorf("CTLJOBCMD: got %v, want %v", got.CTLJOBCMD, 19)
-	}
-
-	var zero gem.S16F27Body
-
-	if got.CPNAME != zero.CPNAME {
-		t.Errorf("CPNAME: got %v, want the zero value", got.CPNAME)
-	}
-
-	if got.CPVAL != zero.CPVAL {
-		t.Errorf("CPVAL: got %v, want the zero value", got.CPVAL)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestS16F28(t *testing.T) {
@@ -1161,19 +1160,11 @@ func TestS16F28Success(t *testing.T) {
 		t.Fatalf("DecodeS16F28: %v", err)
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
+	want := gem.S16F28Reply{
+		ACKA: true,
 	}
 
-	var zero gem.S16F28Reply
-
-	if got.ERRCODE != zero.ERRCODE {
-		t.Errorf("ERRCODE: got %v, want the zero value", got.ERRCODE)
-	}
-
-	if got.ERRTEXT != zero.ERRTEXT {
-		t.Errorf("ERRTEXT: got %v, want the zero value", got.ERRTEXT)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestS16F29(t *testing.T) {

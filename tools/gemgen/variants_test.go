@@ -244,13 +244,14 @@ func TestRenderVariantTest(t *testing.T) {
 		"assertS16Header(t, msg, 28, false)",
 		"list1, err := decoded.ToList()",
 		"got, err := gem.DecodeS16F28(decoded)",
-		`if got.MDLN != "mdln" {`,
-		"var zero gem.S16F28Reply",
-		"if got.SOFTREV != zero.SOFTREV {",
-		"if got.SVID != zero.SVID {",
+		"want := gem.S16F28Reply{\n\t\tMDLN: \"mdln\",\n\t}\n",
+		"assertDecoded(t, got, want)",
 	} {
 		require.Contains(t, body, want)
 	}
+
+	require.NotContains(t, body, "SOFTREV:")
+	require.NotContains(t, body, "SVID:")
 }
 
 // TestRenderVariantTestWithoutMainFields covers a main body whose result has no fields.
@@ -286,10 +287,7 @@ func TestRenderDecodeTestsEmptyList(t *testing.T) {
 			[]string{
 				"func TestDecodeS16F2EmptyList(t *testing.T) {",
 				"got, err := gem.DecodeS16F2(secs2.L())",
-				"var zero gem.S16F2Reply",
-				"if got.MDLN != zero.MDLN {",
-				"if len(got.SVIDS) != 0 {",
-				"if got.MHEAD != zero.MHEAD {",
+				"assertDecoded(t, got, gem.S16F2Reply{})",
 			},
 		},
 		{

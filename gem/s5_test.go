@@ -203,7 +203,7 @@ func TestS5F8(t *testing.T) {
 }
 
 func TestS5F9(t *testing.T) {
-	msg := gem.S5F9("timestamp", "exid", "extype", "exmessage", secs2.A("recoveryActions"))
+	msg := gem.S5F9("timestamp", "exid", "extype", "exmessage", "recoveryActions")
 
 	assertS5Header(t, msg, 9, true)
 
@@ -253,10 +253,12 @@ func TestS5F9(t *testing.T) {
 	if len(list6) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
-	got7 := list6[0].ToBytes()
-	want7 := secs2.A("recoveryActions").ToBytes()
-	if !bytes.Equal(got7, want7) {
-		t.Errorf("recoveryActions: got %x, want %x", got7, want7)
+	v7, err := list6[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list6[0].ToASCII: %v", err)
+	}
+	if v7 != "recoveryActions" {
+		t.Errorf("recoveryActions: got %q, want %q", v7, "recoveryActions")
 	}
 }
 
@@ -466,23 +468,12 @@ func TestS5F14Accepted(t *testing.T) {
 		t.Fatalf("DecodeS5F14: %v", err)
 	}
 
-	if got.EXID != "exid" {
-		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
+	want := gem.S5F14Reply{
+		EXID: "exid",
+		ACKA: true,
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	var zero gem.S5F14Reply
-
-	if got.ERRCODE != zero.ERRCODE {
-		t.Errorf("ERRCODE: got %v, want the zero value", got.ERRCODE)
-	}
-
-	if got.ERRTEXT != zero.ERRTEXT {
-		t.Errorf("ERRTEXT: got %v, want the zero value", got.ERRTEXT)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestS5F15(t *testing.T) {
@@ -607,27 +598,13 @@ func TestS5F15Success(t *testing.T) {
 		t.Fatalf("DecodeS5F15: %v", err)
 	}
 
-	if got.TIMESTAMP != "timestamp" {
-		t.Errorf("TIMESTAMP: got %v, want %v", got.TIMESTAMP, "timestamp")
+	want := gem.S5F15Body{
+		TIMESTAMP: "timestamp",
+		EXID:      "exid",
+		ACKA:      true,
 	}
 
-	if got.EXID != "exid" {
-		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
-	}
-
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	var zero gem.S5F15Body
-
-	if got.ERRCODE != zero.ERRCODE {
-		t.Errorf("ERRCODE: got %v, want the zero value", got.ERRCODE)
-	}
-
-	if got.ERRTEXT != zero.ERRTEXT {
-		t.Errorf("ERRTEXT: got %v, want the zero value", got.ERRTEXT)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestS5F16(t *testing.T) {
@@ -766,21 +743,10 @@ func TestS5F18Success(t *testing.T) {
 		t.Fatalf("DecodeS5F18: %v", err)
 	}
 
-	if got.EXID != "exid" {
-		t.Errorf("EXID: got %v, want %v", got.EXID, "exid")
+	want := gem.S5F18Reply{
+		EXID: "exid",
+		ACKA: true,
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	var zero gem.S5F18Reply
-
-	if got.ERRCODE != zero.ERRCODE {
-		t.Errorf("ERRCODE: got %v, want the zero value", got.ERRCODE)
-	}
-
-	if got.ERRTEXT != zero.ERRTEXT {
-		t.Errorf("ERRTEXT: got %v, want the zero value", got.ERRTEXT)
-	}
+	assertDecoded(t, got, want)
 }

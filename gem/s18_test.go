@@ -146,7 +146,7 @@ func TestS18F3(t *testing.T) {
 }
 
 func TestS18F4(t *testing.T) {
-	msg := gem.S18F4("targetid", "ssack", secs2.A("statuses"))
+	msg := gem.S18F4("targetid", "ssack", "statuses")
 
 	assertS18Header(t, msg, 4, false)
 
@@ -229,7 +229,7 @@ func TestS18F5(t *testing.T) {
 }
 
 func TestS18F6(t *testing.T) {
-	msg := gem.S18F6("targetid", "ssack", "data", secs2.A("statuses"))
+	msg := gem.S18F6("targetid", "ssack", "data", "statuses")
 
 	assertS18Header(t, msg, 6, false)
 
@@ -326,7 +326,7 @@ func TestS18F7(t *testing.T) {
 }
 
 func TestS18F8(t *testing.T) {
-	msg := gem.S18F8("targetid", "ssack", secs2.A("statuses"))
+	msg := gem.S18F8("targetid", "ssack", "statuses")
 
 	assertS18Header(t, msg, 8, false)
 
@@ -390,7 +390,7 @@ func TestS18F9(t *testing.T) {
 }
 
 func TestS18F10(t *testing.T) {
-	msg := gem.S18F10("targetid", "ssack", secs2.A("mid"), secs2.A("statuses"))
+	msg := gem.S18F10("targetid", "ssack", secs2.A("mid"), "statuses")
 
 	assertS18Header(t, msg, 10, false)
 
@@ -471,7 +471,7 @@ func TestS18F11(t *testing.T) {
 }
 
 func TestS18F12(t *testing.T) {
-	msg := gem.S18F12("targetid", "ssack", secs2.A("statuses"))
+	msg := gem.S18F12("targetid", "ssack", "statuses")
 
 	assertS18Header(t, msg, 12, false)
 
@@ -561,7 +561,7 @@ func TestS18F13(t *testing.T) {
 }
 
 func TestS18F14(t *testing.T) {
-	msg := gem.S18F14("targetid", "ssack", secs2.A("statuses"))
+	msg := gem.S18F14("targetid", "ssack", "statuses")
 
 	assertS18Header(t, msg, 14, false)
 
@@ -625,7 +625,7 @@ func TestS18F15(t *testing.T) {
 }
 
 func TestS18F16(t *testing.T) {
-	msg := gem.S18F16("targetid", "ssack", secs2.A("mid"), []secs2.Item{secs2.A("statuses")}, secs2.A("conditions"))
+	msg := gem.S18F16("targetid", "ssack", secs2.A("mid"), []string{"statuses"}, "conditions")
 
 	assertS18Header(t, msg, 16, false)
 
