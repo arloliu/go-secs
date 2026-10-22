@@ -345,6 +345,7 @@ func LoadMessageFile(data []byte) (MessageFile, error) {
 // as: is valid only on a leaf or opaque node and must be a plain identifier,
 // and every body's emitted names must be usable Go identifiers that do not collide
 // (see checkNames).
+// An acceptReply annotation must fit its body (see checkAcceptReply).
 // A message's variant bodies must each shorten a main body (see checkVariants),
 // and the package-level names a stream file emits must be distinct (see checkFileNames).
 func ValidateMessages(files []MessageFile, items map[string]Item) error {
@@ -362,6 +363,12 @@ func ValidateMessages(files []MessageFile, items map[string]Item) error {
 				case "both", "equipment", "host":
 				default:
 					return fmt.Errorf("S%dF%d: bad actor %q", f.Stream, m.Function, b.Actor)
+				}
+
+				if b.AcceptReply != nil {
+					if err := checkAcceptReply(f, m, b, items); err != nil {
+						return fmt.Errorf("S%dF%d (actor %s): %w", f.Stream, m.Function, b.Actor, err)
+					}
 				}
 
 				ctx := nodeCtx{where: fmt.Sprintf("S%dF%d", f.Stream, m.Function)}
@@ -382,6 +389,60 @@ func ValidateMessages(files []MessageFile, items map[string]Item) error {
 		if err := checkFileNames(f); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// checkAcceptReply checks the acceptReply annotation of the body b of the message m in the stream file f.
+//
+// Only a reply's main body may carry one: an even function's, whose primary f defines and sends with a reply expected in some form.
+// The body's builder parameters must be one leaf plus any number of repeats, or none at all (see acceptReplyLeaves).
+// With none, the annotation names no value.
+// With a leaf, the leaf must be of a binding: fixed item with a values table, and not optional,
+// and the annotation must name one of its values.
+func checkAcceptReply(f MessageFile, m Message, b Body, items map[string]Item) error {
+	switch {
+	case m.Function%2 != 0:
+		return errors.New("acceptReply: only a reply, an even function, may carry it")
+	case b.Variant != "":
+		return fmt.Errorf("acceptReply: variant %s may not carry it; annotate the main body", b.Variant)
+	}
+
+	primary, ok := findMessage(f, m.Function-1)
+	if !ok {
+		return fmt.Errorf("acceptReply: the primary S%dF%d is not defined", f.Stream, m.Function-1)
+	}
+
+	if !slices.ContainsFunc(primary.Bodies, func(p Body) bool { return p.Variant == "" && p.ReplyExpected }) {
+		return fmt.Errorf("acceptReply: no form of the primary S%dF%d expects a reply", f.Stream, m.Function-1)
+	}
+
+	leaves, err := acceptReplyLeaves(b.Structure)
+	if err != nil {
+		return err
+	}
+
+	value := b.AcceptReply.Value
+
+	if len(leaves) == 0 {
+		if value != "" {
+			return fmt.Errorf("acceptReply: value %s names no leaf: the body has no parameters", value)
+		}
+
+		return nil
+	}
+
+	leaf := leaves[0]
+	it := items[leaf.Item]
+
+	switch {
+	case it.Binding != BindingFixed || len(it.Values) == 0:
+		return fmt.Errorf("acceptReply: the leaf %s must be of a binding: fixed item with a values table", leaf.Item)
+	case leaf.Optional:
+		return fmt.Errorf("acceptReply: the leaf %s is optional; an acceptance sends a value", leaf.Item)
+	case !slices.ContainsFunc(it.Values, func(v ItemValue) bool { return v.Name == value }):
+		return fmt.Errorf("acceptReply: %s has no value named %q", leaf.Item, value)
 	}
 
 	return nil

@@ -399,4 +399,5 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PermissionGranted}
         structure: {item: GRANT}

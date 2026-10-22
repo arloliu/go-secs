@@ -24,6 +24,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PermissionGranted}
         structure: {item: GRANT}
 
   # E5 prints "<RCPSPEC> or <PPID>" for the recipe;

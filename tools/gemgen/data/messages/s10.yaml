@@ -24,6 +24,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcceptedForDisplay}
         structure: {item: ACKC10}
 
   - function: 3
@@ -50,6 +51,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcceptedForDisplay}
         structure: {item: ACKC10}
 
   - function: 5
@@ -81,6 +83,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcceptedForDisplay}
         structure: {item: ACKC10}
 
   - function: 7
@@ -123,4 +126,5 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcceptedForDisplay}
         structure: {item: ACKC10}

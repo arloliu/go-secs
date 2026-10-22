@@ -34,6 +34,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC6}
 
   - function: 3
@@ -70,6 +71,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC6}
 
   - function: 5
@@ -96,6 +98,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PermissionGranted}
         structure: {item: GRANT6}
 
   - function: 7
@@ -167,6 +170,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC6}
 
   - function: 11
@@ -203,6 +207,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC6}
 
   # S6F13 is reconstructed from cross-references, NOT our local E5 markdown, whose §10 Message Detail
@@ -250,6 +255,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC6}
 
   - function: 15
@@ -399,6 +405,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: OK}
         structure: {item: RSDA}
 
   - function: 25
@@ -451,6 +458,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC6}
 
   - function: 27

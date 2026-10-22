@@ -23,8 +23,8 @@ func main() {
 }
 
 // run loads the items dictionary, the groups file, and every stream's messages file under msgsDir,
-// validates them, renders items.go, groups.go, decode.go, and each stream's files,
-// and writes the results under outDir.
+// validates them, renders items.go, groups.go, decode.go, each stream's files,
+// and the catalog with its test, and writes the results under outDir.
 // An empty groupsPath means no groups, and no groups.go is written.
 // It is the whole CLI's orchestration,
 // split out from main so it is testable without a subprocess.
@@ -98,6 +98,29 @@ func run(itemsPath, groupsPath, msgsDir, outDir string) error {
 		if err := writeMessageFile(mf, items, outDir); err != nil {
 			return err
 		}
+	}
+
+	return writeCatalog(msgFiles, items, outDir)
+}
+
+// writeCatalog renders and writes catalog.go and its generated test, catalog_lookup_test.go.
+func writeCatalog(msgFiles []MessageFile, items map[string]Item, outDir string) error {
+	catalogSrc, err := renderCatalog(msgFiles, items)
+	if err != nil {
+		return fmt.Errorf("render catalog.go: %w", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(outDir, "catalog.go"), catalogSrc, 0o600); err != nil {
+		return fmt.Errorf("write catalog.go: %w", err)
+	}
+
+	lookupTestSrc, err := renderCatalogLookupTests(msgFiles, items)
+	if err != nil {
+		return fmt.Errorf("render catalog_lookup_test.go: %w", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(outDir, "catalog_lookup_test.go"), lookupTestSrc, 0o600); err != nil {
+		return fmt.Errorf("write catalog_lookup_test.go: %w", err)
 	}
 
 	return nil

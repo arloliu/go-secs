@@ -27,6 +27,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PermissionGranted}
         structure: {item: RMGRNT}
 
   - function: 3
@@ -53,6 +54,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SuccessfulCompletion}
         structure:
           type: list
           items:
@@ -81,6 +83,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SuccessfulCompletion}
         structure:
           type: list
           items:
@@ -233,6 +236,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SuccessfulCompletion}
         # E5 prints the error list as "L,2",
         # but its elements run 1..p,
         # and the exception says p = 0 when there are no errors.
@@ -371,6 +375,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SuccessfulCompletion}
         structure:
           type: list
           items:
@@ -701,6 +706,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SuccessfulCompletion}
         structure:
           type: list
           items:
@@ -739,6 +745,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SuccessfulCompletion}
         structure:
           type: list
           items:
@@ -778,6 +785,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SuccessfulCompletion}
         structure:
           type: list
           items:
@@ -817,6 +825,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SuccessfulCompletion}
         structure:
           type: list
           items:
@@ -879,6 +888,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SuccessfulCompletion}
         structure:
           type: list
           items:
@@ -990,6 +1000,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SuccessfulCompletion}
         # E5 prints the error list as "L,P"; it is the same list of p as every other RMACK reply.
         structure:
           type: list
@@ -1028,6 +1039,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC15}
 
   - function: 51
@@ -1061,6 +1073,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC15}
 
   - function: 53

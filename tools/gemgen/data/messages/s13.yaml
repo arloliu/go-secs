@@ -179,6 +179,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PermissionGranted}
         structure: {item: GRANT}
 
   - function: 13
@@ -223,6 +224,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Success}
         structure:
           type: list
           items:

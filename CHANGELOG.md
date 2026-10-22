@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A named struct for each list shape a message repeats, such as `Report` and `ErrorInfo`,
   which builders take and decoders return, checked element by element.
 - Decoder options, starting with `AllowTrailing`, which accepts a list holding more items than E5 declares.
+- A catalog: `Lookup` describes and decodes any message by stream and function, and `AcceptReply` builds the reply that accepts one.
 - A fuzz target runs every generated decoder over arbitrary bytes.
 
 Several shipped `gem` signatures change; see Upgrade notes.
@@ -121,6 +122,26 @@ Several shipped `gem` signatures change; see Upgrade notes.
 - `gem`: the named type `PFCD` for the predefined form code of `S6F9`, which E5 defines no values for.
 - `gem`: `FuzzDecoders` runs every generated decoder over arbitrary wire bytes, strictly and with `AllowTrailing`,
   and `make fuzz-test` covers `gem`.
+- `gem`: `Lookup(stream, function, sender)` returns a `MessageInfo` for every message `gem` generates:
+  its E5 name and mnemonic, its `Direction`, the reply bit, the reply function, whether it has a body,
+  whether it was checked against E5, and `Decode`, which decodes a received body into the message's result type.
+  `Role`, `RoleHost` or `RoleEquipment`, picks the form the sender sends,
+  so the host's and the equipment's S1F2, S1F13, and S1F14 each decode with their own decoder.
+  `Lookup` does not check the direction; the caller compares it, for instance before an S9F5.
+  `Role` and `Direction` have `String` methods for logs, such as "equipment" and "host-to-equipment".
+- `gem`: `AcceptReply(stream, function, replier)` builds the reply that accepts a primary as a whole,
+  such as S6F12 with `ACKC6Accepted` for S6F11, S1F14 with `COMMACKAccepted` from the host for S1F13,
+  or S2F42 with `HCACKAcknowledgeCommandPerformed` and no invalid parameters for S2F41.
+  It covers the replies whose acknowledge code has a value meaning acceptance
+  and whose lists, if any, E5 sends empty only when nothing went wrong.
+  It reports false for a reply that carries data, such as the equipment's S1F14 or S14F2,
+  for a direction that does not let the two roles exchange the message, and for an invalid `Role`.
+  The reply asserts what E5 says its value means, which for several messages is more than receipt:
+  HCACK and CAACK 0 say the command has been performed, RMACK 0 that the action completed,
+  and TBLACK, TIACK, EAC, DRACK, LRACK, and ERACK 0 that the request was carried out;
+  RSACK and RRACK 0 mean "Acknowledge, OK", which E5 distinguishes from ready.
+  Where completion comes later, or the caller only forwards the request,
+  build the reply with the message's builder instead, for example with HCACK 4, CAACK 4, or RMACK 3.
 
 ### Changed
 

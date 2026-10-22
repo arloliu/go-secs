@@ -48,6 +48,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: ReceivedData}
         structure: {item: SDACK}
 
   - function: 3
@@ -136,6 +137,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PositiveResponseTransferOK}
         structure: {item: GRNT1}
 
   # The markdown copy of E5 garbles the S12F7 row/column list; the PDF text gives L,2 {RSINF, BINLT}.
@@ -170,6 +172,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: MapReceived}
         structure: {item: MDACK}
 
   - function: 9
@@ -196,6 +199,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: MapReceived}
         structure: {item: MDACK}
 
   # The markdown copy of E5 garbles the S12F11 coordinate list; the PDF text gives L,2 {XYPOS, BINLT}.
@@ -232,6 +236,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: MapReceived}
         structure: {item: MDACK}
 
   - function: 13
