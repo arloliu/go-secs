@@ -14,12 +14,12 @@ func init() {
 		_, err := gem.DecodeS3F2(item)
 
 		return err
-	}, gem.S3F2(secs2.A("mf"), secs2.A("locations")).Item())
+	}, gem.S3F2(secs2.A("mf"), gem.MaterialLocation{LOC: 0xd8, QUA: 0x14, MID: secs2.A("mid")}).Item())
 	registerFuzzDecoder("DecodeS3F4", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F4(item)
 
 		return err
-	}, gem.S3F4(secs2.A("mf"), secs2.A("materials")).Item())
+	}, gem.S3F4(secs2.A("mf"), gem.MaterialTimeToCompletion{TTC: secs2.A("ttc"), QUA: 0x14, MID: secs2.A("mid")}).Item())
 	registerFuzzDecoder("DecodeS3F5", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F5(item)
 
@@ -84,17 +84,17 @@ func init() {
 		_, err := gem.DecodeS3F17(item)
 
 		return err
-	}, gem.S3F17(secs2.A("dataid"), "carrieraction", "carrierid", secs2.A("ptn"), secs2.A("attributes")).Item())
+	}, gem.S3F17(secs2.A("dataid"), "carrieraction", "carrierid", secs2.A("ptn"), gem.CarrierAttribute{CATTRID: "cattrid", CATTRDATA: secs2.A("cattrdata")}).Item())
 	registerFuzzDecoder("DecodeS3F18", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F18(item)
 
 		return err
-	}, gem.S3F18(6, secs2.A("errors")).Item())
+	}, gem.S3F18(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS3F20", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F20(item)
 
 		return err
-	}, gem.S3F20(6, secs2.A("errors")).Item())
+	}, gem.S3F20(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS3F21", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F21(item)
 
@@ -104,27 +104,27 @@ func init() {
 		_, err := gem.DecodeS3F22(item)
 
 		return err
-	}, gem.S3F22(6, secs2.A("errors")).Item())
+	}, gem.S3F22(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS3F23", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F23(item)
 
 		return err
-	}, gem.S3F23("pgrpaction", "portgrpname", secs2.A("params")).Item())
+	}, gem.S3F23("pgrpaction", "portgrpname", gem.PortActionParam{PARAMNAME: "paramname", PARAMVAL: secs2.A("paramval")}).Item())
 	registerFuzzDecoder("DecodeS3F24", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F24(item)
 
 		return err
-	}, gem.S3F24(6, secs2.A("errors")).Item())
+	}, gem.S3F24(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS3F25", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F25(item)
 
 		return err
-	}, gem.S3F25("portaction", secs2.A("ptn"), secs2.A("params")).Item())
+	}, gem.S3F25("portaction", secs2.A("ptn"), gem.PortActionParam{PARAMNAME: "paramname", PARAMVAL: secs2.A("paramval")}).Item())
 	registerFuzzDecoder("DecodeS3F26", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F26(item)
 
 		return err
-	}, gem.S3F26(6, secs2.A("errors")).Item())
+	}, gem.S3F26(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS3F27", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F27(item)
 
@@ -134,7 +134,7 @@ func init() {
 		_, err := gem.DecodeS3F28(item)
 
 		return err
-	}, gem.S3F28(6, secs2.A("errors")).Item())
+	}, gem.S3F28(6, gem.PortError{PTN: secs2.A("ptn"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS3F29", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F29(item)
 
@@ -144,7 +144,7 @@ func init() {
 		_, err := gem.DecodeS3F30(item)
 
 		return err
-	}, gem.S3F30("data", 6, secs2.A("errors")).Item())
+	}, gem.S3F30("data", 6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS3F31", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F31(item)
 
@@ -154,26 +154,26 @@ func init() {
 		_, err := gem.DecodeS3F32(item)
 
 		return err
-	}, gem.S3F32(6, secs2.A("errors")).Item())
+	}, gem.S3F32(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS3F34", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F34(item)
 
 		return err
-	}, gem.S3F34(6, secs2.A("errors")).Item())
+	}, gem.S3F34(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS3F35", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F35(item)
 
 		return err
-	}, gem.S3F35("jobaction", "podid", secs2.A("inptn"), secs2.A("outptn"), []secs2.Item{secs2.A("attributes")}, []secs2.Item{secs2.A("removals")}, secs2.A("placements")).Item())
+	}, gem.S3F35("jobaction", "podid", secs2.A("inptn"), secs2.A("outptn"), []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}, []gem.ReticleRemoval{{RETICLEID: "reticleid", RETREMOVEINSTR: 39, RETICLEATTRIBUTES: []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}}}, gem.ReticlePlacement{RETICLEID: "reticleid", RETPLACEINSTR: 67}).Item())
 	registerFuzzDecoder("DecodeS3F36", func(item secs2.Item) error {
 		_, err := gem.DecodeS3F36(item)
 
 		return err
-	}, gem.S3F36(0, secs2.A("errors")).Item())
+	}, gem.S3F36(0, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 }
 
 func TestDecodeS3F2RoundTrip(t *testing.T) {
-	msg := gem.S3F2(secs2.A("mf"), secs2.A("locations"))
+	msg := gem.S3F2(secs2.A("mf"), gem.MaterialLocation{LOC: 0xd8, QUA: 0x14, MID: secs2.A("mid")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -187,7 +187,7 @@ func TestDecodeS3F2RoundTrip(t *testing.T) {
 
 	want := gem.S3F2Reply{
 		MF:        secs2.A("mf"),
-		LOCATIONS: []secs2.Item{secs2.A("locations")},
+		LOCATIONS: []gem.MaterialLocation{{LOC: 0xd8, QUA: 0x14, MID: secs2.A("mid")}},
 	}
 
 	assertDecoded(t, got, want)
@@ -203,7 +203,7 @@ func TestDecodeS3F2EmptyList(t *testing.T) {
 }
 
 func TestDecodeS3F4RoundTrip(t *testing.T) {
-	msg := gem.S3F4(secs2.A("mf"), secs2.A("materials"))
+	msg := gem.S3F4(secs2.A("mf"), gem.MaterialTimeToCompletion{TTC: secs2.A("ttc"), QUA: 0x14, MID: secs2.A("mid")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -217,7 +217,7 @@ func TestDecodeS3F4RoundTrip(t *testing.T) {
 
 	want := gem.S3F4Reply{
 		MF:        secs2.A("mf"),
-		MATERIALS: []secs2.Item{secs2.A("materials")},
+		MATERIALS: []gem.MaterialTimeToCompletion{{TTC: secs2.A("ttc"), QUA: 0x14, MID: secs2.A("mid")}},
 	}
 
 	assertDecoded(t, got, want)
@@ -481,7 +481,7 @@ func TestDecodeS3F16RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS3F17RoundTrip(t *testing.T) {
-	msg := gem.S3F17(secs2.A("dataid"), "carrieraction", "carrierid", secs2.A("ptn"), secs2.A("attributes"))
+	msg := gem.S3F17(secs2.A("dataid"), "carrieraction", "carrierid", secs2.A("ptn"), gem.CarrierAttribute{CATTRID: "cattrid", CATTRDATA: secs2.A("cattrdata")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -498,14 +498,14 @@ func TestDecodeS3F17RoundTrip(t *testing.T) {
 		CARRIERACTION: "carrieraction",
 		CARRIERID:     "carrierid",
 		PTN:           secs2.A("ptn"),
-		ATTRIBUTES:    []secs2.Item{secs2.A("attributes")},
+		ATTRIBUTES:    []gem.CarrierAttribute{{CATTRID: "cattrid", CATTRDATA: secs2.A("cattrdata")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS3F18RoundTrip(t *testing.T) {
-	msg := gem.S3F18(6, secs2.A("errors"))
+	msg := gem.S3F18(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -519,14 +519,14 @@ func TestDecodeS3F18RoundTrip(t *testing.T) {
 
 	want := gem.S3F18Reply{
 		CAACK:  6,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS3F20RoundTrip(t *testing.T) {
-	msg := gem.S3F20(6, secs2.A("errors"))
+	msg := gem.S3F20(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -540,7 +540,7 @@ func TestDecodeS3F20RoundTrip(t *testing.T) {
 
 	want := gem.S3F20Reply{
 		CAACK:  6,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -569,7 +569,7 @@ func TestDecodeS3F21RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS3F22RoundTrip(t *testing.T) {
-	msg := gem.S3F22(6, secs2.A("errors"))
+	msg := gem.S3F22(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -583,14 +583,14 @@ func TestDecodeS3F22RoundTrip(t *testing.T) {
 
 	want := gem.S3F22Reply{
 		CAACK:  6,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS3F23RoundTrip(t *testing.T) {
-	msg := gem.S3F23("pgrpaction", "portgrpname", secs2.A("params"))
+	msg := gem.S3F23("pgrpaction", "portgrpname", gem.PortActionParam{PARAMNAME: "paramname", PARAMVAL: secs2.A("paramval")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -605,14 +605,14 @@ func TestDecodeS3F23RoundTrip(t *testing.T) {
 	want := gem.S3F23Body{
 		PGRPACTION:  "pgrpaction",
 		PORTGRPNAME: "portgrpname",
-		PARAMS:      []secs2.Item{secs2.A("params")},
+		PARAMS:      []gem.PortActionParam{{PARAMNAME: "paramname", PARAMVAL: secs2.A("paramval")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS3F24RoundTrip(t *testing.T) {
-	msg := gem.S3F24(6, secs2.A("errors"))
+	msg := gem.S3F24(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -626,14 +626,14 @@ func TestDecodeS3F24RoundTrip(t *testing.T) {
 
 	want := gem.S3F24Reply{
 		CAACK:  6,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS3F25RoundTrip(t *testing.T) {
-	msg := gem.S3F25("portaction", secs2.A("ptn"), secs2.A("params"))
+	msg := gem.S3F25("portaction", secs2.A("ptn"), gem.PortActionParam{PARAMNAME: "paramname", PARAMVAL: secs2.A("paramval")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -648,14 +648,14 @@ func TestDecodeS3F25RoundTrip(t *testing.T) {
 	want := gem.S3F25Body{
 		PORTACTION: "portaction",
 		PTN:        secs2.A("ptn"),
-		PARAMS:     []secs2.Item{secs2.A("params")},
+		PARAMS:     []gem.PortActionParam{{PARAMNAME: "paramname", PARAMVAL: secs2.A("paramval")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS3F26RoundTrip(t *testing.T) {
-	msg := gem.S3F26(6, secs2.A("errors"))
+	msg := gem.S3F26(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -669,7 +669,7 @@ func TestDecodeS3F26RoundTrip(t *testing.T) {
 
 	want := gem.S3F26Reply{
 		CAACK:  6,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -697,7 +697,7 @@ func TestDecodeS3F27RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS3F28RoundTrip(t *testing.T) {
-	msg := gem.S3F28(6, secs2.A("errors"))
+	msg := gem.S3F28(6, gem.PortError{PTN: secs2.A("ptn"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -711,7 +711,7 @@ func TestDecodeS3F28RoundTrip(t *testing.T) {
 
 	want := gem.S3F28Reply{
 		CAACK:  6,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.PortError{{PTN: secs2.A("ptn"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -741,7 +741,7 @@ func TestDecodeS3F29RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS3F30RoundTrip(t *testing.T) {
-	msg := gem.S3F30("data", 6, secs2.A("errors"))
+	msg := gem.S3F30("data", 6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -756,7 +756,7 @@ func TestDecodeS3F30RoundTrip(t *testing.T) {
 	want := gem.S3F30Reply{
 		DATA:   "data",
 		CAACK:  6,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -787,7 +787,7 @@ func TestDecodeS3F31RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS3F32RoundTrip(t *testing.T) {
-	msg := gem.S3F32(6, secs2.A("errors"))
+	msg := gem.S3F32(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -801,14 +801,14 @@ func TestDecodeS3F32RoundTrip(t *testing.T) {
 
 	want := gem.S3F32Reply{
 		CAACK:  6,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS3F34RoundTrip(t *testing.T) {
-	msg := gem.S3F34(6, secs2.A("errors"))
+	msg := gem.S3F34(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -822,14 +822,14 @@ func TestDecodeS3F34RoundTrip(t *testing.T) {
 
 	want := gem.S3F34Reply{
 		CAACK:  6,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS3F35RoundTrip(t *testing.T) {
-	msg := gem.S3F35("jobaction", "podid", secs2.A("inptn"), secs2.A("outptn"), []secs2.Item{secs2.A("attributes")}, []secs2.Item{secs2.A("removals")}, secs2.A("placements"))
+	msg := gem.S3F35("jobaction", "podid", secs2.A("inptn"), secs2.A("outptn"), []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}, []gem.ReticleRemoval{{RETICLEID: "reticleid", RETREMOVEINSTR: 39, RETICLEATTRIBUTES: []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}}}, gem.ReticlePlacement{RETICLEID: "reticleid", RETPLACEINSTR: 67})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -846,16 +846,16 @@ func TestDecodeS3F35RoundTrip(t *testing.T) {
 		PODID:      "podid",
 		INPTN:      secs2.A("inptn"),
 		OUTPTN:     secs2.A("outptn"),
-		ATTRIBUTES: []secs2.Item{secs2.A("attributes")},
-		REMOVALS:   []secs2.Item{secs2.A("removals")},
-		PLACEMENTS: []secs2.Item{secs2.A("placements")},
+		ATTRIBUTES: []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}},
+		REMOVALS:   []gem.ReticleRemoval{{RETICLEID: "reticleid", RETREMOVEINSTR: 39, RETICLEATTRIBUTES: []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}}},
+		PLACEMENTS: []gem.ReticlePlacement{{RETICLEID: "reticleid", RETPLACEINSTR: 67}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS3F36RoundTrip(t *testing.T) {
-	msg := gem.S3F36(0, secs2.A("errors"))
+	msg := gem.S3F36(0, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -869,7 +869,7 @@ func TestDecodeS3F36RoundTrip(t *testing.T) {
 
 	want := gem.S3F36Reply{
 		RPMACK: 0,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)

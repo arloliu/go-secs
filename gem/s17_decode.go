@@ -123,7 +123,7 @@ func DecodeS17F3(item secs2.Item) (S17F3Body, error) {
 // It is filled by [DecodeS17F4] and mirrors the parameters of [S17F4], in order.
 type S17F4Reply struct {
 	ACKA   bool
-	ERRORS []secs2.Item
+	ERRORS []ReportError
 }
 
 // DecodeS17F4 decodes the body of an S17F4 (Data Report Delete Acknowledge) message into a [S17F4Reply].
@@ -146,7 +146,7 @@ func DecodeS17F4(item secs2.Item) (S17F4Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeReportError); err != nil {
 		return out, err
 	}
 
@@ -345,7 +345,7 @@ func DecodeS17F7(item secs2.Item) (S17F7Body, error) {
 // It is filled by [DecodeS17F8] and mirrors the parameters of [S17F8], in order.
 type S17F8Reply struct {
 	ACKA   bool
-	ERRORS []secs2.Item
+	ERRORS []TraceError
 }
 
 // DecodeS17F8 decodes the body of an S17F8 (Trace Delete Acknowledge) message into a [S17F8Reply].
@@ -368,7 +368,7 @@ func DecodeS17F8(item secs2.Item) (S17F8Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeTraceError); err != nil {
 		return out, err
 	}
 
@@ -588,7 +588,7 @@ func DecodeS17F13(item secs2.Item) (S17F13Body, error) {
 // It is filled by [DecodeS17F14] and mirrors the parameters of [S17F14], in order.
 type S17F14Reply struct {
 	ACKA   bool
-	ERRORS []secs2.Item
+	ERRORS []TraceError
 }
 
 // DecodeS17F14 decodes the body of an S17F14 (Trace Report Reset Acknowledge) message into a [S17F14Reply].
@@ -611,7 +611,7 @@ func DecodeS17F14(item secs2.Item) (S17F14Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeTraceError); err != nil {
 		return out, err
 	}
 

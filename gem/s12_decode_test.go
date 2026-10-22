@@ -44,7 +44,7 @@ func init() {
 		_, err := gem.DecodeS12F7(item)
 
 		return err
-	}, gem.S12F7(secs2.A("mid"), 0xff, secs2.A("rows")).Item())
+	}, gem.S12F7(secs2.A("mid"), 0xff, gem.MapRow{RSINF: secs2.A("rsinf"), BINLT: secs2.A("binlt")}).Item())
 	registerFuzzDecoder("DecodeS12F8", func(item secs2.Item) error {
 		_, err := gem.DecodeS12F8(item)
 
@@ -64,7 +64,7 @@ func init() {
 		_, err := gem.DecodeS12F11(item)
 
 		return err
-	}, gem.S12F11(secs2.A("mid"), 0xff, secs2.A("positions")).Item())
+	}, gem.S12F11(secs2.A("mid"), 0xff, gem.MapPosition{XYPOS: secs2.A("xypos"), BINLT: secs2.A("binlt")}).Item())
 	registerFuzzDecoder("DecodeS12F12", func(item secs2.Item) error {
 		_, err := gem.DecodeS12F12(item)
 
@@ -79,7 +79,7 @@ func init() {
 		_, err := gem.DecodeS12F14(item)
 
 		return err
-	}, gem.S12F14(secs2.A("mid"), 0xff, secs2.A("rows")).Item())
+	}, gem.S12F14(secs2.A("mid"), 0xff, gem.MapRow{RSINF: secs2.A("rsinf"), BINLT: secs2.A("binlt")}).Item())
 	registerFuzzDecoder("DecodeS12F15", func(item secs2.Item) error {
 		_, err := gem.DecodeS12F15(item)
 
@@ -99,7 +99,7 @@ func init() {
 		_, err := gem.DecodeS12F18(item)
 
 		return err
-	}, gem.S12F18(secs2.A("mid"), 0xff, secs2.A("positions")).Item())
+	}, gem.S12F18(secs2.A("mid"), 0xff, gem.MapPosition{XYPOS: secs2.A("xypos"), BINLT: secs2.A("binlt")}).Item())
 	registerFuzzDecoder("DecodeS12F19", func(item secs2.Item) error {
 		_, err := gem.DecodeS12F19(item)
 
@@ -640,7 +640,7 @@ func TestDecodeS12F6RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS12F7RoundTrip(t *testing.T) {
-	msg := gem.S12F7(secs2.A("mid"), 0xff, secs2.A("rows"))
+	msg := gem.S12F7(secs2.A("mid"), 0xff, gem.MapRow{RSINF: secs2.A("rsinf"), BINLT: secs2.A("binlt")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -655,7 +655,7 @@ func TestDecodeS12F7RoundTrip(t *testing.T) {
 	want := gem.S12F7Body{
 		MID:   secs2.A("mid"),
 		IDTYP: 0xff,
-		ROWS:  []secs2.Item{secs2.A("rows")},
+		ROWS:  []gem.MapRow{{RSINF: secs2.A("rsinf"), BINLT: secs2.A("binlt")}},
 	}
 
 	assertDecoded(t, got, want)
@@ -725,7 +725,7 @@ func TestDecodeS12F10RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS12F11RoundTrip(t *testing.T) {
-	msg := gem.S12F11(secs2.A("mid"), 0xff, secs2.A("positions"))
+	msg := gem.S12F11(secs2.A("mid"), 0xff, gem.MapPosition{XYPOS: secs2.A("xypos"), BINLT: secs2.A("binlt")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -740,7 +740,7 @@ func TestDecodeS12F11RoundTrip(t *testing.T) {
 	want := gem.S12F11Body{
 		MID:       secs2.A("mid"),
 		IDTYP:     0xff,
-		POSITIONS: []secs2.Item{secs2.A("positions")},
+		POSITIONS: []gem.MapPosition{{XYPOS: secs2.A("xypos"), BINLT: secs2.A("binlt")}},
 	}
 
 	assertDecoded(t, got, want)
@@ -788,7 +788,7 @@ func TestDecodeS12F13RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS12F14RoundTrip(t *testing.T) {
-	msg := gem.S12F14(secs2.A("mid"), 0xff, secs2.A("rows"))
+	msg := gem.S12F14(secs2.A("mid"), 0xff, gem.MapRow{RSINF: secs2.A("rsinf"), BINLT: secs2.A("binlt")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -803,7 +803,7 @@ func TestDecodeS12F14RoundTrip(t *testing.T) {
 	want := gem.S12F14Reply{
 		MID:   secs2.A("mid"),
 		IDTYP: 0xff,
-		ROWS:  []secs2.Item{secs2.A("rows")},
+		ROWS:  []gem.MapRow{{RSINF: secs2.A("rsinf"), BINLT: secs2.A("binlt")}},
 	}
 
 	assertDecoded(t, got, want)
@@ -885,7 +885,7 @@ func TestDecodeS12F17RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS12F18RoundTrip(t *testing.T) {
-	msg := gem.S12F18(secs2.A("mid"), 0xff, secs2.A("positions"))
+	msg := gem.S12F18(secs2.A("mid"), 0xff, gem.MapPosition{XYPOS: secs2.A("xypos"), BINLT: secs2.A("binlt")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -900,7 +900,7 @@ func TestDecodeS12F18RoundTrip(t *testing.T) {
 	want := gem.S12F18Reply{
 		MID:       secs2.A("mid"),
 		IDTYP:     0xff,
-		POSITIONS: []secs2.Item{secs2.A("positions")},
+		POSITIONS: []gem.MapPosition{{XYPOS: secs2.A("xypos"), BINLT: secs2.A("binlt")}},
 	}
 
 	assertDecoded(t, got, want)

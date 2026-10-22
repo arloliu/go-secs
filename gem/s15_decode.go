@@ -118,7 +118,7 @@ func DecodeS15F3(item secs2.Item) (S15F3Body, error) {
 // It is filled by [DecodeS15F4] and mirrors the parameters of [S15F4], in order.
 type S15F4Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F4 decodes the body of an S15F4 (Recipe Namespace Action Acknowledge) message into a [S15F4Reply].
@@ -141,7 +141,7 @@ func DecodeS15F4(item secs2.Item) (S15F4Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -192,7 +192,7 @@ func DecodeS15F5(item secs2.Item) (S15F5Body, error) {
 // It is filled by [DecodeS15F6] and mirrors the parameters of [S15F6], in order.
 type S15F6Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F6 decodes the body of an S15F6 (Recipe Namespace Rename Acknowledge) message into a [S15F6Reply].
@@ -215,7 +215,7 @@ func DecodeS15F6(item secs2.Item) (S15F6Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -258,7 +258,7 @@ func DecodeS15F7(item secs2.Item) (S15F7Body, error) {
 type S15F8Reply struct {
 	RMSPACE secs2.Item
 	RMACK   RMACK
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS15F8 decodes the body of an S15F8 (Recipe Space Data) message into a [S15F8Reply].
@@ -289,7 +289,7 @@ func DecodeS15F8(item secs2.Item) (S15F8Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -333,7 +333,7 @@ type S15F10Reply struct {
 	RCPSTAT RCPSTAT
 	RCPVERS string
 	RMACK   RMACK
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS15F10 decodes the body of an S15F10 (Recipe Status Data) message into a [S15F10Reply].
@@ -368,7 +368,7 @@ func DecodeS15F10(item secs2.Item) (S15F10Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(2, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -431,7 +431,7 @@ type S15F12Reply struct {
 	AGENT   string
 	RCPVERS string
 	RMACK   RMACK
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS15F12 decodes the body of an S15F12 (Recipe Version Data) message into a [S15F12Reply].
@@ -466,7 +466,7 @@ func DecodeS15F12(item secs2.Item) (S15F12Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(2, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -482,7 +482,7 @@ type S15F13Body struct {
 	DATAID     secs2.Item
 	RCPUPDT    bool
 	RCPSPEC    string
-	ATTRIBUTES []secs2.Item
+	ATTRIBUTES []RecipeAttribute
 	RCPBODY    secs2.Item
 }
 
@@ -514,7 +514,7 @@ func DecodeS15F13(item secs2.Item) (S15F13Body, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeItems(root.At(3), "ATTRIBUTES"); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(3), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
 		return out, err
 	}
 
@@ -532,7 +532,7 @@ func DecodeS15F13(item secs2.Item) (S15F13Body, error) {
 // It is filled by [DecodeS15F14] and mirrors the parameters of [S15F14], in order.
 type S15F14Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F14 decodes the body of an S15F14 (Recipe Create Acknowledge) message into a [S15F14Reply].
@@ -555,7 +555,7 @@ func DecodeS15F14(item secs2.Item) (S15F14Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -617,7 +617,7 @@ func DecodeS15F15(item secs2.Item) (S15F15Body, error) {
 type S15F16Reply struct {
 	RCPSECCODE RCPSECCODE
 	RMACK      RMACK
-	ERRORS     []secs2.Item
+	ERRORS     []ErrorInfo
 }
 
 // DecodeS15F16 decodes the body of an S15F16 (Recipe Store Acknowledge) message into a [S15F16Reply].
@@ -648,7 +648,7 @@ func DecodeS15F16(item secs2.Item) (S15F16Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -700,7 +700,7 @@ func DecodeS15F17(item secs2.Item) (S15F17Body, error) {
 type S15F18Reply struct {
 	SECTIONS secs2.Item
 	RMACK    RMACK
-	ERRORS   []secs2.Item
+	ERRORS   []ErrorInfo
 }
 
 // DecodeS15F18 decodes the body of an S15F18 (Recipe Retrieve Data) message into a [S15F18Reply].
@@ -731,7 +731,7 @@ func DecodeS15F18(item secs2.Item) (S15F18Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -787,7 +787,7 @@ func DecodeS15F19(item secs2.Item) (S15F19Body, error) {
 // It is filled by [DecodeS15F20] and mirrors the parameters of [S15F20], in order.
 type S15F20Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F20 decodes the body of an S15F20 (Recipe Rename Acknowledge) message into a [S15F20Reply].
@@ -810,7 +810,7 @@ func DecodeS15F20(item secs2.Item) (S15F20Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -884,7 +884,7 @@ type S15F22Reply struct {
 	LINKID uint32
 	RCPCMD RCPCMD
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F22 decodes the body of an S15F22 (Recipe Action Acknowledge) message into a [S15F22Reply].
@@ -923,7 +923,7 @@ func DecodeS15F22(item secs2.Item) (S15F22Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(3, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(3, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -978,9 +978,9 @@ func DecodeS15F23(item secs2.Item) (S15F23Body, error) {
 //
 // It is filled by [DecodeS15F24] and mirrors the parameters of [S15F24], in order.
 type S15F24Reply struct {
-	RECIPES []secs2.Item
+	RECIPES [][]*RecipeDescriptor
 	RMACK   RMACK
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS15F24 decodes the body of an S15F24 (Recipe Descriptor Data) message into a [S15F24Reply].
@@ -999,7 +999,7 @@ func DecodeS15F24(item secs2.Item) (S15F24Reply, error) {
 		return out, err
 	}
 
-	if out.RECIPES, err = decodeItems(root.At(0), "RECIPES"); err != nil {
+	if out.RECIPES, err = decodeEach(root.At(0), "RECIPES", eachOf(optionalGroup(3, decodeRecipeDescriptor))); err != nil {
 		return out, err
 	}
 
@@ -1011,7 +1011,7 @@ func DecodeS15F24(item secs2.Item) (S15F24Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1027,7 +1027,7 @@ type S15F25Body struct {
 	DATAID     secs2.Item
 	RMNSSPEC   string
 	AGENT      string
-	PARAMETERS []secs2.Item
+	PARAMETERS []RecipeParamRule
 }
 
 // DecodeS15F25 decodes the body of an S15F25 (Recipe Parameter Update Request) message into a [S15F25Body].
@@ -1058,7 +1058,7 @@ func DecodeS15F25(item secs2.Item) (S15F25Body, error) {
 		return out, err
 	}
 
-	if out.PARAMETERS, err = decodeItems(root.At(3), "PARAMETERS"); err != nil {
+	if out.PARAMETERS, err = decodeEach(root.At(3), "PARAMETERS", decodeRecipeParamRule); err != nil {
 		return out, err
 	}
 
@@ -1072,7 +1072,7 @@ func DecodeS15F25(item secs2.Item) (S15F25Body, error) {
 // It is filled by [DecodeS15F26] and mirrors the parameters of [S15F26], in order.
 type S15F26Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F26 decodes the body of an S15F26 (Recipe Parameter Update Acknowledge) message into a [S15F26Reply].
@@ -1095,7 +1095,7 @@ func DecodeS15F26(item secs2.Item) (S15F26Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1111,7 +1111,7 @@ type S15F27Body struct {
 	DATAID     secs2.Item
 	RCPOWCODE  bool
 	RCPSPEC    string
-	ATTRIBUTES []secs2.Item
+	ATTRIBUTES []RecipeAttribute
 	RCPBODY    secs2.Item
 }
 
@@ -1143,7 +1143,7 @@ func DecodeS15F27(item secs2.Item) (S15F27Body, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeItems(root.At(3), "ATTRIBUTES"); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(3), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
 		return out, err
 	}
 
@@ -1161,9 +1161,9 @@ func DecodeS15F27(item secs2.Item) (S15F27Body, error) {
 // It is filled by [DecodeS15F28] and mirrors the parameters of [S15F28], in order.
 type S15F28Reply struct {
 	RCPID      string
-	ATTRIBUTES []secs2.Item
+	ATTRIBUTES []RecipeAttribute
 	RMACK      RMACK
-	ERRORS     []secs2.Item
+	ERRORS     []ErrorInfo
 }
 
 // DecodeS15F28 decodes the body of an S15F28 (Recipe Download Acknowledge) message into a [S15F28Reply].
@@ -1186,7 +1186,7 @@ func DecodeS15F28(item secs2.Item) (S15F28Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeItems(root.At(1), "ATTRIBUTES"); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(1), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
 		return out, err
 	}
 
@@ -1198,7 +1198,7 @@ func DecodeS15F28(item secs2.Item) (S15F28Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(2, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1261,9 +1261,9 @@ type S15F30Reply struct {
 	OPID       secs2.Item
 	LINKID     uint32
 	RCPID      string
-	ATTRIBUTES []secs2.Item
+	ATTRIBUTES []RecipeAttribute
 	RMACK      RMACK
-	ERRORS     []secs2.Item
+	ERRORS     []ErrorInfo
 }
 
 // DecodeS15F30 decodes the body of an S15F30 (Recipe Verify Acknowledge) message into a [S15F30Reply].
@@ -1294,7 +1294,7 @@ func DecodeS15F30(item secs2.Item) (S15F30Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeItems(root.At(3), "ATTRIBUTES"); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(3), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
 		return out, err
 	}
 
@@ -1306,7 +1306,7 @@ func DecodeS15F30(item secs2.Item) (S15F30Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(4, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(4, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1348,10 +1348,10 @@ func DecodeS15F31(item secs2.Item) (S15F31Body, error) {
 // It is filled by [DecodeS15F32] and mirrors the parameters of [S15F32], in order.
 type S15F32Reply struct {
 	RCPSPEC    string
-	ATTRIBUTES []secs2.Item
+	ATTRIBUTES []RecipeAttribute
 	RCPBODY    secs2.Item
 	RMACK      RMACK
-	ERRORS     []secs2.Item
+	ERRORS     []ErrorInfo
 }
 
 // DecodeS15F32 decodes the body of an S15F32 (Recipe Upload Data) message into a [S15F32Reply].
@@ -1374,7 +1374,7 @@ func DecodeS15F32(item secs2.Item) (S15F32Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeItems(root.At(1), "ATTRIBUTES"); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(1), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
 		return out, err
 	}
 
@@ -1390,7 +1390,7 @@ func DecodeS15F32(item secs2.Item) (S15F32Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(3, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(3, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1405,7 +1405,7 @@ func DecodeS15F32(item secs2.Item) (S15F32Reply, error) {
 type S15F33Body struct {
 	DATAID     secs2.Item
 	RESPEC     string
-	SELECTIONS []secs2.Item
+	SELECTIONS []RecipeSelection
 }
 
 // DecodeS15F33 decodes the body of an S15F33 (Recipe Select Request) message into a [S15F33Body].
@@ -1432,7 +1432,7 @@ func DecodeS15F33(item secs2.Item) (S15F33Body, error) {
 		return out, err
 	}
 
-	if out.SELECTIONS, err = decodeItems(root.At(2), "SELECTIONS"); err != nil {
+	if out.SELECTIONS, err = decodeEach(root.At(2), "SELECTIONS", decodeRecipeSelection); err != nil {
 		return out, err
 	}
 
@@ -1446,7 +1446,7 @@ func DecodeS15F33(item secs2.Item) (S15F33Body, error) {
 // It is filled by [DecodeS15F34] and mirrors the parameters of [S15F34], in order.
 type S15F34Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F34 decodes the body of an S15F34 (Recipe Select Acknowledge) message into a [S15F34Reply].
@@ -1469,7 +1469,7 @@ func DecodeS15F34(item secs2.Item) (S15F34Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1530,7 +1530,7 @@ func DecodeS15F35(item secs2.Item) (S15F35Body, error) {
 // It is filled by [DecodeS15F36] and mirrors the parameters of [S15F36], in order.
 type S15F36Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F36 decodes the body of an S15F36 (Recipe Delete Acknowledge) message into a [S15F36Reply].
@@ -1553,7 +1553,7 @@ func DecodeS15F36(item secs2.Item) (S15F36Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1624,7 +1624,7 @@ func DecodeS15F37(item secs2.Item) (S15F37Body, error) {
 // It is filled by [DecodeS15F38] and mirrors the parameters of [S15F38], in order.
 type S15F38Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F38 decodes the body of an S15F38 (DRNS Segment Approve Action Acknowledge) message into a [S15F38Reply].
@@ -1647,7 +1647,7 @@ func DecodeS15F38(item secs2.Item) (S15F38Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1713,7 +1713,7 @@ func DecodeS15F39(item secs2.Item) (S15F39Body, error) {
 // It is filled by [DecodeS15F40] and mirrors the parameters of [S15F40], in order.
 type S15F40Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F40 decodes the body of an S15F40 (DRNS Recorder Segment Acknowledge) message into a [S15F40Reply].
@@ -1736,7 +1736,7 @@ func DecodeS15F40(item secs2.Item) (S15F40Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1839,7 +1839,7 @@ func DecodeS15F41(item secs2.Item) (S15F41Body, error) {
 // It is filled by [DecodeS15F42] and mirrors the parameters of [S15F42], in order.
 type S15F42Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F42 decodes the body of an S15F42 (DRNS Recorder Modify Acknowledge) message into a [S15F42Reply].
@@ -1862,7 +1862,7 @@ func DecodeS15F42(item secs2.Item) (S15F42Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1917,9 +1917,9 @@ func DecodeS15F43(item secs2.Item) (S15F43Body, error) {
 //
 // It is filled by [DecodeS15F44] and mirrors the parameters of [S15F44], in order.
 type S15F44Reply struct {
-	CHANGES []secs2.Item
+	CHANGES []RecipeChange
 	RMACK   RMACK
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS15F44 decodes the body of an S15F44 (DRNS Get Change Request Data) message into a [S15F44Reply].
@@ -1938,7 +1938,7 @@ func DecodeS15F44(item secs2.Item) (S15F44Reply, error) {
 		return out, err
 	}
 
-	if out.CHANGES, err = decodeItems(root.At(0), "CHANGES"); err != nil {
+	if out.CHANGES, err = decodeEach(root.At(0), "CHANGES", decodeRecipeChange); err != nil {
 		return out, err
 	}
 
@@ -1950,7 +1950,7 @@ func DecodeS15F44(item secs2.Item) (S15F44Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -2105,7 +2105,7 @@ func DecodeS15F47(item secs2.Item) (S15F47Body, error) {
 // It is filled by [DecodeS15F48] and mirrors the parameters of [S15F48], in order.
 type S15F48Reply struct {
 	RMACK  RMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS15F48 decodes the body of an S15F48 (DRNS Manager Rebuild Acknowledge) message into a [S15F48Reply].
@@ -2128,7 +2128,7 @@ func DecodeS15F48(item secs2.Item) (S15F48Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -2265,7 +2265,7 @@ type S15F53Body struct {
 	RCPSPEC string
 	RCPID   string
 	RMACK   RMACK
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS15F53 decodes the body of an S15F53 (Recipe Verification Send) message into a [S15F53Body].
@@ -2300,7 +2300,7 @@ func DecodeS15F53(item secs2.Item) (S15F53Body, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(2, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 

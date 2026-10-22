@@ -95,8 +95,8 @@ func S12F6(grnt1 GRNT1) secs2.SECS2Message {
 // Body: L[3]{ <mid> B[idtyp] L[n]{ <rows>... } }.
 //
 // Exception: None.
-func S12F7(mid secs2.Item, idtyp IDTYP, rows ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 7, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(rows...)))
+func S12F7(mid secs2.Item, idtyp IDTYP, rows ...MapRow) secs2.SECS2Message {
+	return secs2.NewMessage(12, 7, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(groupItems(rows)...)))
 }
 
 // S12F8 creates the S12F8 (Map Data Acknowledge Type 1) message, direction: host-to-equipment.
@@ -142,8 +142,8 @@ func S12F10(mdack MDACK) secs2.SECS2Message {
 // Body: L[3]{ <mid> B[idtyp] L[n]{ <positions>... } }.
 //
 // Exception: None.
-func S12F11(mid secs2.Item, idtyp IDTYP, positions ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 11, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(positions...)))
+func S12F11(mid secs2.Item, idtyp IDTYP, positions ...MapPosition) secs2.SECS2Message {
+	return secs2.NewMessage(12, 11, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(groupItems(positions)...)))
 }
 
 // S12F12 creates the S12F12 (Map Data Acknowledge Type 3) message, direction: host-to-equipment.
@@ -175,8 +175,8 @@ func S12F13(mid secs2.Item, idtyp IDTYP) secs2.SECS2Message {
 // Body: L[3]{ <mid> B[idtyp] L[n]{ <rows>... } }.
 //
 // Exception: None.
-func S12F14(mid secs2.Item, idtyp IDTYP, rows ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 14, false, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(rows...)))
+func S12F14(mid secs2.Item, idtyp IDTYP, rows ...MapRow) secs2.SECS2Message {
+	return secs2.NewMessage(12, 14, false, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(groupItems(rows)...)))
 }
 
 // S12F15 creates the S12F15 (Map Data Request Type 2) message, direction: equipment-to-host.
@@ -220,8 +220,8 @@ func S12F17(mid secs2.Item, idtyp IDTYP, sdbin SDBIN) secs2.SECS2Message {
 // Body: L[0,3]{ <mid> B[idtyp] L[n]{ <positions>... } }.
 //
 // Exception: A zero-length list returned means no such MID.
-func S12F18(mid secs2.Item, idtyp IDTYP, positions ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 18, false, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(positions...)))
+func S12F18(mid secs2.Item, idtyp IDTYP, positions ...MapPosition) secs2.SECS2Message {
+	return secs2.NewMessage(12, 18, false, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(groupItems(positions)...)))
 }
 
 // S12F19 creates the S12F19 (Map Error Report Send) message, direction: bidirectional.

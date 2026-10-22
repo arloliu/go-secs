@@ -5,8 +5,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -231,23 +229,24 @@ func TestRenderDecodersRejectsUndecodableShapes(t *testing.T) {
 // Length agreement alone would pass on a swapped pair, so this compares name by name — the same
 // regression the name-derived samples were built to expose.
 func TestFieldsAgreeWithParamsOverRealData(t *testing.T) {
-	itemsData, err := os.ReadFile("data/items.yaml")
-	require.NoError(t, err)
+	items, groups, files := loadRealData(t)
 
-	items, err := LoadItems(itemsData)
-	require.NoError(t, err)
+	for i := range groups {
+		g := &groups[i]
 
-	paths, err := filepath.Glob(filepath.Join("data", "messages", "*.yaml"))
-	require.NoError(t, err)
-	require.NotEmpty(t, paths)
+		params := BuildParams(g.Structure, items)
 
-	for _, path := range paths {
-		msgData, err := os.ReadFile(path)
-		require.NoError(t, err)
+		exprs, err := SampleExprs(g.Structure, items)
+		require.NoErrorf(t, err, "group %s samples", g.Name)
 
-		mf, err := LoadMessageFile(msgData)
-		require.NoError(t, err)
+		fields, err := BuildFields(g.Structure, items)
+		require.NoErrorf(t, err, "group %s fields", g.Name)
 
+		require.Lenf(t, exprs, len(params), "group %s: sample count", g.Name)
+		requireFieldsMirrorParams(t, "group "+g.Name, params, fields)
+	}
+
+	for _, mf := range files {
 		for _, m := range mf.Messages {
 			for _, b := range m.Bodies {
 				if !bodyHasDecoder(b) {
@@ -379,15 +378,7 @@ func fuzzRegistrations(src []byte) []string {
 // and the decode tests register exactly those decoders with the fuzz harness, each once.
 // Unlike a fixed body count, it needs no update when a stream file is added.
 func TestEveryDecodableBodyGetsADecoderOverRealData(t *testing.T) {
-	itemsData, err := os.ReadFile("data/items.yaml")
-	require.NoError(t, err)
-
-	items, err := LoadItems(itemsData)
-	require.NoError(t, err)
-
-	files, err := loadMessageFiles(filepath.Join("data", "messages"))
-	require.NoError(t, err)
-	require.NotEmpty(t, files)
+	items, _, files := loadRealData(t)
 
 	for _, mf := range files {
 		t.Run(fmt.Sprintf("S%d", mf.Stream), func(t *testing.T) {

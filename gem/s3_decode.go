@@ -11,7 +11,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 // It is filled by [DecodeS3F2] and mirrors the parameters of [S3F2], in order.
 type S3F2Reply struct {
 	MF        secs2.Item
-	LOCATIONS []secs2.Item
+	LOCATIONS []MaterialLocation
 }
 
 // DecodeS3F2 decodes the body of an S3F2 (Material Status Data) message into a [S3F2Reply].
@@ -36,7 +36,7 @@ func DecodeS3F2(item secs2.Item) (S3F2Reply, error) {
 			return out, err
 		}
 
-		if out.LOCATIONS, err = decodeItems(root.At(1), "LOCATIONS"); err != nil {
+		if out.LOCATIONS, err = decodeEach(root.At(1), "LOCATIONS", decodeMaterialLocation); err != nil {
 			return out, err
 		}
 	}
@@ -51,7 +51,7 @@ func DecodeS3F2(item secs2.Item) (S3F2Reply, error) {
 // It is filled by [DecodeS3F4] and mirrors the parameters of [S3F4], in order.
 type S3F4Reply struct {
 	MF        secs2.Item
-	MATERIALS []secs2.Item
+	MATERIALS []MaterialTimeToCompletion
 }
 
 // DecodeS3F4 decodes the body of an S3F4 (Time to Completion Data) message into a [S3F4Reply].
@@ -76,7 +76,7 @@ func DecodeS3F4(item secs2.Item) (S3F4Reply, error) {
 			return out, err
 		}
 
-		if out.MATERIALS, err = decodeItems(root.At(1), "MATERIALS"); err != nil {
+		if out.MATERIALS, err = decodeEach(root.At(1), "MATERIALS", decodeMaterialTimeToCompletion); err != nil {
 			return out, err
 		}
 	}
@@ -494,7 +494,7 @@ type S3F17Body struct {
 	CARRIERACTION CARRIERACTION
 	CARRIERID     string
 	PTN           secs2.Item
-	ATTRIBUTES    []secs2.Item
+	ATTRIBUTES    []CarrierAttribute
 }
 
 // DecodeS3F17 decodes the body of an S3F17 (Carrier Action Request) message into a [S3F17Body].
@@ -532,7 +532,7 @@ func DecodeS3F17(item secs2.Item) (S3F17Body, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeItems(root.At(4), "ATTRIBUTES"); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(4), "ATTRIBUTES", decodeCarrierAttribute); err != nil {
 		return out, err
 	}
 
@@ -546,7 +546,7 @@ func DecodeS3F17(item secs2.Item) (S3F17Body, error) {
 // It is filled by [DecodeS3F18] and mirrors the parameters of [S3F18], in order.
 type S3F18Reply struct {
 	CAACK  CAACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS3F18 decodes the body of an S3F18 (Carrier Action Acknowledge) message into a [S3F18Reply].
@@ -569,7 +569,7 @@ func DecodeS3F18(item secs2.Item) (S3F18Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -583,7 +583,7 @@ func DecodeS3F18(item secs2.Item) (S3F18Reply, error) {
 // It is filled by [DecodeS3F20] and mirrors the parameters of [S3F20], in order.
 type S3F20Reply struct {
 	CAACK  CAACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS3F20 decodes the body of an S3F20 (Cancel All Carrier Out Acknowledge) message into a [S3F20Reply].
@@ -606,7 +606,7 @@ func DecodeS3F20(item secs2.Item) (S3F20Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -662,7 +662,7 @@ func DecodeS3F21(item secs2.Item) (S3F21Body, error) {
 // It is filled by [DecodeS3F22] and mirrors the parameters of [S3F22], in order.
 type S3F22Reply struct {
 	CAACK  CAACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS3F22 decodes the body of an S3F22 (Port Group Definition Acknowledge) message into a [S3F22Reply].
@@ -685,7 +685,7 @@ func DecodeS3F22(item secs2.Item) (S3F22Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -700,7 +700,7 @@ func DecodeS3F22(item secs2.Item) (S3F22Reply, error) {
 type S3F23Body struct {
 	PGRPACTION  string
 	PORTGRPNAME string
-	PARAMS      []secs2.Item
+	PARAMS      []PortActionParam
 }
 
 // DecodeS3F23 decodes the body of an S3F23 (Port Group Action Request) message into a [S3F23Body].
@@ -727,7 +727,7 @@ func DecodeS3F23(item secs2.Item) (S3F23Body, error) {
 		return out, err
 	}
 
-	if out.PARAMS, err = decodeItems(root.At(2), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(2), "PARAMS", decodePortActionParam); err != nil {
 		return out, err
 	}
 
@@ -741,7 +741,7 @@ func DecodeS3F23(item secs2.Item) (S3F23Body, error) {
 // It is filled by [DecodeS3F24] and mirrors the parameters of [S3F24], in order.
 type S3F24Reply struct {
 	CAACK  CAACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS3F24 decodes the body of an S3F24 (Port Group Action Acknowledge) message into a [S3F24Reply].
@@ -764,7 +764,7 @@ func DecodeS3F24(item secs2.Item) (S3F24Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -779,7 +779,7 @@ func DecodeS3F24(item secs2.Item) (S3F24Reply, error) {
 type S3F25Body struct {
 	PORTACTION PORTACTION
 	PTN        secs2.Item
-	PARAMS     []secs2.Item
+	PARAMS     []PortActionParam
 }
 
 // DecodeS3F25 decodes the body of an S3F25 (Port Action Request) message into a [S3F25Body].
@@ -809,7 +809,7 @@ func DecodeS3F25(item secs2.Item) (S3F25Body, error) {
 		return out, err
 	}
 
-	if out.PARAMS, err = decodeItems(root.At(2), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(2), "PARAMS", decodePortActionParam); err != nil {
 		return out, err
 	}
 
@@ -823,7 +823,7 @@ func DecodeS3F25(item secs2.Item) (S3F25Body, error) {
 // It is filled by [DecodeS3F26] and mirrors the parameters of [S3F26], in order.
 type S3F26Reply struct {
 	CAACK  CAACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS3F26 decodes the body of an S3F26 (Port Action Acknowledge) message into a [S3F26Reply].
@@ -846,7 +846,7 @@ func DecodeS3F26(item secs2.Item) (S3F26Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -897,7 +897,7 @@ func DecodeS3F27(item secs2.Item) (S3F27Body, error) {
 // It is filled by [DecodeS3F28] and mirrors the parameters of [S3F28], in order.
 type S3F28Reply struct {
 	CAACK  CAACK
-	ERRORS []secs2.Item
+	ERRORS []PortError
 }
 
 // DecodeS3F28 decodes the body of an S3F28 (Change Access Acknowledge) message into a [S3F28Reply].
@@ -920,7 +920,7 @@ func DecodeS3F28(item secs2.Item) (S3F28Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodePortError); err != nil {
 		return out, err
 	}
 
@@ -982,7 +982,7 @@ func DecodeS3F29(item secs2.Item) (S3F29Body, error) {
 type S3F30Reply struct {
 	DATA   string
 	CAACK  CAACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS3F30 decodes the body of an S3F30 (Carrier Tag Read Data) message into a [S3F30Reply].
@@ -1013,7 +1013,7 @@ func DecodeS3F30(item secs2.Item) (S3F30Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1079,7 +1079,7 @@ func DecodeS3F31(item secs2.Item) (S3F31Body, error) {
 // It is filled by [DecodeS3F32] and mirrors the parameters of [S3F32], in order.
 type S3F32Reply struct {
 	CAACK  CAACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS3F32 decodes the body of an S3F32 (Carrier Tag Write Data Acknowledge) message into a [S3F32Reply].
@@ -1102,7 +1102,7 @@ func DecodeS3F32(item secs2.Item) (S3F32Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1116,7 +1116,7 @@ func DecodeS3F32(item secs2.Item) (S3F32Reply, error) {
 // It is filled by [DecodeS3F34] and mirrors the parameters of [S3F34], in order.
 type S3F34Reply struct {
 	CAACK  CAACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS3F34 decodes the body of an S3F34 (Cancel All Pod Out Acknowledge) message into a [S3F34Reply].
@@ -1139,7 +1139,7 @@ func DecodeS3F34(item secs2.Item) (S3F34Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1156,9 +1156,9 @@ type S3F35Body struct {
 	PODID      string
 	INPTN      secs2.Item
 	OUTPTN     secs2.Item
-	ATTRIBUTES []secs2.Item
-	REMOVALS   []secs2.Item
-	PLACEMENTS []secs2.Item
+	ATTRIBUTES []Attribute
+	REMOVALS   []ReticleRemoval
+	PLACEMENTS []ReticlePlacement
 }
 
 // DecodeS3F35 decodes the body of an S3F35 (Reticle Transfer Job Request) message into a [S3F35Body].
@@ -1193,15 +1193,15 @@ func DecodeS3F35(item secs2.Item) (S3F35Body, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeItems(root.At(4), "ATTRIBUTES"); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(4), "ATTRIBUTES", decodeAttribute); err != nil {
 		return out, err
 	}
 
-	if out.REMOVALS, err = decodeItems(root.At(5), "REMOVALS"); err != nil {
+	if out.REMOVALS, err = decodeEach(root.At(5), "REMOVALS", decodeReticleRemoval); err != nil {
 		return out, err
 	}
 
-	if out.PLACEMENTS, err = decodeItems(root.At(6), "PLACEMENTS"); err != nil {
+	if out.PLACEMENTS, err = decodeEach(root.At(6), "PLACEMENTS", decodeReticlePlacement); err != nil {
 		return out, err
 	}
 
@@ -1215,7 +1215,7 @@ func DecodeS3F35(item secs2.Item) (S3F35Body, error) {
 // It is filled by [DecodeS3F36] and mirrors the parameters of [S3F36], in order.
 type S3F36Reply struct {
 	RPMACK RPMACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS3F36 decodes the body of an S3F36 (Reticle Transfer Job Request Acknowledgement) message into a [S3F36Reply].
@@ -1238,7 +1238,7 @@ func DecodeS3F36(item secs2.Item) (S3F36Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 

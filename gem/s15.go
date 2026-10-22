@@ -44,8 +44,8 @@ func S15F3(rmnsspec string, rmnscmd RMNSCMD) secs2.SECS2Message {
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F4(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 4, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F4(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 4, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F5 creates the S15F5 (Recipe Namespace Rename Request) message, direction: bidirectional.
@@ -66,8 +66,8 @@ func S15F5(rmnsspec string, rmnewns string) secs2.SECS2Message {
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F6(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 6, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F6(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 6, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F7 creates the S15F7 (Recipe Space Request) message, direction: bidirectional.
@@ -88,8 +88,8 @@ func S15F7(objspec string) secs2.SECS2Message {
 // Body: L[2]{ <rmspace> L[2]{ U1[rmack] L[n]{ <errors>... } } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F8(rmspace secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 8, false, secs2.L(rmspace, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F8(rmspace secs2.Item, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 8, false, secs2.L(rmspace, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F9 creates the S15F9 (Recipe Status Request) message, direction: bidirectional.
@@ -113,8 +113,8 @@ func S15F9(rcpspec string) secs2.SECS2Message {
 //
 // Exception: RCPVERS is a zero-length item if and only if the recipe does not exist.
 // p = 0 if and only if RMACK indicates no errors.
-func S15F10(rcpstat RCPSTAT, rcpvers string, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 10, false, secs2.L(secs2.U1(uint8(rcpstat)), secs2.A(rcpvers), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F10(rcpstat RCPSTAT, rcpvers string, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 10, false, secs2.L(secs2.U1(uint8(rcpstat)), secs2.A(rcpvers), secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F11 creates the S15F11 (Recipe Version Request) message, direction: bidirectional.
@@ -139,8 +139,8 @@ func S15F11(rmnsspec string, rcpclass string, rcpname string, agent string) secs
 // If it is not zero-length in the request, and it is of zero-length in the reply, then no qualifying recipe was found specific to
 // that equipment.
 // p = 0 if and only if RMACK indicates no errors.
-func S15F12(agent string, rcpvers string, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 12, false, secs2.L(secs2.A(agent), secs2.A(rcpvers), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F12(agent string, rcpvers string, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 12, false, secs2.L(secs2.A(agent), secs2.A(rcpvers), secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F13 creates the S15F13 (Recipe Create Request) message, direction: bidirectional.
@@ -151,8 +151,8 @@ func S15F12(agent string, rcpvers string, rmack RMACK, errors ...secs2.Item) sec
 // Body: L[5]{ <dataid> BOOLEAN[rcpupdt] A[rcpspec] L[n]{ <attributes>... } <rcpbody> }.
 //
 // Exception: RCPBODY may be of zero length.
-func S15F13(dataid secs2.Item, rcpupdt bool, rcpspec string, attributes []secs2.Item, rcpbody secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 13, true, secs2.L(dataid, secs2.BOOLEAN(rcpupdt), secs2.A(rcpspec), secs2.L(attributes...), rcpbody))
+func S15F13(dataid secs2.Item, rcpupdt bool, rcpspec string, attributes []RecipeAttribute, rcpbody secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(15, 13, true, secs2.L(dataid, secs2.BOOLEAN(rcpupdt), secs2.A(rcpspec), secs2.L(groupItems(attributes)...), rcpbody))
 }
 
 // S15F14 creates the S15F14 (Recipe Create Acknowledge) message, direction: bidirectional.
@@ -162,8 +162,8 @@ func S15F13(dataid secs2.Item, rcpupdt bool, rcpspec string, attributes []secs2.
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F14(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 14, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F14(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 14, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F15 creates the S15F15 (Recipe Store Request) message, direction: bidirectional.
@@ -190,8 +190,8 @@ func S15F15(dataid secs2.Item, rcpspec string, rcpseccode RCPSECCODE, sections s
 // Body: L[2]{ B[rcpseccode] L[2]{ U1[rmack] L[n]{ <errors>... } } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F16(rcpseccode RCPSECCODE, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 16, false, secs2.L(secs2.B(byte(rcpseccode)), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F16(rcpseccode RCPSECCODE, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 16, false, secs2.L(secs2.B(byte(rcpseccode)), secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F17 creates the S15F17 (Recipe Retrieve Request) message, direction: bidirectional.
@@ -217,8 +217,8 @@ func S15F17(rcpspec string, rcpseccode RCPSECCODE) secs2.SECS2Message {
 // Exception: If r = 0, no generic attributes are transferred and RCPBODY shall be a zero-length item.
 // If m = 0, no agent-specific datasets are transferred.
 // p = 0 if and only if RMACK indicates no errors.
-func S15F18(sections secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 18, false, secs2.L(sections, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F18(sections secs2.Item, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 18, false, secs2.L(sections, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F19 creates the S15F19 (Recipe Rename Request) message, direction: bidirectional.
@@ -240,8 +240,8 @@ func S15F19(rcpspec string, rcprename bool, rcpnewid string) secs2.SECS2Message 
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F20(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 20, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F20(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 20, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F21 creates the S15F21 (Recipe Action Request) message, direction: bidirectional.
@@ -264,8 +264,8 @@ func S15F21(dataid secs2.Item, rcpcmd RCPCMD, rmnsspec string, opid secs2.Item, 
 //
 // Exception: LINKID is zero if and only if all requested actions have been completed.
 // p = 0 if and only if RMACK indicates no errors.
-func S15F22(agent string, linkid uint32, rcpcmd RCPCMD, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 22, false, secs2.L(secs2.A(agent), secs2.U4(linkid), secs2.U1(uint8(rcpcmd)), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F22(agent string, linkid uint32, rcpcmd RCPCMD, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 22, false, secs2.L(secs2.A(agent), secs2.U4(linkid), secs2.U1(uint8(rcpcmd)), secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F23 creates the S15F23 (Recipe Descriptor Request) message, direction: bidirectional.
@@ -290,8 +290,10 @@ func S15F23(dataid secs2.Item, objspec string, recipes ...string) secs2.SECS2Mes
 //
 // Exception: A zero-length recipe descriptor (r = 0) means that the specified recipe does not exist (could not be located).
 // p = 0 if and only if RMACK indicates no errors.
-func S15F24(recipes []secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 24, false, secs2.L(secs2.L(recipes...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F24(recipes [][]*RecipeDescriptor, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 24, false, secs2.L(secs2.L(valueItems(recipes, func(v []*RecipeDescriptor) secs2.Item {
+		return secs2.L(valueItems(v, optionalGroupItem[RecipeDescriptor])...)
+	})...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F25 creates the S15F25 (Recipe Parameter Update Request) message, direction: bidirectional.
@@ -302,8 +304,8 @@ func S15F24(recipes []secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2
 // Body: L[4]{ <dataid> A[rmnsspec] A[agent] L[n]{ <parameters>... } }.
 //
 // Exception: None.
-func S15F25(dataid secs2.Item, rmnsspec string, agent string, parameters ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 25, true, secs2.L(dataid, secs2.A(rmnsspec), secs2.A(agent), secs2.L(parameters...)))
+func S15F25(dataid secs2.Item, rmnsspec string, agent string, parameters ...RecipeParamRule) secs2.SECS2Message {
+	return secs2.NewMessage(15, 25, true, secs2.L(dataid, secs2.A(rmnsspec), secs2.A(agent), secs2.L(groupItems(parameters)...)))
 }
 
 // S15F26 creates the S15F26 (Recipe Parameter Update Acknowledge) message, direction: bidirectional.
@@ -314,8 +316,8 @@ func S15F25(dataid secs2.Item, rmnsspec string, agent string, parameters ...secs
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F26(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 26, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F26(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 26, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F27 creates the S15F27 (Recipe Download Request) message, direction: host-to-equipment.
@@ -326,8 +328,8 @@ func S15F26(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
 // Body: L[5]{ <dataid> BOOLEAN[rcpowcode] A[rcpspec] L[n]{ <attributes>... } <rcpbody> }.
 //
 // Exception: None.
-func S15F27(dataid secs2.Item, rcpowcode bool, rcpspec string, attributes []secs2.Item, rcpbody secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 27, true, secs2.L(dataid, secs2.BOOLEAN(rcpowcode), secs2.A(rcpspec), secs2.L(attributes...), rcpbody))
+func S15F27(dataid secs2.Item, rcpowcode bool, rcpspec string, attributes []RecipeAttribute, rcpbody secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(15, 27, true, secs2.L(dataid, secs2.BOOLEAN(rcpowcode), secs2.A(rcpspec), secs2.L(groupItems(attributes)...), rcpbody))
 }
 
 // S15F28 creates the S15F28 (Recipe Download Acknowledge) message, direction: equipment-to-host.
@@ -341,8 +343,8 @@ func S15F27(dataid secs2.Item, rcpowcode bool, rcpspec string, attributes []secs
 // Exception: If item 1 (RCPID) is a zero length item, no derived object form recipe was originated.
 // n = 0 if and only if the recipe was not verified or failed verification.
 // p = 0 if and only if RMACK indicates no errors.
-func S15F28(rcpid string, attributes []secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 28, false, secs2.L(secs2.A(rcpid), secs2.L(attributes...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F28(rcpid string, attributes []RecipeAttribute, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 28, false, secs2.L(secs2.A(rcpid), secs2.L(groupItems(attributes)...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F29 creates the S15F29 (Recipe Verify Request) message, direction: host-to-equipment.
@@ -373,8 +375,8 @@ func S15F29(dataid secs2.Item, opid secs2.Item, respec string, recipes ...string
 // If item 3 (RCPID) is a zero length item, no derived object form recipe was originated.
 // n = 0 if and only if the recipe was not verified or failed verification.
 // p = 0 if and only if RMACK indicates no errors.
-func S15F30(opid secs2.Item, linkid uint32, rcpid string, attributes []secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 30, false, secs2.L(opid, secs2.U4(linkid), secs2.A(rcpid), secs2.L(attributes...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F30(opid secs2.Item, linkid uint32, rcpid string, attributes []RecipeAttribute, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 30, false, secs2.L(opid, secs2.U4(linkid), secs2.A(rcpid), secs2.L(groupItems(attributes)...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F31 creates the S15F31 (Recipe Upload Request) message, direction: host-to-equipment.
@@ -395,8 +397,8 @@ func S15F31(rcpspec string) secs2.SECS2Message {
 // Body: L[4]{ A[rcpspec] L[n]{ <attributes>... } <rcpbody> L[2]{ U1[rmack] L[n]{ <errors>... } } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F32(rcpspec string, attributes []secs2.Item, rcpbody secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 32, false, secs2.L(secs2.A(rcpspec), secs2.L(attributes...), rcpbody, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F32(rcpspec string, attributes []RecipeAttribute, rcpbody secs2.Item, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 32, false, secs2.L(secs2.A(rcpspec), secs2.L(groupItems(attributes)...), rcpbody, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F33 creates the S15F33 (Recipe Select Request) message, direction: host-to-equipment.
@@ -408,8 +410,8 @@ func S15F32(rcpspec string, attributes []secs2.Item, rcpbody secs2.Item, rmack R
 // Body: L[3]{ <dataid> A[respec] L[n]{ <selections>... } }.
 //
 // Exception: If the list of parameter settings for a recipe selection is of zero length, then no parameter settings are specified for the corresponding recipe.
-func S15F33(dataid secs2.Item, respec string, selections ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 33, true, secs2.L(dataid, secs2.A(respec), secs2.L(selections...)))
+func S15F33(dataid secs2.Item, respec string, selections ...RecipeSelection) secs2.SECS2Message {
+	return secs2.NewMessage(15, 33, true, secs2.L(dataid, secs2.A(respec), secs2.L(groupItems(selections)...)))
 }
 
 // S15F34 creates the S15F34 (Recipe Select Acknowledge) message, direction: equipment-to-host.
@@ -419,8 +421,8 @@ func S15F33(dataid secs2.Item, respec string, selections ...secs2.Item) secs2.SE
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F34(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 34, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F34(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 34, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F35 creates the S15F35 (Recipe Delete Request) message, direction: host-to-equipment.
@@ -442,8 +444,8 @@ func S15F35(dataid secs2.Item, respec string, rcpdel RCPDEL, recipes ...string) 
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F36(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 36, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F36(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 36, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F37 creates the S15F37 (DRNS Segment Approve Action Request) message, direction: bidirectional.
@@ -465,8 +467,8 @@ func S15F37(rmsegspec string, objtoken uint32, rmgrnt RMGRNT, opid secs2.Item, r
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F38(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 38, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F38(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 38, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F39 creates the S15F39 (DRNS Recorder Segment Request) message, direction: bidirectional.
@@ -488,8 +490,8 @@ func S15F39(dataid secs2.Item, rmnscmd RMNSCMD, rmrecspec string, rmsegspec stri
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F40(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 40, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F40(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 40, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F41 creates the S15F41 (DRNS Recorder Modify Request) message, direction: bidirectional.
@@ -521,8 +523,8 @@ func S15F41Delete(dataid secs2.Item, rmrecspec string, objtoken uint32, rmnscmd 
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F42(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 42, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F42(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 42, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F43 creates the S15F43 (DRNS Get Change Request) message, direction: bidirectional.
@@ -545,8 +547,8 @@ func S15F43(dataid secs2.Item, objspec string, targetspec string) secs2.SECS2Mes
 //
 // Exception: If n = 0, no change records were found matching the specification.
 // p = 0 if and only if RMACK indicates no errors.
-func S15F44(changes []secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 44, false, secs2.L(secs2.L(changes...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F44(changes []RecipeChange, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 44, false, secs2.L(secs2.L(groupItems(changes)...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F45 creates the S15F45 (DRNS Manager Segment Change Approval Request) message, direction: bidirectional.
@@ -593,8 +595,8 @@ func S15F47(dataid secs2.Item, objspec string, rmnsspec string, rmrecspec string
 // Body: L[2]{ U1[rmack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if RMACK indicates no errors.
-func S15F48(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 48, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...)))
+func S15F48(rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 48, false, secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...)))
 }
 
 // S15F49 creates the S15F49 (Large Recipe Download Request) message, direction: host-to-equipment.
@@ -666,8 +668,8 @@ func S15F52(ackc15 ACKC15) secs2.SECS2Message {
 // Exception: n = 0 if and only if RMACK indicates no error.
 // If RCPSPEC is a zero length item, then the recipe was not verified or failed verification.
 // If RCPID is zero length, then no derived object form recipe was originated.
-func S15F53(rcpspec string, rcpid string, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 53, true, secs2.L(secs2.A(rcpspec), secs2.A(rcpid), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S15F53(rcpspec string, rcpid string, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(15, 53, true, secs2.L(secs2.A(rcpspec), secs2.A(rcpid), secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S15F54 creates the S15F54 (Recipe Verification Acknowledge) message, direction: host-to-equipment.

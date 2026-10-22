@@ -168,8 +168,8 @@ func S2F14(ecvs ...secs2.Item) secs2.SECS2Message {
 // Body: L[n]{ <constants>... }.
 //
 // Exception: None.
-func S2F15(constants ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 15, true, secs2.L(constants...))
+func S2F15(constants ...ConstantValue) secs2.SECS2Message {
+	return secs2.NewMessage(2, 15, true, secs2.L(groupItems(constants)...))
 }
 
 // S2F16 creates the S2F16 (New Equipment Constant Acknowledge) message, direction: equipment-to-host.
@@ -345,8 +345,8 @@ func S2F29(ecids ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: Zero-length ASCII items for ECNAMEi, ECMINi, ECMAXi, ECDEFi, and UNITSi indicate
 // that the ECID does not exist.
-func S2F30(constants ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 30, false, secs2.L(constants...))
+func S2F30(constants ...ConstantName) secs2.SECS2Message {
+	return secs2.NewMessage(2, 30, false, secs2.L(groupItems(constants)...))
 }
 
 // S2F31 creates the S2F31 (Date and Time Set Request) message, direction: host-to-equipment.
@@ -382,8 +382,8 @@ func S2F32(tiack TIACK) secs2.SECS2Message {
 //
 // Exception: A list of zero length following DATAID deletes all report definitions and associated links (see S2F35).
 // A list of zero length following a RPTID deletes that report type; all CEID links to that RPTID are also deleted.
-func S2F33(dataid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 33, true, secs2.L(dataid, secs2.L(reports...)))
+func S2F33(dataid secs2.Item, reports ...ReportDefinition) secs2.SECS2Message {
+	return secs2.NewMessage(2, 33, true, secs2.L(dataid, secs2.L(groupItems(reports)...)))
 }
 
 // S2F34 creates the S2F34 (Define Report Acknowledge) message, direction: equipment-to-host.
@@ -407,8 +407,8 @@ func S2F34(drack DRACK) secs2.SECS2Message {
 // Body: L[2]{ <dataid> L[n]{ <events>... } }.
 //
 // Exception: A list of zero length following a CEID deletes all report links to that event.
-func S2F35(dataid secs2.Item, events ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 35, true, secs2.L(dataid, secs2.L(events...)))
+func S2F35(dataid secs2.Item, events ...EventLink) secs2.SECS2Message {
+	return secs2.NewMessage(2, 35, true, secs2.L(dataid, secs2.L(groupItems(events)...)))
 }
 
 // S2F36 creates the S2F36 (Link Event Report Acknowledge) message, direction: equipment-to-host.
@@ -476,8 +476,8 @@ func S2F40(grant GRANT) secs2.SECS2Message {
 // Body: L[2]{ <rcmd> L[n]{ <params>... } }.
 //
 // Exception: None.
-func S2F41(rcmd secs2.Item, params ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 41, true, secs2.L(rcmd, secs2.L(params...)))
+func S2F41(rcmd secs2.Item, params ...CommandParam) secs2.SECS2Message {
+	return secs2.NewMessage(2, 41, true, secs2.L(rcmd, secs2.L(groupItems(params)...)))
 }
 
 // S2F42 creates the S2F42 (Host Command Acknowledge) message, direction: equipment-to-host.
@@ -489,8 +489,8 @@ func S2F41(rcmd secs2.Item, params ...secs2.Item) secs2.SECS2Message {
 // Body: L[2]{ B[hcack] L[n]{ <params>... } }.
 //
 // Exception: If there are no invalid parameters, a list of zero length is sent for the second item.
-func S2F42(hcack HCACK, params ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 42, false, secs2.L(secs2.B(byte(hcack)), secs2.L(params...)))
+func S2F42(hcack HCACK, params ...CommandParamAck) secs2.SECS2Message {
+	return secs2.NewMessage(2, 42, false, secs2.L(secs2.B(byte(hcack)), secs2.L(groupItems(params)...)))
 }
 
 // S2F43 creates the S2F43 (Reset Spooling Streams and Functions) message, direction: host-to-equipment.
@@ -503,8 +503,8 @@ func S2F42(hcack HCACK, params ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: A zero-length list, m = 0, turns off spooling for all streams and functions.
 // A zero-length list, n = 0, turns on spooling for all functions for the associated stream.
-func S2F43(streams ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 43, true, secs2.L(streams...))
+func S2F43(streams ...SpoolStream) secs2.SECS2Message {
+	return secs2.NewMessage(2, 43, true, secs2.L(groupItems(streams)...))
 }
 
 // S2F44 creates the S2F44 (Reset Spooling Acknowledge) message, direction: equipment-to-host.
@@ -515,8 +515,8 @@ func S2F43(streams ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: If RSPACK = 0, a zero-length list, m = 0, is given, indicating no streams or functions in error.
 // A zero-length list, n = 0, indicates no functions in error for the specified stream.
-func S2F44(rspack RSPACK, streams ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 44, false, secs2.L(secs2.B(byte(rspack)), secs2.L(streams...)))
+func S2F44(rspack RSPACK, streams ...SpoolStreamAck) secs2.SECS2Message {
+	return secs2.NewMessage(2, 44, false, secs2.L(secs2.B(byte(rspack)), secs2.L(groupItems(streams)...)))
 }
 
 // S2F45 creates the S2F45 (Define Variable Limit Attributes) message, direction: host-to-equipment.
@@ -530,8 +530,8 @@ func S2F44(rspack RSPACK, streams ...secs2.Item) secs2.SECS2Message {
 // Exception: A zero-length list, m = 0, sets all limit values for all monitored VIDs to undefined.
 // A zero-length list, n = 0, sets all limit values for that VID to undefined.
 // A zero-length list, p = 0, sets that limit to undefined.
-func S2F45(dataid secs2.Item, variables ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 45, true, secs2.L(dataid, secs2.L(variables...)))
+func S2F45(dataid secs2.Item, variables ...VariableLimits) secs2.SECS2Message {
+	return secs2.NewMessage(2, 45, true, secs2.L(dataid, secs2.L(groupItems(variables)...)))
 }
 
 // S2F46 creates the S2F46 (Variable Limit Attribute Acknowledge) message, direction: equipment-to-host.
@@ -545,8 +545,8 @@ func S2F45(dataid secs2.Item, variables ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: A zero-length list, m = 0, indicates no invalid variable limit attributes.
 // A zero-length list, n = 0, indicates no invalid limit values for that VID.
-func S2F46(vlaack VLAACK, variables ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 46, false, secs2.L(secs2.B(byte(vlaack)), secs2.L(variables...)))
+func S2F46(vlaack VLAACK, variables ...VariableLimitAck) secs2.SECS2Message {
+	return secs2.NewMessage(2, 46, false, secs2.L(secs2.B(byte(vlaack)), secs2.L(groupItems(variables)...)))
 }
 
 // S2F47 creates the S2F47 (Variable Limit Attribute Request) message, direction: host-to-equipment.
@@ -568,8 +568,8 @@ func S2F47(vids ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: A zero-length list, p = 0, indicates that limits are not supported for the VID.
 // A zero-length list, n = 0, means no limits are currently defined for the specified variable.
-func S2F48(variables ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 48, false, secs2.L(variables...))
+func S2F48(variables ...VariableLimitAttributes) secs2.SECS2Message {
+	return secs2.NewMessage(2, 48, false, secs2.L(groupItems(variables)...))
 }
 
 // S2F49 creates the S2F49 (Enhanced Remote Command) message, direction: host-to-equipment.

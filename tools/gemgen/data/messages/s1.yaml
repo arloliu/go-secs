@@ -164,8 +164,8 @@ messages:
         replyExpected: false
         structure:
           type: list
-          repeat: svids
-          of: {type: list, items: [{item: SVID}, {item: SVNAME}, {item: UNITS}]}
+          repeat: variables
+          of: {group: StatusVariableName}
 
   - function: 13
     name: Establish Communications Request
@@ -288,7 +288,7 @@ messages:
           type: list
           items:
             - {type: list, repeat: objects, of: {type: list, repeat: attrs, of: {item: ATTRDATA}}}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 21
     name: Data Variable Namelist Request
@@ -314,8 +314,8 @@ messages:
         replyExpected: false
         structure:
           type: list
-          repeat: vids
-          of: {type: list, items: [{item: VID}, {item: DVVALNAME}, {item: UNITS}]}
+          repeat: variables
+          of: {group: DataVariableName}
 
   - function: 23
     name: Collection Event Namelist Request
@@ -341,10 +341,5 @@ messages:
         replyExpected: false
         structure:
           type: list
-          repeat: ceids
-          of:
-            type: list
-            items:
-              - {item: CEID}
-              - {item: CENAME}
-              - {type: list, repeat: vids, of: {item: VID}}
+          repeat: events
+          of: {group: CollectionEventName}

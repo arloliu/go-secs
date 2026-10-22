@@ -57,7 +57,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 5
     name: Recipe Namespace Rename Request
@@ -85,7 +85,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 7
     name: Recipe Space Request
@@ -118,7 +118,7 @@ messages:
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 9
     name: Recipe Status Request
@@ -156,7 +156,7 @@ messages:
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 11
     name: Recipe Version Request
@@ -197,7 +197,7 @@ messages:
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 13
     name: Recipe Create Request
@@ -218,7 +218,7 @@ messages:
             - {item: DATAID}
             - {item: RCPUPDT}
             - {item: RCPSPEC}
-            - {type: list, repeat: attributes, of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}}
+            - {type: list, repeat: attributes, of: {group: RecipeAttribute}}
             - {item: RCPBODY}
 
   - function: 14
@@ -241,7 +241,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 15
     name: Recipe Store Request
@@ -295,7 +295,7 @@ messages:
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 17
     name: Recipe Retrieve Request
@@ -343,7 +343,7 @@ messages:
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 19
     name: Recipe Rename Request
@@ -375,7 +375,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 21
     name: Recipe Action Request
@@ -431,7 +431,7 @@ messages:
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 23
     name: Recipe Descriptor Request
@@ -480,15 +480,11 @@ messages:
               of:
                 type: list
                 repeat: descriptors
-                of:
-                  type: list
-                  minItems: 0
-                  maxItems: 3
-                  items: [{item: RCPDESCNM}, {item: RCPDESCTIME}, {item: RCPDESCLTH}]
+                of: {group: RecipeDescriptor, optional: true}
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 25
     name: Recipe Parameter Update Request
@@ -512,7 +508,7 @@ messages:
             - {item: AGENT}
             - type: list
               repeat: parameters
-              of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}, {item: RCPPARRULE}]}
+              of: {group: RecipeParamRule}
 
   - function: 26
     name: Recipe Parameter Update Acknowledge
@@ -530,7 +526,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 27
     name: Recipe Download Request
@@ -550,7 +546,7 @@ messages:
             - {item: DATAID}
             - {item: RCPOWCODE}
             - {item: RCPSPEC}
-            - {type: list, repeat: attributes, of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}}
+            - {type: list, repeat: attributes, of: {group: RecipeAttribute}}
             - {item: RCPBODY}
 
   - function: 28
@@ -574,11 +570,11 @@ messages:
           type: list
           items:
             - {item: RCPID}
-            - {type: list, repeat: attributes, of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}}
+            - {type: list, repeat: attributes, of: {group: RecipeAttribute}}
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 29
     name: Recipe Verify Request
@@ -630,11 +626,11 @@ messages:
             - {item: OPID}
             - {item: LINKID}
             - {item: RCPID}
-            - {type: list, repeat: attributes, of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}}
+            - {type: list, repeat: attributes, of: {group: RecipeAttribute}}
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 31
     name: Recipe Upload Request
@@ -662,12 +658,12 @@ messages:
           type: list
           items:
             - {item: RCPSPEC}
-            - {type: list, repeat: attributes, of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}}
+            - {type: list, repeat: attributes, of: {group: RecipeAttribute}}
             - {item: RCPBODY}
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 33
     name: Recipe Select Request
@@ -693,11 +689,7 @@ messages:
             - {item: RESPEC}
             - type: list
               repeat: selections
-              of:
-                type: list
-                items:
-                  - {item: RCPID}
-                  - {type: list, repeat: parameters, of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}]}}
+              of: {group: RecipeSelection}
 
   - function: 34
     name: Recipe Select Acknowledge
@@ -713,7 +705,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 35
     name: Recipe Delete Request
@@ -751,7 +743,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 37
     name: DRNS Segment Approve Action Request
@@ -790,7 +782,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 39
     name: DRNS Recorder Segment Request
@@ -829,7 +821,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 41
     name: DRNS Recorder Modify Request
@@ -891,7 +883,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 43
     name: DRNS Get Change Request
@@ -926,20 +918,11 @@ messages:
           items:
             - type: list
               repeat: changes
-              of:
-                type: list
-                items:
-                  - {item: RCPID}
-                  - {item: RCPNEWID}
-                  - {item: RMSEGSPEC}
-                  - {item: RMCHGTYPE}
-                  - {item: OPID}
-                  - {item: TIMESTAMP}
-                  - {item: RMREQUESTOR}
+              of: {group: RecipeChange}
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 45
     name: DRNS Manager Segment Change Approval Request
@@ -1012,7 +995,7 @@ messages:
           type: list
           items:
             - {item: RMACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 49
     name: Large Recipe Download Request
@@ -1108,7 +1091,7 @@ messages:
             - type: list
               items:
                 - {item: RMACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 54
     name: Recipe Verification Acknowledge

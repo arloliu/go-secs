@@ -93,7 +93,7 @@ func TestS6F2(t *testing.T) {
 }
 
 func TestS6F3(t *testing.T) {
-	msg := gem.S6F3(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F3(secs2.A("dataid"), secs2.A("ceid"), gem.DataSet{DSID: secs2.A("dsid"), VALUES: []gem.DataValue{{DVNAME: secs2.A("dvname"), DVVAL: secs2.A("dvval")}}})
 
 	assertS6Header(t, msg, 3, true)
 
@@ -125,10 +125,41 @@ func TestS6F3(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("reports").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("reports: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("dsid").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("dsid: got %x, want %x", got6, want6)
+	}
+	list7, err := list5[1].ToList()
+	if err != nil {
+		t.Fatalf("list5[1].ToList: %v", err)
+	}
+	if len(list7) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list7))
+	}
+	list8, err := list7[0].ToList()
+	if err != nil {
+		t.Fatalf("list7[0].ToList: %v", err)
+	}
+	if len(list8) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("dvname").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("dvname: got %x, want %x", got9, want9)
+	}
+	got10 := list8[1].ToBytes()
+	want10 := secs2.A("dvval").ToBytes()
+	if !bytes.Equal(got10, want10) {
+		t.Errorf("dvval: got %x, want %x", got10, want10)
 	}
 }
 
@@ -213,7 +244,7 @@ func TestS6F7(t *testing.T) {
 }
 
 func TestS6F8(t *testing.T) {
-	msg := gem.S6F8(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F8(secs2.A("dataid"), secs2.A("ceid"), gem.DataSet{DSID: secs2.A("dsid"), VALUES: []gem.DataValue{{DVNAME: secs2.A("dvname"), DVVAL: secs2.A("dvval")}}})
 
 	assertS6Header(t, msg, 8, false)
 
@@ -245,15 +276,46 @@ func TestS6F8(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("reports").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("reports: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("dsid").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("dsid: got %x, want %x", got6, want6)
+	}
+	list7, err := list5[1].ToList()
+	if err != nil {
+		t.Fatalf("list5[1].ToList: %v", err)
+	}
+	if len(list7) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list7))
+	}
+	list8, err := list7[0].ToList()
+	if err != nil {
+		t.Fatalf("list7[0].ToList: %v", err)
+	}
+	if len(list8) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("dvname").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("dvname: got %x, want %x", got9, want9)
+	}
+	got10 := list8[1].ToBytes()
+	want10 := secs2.A("dvval").ToBytes()
+	if !bytes.Equal(got10, want10) {
+		t.Errorf("dvval: got %x, want %x", got10, want10)
 	}
 }
 
 func TestS6F9(t *testing.T) {
-	msg := gem.S6F9(0xf4, secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F9(0xf4, secs2.A("dataid"), secs2.A("ceid"), gem.DataSetValues{DSID: secs2.A("dsid"), VALUES: []secs2.Item{secs2.A("values")}})
 
 	assertS6Header(t, msg, 9, true)
 
@@ -292,10 +354,29 @@ func TestS6F9(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("reports").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("reports: got %x, want %x", got6, want6)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("dsid").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("dsid: got %x, want %x", got7, want7)
+	}
+	list8, err := list6[1].ToList()
+	if err != nil {
+		t.Fatalf("list6[1].ToList: %v", err)
+	}
+	if len(list8) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("values").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("values: got %x, want %x", got9, want9)
 	}
 }
 
@@ -318,7 +399,7 @@ func TestS6F10(t *testing.T) {
 }
 
 func TestS6F11(t *testing.T) {
-	msg := gem.S6F11(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F11(secs2.A("dataid"), secs2.A("ceid"), gem.Report{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}})
 
 	assertS6Header(t, msg, 11, true)
 
@@ -350,10 +431,29 @@ func TestS6F11(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("reports").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("reports: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("rptid").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("rptid: got %x, want %x", got6, want6)
+	}
+	list7, err := list5[1].ToList()
+	if err != nil {
+		t.Fatalf("list5[1].ToList: %v", err)
+	}
+	if len(list7) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list7))
+	}
+	got8 := list7[0].ToBytes()
+	want8 := secs2.A("values").ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("values: got %x, want %x", got8, want8)
 	}
 }
 
@@ -376,7 +476,7 @@ func TestS6F12(t *testing.T) {
 }
 
 func TestS6F13(t *testing.T) {
-	msg := gem.S6F13(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F13(secs2.A("dataid"), secs2.A("ceid"), gem.AnnotatedReport{RPTID: secs2.A("rptid"), VALUES: []gem.VariableValue{{VID: secs2.A("vid"), V: secs2.A("v")}}})
 
 	assertS6Header(t, msg, 13, true)
 
@@ -408,10 +508,41 @@ func TestS6F13(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("reports").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("reports: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("rptid").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("rptid: got %x, want %x", got6, want6)
+	}
+	list7, err := list5[1].ToList()
+	if err != nil {
+		t.Fatalf("list5[1].ToList: %v", err)
+	}
+	if len(list7) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list7))
+	}
+	list8, err := list7[0].ToList()
+	if err != nil {
+		t.Fatalf("list7[0].ToList: %v", err)
+	}
+	if len(list8) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("vid").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("vid: got %x, want %x", got9, want9)
+	}
+	got10 := list8[1].ToBytes()
+	want10 := secs2.A("v").ToBytes()
+	if !bytes.Equal(got10, want10) {
+		t.Errorf("v: got %x, want %x", got10, want10)
 	}
 }
 
@@ -450,7 +581,7 @@ func TestS6F15(t *testing.T) {
 }
 
 func TestS6F16(t *testing.T) {
-	msg := gem.S6F16(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F16(secs2.A("dataid"), secs2.A("ceid"), gem.Report{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}})
 
 	assertS6Header(t, msg, 16, false)
 
@@ -482,10 +613,29 @@ func TestS6F16(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("reports").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("reports: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("rptid").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("rptid: got %x, want %x", got6, want6)
+	}
+	list7, err := list5[1].ToList()
+	if err != nil {
+		t.Fatalf("list5[1].ToList: %v", err)
+	}
+	if len(list7) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list7))
+	}
+	got8 := list7[0].ToBytes()
+	want8 := secs2.A("values").ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("values: got %x, want %x", got8, want8)
 	}
 }
 
@@ -506,7 +656,7 @@ func TestS6F17(t *testing.T) {
 }
 
 func TestS6F18(t *testing.T) {
-	msg := gem.S6F18(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F18(secs2.A("dataid"), secs2.A("ceid"), gem.AnnotatedReport{RPTID: secs2.A("rptid"), VALUES: []gem.VariableValue{{VID: secs2.A("vid"), V: secs2.A("v")}}})
 
 	assertS6Header(t, msg, 18, false)
 
@@ -538,10 +688,41 @@ func TestS6F18(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("reports").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("reports: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("rptid").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("rptid: got %x, want %x", got6, want6)
+	}
+	list7, err := list5[1].ToList()
+	if err != nil {
+		t.Fatalf("list5[1].ToList: %v", err)
+	}
+	if len(list7) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list7))
+	}
+	list8, err := list7[0].ToList()
+	if err != nil {
+		t.Fatalf("list7[0].ToList: %v", err)
+	}
+	if len(list8) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("vid").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("vid: got %x, want %x", got9, want9)
+	}
+	got10 := list8[1].ToBytes()
+	want10 := secs2.A("v").ToBytes()
+	if !bytes.Equal(got10, want10) {
+		t.Errorf("v: got %x, want %x", got10, want10)
 	}
 }
 
@@ -601,7 +782,7 @@ func TestS6F21(t *testing.T) {
 }
 
 func TestS6F22(t *testing.T) {
-	msg := gem.S6F22(secs2.A("values"))
+	msg := gem.S6F22(gem.VariableValue{VID: secs2.A("vid"), V: secs2.A("v")})
 
 	assertS6Header(t, msg, 22, false)
 
@@ -616,10 +797,22 @@ func TestS6F22(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("values").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("values: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list2))
+	}
+	got3 := list2[0].ToBytes()
+	want3 := secs2.A("vid").ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("vid: got %x, want %x", got3, want3)
+	}
+	got4 := list2[1].ToBytes()
+	want4 := secs2.A("v").ToBytes()
+	if !bytes.Equal(got4, want4) {
+		t.Errorf("v: got %x, want %x", got4, want4)
 	}
 }
 
@@ -660,7 +853,7 @@ func TestS6F24(t *testing.T) {
 }
 
 func TestS6F25(t *testing.T) {
-	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []secs2.Item{secs2.A("attributes")}, 29, secs2.A("errors"))
+	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS6Header(t, msg, 25, true)
 
@@ -711,36 +904,64 @@ func TestS6F25(t *testing.T) {
 	if len(list7) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list7))
 	}
-	got8 := list7[0].ToBytes()
-	want8 := secs2.A("attributes").ToBytes()
-	if !bytes.Equal(got8, want8) {
-		t.Errorf("attributes: got %x, want %x", got8, want8)
+	list8, err := list7[0].ToList()
+	if err != nil {
+		t.Fatalf("list7[0].ToList: %v", err)
 	}
-	list9, err := list1[6].ToList()
+	if len(list8) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list8))
+	}
+	v9, err := list8[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list8[0].ToASCII: %v", err)
+	}
+	if v9 != "rcpattrid" {
+		t.Errorf("rcpattrid: got %q, want %q", v9, "rcpattrid")
+	}
+	got10 := list8[1].ToBytes()
+	want10 := secs2.A("rcpattrdata").ToBytes()
+	if !bytes.Equal(got10, want10) {
+		t.Errorf("rcpattrdata: got %x, want %x", got10, want10)
+	}
+	list11, err := list1[6].ToList()
 	if err != nil {
 		t.Fatalf("list1[6].ToList: %v", err)
 	}
-	if len(list9) != 2 {
-		t.Fatalf("list length: got %d, want 2", len(list9))
+	if len(list11) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list11))
 	}
-	v10, err := list9[0].ToUint()
+	v12, err := list11[0].ToUint()
 	if err != nil {
-		t.Fatalf("list9[0].ToUint: %v", err)
+		t.Fatalf("list11[0].ToUint: %v", err)
 	}
-	if len(v10) != 1 || v10[0] != 29 {
-		t.Errorf("rmack: got %v, want %v", v10, 29)
+	if len(v12) != 1 || v12[0] != 29 {
+		t.Errorf("rmack: got %v, want %v", v12, 29)
 	}
-	list11, err := list9[1].ToList()
+	list13, err := list11[1].ToList()
 	if err != nil {
-		t.Fatalf("list9[1].ToList: %v", err)
+		t.Fatalf("list11[1].ToList: %v", err)
 	}
-	if len(list11) != 1 {
-		t.Fatalf("list length: got %d, want 1", len(list11))
+	if len(list13) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list13))
 	}
-	got12 := list11[0].ToBytes()
-	want12 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got12, want12) {
-		t.Errorf("errors: got %x, want %x", got12, want12)
+	list14, err := list13[0].ToList()
+	if err != nil {
+		t.Fatalf("list13[0].ToList: %v", err)
+	}
+	if len(list14) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list14))
+	}
+	got15 := list14[0].ToBytes()
+	want15 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got15, want15) {
+		t.Errorf("errcode: got %x, want %x", got15, want15)
+	}
+	v16, err := list14[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list14[1].ToASCII: %v", err)
+	}
+	if v16 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v16, "errtext")
 	}
 }
 
@@ -763,7 +984,7 @@ func TestS6F26(t *testing.T) {
 }
 
 func TestS6F27(t *testing.T) {
-	msg := gem.S6F27(secs2.A("dataid"), secs2.A("trid"), secs2.A("samples"))
+	msg := gem.S6F27(secs2.A("dataid"), secs2.A("trid"), []gem.Report{{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}})
 
 	assertS6Header(t, msg, 27, true)
 
@@ -795,10 +1016,36 @@ func TestS6F27(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("samples").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("samples: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list5))
+	}
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("rptid").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("rptid: got %x, want %x", got7, want7)
+	}
+	list8, err := list6[1].ToList()
+	if err != nil {
+		t.Fatalf("list6[1].ToList: %v", err)
+	}
+	if len(list8) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("values").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("values: got %x, want %x", got9, want9)
 	}
 }
 
@@ -835,7 +1082,7 @@ func TestS6F29(t *testing.T) {
 }
 
 func TestS6F30(t *testing.T) {
-	msg := gem.S6F30(secs2.A("trid"), []secs2.Item{secs2.A("reports")}, secs2.A("errcode"))
+	msg := gem.S6F30(secs2.A("trid"), []gem.Report{{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}}, secs2.A("errcode"))
 
 	assertS6Header(t, msg, 30, false)
 
@@ -862,14 +1109,33 @@ func TestS6F30(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("reports").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("reports: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
 	}
-	got5 := list1[2].ToBytes()
-	want5 := secs2.A("errcode").ToBytes()
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("rptid").ToBytes()
 	if !bytes.Equal(got5, want5) {
-		t.Errorf("errcode: got %x, want %x", got5, want5)
+		t.Errorf("rptid: got %x, want %x", got5, want5)
+	}
+	list6, err := list4[1].ToList()
+	if err != nil {
+		t.Fatalf("list4[1].ToList: %v", err)
+	}
+	if len(list6) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("values").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("values: got %x, want %x", got7, want7)
+	}
+	got8 := list1[2].ToBytes()
+	want8 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("errcode: got %x, want %x", got8, want8)
 	}
 }

@@ -302,13 +302,13 @@ func DecodeS1F11(item secs2.Item) (S1F11Body, error) {
 
 // S1F12Reply is the decoded body of the S1F12 (Status Variable Namelist Reply) message.
 //
-// Body: L[n]{ <svids>... }.
+// Body: L[n]{ <variables>... }.
 //
 // It is filled by [DecodeS1F12] and mirrors the parameters of [S1F12], in order.
 //
 // Source: reconstructed from an external reference, not verified against the purchased SEMI standard.
 type S1F12Reply struct {
-	SVIDS []secs2.Item
+	VARIABLES []StatusVariableName
 }
 
 // DecodeS1F12 decodes the body of an S1F12 (Status Variable Namelist Reply) message into a [S1F12Reply].
@@ -325,7 +325,7 @@ func DecodeS1F12(item secs2.Item) (S1F12Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.SVIDS, err = decodeItems(root, "SVIDS"); err != nil {
+	if out.VARIABLES, err = decodeEach(root, "VARIABLES", decodeStatusVariableName); err != nil {
 		return out, err
 	}
 
@@ -581,8 +581,8 @@ func DecodeS1F19(item secs2.Item) (S1F19Body, error) {
 //
 // It is filled by [DecodeS1F20] and mirrors the parameters of [S1F20], in order.
 type S1F20Reply struct {
-	OBJECTS []secs2.Item
-	ERRORS  []secs2.Item
+	OBJECTS [][]secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS1F20 decodes the body of an S1F20 (Attribute Data) message into a [S1F20Reply].
@@ -601,11 +601,11 @@ func DecodeS1F20(item secs2.Item) (S1F20Reply, error) {
 		return out, err
 	}
 
-	if out.OBJECTS, err = decodeItems(root.At(0), "OBJECTS"); err != nil {
+	if out.OBJECTS, err = decodeEach(root.At(0), "OBJECTS", decodeItems); err != nil {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -642,11 +642,11 @@ func DecodeS1F21(item secs2.Item) (S1F21Body, error) {
 
 // S1F22Reply is the decoded body of the S1F22 (Data Variable Namelist) message.
 //
-// Body: L[n]{ <vids>... }.
+// Body: L[n]{ <variables>... }.
 //
 // It is filled by [DecodeS1F22] and mirrors the parameters of [S1F22], in order.
 type S1F22Reply struct {
-	VIDS []secs2.Item
+	VARIABLES []DataVariableName
 }
 
 // DecodeS1F22 decodes the body of an S1F22 (Data Variable Namelist) message into a [S1F22Reply].
@@ -661,7 +661,7 @@ func DecodeS1F22(item secs2.Item) (S1F22Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.VIDS, err = decodeItems(root, "VIDS"); err != nil {
+	if out.VARIABLES, err = decodeEach(root, "VARIABLES", decodeDataVariableName); err != nil {
 		return out, err
 	}
 
@@ -698,11 +698,11 @@ func DecodeS1F23(item secs2.Item) (S1F23Body, error) {
 
 // S1F24Reply is the decoded body of the S1F24 (Collection Event Namelist) message.
 //
-// Body: L[n]{ <ceids>... }.
+// Body: L[n]{ <events>... }.
 //
 // It is filled by [DecodeS1F24] and mirrors the parameters of [S1F24], in order.
 type S1F24Reply struct {
-	CEIDS []secs2.Item
+	EVENTS []CollectionEventName
 }
 
 // DecodeS1F24 decodes the body of an S1F24 (Collection Event Namelist) message into a [S1F24Reply].
@@ -717,7 +717,7 @@ func DecodeS1F24(item secs2.Item) (S1F24Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.CEIDS, err = decodeItems(root, "CEIDS"); err != nil {
+	if out.EVENTS, err = decodeEach(root, "EVENTS", decodeCollectionEventName); err != nil {
 		return out, err
 	}
 

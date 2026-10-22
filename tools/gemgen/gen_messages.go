@@ -171,9 +171,11 @@ func ensurePeriod(s string) string {
 // function's parameter list joined by ", ", using each param's own Type field
 // throughout. A variadic (final repeat/packed) param renders as name ...<Type>;
 // a non-final repeat/packed renders as name []<Type>; every other param
-// (fixed/open leaf or opaque) renders as name <Type>. Type is the element type:
-// secs2.Item for a repeat of anything but a fixed scalar item,
-// and a concrete Go type (e.g. byte, or a named type such as STATUS) for a packed group or a value repeat;
+// (fixed/open leaf or opaque) renders as name <Type>.
+// Type is the element type:
+// a concrete Go type (e.g. byte, or a named type such as STATUS) for a packed group or a value repeat,
+// a group's struct, a pointer to it, or a slice for a repeat of a group, an optional group, or a repeat,
+// and secs2.Item for any other repeat;
 // the branch structure is identical, only the wrapped type differs.
 func renderParamList(params []Param) string {
 	parts := make([]string, len(params))

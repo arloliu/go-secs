@@ -20,18 +20,8 @@ import (
 // Dictionary, and the S1F12 external-provenance disclaimer surviving into the
 // generated godoc while no e5-sourced function carries it.
 func TestDataMessagesS1YAML(t *testing.T) {
-	itemsData, err := os.ReadFile("data/items.yaml")
-	require.NoError(t, err)
-
-	items, err := LoadItems(itemsData)
-	require.NoError(t, err)
-	require.NoError(t, ValidateItems(items))
-
-	msgData, err := os.ReadFile("data/messages/s1.yaml")
-	require.NoError(t, err)
-
-	mf, err := LoadMessageFile(msgData)
-	require.NoError(t, err)
+	items, _, files := loadRealData(t)
+	mf := realStream(t, files, 1)
 	require.Equal(t, 1, mf.Stream)
 
 	// Exactly 24 functions, cross-referenced against the real items.yaml so
@@ -76,7 +66,7 @@ func TestDataMessagesS1YAML(t *testing.T) {
 	}
 
 	// The whole file renders without error (exercises the template end-to-end).
-	_, err = renderMessages(mf, items)
+	_, err := renderMessages(mf, items)
 	require.NoError(t, err)
 }
 
@@ -89,18 +79,8 @@ func TestDataMessagesS1YAML(t *testing.T) {
 // messages (F49/F50) being modelled as opaque bodies since no static structure
 // can express CEPVAL/CEPACK's recursive, runtime-chosen shape.
 func TestDataMessagesS2YAML(t *testing.T) {
-	itemsData, err := os.ReadFile("data/items.yaml")
-	require.NoError(t, err)
-
-	items, err := LoadItems(itemsData)
-	require.NoError(t, err)
-	require.NoError(t, ValidateItems(items))
-
-	msgData, err := os.ReadFile("data/messages/s2.yaml")
-	require.NoError(t, err)
-
-	mf, err := LoadMessageFile(msgData)
-	require.NoError(t, err)
+	items, _, files := loadRealData(t)
+	mf := realStream(t, files, 2)
 	require.Equal(t, 2, mf.Stream)
 
 	// Exactly 50 functions, cross-referenced against the real items.yaml so
@@ -146,7 +126,7 @@ func TestDataMessagesS2YAML(t *testing.T) {
 	}
 
 	// The whole file renders without error (exercises the template end-to-end).
-	_, err = renderMessages(mf, items)
+	_, err := renderMessages(mf, items)
 	require.NoError(t, err)
 }
 
@@ -159,18 +139,8 @@ func TestDataMessagesS2YAML(t *testing.T) {
 // Dictionary, and the four sender-optional notifies (F1, F3, F9, F11) plus the
 // mandatory-reply requests (F5, F13, F17) and F15 carrying replyExpected: true.
 func TestDataMessagesS5YAML(t *testing.T) {
-	itemsData, err := os.ReadFile("data/items.yaml")
-	require.NoError(t, err)
-
-	items, err := LoadItems(itemsData)
-	require.NoError(t, err)
-	require.NoError(t, ValidateItems(items))
-
-	msgData, err := os.ReadFile("data/messages/s5.yaml")
-	require.NoError(t, err)
-
-	mf, err := LoadMessageFile(msgData)
-	require.NoError(t, err)
+	items, _, files := loadRealData(t)
+	mf := realStream(t, files, 5)
 	require.Equal(t, 5, mf.Stream)
 
 	// Exactly 18 functions, cross-referenced against the real items.yaml so
@@ -220,7 +190,7 @@ func TestDataMessagesS5YAML(t *testing.T) {
 	}
 
 	// The whole file renders without error (exercises the template end-to-end).
-	_, err = renderMessages(mf, items)
+	_, err := renderMessages(mf, items)
 	require.NoError(t, err)
 }
 
@@ -233,18 +203,8 @@ func TestDataMessagesS5YAML(t *testing.T) {
 // the real Data Item Dictionary, and the reply expectation of each primary
 // matching E5's W-bit markers.
 func TestDataMessagesS6YAML(t *testing.T) {
-	itemsData, err := os.ReadFile("data/items.yaml")
-	require.NoError(t, err)
-
-	items, err := LoadItems(itemsData)
-	require.NoError(t, err)
-	require.NoError(t, ValidateItems(items))
-
-	msgData, err := os.ReadFile("data/messages/s6.yaml")
-	require.NoError(t, err)
-
-	mf, err := LoadMessageFile(msgData)
-	require.NoError(t, err)
+	items, _, files := loadRealData(t)
+	mf := realStream(t, files, 6)
 	require.Equal(t, 6, mf.Stream)
 
 	// Exactly 30 functions, cross-referenced against the real items.yaml so
@@ -309,7 +269,7 @@ func TestDataMessagesS6YAML(t *testing.T) {
 	}
 
 	// The whole file renders without error (exercises the template end-to-end).
-	_, err = renderMessages(mf, items)
+	_, err := renderMessages(mf, items)
 	require.NoError(t, err)
 }
 
@@ -320,18 +280,8 @@ func TestDataMessagesS6YAML(t *testing.T) {
 // "Not Used" functions (F0, F2, F4, F6, F8, F10, F12) absent, and every
 // {item: X} reference resolving against the real Data Item Dictionary.
 func TestDataMessagesS9YAML(t *testing.T) {
-	itemsData, err := os.ReadFile("data/items.yaml")
-	require.NoError(t, err)
-
-	items, err := LoadItems(itemsData)
-	require.NoError(t, err)
-	require.NoError(t, ValidateItems(items))
-
-	msgData, err := os.ReadFile("data/messages/s9.yaml")
-	require.NoError(t, err)
-
-	mf, err := LoadMessageFile(msgData)
-	require.NoError(t, err)
+	items, _, files := loadRealData(t)
+	mf := realStream(t, files, 9)
 	require.Equal(t, 9, mf.Stream)
 
 	// Exactly 7 functions, cross-referenced against the real items.yaml so
@@ -362,7 +312,7 @@ func TestDataMessagesS9YAML(t *testing.T) {
 	}
 
 	// The whole file renders without error (exercises the template end-to-end).
-	_, err = renderMessages(mf, items)
+	_, err := renderMessages(mf, items)
 	require.NoError(t, err)
 }
 
@@ -492,4 +442,42 @@ func TestStreamFilesDefineExpectedFunctions(t *testing.T) {
 			require.Equalf(t, want, got, "S%d: every function must be defined exactly once", stream)
 		})
 	}
+}
+
+// loadRealData loads the real items, groups, and message files under data/ the way run does:
+// validated, with every group reference resolved.
+func loadRealData(t *testing.T) (map[string]Item, []Group, []MessageFile) {
+	t.Helper()
+
+	itemsData, err := os.ReadFile("data/items.yaml")
+	require.NoError(t, err)
+
+	items, err := LoadItems(itemsData)
+	require.NoError(t, err)
+	require.NoError(t, ValidateItems(items))
+
+	files, err := loadMessageFiles(filepath.Join("data", "messages"))
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+
+	groups, err := loadGroupsFile(filepath.Join("data", "groups.yaml"))
+	require.NoError(t, err)
+	require.NoError(t, ResolveGroups(groups, files, items))
+
+	return items, groups, files
+}
+
+// realStream returns the real message file of stream from files.
+func realStream(t *testing.T, files []MessageFile, stream int) MessageFile {
+	t.Helper()
+
+	for _, mf := range files {
+		if mf.Stream == stream {
+			return mf
+		}
+	}
+
+	require.Failf(t, "no message file", "stream %d", stream)
+
+	return MessageFile{}
 }

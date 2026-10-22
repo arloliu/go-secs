@@ -14,12 +14,12 @@ func init() {
 		_, err := gem.DecodeS19F1(item)
 
 		return err
-	}, gem.S19F1([]secs2.Item{secs2.A("filters")}, 81).Item())
+	}, gem.S19F1([]gem.PDEFilter{{PDEATTRIBUTENAME: 50, COMPARISONOPERATOR: 31, PDEATTRIBUTEVALUE: secs2.A("pdeattributevalue")}}, 81).Item())
 	registerFuzzDecoder("DecodeS19F2", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F2(item)
 
 		return err
-	}, gem.S19F2(62, "statustxt", secs2.A("pdes")).Item())
+	}, gem.S19F2(62, "statustxt", gem.PDEAttributes{UID: "uid", ATTRIBUTES: []gem.PDEAttributeValue{{PDEATTRIBUTE: 6, PDEATTRIBUTEVALUE: secs2.A("pdeattributevalue")}}}).Item())
 	registerFuzzDecoder("DecodeS19F3", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F3(item)
 
@@ -29,7 +29,7 @@ func init() {
 		_, err := gem.DecodeS19F4(item)
 
 		return err
-	}, gem.S19F4(secs2.A("results")).Item())
+	}, gem.S19F4(gem.PDEDeleteResult{UID: "uid", DELRSPSTAT: 43, STATUSTXT: "statustxt"}).Item())
 	registerFuzzDecoder("DecodeS19F5", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F5(item)
 
@@ -39,7 +39,7 @@ func init() {
 		_, err := gem.DecodeS19F6(item)
 
 		return err
-	}, gem.S19F6("tcid", secs2.A("results")).Item())
+	}, gem.S19F6("tcid", gem.PDEGetResult{UID: "uid", GETRSPSTAT: 99, STATUSTXT: "statustxt"}).Item())
 	registerFuzzDecoder("DecodeS19F7", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F7(item)
 
@@ -49,7 +49,7 @@ func init() {
 		_, err := gem.DecodeS19F8(item)
 
 		return err
-	}, gem.S19F8("tcid", secs2.A("results")).Item())
+	}, gem.S19F8("tcid", gem.PDEGetResult{UID: "uid", GETRSPSTAT: 99, STATUSTXT: "statustxt"}).Item())
 	registerFuzzDecoder("DecodeS19F9", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F9(item)
 
@@ -69,27 +69,27 @@ func init() {
 		_, err := gem.DecodeS19F13(item)
 
 		return err
-	}, gem.S19F13("tcid", 69, secs2.A("results")).Item())
+	}, gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"}).Item())
 	registerFuzzDecoder("DecodeS19F15", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F15(item)
 
 		return err
-	}, gem.S19F15("targetpde", secs2.A("inputMap")).Item())
+	}, gem.S19F15("targetpde", gem.PDEReference{PDEREF: "pderef", RESOLUTION: "resolution"}).Item())
 	registerFuzzDecoder("DecodeS19F16", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F16(item)
 
 		return err
-	}, gem.S19F16([]secs2.Item{secs2.A("outputMap")}, secs2.A("results")).Item())
+	}, gem.S19F16([]gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}}, gem.PDEResolveResult{UID: "uid", RESPDESTAT: 45, STATUSTXT: "statustxt"}).Item())
 	registerFuzzDecoder("DecodeS19F17", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F17(item)
 
 		return err
-	}, gem.S19F17("targetpde", []secs2.Item{secs2.A("inputMap")}, 93, 61).Item())
+	}, gem.S19F17("targetpde", []gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}}, 93, 61).Item())
 	registerFuzzDecoder("DecodeS19F18", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F18(item)
 
 		return err
-	}, gem.S19F18(true, secs2.A("results")).Item())
+	}, gem.S19F18(true, gem.PDEVerifyResult{UID: "uid", VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"}).Item())
 	registerFuzzDecoder("DecodeS19F19", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F19(item)
 
@@ -103,7 +103,7 @@ func init() {
 }
 
 func TestDecodeS19F1RoundTrip(t *testing.T) {
-	msg := gem.S19F1([]secs2.Item{secs2.A("filters")}, 81)
+	msg := gem.S19F1([]gem.PDEFilter{{PDEATTRIBUTENAME: 50, COMPARISONOPERATOR: 31, PDEATTRIBUTEVALUE: secs2.A("pdeattributevalue")}}, 81)
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -116,7 +116,7 @@ func TestDecodeS19F1RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S19F1Body{
-		FILTERS:    []secs2.Item{secs2.A("filters")},
+		FILTERS:    []gem.PDEFilter{{PDEATTRIBUTENAME: 50, COMPARISONOPERATOR: 31, PDEATTRIBUTEVALUE: secs2.A("pdeattributevalue")}},
 		ATTRIBUTES: []gem.PDEATTRIBUTE{81},
 	}
 
@@ -124,7 +124,7 @@ func TestDecodeS19F1RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS19F2RoundTrip(t *testing.T) {
-	msg := gem.S19F2(62, "statustxt", secs2.A("pdes"))
+	msg := gem.S19F2(62, "statustxt", gem.PDEAttributes{UID: "uid", ATTRIBUTES: []gem.PDEAttributeValue{{PDEATTRIBUTE: 6, PDEATTRIBUTEVALUE: secs2.A("pdeattributevalue")}}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -139,7 +139,7 @@ func TestDecodeS19F2RoundTrip(t *testing.T) {
 	want := gem.S19F2Reply{
 		DIRRSPSTAT: 62,
 		STATUSTXT:  "statustxt",
-		PDES:       []secs2.Item{secs2.A("pdes")},
+		PDES:       []gem.PDEAttributes{{UID: "uid", ATTRIBUTES: []gem.PDEAttributeValue{{PDEATTRIBUTE: 6, PDEATTRIBUTEVALUE: secs2.A("pdeattributevalue")}}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -166,7 +166,7 @@ func TestDecodeS19F3RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS19F4RoundTrip(t *testing.T) {
-	msg := gem.S19F4(secs2.A("results"))
+	msg := gem.S19F4(gem.PDEDeleteResult{UID: "uid", DELRSPSTAT: 43, STATUSTXT: "statustxt"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -179,7 +179,7 @@ func TestDecodeS19F4RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S19F4Reply{
-		RESULTS: []secs2.Item{secs2.A("results")},
+		RESULTS: []gem.PDEDeleteResult{{UID: "uid", DELRSPSTAT: 43, STATUSTXT: "statustxt"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -206,7 +206,7 @@ func TestDecodeS19F5RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS19F6RoundTrip(t *testing.T) {
-	msg := gem.S19F6("tcid", secs2.A("results"))
+	msg := gem.S19F6("tcid", gem.PDEGetResult{UID: "uid", GETRSPSTAT: 99, STATUSTXT: "statustxt"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -220,7 +220,7 @@ func TestDecodeS19F6RoundTrip(t *testing.T) {
 
 	want := gem.S19F6Reply{
 		TCID:    "tcid",
-		RESULTS: []secs2.Item{secs2.A("results")},
+		RESULTS: []gem.PDEGetResult{{UID: "uid", GETRSPSTAT: 99, STATUSTXT: "statustxt"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -247,7 +247,7 @@ func TestDecodeS19F7RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS19F8RoundTrip(t *testing.T) {
-	msg := gem.S19F8("tcid", secs2.A("results"))
+	msg := gem.S19F8("tcid", gem.PDEGetResult{UID: "uid", GETRSPSTAT: 99, STATUSTXT: "statustxt"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -261,7 +261,7 @@ func TestDecodeS19F8RoundTrip(t *testing.T) {
 
 	want := gem.S19F8Reply{
 		TCID:    "tcid",
-		RESULTS: []secs2.Item{secs2.A("results")},
+		RESULTS: []gem.PDEGetResult{{UID: "uid", GETRSPSTAT: 99, STATUSTXT: "statustxt"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -331,7 +331,7 @@ func TestDecodeS19F11RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS19F13RoundTrip(t *testing.T) {
-	msg := gem.S19F13("tcid", 69, secs2.A("results"))
+	msg := gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -346,14 +346,14 @@ func TestDecodeS19F13RoundTrip(t *testing.T) {
 	want := gem.S19F13Body{
 		TCID:       "tcid",
 		SENDRESULT: 69,
-		RESULTS:    []secs2.Item{secs2.A("results")},
+		RESULTS:    []gem.PDESendResult{{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F15RoundTrip(t *testing.T) {
-	msg := gem.S19F15("targetpde", secs2.A("inputMap"))
+	msg := gem.S19F15("targetpde", gem.PDEReference{PDEREF: "pderef", RESOLUTION: "resolution"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -367,14 +367,14 @@ func TestDecodeS19F15RoundTrip(t *testing.T) {
 
 	want := gem.S19F15Body{
 		TARGETPDE: "targetpde",
-		INPUTMAP:  []secs2.Item{secs2.A("inputMap")},
+		INPUTMAP:  []gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F16RoundTrip(t *testing.T) {
-	msg := gem.S19F16([]secs2.Item{secs2.A("outputMap")}, secs2.A("results"))
+	msg := gem.S19F16([]gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}}, gem.PDEResolveResult{UID: "uid", RESPDESTAT: 45, STATUSTXT: "statustxt"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -387,15 +387,15 @@ func TestDecodeS19F16RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S19F16Reply{
-		OUTPUTMAP: []secs2.Item{secs2.A("outputMap")},
-		RESULTS:   []secs2.Item{secs2.A("results")},
+		OUTPUTMAP: []gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}},
+		RESULTS:   []gem.PDEResolveResult{{UID: "uid", RESPDESTAT: 45, STATUSTXT: "statustxt"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F17RoundTrip(t *testing.T) {
-	msg := gem.S19F17("targetpde", []secs2.Item{secs2.A("inputMap")}, 93, 61)
+	msg := gem.S19F17("targetpde", []gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}}, 93, 61)
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -409,7 +409,7 @@ func TestDecodeS19F17RoundTrip(t *testing.T) {
 
 	want := gem.S19F17Body{
 		TARGETPDE:   "targetpde",
-		INPUTMAP:    []secs2.Item{secs2.A("inputMap")},
+		INPUTMAP:    []gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}},
 		VERIFYTYPE:  93,
 		VERIFYDEPTH: 61,
 	}
@@ -418,7 +418,7 @@ func TestDecodeS19F17RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS19F18RoundTrip(t *testing.T) {
-	msg := gem.S19F18(true, secs2.A("results"))
+	msg := gem.S19F18(true, gem.PDEVerifyResult{UID: "uid", VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -432,7 +432,7 @@ func TestDecodeS19F18RoundTrip(t *testing.T) {
 
 	want := gem.S19F18Reply{
 		VERIFYSUCCESS: true,
-		RESULTS:       []secs2.Item{secs2.A("results")},
+		RESULTS:       []gem.PDEVerifyResult{{UID: "uid", VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"}},
 	}
 
 	assertDecoded(t, got, want)

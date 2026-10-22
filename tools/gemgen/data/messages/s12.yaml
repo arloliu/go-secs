@@ -158,7 +158,7 @@ messages:
             - {item: IDTYP}
             - type: list
               repeat: rows
-              of: {type: list, items: [{item: RSINF}, {item: BINLT}]}
+              of: {group: MapRow}
 
   - function: 8
     name: Map Data Acknowledge Type 1
@@ -220,7 +220,7 @@ messages:
             - {item: IDTYP}
             - type: list
               repeat: positions
-              of: {type: list, items: [{item: XYPOS}, {item: BINLT}]}
+              of: {group: MapPosition}
 
   - function: 12
     name: Map Data Acknowledge Type 3
@@ -264,7 +264,7 @@ messages:
             - {item: IDTYP}
             - type: list
               repeat: rows
-              of: {type: list, items: [{item: RSINF}, {item: BINLT}]}
+              of: {group: MapRow}
 
   - function: 15
     name: Map Data Request Type 2
@@ -333,7 +333,7 @@ messages:
             - {item: IDTYP}
             - type: list
               repeat: positions
-              of: {type: list, items: [{item: XYPOS}, {item: BINLT}]}
+              of: {group: MapPosition}
 
   # S12F19 has no reply; S12F20 is not used.
   - function: 19

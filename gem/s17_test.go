@@ -126,7 +126,7 @@ func TestS17F3(t *testing.T) {
 }
 
 func TestS17F4(t *testing.T) {
-	msg := gem.S17F4(true, secs2.A("errors"))
+	msg := gem.S17F4(true, gem.ReportError{RPTID: secs2.A("rptid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS17Header(t, msg, 4, false)
 
@@ -155,10 +155,29 @@ func TestS17F4(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("rptid").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("rptid: got %x, want %x", got5, want5)
+	}
+	got6 := list4[1].ToBytes()
+	want6 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("errcode: got %x, want %x", got6, want6)
+	}
+	v7, err := list4[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[2].ToASCII: %v", err)
+	}
+	if v7 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v7, "errtext")
 	}
 }
 
@@ -395,7 +414,7 @@ func TestS17F7(t *testing.T) {
 }
 
 func TestS17F8(t *testing.T) {
-	msg := gem.S17F8(true, secs2.A("errors"))
+	msg := gem.S17F8(true, gem.TraceError{TRID: secs2.A("trid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS17Header(t, msg, 8, false)
 
@@ -424,10 +443,29 @@ func TestS17F8(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("trid").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("trid: got %x, want %x", got5, want5)
+	}
+	got6 := list4[1].ToBytes()
+	want6 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("errcode: got %x, want %x", got6, want6)
+	}
+	v7, err := list4[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[2].ToASCII: %v", err)
+	}
+	if v7 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v7, "errtext")
 	}
 }
 
@@ -612,7 +650,7 @@ func TestS17F13(t *testing.T) {
 }
 
 func TestS17F14(t *testing.T) {
-	msg := gem.S17F14(true, secs2.A("errors"))
+	msg := gem.S17F14(true, gem.TraceError{TRID: secs2.A("trid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS17Header(t, msg, 14, false)
 
@@ -641,9 +679,28 @@ func TestS17F14(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("trid").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("trid: got %x, want %x", got5, want5)
+	}
+	got6 := list4[1].ToBytes()
+	want6 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("errcode: got %x, want %x", got6, want6)
+	}
+	v7, err := list4[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[2].ToASCII: %v", err)
+	}
+	if v7 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v7, "errtext")
 	}
 }

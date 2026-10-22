@@ -105,11 +105,33 @@ type Body struct {
 	Structure     *StructureNode `yaml:"structure"`
 }
 
+// GroupFile is the groups file, groups.yaml:
+// the named list shapes message bodies repeat.
+type GroupFile struct {
+	Groups []Group `yaml:"groups"`
+}
+
+// Group is one named list shape, generated as a Go struct of the same name.
+//
+// Structure is always a fixed list.
+// A repeat's of names a group to repeat that shape,
+// and a fixed list inside another group may hold one as an optional child.
+type Group struct {
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description"`
+	Structure   *StructureNode `yaml:"structure"`
+
+	// users names what references the group, for its godoc:
+	// the messages, as SxFy, and the other groups, as doc links.
+	users []string
+}
+
 // StructureNode is one node of a message body tree.
 //
 // A leaf sets Item. A list sets Type "list" with either Items, Repeat+Of, or
 // Packed+Of. An opaque body sets Type "opaque". A nil *StructureNode is a
 // header-only body.
+// A group reference sets Group, alone or with As and Optional.
 type StructureNode struct {
 	Type  string          `yaml:"type"`
 	Item  string          `yaml:"item"`
@@ -117,7 +139,8 @@ type StructureNode struct {
 	// Repeat names a list of separate items, each of the shape Of declares.
 	// When Of is a binding: fixed leaf with a scalar goType,
 	// the builder takes the elements as values of that type and the decoder returns them so;
-	// any other element is taken and returned as a secs2.Item.
+	// a group element is a value of the group's struct, a repeat element a slice,
+	// and any other element is taken and returned as a secs2.Item.
 	Repeat string `yaml:"repeat"`
 	// Packed marks E5's packed multi-value single item (e.g. S1F10's
 	// <tsip1,,tsipn>): all values share one item header and one format, unlike
@@ -135,7 +158,14 @@ type StructureNode struct {
 	// its builder still always sends a value.
 	// It is valid only on a binding: fixed leaf with a scalar goType,
 	// outside any repeat's or packed group's of.
+	// On a group reference it marks a list SEMI E5 lets be sent as L[0] instead:
+	// the field or element is then a pointer, nil for L[0].
 	Optional bool `yaml:"optional"`
+	// Group names the group of groups.yaml this node references.
+	Group string `yaml:"group"`
+
+	// def is the group Group names, set by [ResolveGroups].
+	def *Group
 }
 
 // leadingZeroRE matches a decimal number written with a leading zero, e.g. 010 or -08.
@@ -163,13 +193,15 @@ func StringValue(v string) EnumValue {
 	return EnumValue{kind: enumString, s: v}
 }
 
-// Kind returns "leaf", "opaque", or "list" for the node.
+// Kind returns "leaf", "opaque", "group", or "list" for the node.
 func (n *StructureNode) Kind() string {
 	switch {
 	case n.Item != "":
 		return "leaf"
 	case n.Type == "opaque":
 		return "opaque"
+	case n.Group != "":
+		return "group"
 	default:
 		return "list"
 	}

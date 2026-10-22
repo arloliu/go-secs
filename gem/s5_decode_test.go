@@ -39,12 +39,12 @@ func init() {
 		_, err := gem.DecodeS5F6(item)
 
 		return err
-	}, gem.S5F6(secs2.A("alarms")).Item())
+	}, gem.S5F6(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"}).Item())
 	registerFuzzDecoder("DecodeS5F8", func(item secs2.Item) error {
 		_, err := gem.DecodeS5F8(item)
 
 		return err
-	}, gem.S5F8(secs2.A("alarms")).Item())
+	}, gem.S5F8(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"}).Item())
 	registerFuzzDecoder("DecodeS5F9", func(item secs2.Item) error {
 		_, err := gem.DecodeS5F9(item)
 
@@ -186,7 +186,7 @@ func TestDecodeS5F5RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS5F6RoundTrip(t *testing.T) {
-	msg := gem.S5F6(secs2.A("alarms"))
+	msg := gem.S5F6(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -199,14 +199,14 @@ func TestDecodeS5F6RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S5F6Reply{
-		ALARMS: []secs2.Item{secs2.A("alarms")},
+		ALARMS: []gem.Alarm{{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F8RoundTrip(t *testing.T) {
-	msg := gem.S5F8(secs2.A("alarms"))
+	msg := gem.S5F8(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -219,7 +219,7 @@ func TestDecodeS5F8RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S5F8Reply{
-		ALARMS: []secs2.Item{secs2.A("alarms")},
+		ALARMS: []gem.Alarm{{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"}},
 	}
 
 	assertDecoded(t, got, want)

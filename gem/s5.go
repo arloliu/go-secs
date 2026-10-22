@@ -74,8 +74,8 @@ func S5F5(alids secs2.Item) secs2.SECS2Message {
 //
 // Exception: If m = 0, no response can be made.
 // A zero-length item returned for an ALCD or ALTX means that value does not exist.
-func S5F6(alarms ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(5, 6, false, secs2.L(alarms...))
+func S5F6(alarms ...Alarm) secs2.SECS2Message {
+	return secs2.NewMessage(5, 6, false, secs2.L(groupItems(alarms)...))
 }
 
 // S5F7 creates the S5F7 (List Enabled Alarm Request) message, direction: host-to-equipment.
@@ -96,8 +96,8 @@ func S5F7() secs2.SECS2Message {
 // Body: L[n]{ <alarms>... }.
 //
 // Exception: None.
-func S5F8(alarms ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(5, 8, false, secs2.L(alarms...))
+func S5F8(alarms ...Alarm) secs2.SECS2Message {
+	return secs2.NewMessage(5, 8, false, secs2.L(groupItems(alarms)...))
 }
 
 // S5F9 creates the S5F9 (Exception Post Notify) message, direction: equipment-to-host.

@@ -471,7 +471,7 @@ func DecodeS12F6(item secs2.Item) (S12F6Reply, error) {
 type S12F7Body struct {
 	MID   secs2.Item
 	IDTYP IDTYP
-	ROWS  []secs2.Item
+	ROWS  []MapRow
 }
 
 // DecodeS12F7 decodes the body of an S12F7 (Map Data Send Type 1) message into a [S12F7Body].
@@ -498,7 +498,7 @@ func DecodeS12F7(item secs2.Item) (S12F7Body, error) {
 		return out, err
 	}
 
-	if out.ROWS, err = decodeItems(root.At(2), "ROWS"); err != nil {
+	if out.ROWS, err = decodeEach(root.At(2), "ROWS", decodeMapRow); err != nil {
 		return out, err
 	}
 
@@ -616,7 +616,7 @@ func DecodeS12F10(item secs2.Item) (S12F10Reply, error) {
 type S12F11Body struct {
 	MID       secs2.Item
 	IDTYP     IDTYP
-	POSITIONS []secs2.Item
+	POSITIONS []MapPosition
 }
 
 // DecodeS12F11 decodes the body of an S12F11 (Map Data Send Type 3) message into a [S12F11Body].
@@ -643,7 +643,7 @@ func DecodeS12F11(item secs2.Item) (S12F11Body, error) {
 		return out, err
 	}
 
-	if out.POSITIONS, err = decodeItems(root.At(2), "POSITIONS"); err != nil {
+	if out.POSITIONS, err = decodeEach(root.At(2), "POSITIONS", decodeMapPosition); err != nil {
 		return out, err
 	}
 
@@ -723,7 +723,7 @@ func DecodeS12F13(item secs2.Item) (S12F13Body, error) {
 type S12F14Reply struct {
 	MID   secs2.Item
 	IDTYP IDTYP
-	ROWS  []secs2.Item
+	ROWS  []MapRow
 }
 
 // DecodeS12F14 decodes the body of an S12F14 (Map Data Type 1) message into a [S12F14Reply].
@@ -750,7 +750,7 @@ func DecodeS12F14(item secs2.Item) (S12F14Reply, error) {
 		return out, err
 	}
 
-	if out.ROWS, err = decodeItems(root.At(2), "ROWS"); err != nil {
+	if out.ROWS, err = decodeEach(root.At(2), "ROWS", decodeMapRow); err != nil {
 		return out, err
 	}
 
@@ -894,7 +894,7 @@ func DecodeS12F17(item secs2.Item) (S12F17Body, error) {
 type S12F18Reply struct {
 	MID       secs2.Item
 	IDTYP     IDTYP
-	POSITIONS []secs2.Item
+	POSITIONS []MapPosition
 }
 
 // DecodeS12F18 decodes the body of an S12F18 (Map Data Type 3) message into a [S12F18Reply].
@@ -923,7 +923,7 @@ func DecodeS12F18(item secs2.Item) (S12F18Reply, error) {
 			return out, err
 		}
 
-		if out.POSITIONS, err = decodeItems(root.At(2), "POSITIONS"); err != nil {
+		if out.POSITIONS, err = decodeEach(root.At(2), "POSITIONS", decodeMapPosition); err != nil {
 			return out, err
 		}
 	}

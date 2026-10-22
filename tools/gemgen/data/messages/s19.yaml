@@ -27,9 +27,7 @@ messages:
           items:
             - type: list
               repeat: filters
-              of:
-                type: list
-                items: [{item: PDEATTRIBUTENAME}, {item: COMPARISONOPERATOR}, {item: PDEATTRIBUTEVALUE}]
+              of: {group: PDEFilter}
             - {type: list, repeat: attributes, of: {item: PDEATTRIBUTE}}
 
   - function: 2
@@ -54,13 +52,7 @@ messages:
             - {item: STATUSTXT}
             - type: list
               repeat: pdes
-              of:
-                type: list
-                items:
-                  - {item: UID}
-                  - type: list
-                    repeat: attributes
-                    of: {type: list, items: [{item: PDEATTRIBUTE}, {item: PDEATTRIBUTEVALUE}]}
+              of: {group: PDEAttributes}
 
   - function: 3
     name: Delete PDE
@@ -90,7 +82,7 @@ messages:
         structure:
           type: list
           repeat: results
-          of: {type: list, items: [{item: UID}, {item: DELRSPSTAT}, {item: STATUSTXT}]}
+          of: {group: PDEDeleteResult}
 
   - function: 5
     name: Get PDE Header
@@ -131,7 +123,7 @@ messages:
             - {item: TCID}
             - type: list
               repeat: results
-              of: {type: list, items: [{item: UID}, {item: GETRSPSTAT}, {item: STATUSTXT}]}
+              of: {group: PDEGetResult}
 
   - function: 7
     name: Get PDE
@@ -174,7 +166,7 @@ messages:
             - {item: TCID}
             - type: list
               repeat: results
-              of: {type: list, items: [{item: UID}, {item: GETRSPSTAT}, {item: STATUSTXT}]}
+              of: {group: PDEGetResult}
 
   - function: 9
     name: Request To Send PDE
@@ -265,9 +257,7 @@ messages:
             - {item: SENDRESULT}
             - type: list
               repeat: results
-              of:
-                type: list
-                items: [{item: UID}, {item: SENDRSPSTAT}, {item: VERIFYRSPSTAT}, {item: STATUSTXT}]
+              of: {group: PDESendResult}
 
   - function: 14
     name: PDE TransferContainer Report Acknowledge
@@ -301,7 +291,7 @@ messages:
             - {item: TARGETPDE}
             - type: list
               repeat: inputMap
-              of: {type: list, items: [{item: PDEREF}, {item: RESOLUTION}]}
+              of: {group: PDEReference}
 
   - function: 16
     name: Resolve PDE Data
@@ -326,10 +316,10 @@ messages:
           items:
             - type: list
               repeat: outputMap
-              of: {type: list, items: [{item: PDEREF}, {item: RESOLUTION}]}
+              of: {group: PDEReference}
             - type: list
               repeat: results
-              of: {type: list, items: [{item: UID}, {item: RESPDESTAT}, {item: STATUSTXT}]}
+              of: {group: PDEResolveResult}
 
   - function: 17
     name: Verify PDE
@@ -352,7 +342,7 @@ messages:
             - {item: TARGETPDE}
             - type: list
               repeat: inputMap
-              of: {type: list, items: [{item: PDEREF}, {item: RESOLUTION}]}
+              of: {group: PDEReference}
             - {item: VERIFYTYPE}
             - {item: VERIFYDEPTH}
 
@@ -375,7 +365,7 @@ messages:
             - {item: VERIFYSUCCESS}
             - type: list
               repeat: results
-              of: {type: list, items: [{item: UID}, {item: VERIFYRSPSTAT}, {item: STATUSTXT}]}
+              of: {group: PDEVerifyResult}
 
   - function: 19
     name: RaP Multi-block Inquire

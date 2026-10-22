@@ -218,7 +218,7 @@ func TestS7F9(t *testing.T) {
 }
 
 func TestS7F10(t *testing.T) {
-	msg := gem.S7F10(secs2.A("programs"))
+	msg := gem.S7F10(gem.ProgramMaterials{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}})
 
 	assertS7Header(t, msg, 10, false)
 
@@ -233,15 +233,34 @@ func TestS7F10(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("programs").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("programs: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list2))
+	}
+	got3 := list2[0].ToBytes()
+	want3 := secs2.A("ppid").ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("ppid: got %x, want %x", got3, want3)
+	}
+	list4, err := list2[1].ToList()
+	if err != nil {
+		t.Fatalf("list2[1].ToList: %v", err)
+	}
+	if len(list4) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("mids").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("mids: got %x, want %x", got5, want5)
 	}
 }
 
 func TestS7F11(t *testing.T) {
-	msg := gem.S7F11(secs2.A("programs"))
+	msg := gem.S7F11(gem.ProgramMaterials{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}})
 
 	assertS7Header(t, msg, 11, true)
 
@@ -256,10 +275,29 @@ func TestS7F11(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("programs").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("programs: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list2))
+	}
+	got3 := list2[0].ToBytes()
+	want3 := secs2.A("ppid").ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("ppid: got %x, want %x", got3, want3)
+	}
+	list4, err := list2[1].ToList()
+	if err != nil {
+		t.Fatalf("list2[1].ToList: %v", err)
+	}
+	if len(list4) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("mids").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("mids: got %x, want %x", got5, want5)
 	}
 }
 
@@ -282,7 +320,7 @@ func TestS7F12(t *testing.T) {
 }
 
 func TestS7F13(t *testing.T) {
-	msg := gem.S7F13(secs2.A("programs"))
+	msg := gem.S7F13(gem.ProgramMaterials{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}})
 
 	assertS7Header(t, msg, 13, true)
 
@@ -297,10 +335,29 @@ func TestS7F13(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("programs").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("programs: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list2))
+	}
+	got3 := list2[0].ToBytes()
+	want3 := secs2.A("ppid").ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("ppid: got %x, want %x", got3, want3)
+	}
+	list4, err := list2[1].ToList()
+	if err != nil {
+		t.Fatalf("list2[1].ToList: %v", err)
+	}
+	if len(list4) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("mids").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("mids: got %x, want %x", got5, want5)
 	}
 }
 
@@ -443,7 +500,7 @@ func TestS7F21(t *testing.T) {
 }
 
 func TestS7F22(t *testing.T) {
-	msg := gem.S7F22("mdln", "softrev", secs2.A("cmdmax"), secs2.A("bytmax"), secs2.A("commands"))
+	msg := gem.S7F22("mdln", "softrev", secs2.A("cmdmax"), secs2.A("bytmax"), gem.ProcessCommandDefinition{CCODE: secs2.A("ccode"), CNAME: "cname", RQCMD: true, BLKDEF: secs2.A("blkdef"), BCDS: secs2.A("bcds"), IBCDS: secs2.A("ibcds"), NBCDS: secs2.A("nbcds"), ACDS: secs2.A("acds"), IACDS: secs2.A("iacds"), NACDS: secs2.A("nacds"), PARAMETERS: []secs2.Item{secs2.A("parameters")}})
 
 	assertS7Header(t, msg, 22, false)
 
@@ -489,15 +546,83 @@ func TestS7F22(t *testing.T) {
 	if len(list6) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
-	got7 := list6[0].ToBytes()
-	want7 := secs2.A("commands").ToBytes()
-	if !bytes.Equal(got7, want7) {
-		t.Errorf("commands: got %x, want %x", got7, want7)
+	list7, err := list6[0].ToList()
+	if err != nil {
+		t.Fatalf("list6[0].ToList: %v", err)
+	}
+	if len(list7) != 11 {
+		t.Fatalf("list length: got %d, want 11", len(list7))
+	}
+	got8 := list7[0].ToBytes()
+	want8 := secs2.A("ccode").ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("ccode: got %x, want %x", got8, want8)
+	}
+	v9, err := list7[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list7[1].ToASCII: %v", err)
+	}
+	if v9 != "cname" {
+		t.Errorf("cname: got %q, want %q", v9, "cname")
+	}
+	v10, err := list7[2].ToBoolean()
+	if err != nil {
+		t.Fatalf("list7[2].ToBoolean: %v", err)
+	}
+	if len(v10) != 1 || v10[0] != true {
+		t.Errorf("rqcmd: got %v, want %v", v10, true)
+	}
+	got11 := list7[3].ToBytes()
+	want11 := secs2.A("blkdef").ToBytes()
+	if !bytes.Equal(got11, want11) {
+		t.Errorf("blkdef: got %x, want %x", got11, want11)
+	}
+	got12 := list7[4].ToBytes()
+	want12 := secs2.A("bcds").ToBytes()
+	if !bytes.Equal(got12, want12) {
+		t.Errorf("bcds: got %x, want %x", got12, want12)
+	}
+	got13 := list7[5].ToBytes()
+	want13 := secs2.A("ibcds").ToBytes()
+	if !bytes.Equal(got13, want13) {
+		t.Errorf("ibcds: got %x, want %x", got13, want13)
+	}
+	got14 := list7[6].ToBytes()
+	want14 := secs2.A("nbcds").ToBytes()
+	if !bytes.Equal(got14, want14) {
+		t.Errorf("nbcds: got %x, want %x", got14, want14)
+	}
+	got15 := list7[7].ToBytes()
+	want15 := secs2.A("acds").ToBytes()
+	if !bytes.Equal(got15, want15) {
+		t.Errorf("acds: got %x, want %x", got15, want15)
+	}
+	got16 := list7[8].ToBytes()
+	want16 := secs2.A("iacds").ToBytes()
+	if !bytes.Equal(got16, want16) {
+		t.Errorf("iacds: got %x, want %x", got16, want16)
+	}
+	got17 := list7[9].ToBytes()
+	want17 := secs2.A("nacds").ToBytes()
+	if !bytes.Equal(got17, want17) {
+		t.Errorf("nacds: got %x, want %x", got17, want17)
+	}
+	list18, err := list7[10].ToList()
+	if err != nil {
+		t.Fatalf("list7[10].ToList: %v", err)
+	}
+	if len(list18) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list18))
+	}
+	got19 := list18[0].ToBytes()
+	want19 := secs2.A("parameters").ToBytes()
+	if !bytes.Equal(got19, want19) {
+		t.Errorf("parameters: got %x, want %x", got19, want19)
 	}
 }
 
 func TestS7F23(t *testing.T) {
-	msg := gem.S7F23(secs2.A("ppid"), "mdln", "softrev", secs2.A("commands"))
+	msg := gem.S7F23(secs2.A("ppid"), "mdln", "softrev", gem.ProcessCommand{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}})
 
 	assertS7Header(t, msg, 23, true)
 
@@ -538,10 +663,29 @@ func TestS7F23(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("commands").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("commands: got %x, want %x", got6, want6)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("ccode").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("ccode: got %x, want %x", got7, want7)
+	}
+	list8, err := list6[1].ToList()
+	if err != nil {
+		t.Fatalf("list6[1].ToList: %v", err)
+	}
+	if len(list8) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("parameters").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("parameters: got %x, want %x", got9, want9)
 	}
 }
 
@@ -580,7 +724,7 @@ func TestS7F25(t *testing.T) {
 }
 
 func TestS7F26(t *testing.T) {
-	msg := gem.S7F26(secs2.A("ppid"), "mdln", "softrev", secs2.A("commands"))
+	msg := gem.S7F26(secs2.A("ppid"), "mdln", "softrev", gem.ProcessCommand{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}})
 
 	assertS7Header(t, msg, 26, false)
 
@@ -621,15 +765,34 @@ func TestS7F26(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("commands").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("commands: got %x, want %x", got6, want6)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("ccode").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("ccode: got %x, want %x", got7, want7)
+	}
+	list8, err := list6[1].ToList()
+	if err != nil {
+		t.Fatalf("list6[1].ToList: %v", err)
+	}
+	if len(list8) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("parameters").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("parameters: got %x, want %x", got9, want9)
 	}
 }
 
 func TestS7F27(t *testing.T) {
-	msg := gem.S7F27(secs2.A("ppid"), secs2.A("errors"))
+	msg := gem.S7F27(secs2.A("ppid"), gem.ProgramError{ACKC7A: secs2.A("ackc7a"), SEQNUM: secs2.A("seqnum"), ERRW7: "errw7"})
 
 	assertS7Header(t, msg, 27, true)
 
@@ -656,10 +819,29 @@ func TestS7F27(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("ackc7a").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("ackc7a: got %x, want %x", got5, want5)
+	}
+	got6 := list4[1].ToBytes()
+	want6 := secs2.A("seqnum").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("seqnum: got %x, want %x", got6, want6)
+	}
+	v7, err := list4[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[2].ToASCII: %v", err)
+	}
+	if v7 != "errw7" {
+		t.Errorf("errw7: got %q, want %q", v7, "errw7")
 	}
 }
 
@@ -708,7 +890,7 @@ func TestS7F30(t *testing.T) {
 }
 
 func TestS7F31(t *testing.T) {
-	msg := gem.S7F31(secs2.A("ppid"), "mdln", "softrev", secs2.A("commands"))
+	msg := gem.S7F31(secs2.A("ppid"), "mdln", "softrev", gem.ProcessCommand{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}})
 
 	assertS7Header(t, msg, 31, true)
 
@@ -749,10 +931,29 @@ func TestS7F31(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("commands").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("commands: got %x, want %x", got6, want6)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("ccode").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("ccode: got %x, want %x", got7, want7)
+	}
+	list8, err := list6[1].ToList()
+	if err != nil {
+		t.Fatalf("list6[1].ToList: %v", err)
+	}
+	if len(list8) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("parameters").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("parameters: got %x, want %x", got9, want9)
 	}
 }
 

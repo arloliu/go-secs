@@ -29,7 +29,7 @@ func init() {
 		_, err := gem.DecodeS17F4(item)
 
 		return err
-	}, gem.S17F4(true, secs2.A("errors")).Item())
+	}, gem.S17F4(true, gem.ReportError{RPTID: secs2.A("rptid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS17F5", func(item secs2.Item) error {
 		_, err := gem.DecodeS17F5(item)
 
@@ -49,7 +49,7 @@ func init() {
 		_, err := gem.DecodeS17F8(item)
 
 		return err
-	}, gem.S17F8(true, secs2.A("errors")).Item())
+	}, gem.S17F8(true, gem.TraceError{TRID: secs2.A("trid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS17F9", func(item secs2.Item) error {
 		_, err := gem.DecodeS17F9(item)
 
@@ -79,7 +79,7 @@ func init() {
 		_, err := gem.DecodeS17F14(item)
 
 		return err
-	}, gem.S17F14(true, secs2.A("errors")).Item())
+	}, gem.S17F14(true, gem.TraceError{TRID: secs2.A("trid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 }
 
 func TestDecodeS17F1RoundTrip(t *testing.T) {
@@ -147,7 +147,7 @@ func TestDecodeS17F3RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS17F4RoundTrip(t *testing.T) {
-	msg := gem.S17F4(true, secs2.A("errors"))
+	msg := gem.S17F4(true, gem.ReportError{RPTID: secs2.A("rptid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -161,7 +161,7 @@ func TestDecodeS17F4RoundTrip(t *testing.T) {
 
 	want := gem.S17F4Reply{
 		ACKA:   true,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ReportError{{RPTID: secs2.A("rptid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -343,7 +343,7 @@ func TestDecodeS17F7RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS17F8RoundTrip(t *testing.T) {
-	msg := gem.S17F8(true, secs2.A("errors"))
+	msg := gem.S17F8(true, gem.TraceError{TRID: secs2.A("trid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -357,7 +357,7 @@ func TestDecodeS17F8RoundTrip(t *testing.T) {
 
 	want := gem.S17F8Reply{
 		ACKA:   true,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.TraceError{{TRID: secs2.A("trid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -474,7 +474,7 @@ func TestDecodeS17F13RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS17F14RoundTrip(t *testing.T) {
-	msg := gem.S17F14(true, secs2.A("errors"))
+	msg := gem.S17F14(true, gem.TraceError{TRID: secs2.A("trid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -488,7 +488,7 @@ func TestDecodeS17F14RoundTrip(t *testing.T) {
 
 	want := gem.S17F14Reply{
 		ACKA:   true,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.TraceError{{TRID: secs2.A("trid"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)

@@ -23,8 +23,8 @@ func S3F1() secs2.SECS2Message {
 // Body: L[0,2]{ <mf> L[n]{ <locations>... } }.
 //
 // Exception: A zero-length list returned means no such data exists.
-func S3F2(mf secs2.Item, locations ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 2, false, secs2.L(mf, secs2.L(locations...)))
+func S3F2(mf secs2.Item, locations ...MaterialLocation) secs2.SECS2Message {
+	return secs2.NewMessage(3, 2, false, secs2.L(mf, secs2.L(groupItems(locations)...)))
 }
 
 // S3F3 creates the S3F3 (Time to Completion Request) message, direction: host-to-equipment.
@@ -45,8 +45,8 @@ func S3F3() secs2.SECS2Message {
 // Body: L[0,2]{ <mf> L[n]{ <materials>... } }.
 //
 // Exception: A zero-length list header returned means no such data exists.
-func S3F4(mf secs2.Item, materials ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 4, false, secs2.L(mf, secs2.L(materials...)))
+func S3F4(mf secs2.Item, materials ...MaterialTimeToCompletion) secs2.SECS2Message {
+	return secs2.NewMessage(3, 4, false, secs2.L(mf, secs2.L(groupItems(materials)...)))
 }
 
 // S3F5 creates the S3F5 (Material Found Send) message, direction: equipment-to-host.
@@ -201,8 +201,8 @@ func S3F16(grant GRANT) secs2.SECS2Message {
 // If CARRIERID is not a zero-length item, then PTN may be omitted (a zero-length item).
 // ATTRID and ATTRDATA may be substituted for CATTRID and CATTRDATA respectively.
 // ReticlePodLocationID may be used as one of CATTRID when the CARRIERACTION is PodRelease and the carrier is not at a Load Port.
-func S3F17(dataid secs2.Item, carrieraction CARRIERACTION, carrierid string, ptn secs2.Item, attributes ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 17, true, secs2.L(dataid, secs2.A(string(carrieraction)), secs2.A(carrierid), ptn, secs2.L(attributes...)))
+func S3F17(dataid secs2.Item, carrieraction CARRIERACTION, carrierid string, ptn secs2.Item, attributes ...CarrierAttribute) secs2.SECS2Message {
+	return secs2.NewMessage(3, 17, true, secs2.L(dataid, secs2.A(string(carrieraction)), secs2.A(carrierid), ptn, secs2.L(groupItems(attributes)...)))
 }
 
 // S3F18 creates the S3F18 (Carrier Action Acknowledge) message, direction: equipment-to-host.
@@ -212,8 +212,8 @@ func S3F17(dataid secs2.Item, carrieraction CARRIERACTION, carrierid string, ptn
 // Body: L[2]{ U1[caack] L[n]{ <errors>... } }.
 //
 // Exception: If n = 0, no errors exist.
-func S3F18(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 18, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(errors...)))
+func S3F18(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(3, 18, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(groupItems(errors)...)))
 }
 
 // S3F19 creates the S3F19 (Cancel All Carrier Out Request) message, direction: host-to-equipment.
@@ -234,8 +234,8 @@ func S3F19() secs2.SECS2Message {
 // Body: L[2]{ U1[caack] L[n]{ <errors>... } }.
 //
 // Exception: If n = 0, no errors exist.
-func S3F20(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 20, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(errors...)))
+func S3F20(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(3, 20, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(groupItems(errors)...)))
 }
 
 // S3F21 creates the S3F21 (Port Group Definition) message, direction: host-to-equipment.
@@ -256,8 +256,8 @@ func S3F21(portgrpname string, accessmode ACCESSMODE, ports ...secs2.Item) secs2
 // Body: L[2]{ U1[caack] L[n]{ <errors>... } }.
 //
 // Exception: If n = 0, no errors exist.
-func S3F22(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 22, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(errors...)))
+func S3F22(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(3, 22, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(groupItems(errors)...)))
 }
 
 // S3F23 creates the S3F23 (Port Group Action Request) message, direction: host-to-equipment.
@@ -268,8 +268,8 @@ func S3F22(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
 // Body: L[3]{ A[pgrpaction] A[portgrpname] L[n]{ <params>... } }.
 //
 // Exception: If m = 0, then no parameters are provided.
-func S3F23(pgrpaction string, portgrpname string, params ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 23, true, secs2.L(secs2.A(pgrpaction), secs2.A(portgrpname), secs2.L(params...)))
+func S3F23(pgrpaction string, portgrpname string, params ...PortActionParam) secs2.SECS2Message {
+	return secs2.NewMessage(3, 23, true, secs2.L(secs2.A(pgrpaction), secs2.A(portgrpname), secs2.L(groupItems(params)...)))
 }
 
 // S3F24 creates the S3F24 (Port Group Action Acknowledge) message, direction: equipment-to-host.
@@ -279,8 +279,8 @@ func S3F23(pgrpaction string, portgrpname string, params ...secs2.Item) secs2.SE
 // Body: L[2]{ U1[caack] L[n]{ <errors>... } }.
 //
 // Exception: If n = 0, no errors exist.
-func S3F24(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 24, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(errors...)))
+func S3F24(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(3, 24, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(groupItems(errors)...)))
 }
 
 // S3F25 creates the S3F25 (Port Action Request) message, direction: host-to-equipment.
@@ -290,8 +290,8 @@ func S3F24(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
 // Body: L[3]{ A[portaction] <ptn> L[n]{ <params>... } }.
 //
 // Exception: If m = 0, then no parameters are provided.
-func S3F25(portaction PORTACTION, ptn secs2.Item, params ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 25, true, secs2.L(secs2.A(string(portaction)), ptn, secs2.L(params...)))
+func S3F25(portaction PORTACTION, ptn secs2.Item, params ...PortActionParam) secs2.SECS2Message {
+	return secs2.NewMessage(3, 25, true, secs2.L(secs2.A(string(portaction)), ptn, secs2.L(groupItems(params)...)))
 }
 
 // S3F26 creates the S3F26 (Port Action Acknowledge) message, direction: equipment-to-host.
@@ -301,8 +301,8 @@ func S3F25(portaction PORTACTION, ptn secs2.Item, params ...secs2.Item) secs2.SE
 // Body: L[2]{ U1[caack] L[n]{ <errors>... } }.
 //
 // Exception: If n = 0, no errors exist.
-func S3F26(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 26, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(errors...)))
+func S3F26(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(3, 26, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(groupItems(errors)...)))
 }
 
 // S3F27 creates the S3F27 (Change Access) message, direction: host-to-equipment.
@@ -330,8 +330,8 @@ func S3F27(accessmode ACCESSMODE, ports ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: If the command is successful, CAACK = 0, and n = 0.
 // If the command was successful for some ports, CAACK = 6, and n > 0.
-func S3F28(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 28, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(errors...)))
+func S3F28(caack CAACK, errors ...PortError) secs2.SECS2Message {
+	return secs2.NewMessage(3, 28, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(groupItems(errors)...)))
 }
 
 // S3F29 creates the S3F29 (Carrier Tag Read Request) message, direction: host-to-equipment.
@@ -359,8 +359,8 @@ func S3F29(locid string, carrierspec string, dataseg string, datalength secs2.It
 //
 // Exception: If the carrier identifier or the carrier location originally specified is unknown, then DATA is zero length.
 // If CAACK is non-zero, then DATA is zero length.
-func S3F30(data string, caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 30, false, secs2.L(secs2.A(data), secs2.L(secs2.U1(uint8(caack)), secs2.L(errors...))))
+func S3F30(data string, caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(3, 30, false, secs2.L(secs2.A(data), secs2.L(secs2.U1(uint8(caack)), secs2.L(groupItems(errors)...))))
 }
 
 // S3F31 creates the S3F31 (Carrier Tag Write Data Request) message, direction: host-to-equipment.
@@ -386,8 +386,8 @@ func S3F31(locid string, carrierspec string, dataseg string, datalength secs2.It
 // Body: L[2]{ U1[caack] L[n]{ <errors>... } }.
 //
 // Exception: n = 0 if and only if there are no errors.
-func S3F32(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 32, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(errors...)))
+func S3F32(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(3, 32, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(groupItems(errors)...)))
 }
 
 // S3F33 creates the S3F33 (Cancel All Pod Out Request) message, direction: host-to-equipment.
@@ -408,8 +408,8 @@ func S3F33() secs2.SECS2Message {
 // Body: L[2]{ U1[caack] L[n]{ <errors>... } }.
 //
 // Exception: If n = 0, no errors exist.
-func S3F34(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 34, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(errors...)))
+func S3F34(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(3, 34, false, secs2.L(secs2.U1(uint8(caack)), secs2.L(groupItems(errors)...)))
 }
 
 // S3F35 creates the S3F35 (Reticle Transfer Job Request) message, direction: host-to-equipment.
@@ -419,8 +419,8 @@ func S3F34(caack CAACK, errors ...secs2.Item) secs2.SECS2Message {
 // Body: L[7]{ A[jobaction] A[podid] <inptn> <outptn> L[n]{ <attributes>... } L[n]{ <removals>... } L[n]{ <placements>... } }.
 //
 // Exception: If JOBACTION = CancelReticleTransferJob, m and n may = 0.
-func S3F35(jobaction string, podid string, inptn secs2.Item, outptn secs2.Item, attributes []secs2.Item, removals []secs2.Item, placements ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 35, true, secs2.L(secs2.A(jobaction), secs2.A(podid), inptn, outptn, secs2.L(attributes...), secs2.L(removals...), secs2.L(placements...)))
+func S3F35(jobaction string, podid string, inptn secs2.Item, outptn secs2.Item, attributes []Attribute, removals []ReticleRemoval, placements ...ReticlePlacement) secs2.SECS2Message {
+	return secs2.NewMessage(3, 35, true, secs2.L(secs2.A(jobaction), secs2.A(podid), inptn, outptn, secs2.L(groupItems(attributes)...), secs2.L(groupItems(removals)...), secs2.L(groupItems(placements)...)))
 }
 
 // S3F36 creates the S3F36 (Reticle Transfer Job Request Acknowledgement) message, direction: equipment-to-host.
@@ -430,6 +430,6 @@ func S3F35(jobaction string, podid string, inptn secs2.Item, outptn secs2.Item, 
 // Body: L[2]{ U1[rpmack] L[n]{ <errors>... } }.
 //
 // Exception: None.
-func S3F36(rpmack RPMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 36, false, secs2.L(secs2.U1(uint8(rpmack)), secs2.L(errors...)))
+func S3F36(rpmack RPMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(3, 36, false, secs2.L(secs2.U1(uint8(rpmack)), secs2.L(groupItems(errors)...)))
 }

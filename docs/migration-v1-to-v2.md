@@ -817,8 +817,8 @@ func gemExamples(ctx context.Context, conn hsms.Connection) {
     // Alarm report S5F1: alarm code + equipment-defined ALID + text.
     _, _ = conn.SendSECS2Message(ctx, gem.S5F1(0x80, secs2.U4(1001), "OVER TEMP"))
 
-    // Event report S6F11: DATAID, CEID, and one report built with the helper.
-    report := gem.Report(secs2.U4(1), secs2.A("value"))
+    // Event report S6F11: DATAID, CEID, and one report, its RPTID and its values.
+    report := gem.Report{RPTID: secs2.U4(1), VALUES: []secs2.Item{secs2.A("value")}}
     _, _ = conn.SendSECS2Message(ctx, gem.S6F11(secs2.U4(0), secs2.U4(200), report))
 }
 ```

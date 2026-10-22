@@ -51,7 +51,7 @@ func TestValidateMessagesRejectsBadOptional(t *testing.T) {
 		{
 			"inside a list in repeat of",
 			`{type: list, repeat: locs, of: {type: list, items: [{item: FNLOC, optional: true}]}}`,
-			"inside a repeat",
+			"declare it in groups.yaml",
 		},
 		{"inside packed of", `{type: list, packed: tsips, of: {item: TSIP, optional: true}}`, "inside a repeat"},
 		{"presence field collides", `{type: list, items: [{item: FNLOC, optional: true}, {item: FNLOCPRESENT}]}`, "collide"},

@@ -333,7 +333,8 @@ func ValidateMessages(files []MessageFile, items map[string]Item) error {
 					return fmt.Errorf("S%dF%d: bad actor %q", f.Stream, m.Function, b.Actor)
 				}
 
-				if err := walkNode(b.Structure, items, f.Stream, m.Function, false); err != nil {
+				ctx := nodeCtx{where: fmt.Sprintf("S%dF%d", f.Stream, m.Function)}
+				if err := walkNode(b.Structure, items, ctx, roleRoot); err != nil {
 					return err
 				}
 
@@ -532,66 +533,167 @@ func checkFileNames(f MessageFile) error {
 	return nil
 }
 
+// nodeRole is where a structure node sits in its parent.
+type nodeRole int
+
+// nodeRole values.
+const (
+	roleRoot  nodeRole = iota // a body's or a group's whole structure
+	roleChild                 // a child of a fixed list
+	roleOf                    // a repeat's or packed group's of
+)
+
+// nodeCtx is what walkNode knows about the structure a node belongs to.
+type nodeCtx struct {
+	where   string // the prefix of every error: "S1F2", or "group Report"
+	inOf    bool   // the node sits below a repeat's or packed group's of
+	inGroup bool   // the node belongs to a group's structure
+}
+
 // walkNode recursively validates a structure node and its descendants
 // (Items list children and the Of repeat/packed/bounded element shape) against
 // the items dictionary, the repeat/packed/minItems/maxItems mutual-exclusion
 // rule, and the packed-item binding: fixed requirement.
-// inOf reports whether n sits below a repeat's or packed group's of.
-func walkNode(n *StructureNode, items map[string]Item, s, fn int, inOf bool) error {
+// A repeat's of must be a leaf, an opaque node, a group reference, or another repeat:
+// a list element is declared once in groups.yaml and referenced by name (see checkGroupRef).
+// Inside a group, a list is never bounded and never packed,
+// and a leaf is never optional.
+// role says where n sits in its parent.
+func walkNode(n *StructureNode, items map[string]Item, ctx nodeCtx, role nodeRole) error {
 	if n == nil {
 		return nil
 	}
 
-	if err := checkNodeOptions(n, items, s, fn, inOf); err != nil {
+	if err := checkNodeOptions(n, items, ctx); err != nil {
 		return err
 	}
 
 	switch n.Kind() {
 	case "leaf":
 		if _, ok := items[n.Item]; !ok {
-			return fmt.Errorf("S%dF%d: unknown item %q", s, fn, n.Item)
+			return fmt.Errorf("%s: unknown item %q", ctx.where, n.Item)
 		}
+	case "group":
+		return checkGroupRef(n, ctx, role)
 	case "list":
-		exclusive := 0
-		if n.Repeat != "" {
-			exclusive++
-		}
-		if n.Packed != "" {
-			exclusive++
-		}
-		if n.MinItems != nil || n.MaxItems != nil {
-			exclusive++
-		}
-		if exclusive > 1 {
-			return fmt.Errorf("S%dF%d: repeat, packed, and minItems/maxItems are mutually exclusive", s, fn)
-		}
+		return walkList(n, items, ctx)
+	default:
+	}
 
-		if n.Packed != "" {
-			if n.Of == nil || n.Of.Item == "" {
-				return fmt.Errorf("S%dF%d: packed %q needs an of.item leaf", s, fn, n.Packed)
-			}
-			it, ok := items[n.Of.Item]
-			if !ok {
-				return fmt.Errorf("S%dF%d: unknown item %q", s, fn, n.Of.Item)
-			}
-			if it.Binding != BindingFixed {
-				return fmt.Errorf("S%dF%d: packed %q's item %q must be binding: fixed (packing needs one shared format)", s, fn, n.Packed, n.Of.Item)
-			}
-			if isByteArrayGoType(it.GoType) {
-				return fmt.Errorf("S%dF%d: packed %q's item %q must not be a byte-array/byte-slice goType (packing multiple binary blobs under one header is not supported)", s, fn, n.Packed, n.Of.Item)
-			}
-		}
+	return nil
+}
 
-		for i := range n.Items {
-			if err := walkNode(&n.Items[i], items, s, fn, inOf); err != nil {
-				return err
-			}
-		}
+// walkList validates a list node and its descendants for [walkNode].
+func walkList(n *StructureNode, items map[string]Item, ctx nodeCtx) error {
+	s := ctx.where
 
-		if err := walkNode(n.Of, items, s, fn, true); err != nil {
+	exclusive := 0
+	if n.Repeat != "" {
+		exclusive++
+	}
+	if n.Packed != "" {
+		exclusive++
+	}
+	if n.MinItems != nil || n.MaxItems != nil {
+		exclusive++
+	}
+	if exclusive > 1 {
+		return fmt.Errorf("%s: repeat, packed, and minItems/maxItems are mutually exclusive", s)
+	}
+
+	if ctx.inGroup && (n.MinItems != nil || n.MaxItems != nil) {
+		return fmt.Errorf("%s: a list inside a group cannot be bounded with minItems or maxItems (declare an omittable list as a group and reference it with optional: true)", s)
+	}
+
+	if ctx.inGroup && n.Packed != "" {
+		return fmt.Errorf("%s: packed %q cannot sit inside a group", s, n.Packed)
+	}
+
+	if n.Packed != "" {
+		if n.Of == nil || n.Of.Item == "" {
+			return fmt.Errorf("%s: packed %q needs an of.item leaf", s, n.Packed)
+		}
+		it, ok := items[n.Of.Item]
+		if !ok {
+			return fmt.Errorf("%s: unknown item %q", s, n.Of.Item)
+		}
+		if it.Binding != BindingFixed {
+			return fmt.Errorf("%s: packed %q's item %q must be binding: fixed (packing needs one shared format)", s, n.Packed, n.Of.Item)
+		}
+		if isByteArrayGoType(it.GoType) {
+			return fmt.Errorf("%s: packed %q's item %q must not be a byte-array/byte-slice goType (packing multiple binary blobs under one header is not supported)", s, n.Packed, n.Of.Item)
+		}
+	}
+
+	if n.Repeat != "" {
+		if err := checkRepeatOf(n, s); err != nil {
 			return err
 		}
+	}
+
+	for i := range n.Items {
+		if err := walkNode(&n.Items[i], items, ctx, roleChild); err != nil {
+			return err
+		}
+	}
+
+	of := ctx
+	of.inOf = true
+
+	return walkNode(n.Of, items, of, roleOf)
+}
+
+// checkRepeatOf rejects a repeat whose of is missing, a fixed or bounded list, or a packed group.
+// A list element is declared once in groups.yaml, under a name its Go struct takes,
+// and referenced as of: {group: Name}.
+func checkRepeatOf(n *StructureNode, where string) error {
+	switch {
+	case n.Of == nil:
+		return fmt.Errorf("%s: repeat %s needs an of", where, n.Repeat)
+	case n.Of.Kind() != "list" || n.Of.Repeat != "":
+		return nil
+	case n.Of.Packed != "":
+		return fmt.Errorf("%s: repeat %s: a packed group cannot be a repeat's element", where, n.Repeat)
 	default:
+		return fmt.Errorf("%s: repeat %s has an inline list element; declare it in groups.yaml and reference it as of: {group: Name}", where, n.Repeat)
+	}
+}
+
+// checkGroupRef checks a group reference against where it sits.
+//
+// The reference must name a group [ResolveGroups] resolved, and set nothing but as and optional.
+// It may be a repeat's of, without as,
+// or a child of a fixed list inside a group, with both optional and as:
+// the child is an omittable list, a field named by as and nil when sent as L[0].
+// A message body holds a group only as a repeat's element,
+// so the result struct's fields stay the body's own data items.
+func checkGroupRef(n *StructureNode, ctx nodeCtx, role nodeRole) error {
+	s := ctx.where
+
+	switch {
+	case n.def == nil:
+		return fmt.Errorf("%s: unknown group %q", s, n.Group)
+	case n.Type != "" || len(n.Items) > 0 || n.Repeat != "" || n.Packed != "" || n.Of != nil || n.MinItems != nil || n.MaxItems != nil:
+		return fmt.Errorf("%s: group reference %s may set only as and optional", s, n.Group)
+	}
+
+	switch role {
+	case roleOf:
+		if n.As != "" {
+			return fmt.Errorf("%s: group reference %s is a repeat's element, which the repeat names: drop as %q", s, n.Group, n.As)
+		}
+	case roleChild:
+		if !ctx.inGroup {
+			return fmt.Errorf("%s: group %s is referenced as a list child; a message body references a group only as a repeat's of", s, n.Group)
+		}
+
+		if !n.Optional || n.As == "" {
+			return fmt.Errorf("%s: group %s is a child of a list, which needs optional: true and an as: name", s, n.Group)
+		}
+	case roleRoot:
+		return fmt.Errorf("%s: group %s cannot be a whole body or group structure", s, n.Group)
+	default:
+		return fmt.Errorf("%s: group %s sits in an unknown position", s, n.Group)
 	}
 
 	return nil
@@ -599,63 +701,70 @@ func walkNode(n *StructureNode, items map[string]Item, s, fn int, inOf bool) err
 
 // checkNodeOptions checks the as: and optional: settings of one node,
 // leaving its children to walkNode.
-func checkNodeOptions(n *StructureNode, items map[string]Item, s, fn int, inOf bool) error {
-	if err := checkAs(n, s, fn); err != nil {
+func checkNodeOptions(n *StructureNode, items map[string]Item, ctx nodeCtx) error {
+	if err := checkAs(n, ctx.where); err != nil {
 		return err
 	}
 
-	return checkOptional(n, items, s, fn, inOf)
+	return checkOptional(n, items, ctx)
 }
 
 // checkAs rejects an as: name on a list, repeat, or packed node,
 // and one that is not a letter followed by letters and digits.
-func checkAs(n *StructureNode, s, fn int) error {
+func checkAs(n *StructureNode, where string) error {
 	if n.As == "" {
 		return nil
 	}
 
 	if n.Kind() == "list" {
-		return fmt.Errorf("S%dF%d: as %q is valid only on a leaf or opaque node, not a list, repeat, or packed group", s, fn, n.As)
+		return fmt.Errorf("%s: as %q is valid only on a leaf, opaque node, or group reference, not a list, repeat, or packed group", where, n.As)
 	}
 
 	if !asNameRE.MatchString(n.As) {
-		return fmt.Errorf("S%dF%d: as %q must be a letter followed by letters and digits", s, fn, n.As)
+		return fmt.Errorf("%s: as %q must be a letter followed by letters and digits", where, n.As)
 	}
 
 	return nil
 }
 
-// checkOptional rejects optional: true anywhere but on a leaf whose decoder can tell a zero-length item apart.
+// checkOptional rejects optional: true anywhere but on a group reference
+// and on a leaf whose decoder can tell a zero-length item apart.
 //
 // The leaf's item must be binding: fixed with a scalar goType:
 // an open item already decodes as whatever item arrives, zero-length included,
 // and a byte-slice or byte-array goType has its own length rules.
-// It must also sit outside any repeat's or packed group's of,
-// which the decoder returns unvisited, so a zero-length item there is already accepted.
-func checkOptional(n *StructureNode, items map[string]Item, s, fn int, inOf bool) error {
-	if !n.Optional {
+// It must also sit outside any repeat's or packed group's of and outside any group,
+// whose fields have no presence flag to report it through.
+func checkOptional(n *StructureNode, items map[string]Item, ctx nodeCtx) error {
+	if !n.Optional || n.Kind() == "group" {
 		return nil
 	}
 
+	s := ctx.where
+
 	if n.Kind() != "leaf" {
-		return fmt.Errorf("S%dF%d: optional is valid only on a leaf, not a list, repeat, packed group, or opaque node", s, fn)
+		return fmt.Errorf("%s: optional is valid only on a leaf or a group reference, not a list, repeat, packed group, or opaque node", s)
 	}
 
-	if inOf {
-		return fmt.Errorf("S%dF%d: optional item %s is inside a repeat's or packed group's of, which the decoder does not visit", s, fn, n.Item)
+	if ctx.inOf {
+		return fmt.Errorf("%s: optional item %s is inside a repeat's or packed group's of, which the decoder does not visit", s, n.Item)
+	}
+
+	if ctx.inGroup {
+		return fmt.Errorf("%s: optional item %s is inside a group, which cannot mark it absent", s, n.Item)
 	}
 
 	it, ok := items[n.Item]
 	if !ok {
-		return fmt.Errorf("S%dF%d: unknown item %q", s, fn, n.Item)
+		return fmt.Errorf("%s: unknown item %q", s, n.Item)
 	}
 
 	if it.Binding != BindingFixed {
-		return fmt.Errorf("S%dF%d: optional item %s must be binding: fixed (an open item already decodes when sent zero-length)", s, fn, n.Item)
+		return fmt.Errorf("%s: optional item %s must be binding: fixed (an open item already decodes when sent zero-length)", s, n.Item)
 	}
 
 	if isByteArrayGoType(it.GoType) {
-		return fmt.Errorf("S%dF%d: optional item %s must have a scalar goType, not %s", s, fn, n.Item, it.GoType)
+		return fmt.Errorf("%s: optional item %s must have a scalar goType, not %s", s, n.Item, it.GoType)
 	}
 
 	return nil

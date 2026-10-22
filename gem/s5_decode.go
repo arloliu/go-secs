@@ -173,7 +173,7 @@ func DecodeS5F5(item secs2.Item) (S5F5Body, error) {
 //
 // It is filled by [DecodeS5F6] and mirrors the parameters of [S5F6], in order.
 type S5F6Reply struct {
-	ALARMS []secs2.Item
+	ALARMS []Alarm
 }
 
 // DecodeS5F6 decodes the body of an S5F6 (List Alarm Data) message into a [S5F6Reply].
@@ -188,7 +188,7 @@ func DecodeS5F6(item secs2.Item) (S5F6Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.ALARMS, err = decodeItems(root, "ALARMS"); err != nil {
+	if out.ALARMS, err = decodeEach(root, "ALARMS", decodeAlarm); err != nil {
 		return out, err
 	}
 
@@ -201,7 +201,7 @@ func DecodeS5F6(item secs2.Item) (S5F6Reply, error) {
 //
 // It is filled by [DecodeS5F8] and mirrors the parameters of [S5F8], in order.
 type S5F8Reply struct {
-	ALARMS []secs2.Item
+	ALARMS []Alarm
 }
 
 // DecodeS5F8 decodes the body of an S5F8 (List Enabled Alarm Data) message into a [S5F8Reply].
@@ -216,7 +216,7 @@ func DecodeS5F8(item secs2.Item) (S5F8Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.ALARMS, err = decodeItems(root, "ALARMS"); err != nil {
+	if out.ALARMS, err = decodeEach(root, "ALARMS", decodeAlarm); err != nil {
 		return out, err
 	}
 

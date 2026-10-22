@@ -24,7 +24,7 @@ func init() {
 		_, err := gem.DecodeS18F3(item)
 
 		return err
-	}, gem.S18F3("targetid", secs2.A("attributes")).Item())
+	}, gem.S18F3("targetid", gem.Attribute{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}).Item())
 	registerFuzzDecoder("DecodeS18F4", func(item secs2.Item) error {
 		_, err := gem.DecodeS18F4(item)
 
@@ -136,7 +136,7 @@ func TestDecodeS18F2RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS18F3RoundTrip(t *testing.T) {
-	msg := gem.S18F3("targetid", secs2.A("attributes"))
+	msg := gem.S18F3("targetid", gem.Attribute{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -150,7 +150,7 @@ func TestDecodeS18F3RoundTrip(t *testing.T) {
 
 	want := gem.S18F3Body{
 		TARGETID:   "targetid",
-		ATTRIBUTES: []secs2.Item{secs2.A("attributes")},
+		ATTRIBUTES: []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}},
 	}
 
 	assertDecoded(t, got, want)

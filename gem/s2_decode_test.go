@@ -79,7 +79,7 @@ func init() {
 		_, err := gem.DecodeS2F15(item)
 
 		return err
-	}, gem.S2F15(secs2.A("constants")).Item())
+	}, gem.S2F15(gem.ConstantValue{ECID: secs2.A("ecid"), ECV: secs2.A("ecv")}).Item())
 	registerFuzzDecoder("DecodeS2F16", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F16(item)
 
@@ -149,7 +149,7 @@ func init() {
 		_, err := gem.DecodeS2F30(item)
 
 		return err
-	}, gem.S2F30(secs2.A("constants")).Item())
+	}, gem.S2F30(gem.ConstantName{ECID: secs2.A("ecid"), ECNAME: "ecname", ECMIN: secs2.A("ecmin"), ECMAX: secs2.A("ecmax"), ECDEF: secs2.A("ecdef"), UNITS: "units"}).Item())
 	registerFuzzDecoder("DecodeS2F31", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F31(item)
 
@@ -164,7 +164,7 @@ func init() {
 		_, err := gem.DecodeS2F33(item)
 
 		return err
-	}, gem.S2F33(secs2.A("dataid"), secs2.A("reports")).Item())
+	}, gem.S2F33(secs2.A("dataid"), gem.ReportDefinition{RPTID: secs2.A("rptid"), VIDS: []secs2.Item{secs2.A("vids")}}).Item())
 	registerFuzzDecoder("DecodeS2F34", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F34(item)
 
@@ -174,7 +174,7 @@ func init() {
 		_, err := gem.DecodeS2F35(item)
 
 		return err
-	}, gem.S2F35(secs2.A("dataid"), secs2.A("events")).Item())
+	}, gem.S2F35(secs2.A("dataid"), gem.EventLink{CEID: secs2.A("ceid"), RPTIDS: []secs2.Item{secs2.A("rptids")}}).Item())
 	registerFuzzDecoder("DecodeS2F36", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F36(item)
 
@@ -204,32 +204,32 @@ func init() {
 		_, err := gem.DecodeS2F41(item)
 
 		return err
-	}, gem.S2F41(secs2.A("rcmd"), secs2.A("params")).Item())
+	}, gem.S2F41(secs2.A("rcmd"), gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")}).Item())
 	registerFuzzDecoder("DecodeS2F42", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F42(item)
 
 		return err
-	}, gem.S2F42(0x1f, secs2.A("params")).Item())
+	}, gem.S2F42(0x1f, gem.CommandParamAck{CPNAME: secs2.A("cpname"), CPACK: 0xba}).Item())
 	registerFuzzDecoder("DecodeS2F43", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F43(item)
 
 		return err
-	}, gem.S2F43(secs2.A("streams")).Item())
+	}, gem.S2F43(gem.SpoolStream{STRID: 27, FCNIDS: []uint8{31}}).Item())
 	registerFuzzDecoder("DecodeS2F44", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F44(item)
 
 		return err
-	}, gem.S2F44(0xc9, secs2.A("streams")).Item())
+	}, gem.S2F44(0xc9, gem.SpoolStreamAck{STRID: 27, STRACK: 0x10, FCNIDS: []uint8{31}}).Item())
 	registerFuzzDecoder("DecodeS2F45", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F45(item)
 
 		return err
-	}, gem.S2F45(secs2.A("dataid"), secs2.A("variables")).Item())
+	}, gem.S2F45(secs2.A("dataid"), gem.VariableLimits{VID: secs2.A("vid"), LIMITS: []gem.Limit{{LIMITID: 0x34, DEADBAND: &gem.Deadband{UPPERDB: secs2.A("upperdb"), LOWERDB: secs2.A("lowerdb")}}}}).Item())
 	registerFuzzDecoder("DecodeS2F46", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F46(item)
 
 		return err
-	}, gem.S2F46(0xea, secs2.A("variables")).Item())
+	}, gem.S2F46(0xea, gem.VariableLimitAck{VID: secs2.A("vid"), LVACK: 0x7e, LIMIT: &gem.LimitAck{LIMITID: 0x34, LIMITACK: 0x26}}).Item())
 	registerFuzzDecoder("DecodeS2F47", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F47(item)
 
@@ -239,7 +239,7 @@ func init() {
 		_, err := gem.DecodeS2F48(item)
 
 		return err
-	}, gem.S2F48(secs2.A("variables")).Item())
+	}, gem.S2F48(gem.VariableLimitAttributes{VID: secs2.A("vid"), ATTRIBUTES: &gem.LimitAttributes{UNITS: "units", LIMITMIN: secs2.A("limitmin"), LIMITMAX: secs2.A("limitmax"), LIMITS: []gem.LimitValues{{LIMITID: 0x34, UPPERDB: secs2.A("upperdb"), LOWERDB: secs2.A("lowerdb")}}}}).Item())
 	registerFuzzDecoder("DecodeS2F49", func(item secs2.Item) error {
 		_, err := gem.DecodeS2F49(item)
 
@@ -514,7 +514,7 @@ func TestDecodeS2F14RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS2F15RoundTrip(t *testing.T) {
-	msg := gem.S2F15(secs2.A("constants"))
+	msg := gem.S2F15(gem.ConstantValue{ECID: secs2.A("ecid"), ECV: secs2.A("ecv")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -527,7 +527,7 @@ func TestDecodeS2F15RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S2F15Body{
-		CONSTANTS: []secs2.Item{secs2.A("constants")},
+		CONSTANTS: []gem.ConstantValue{{ECID: secs2.A("ecid"), ECV: secs2.A("ecv")}},
 	}
 
 	assertDecoded(t, got, want)
@@ -800,7 +800,7 @@ func TestDecodeS2F29RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS2F30RoundTrip(t *testing.T) {
-	msg := gem.S2F30(secs2.A("constants"))
+	msg := gem.S2F30(gem.ConstantName{ECID: secs2.A("ecid"), ECNAME: "ecname", ECMIN: secs2.A("ecmin"), ECMAX: secs2.A("ecmax"), ECDEF: secs2.A("ecdef"), UNITS: "units"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -813,7 +813,7 @@ func TestDecodeS2F30RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S2F30Reply{
-		CONSTANTS: []secs2.Item{secs2.A("constants")},
+		CONSTANTS: []gem.ConstantName{{ECID: secs2.A("ecid"), ECNAME: "ecname", ECMIN: secs2.A("ecmin"), ECMAX: secs2.A("ecmax"), ECDEF: secs2.A("ecdef"), UNITS: "units"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -860,7 +860,7 @@ func TestDecodeS2F32RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS2F33RoundTrip(t *testing.T) {
-	msg := gem.S2F33(secs2.A("dataid"), secs2.A("reports"))
+	msg := gem.S2F33(secs2.A("dataid"), gem.ReportDefinition{RPTID: secs2.A("rptid"), VIDS: []secs2.Item{secs2.A("vids")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -874,7 +874,7 @@ func TestDecodeS2F33RoundTrip(t *testing.T) {
 
 	want := gem.S2F33Body{
 		DATAID:  secs2.A("dataid"),
-		REPORTS: []secs2.Item{secs2.A("reports")},
+		REPORTS: []gem.ReportDefinition{{RPTID: secs2.A("rptid"), VIDS: []secs2.Item{secs2.A("vids")}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -901,7 +901,7 @@ func TestDecodeS2F34RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS2F35RoundTrip(t *testing.T) {
-	msg := gem.S2F35(secs2.A("dataid"), secs2.A("events"))
+	msg := gem.S2F35(secs2.A("dataid"), gem.EventLink{CEID: secs2.A("ceid"), RPTIDS: []secs2.Item{secs2.A("rptids")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -915,7 +915,7 @@ func TestDecodeS2F35RoundTrip(t *testing.T) {
 
 	want := gem.S2F35Body{
 		DATAID: secs2.A("dataid"),
-		EVENTS: []secs2.Item{secs2.A("events")},
+		EVENTS: []gem.EventLink{{CEID: secs2.A("ceid"), RPTIDS: []secs2.Item{secs2.A("rptids")}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -1024,7 +1024,7 @@ func TestDecodeS2F40RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS2F41RoundTrip(t *testing.T) {
-	msg := gem.S2F41(secs2.A("rcmd"), secs2.A("params"))
+	msg := gem.S2F41(secs2.A("rcmd"), gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1038,14 +1038,14 @@ func TestDecodeS2F41RoundTrip(t *testing.T) {
 
 	want := gem.S2F41Body{
 		RCMD:   secs2.A("rcmd"),
-		PARAMS: []secs2.Item{secs2.A("params")},
+		PARAMS: []gem.CommandParam{{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS2F42RoundTrip(t *testing.T) {
-	msg := gem.S2F42(0x1f, secs2.A("params"))
+	msg := gem.S2F42(0x1f, gem.CommandParamAck{CPNAME: secs2.A("cpname"), CPACK: 0xba})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1059,14 +1059,14 @@ func TestDecodeS2F42RoundTrip(t *testing.T) {
 
 	want := gem.S2F42Reply{
 		HCACK:  0x1f,
-		PARAMS: []secs2.Item{secs2.A("params")},
+		PARAMS: []gem.CommandParamAck{{CPNAME: secs2.A("cpname"), CPACK: 0xba}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS2F43RoundTrip(t *testing.T) {
-	msg := gem.S2F43(secs2.A("streams"))
+	msg := gem.S2F43(gem.SpoolStream{STRID: 27, FCNIDS: []uint8{31}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1079,14 +1079,14 @@ func TestDecodeS2F43RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S2F43Body{
-		STREAMS: []secs2.Item{secs2.A("streams")},
+		STREAMS: []gem.SpoolStream{{STRID: 27, FCNIDS: []uint8{31}}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS2F44RoundTrip(t *testing.T) {
-	msg := gem.S2F44(0xc9, secs2.A("streams"))
+	msg := gem.S2F44(0xc9, gem.SpoolStreamAck{STRID: 27, STRACK: 0x10, FCNIDS: []uint8{31}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1100,14 +1100,14 @@ func TestDecodeS2F44RoundTrip(t *testing.T) {
 
 	want := gem.S2F44Reply{
 		RSPACK:  0xc9,
-		STREAMS: []secs2.Item{secs2.A("streams")},
+		STREAMS: []gem.SpoolStreamAck{{STRID: 27, STRACK: 0x10, FCNIDS: []uint8{31}}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS2F45RoundTrip(t *testing.T) {
-	msg := gem.S2F45(secs2.A("dataid"), secs2.A("variables"))
+	msg := gem.S2F45(secs2.A("dataid"), gem.VariableLimits{VID: secs2.A("vid"), LIMITS: []gem.Limit{{LIMITID: 0x34, DEADBAND: &gem.Deadband{UPPERDB: secs2.A("upperdb"), LOWERDB: secs2.A("lowerdb")}}}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1121,14 +1121,14 @@ func TestDecodeS2F45RoundTrip(t *testing.T) {
 
 	want := gem.S2F45Body{
 		DATAID:    secs2.A("dataid"),
-		VARIABLES: []secs2.Item{secs2.A("variables")},
+		VARIABLES: []gem.VariableLimits{{VID: secs2.A("vid"), LIMITS: []gem.Limit{{LIMITID: 0x34, DEADBAND: &gem.Deadband{UPPERDB: secs2.A("upperdb"), LOWERDB: secs2.A("lowerdb")}}}}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS2F46RoundTrip(t *testing.T) {
-	msg := gem.S2F46(0xea, secs2.A("variables"))
+	msg := gem.S2F46(0xea, gem.VariableLimitAck{VID: secs2.A("vid"), LVACK: 0x7e, LIMIT: &gem.LimitAck{LIMITID: 0x34, LIMITACK: 0x26}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1142,7 +1142,7 @@ func TestDecodeS2F46RoundTrip(t *testing.T) {
 
 	want := gem.S2F46Reply{
 		VLAACK:    0xea,
-		VARIABLES: []secs2.Item{secs2.A("variables")},
+		VARIABLES: []gem.VariableLimitAck{{VID: secs2.A("vid"), LVACK: 0x7e, LIMIT: &gem.LimitAck{LIMITID: 0x34, LIMITACK: 0x26}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -1169,7 +1169,7 @@ func TestDecodeS2F47RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS2F48RoundTrip(t *testing.T) {
-	msg := gem.S2F48(secs2.A("variables"))
+	msg := gem.S2F48(gem.VariableLimitAttributes{VID: secs2.A("vid"), ATTRIBUTES: &gem.LimitAttributes{UNITS: "units", LIMITMIN: secs2.A("limitmin"), LIMITMAX: secs2.A("limitmax"), LIMITS: []gem.LimitValues{{LIMITID: 0x34, UPPERDB: secs2.A("upperdb"), LOWERDB: secs2.A("lowerdb")}}}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1182,7 +1182,7 @@ func TestDecodeS2F48RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S2F48Reply{
-		VARIABLES: []secs2.Item{secs2.A("variables")},
+		VARIABLES: []gem.VariableLimitAttributes{{VID: secs2.A("vid"), ATTRIBUTES: &gem.LimitAttributes{UNITS: "units", LIMITMIN: secs2.A("limitmin"), LIMITMAX: secs2.A("limitmax"), LIMITS: []gem.LimitValues{{LIMITID: 0x34, UPPERDB: secs2.A("upperdb"), LOWERDB: secs2.A("lowerdb")}}}}},
 	}
 
 	assertDecoded(t, got, want)

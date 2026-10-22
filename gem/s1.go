@@ -141,13 +141,13 @@ func S1F11(svids ...secs2.Item) secs2.SECS2Message {
 //
 // The equipment reports the name and units for each status variable requested in S1F11.
 //
-// Body: L[n]{ <svids>... }.
+// Body: L[n]{ <variables>... }.
 //
 // Exception: Zero-length SVNAME and UNITS items indicate that the SVID does not exist.
 //
 // Source: reconstructed from an external reference, not verified against the purchased SEMI standard.
-func S1F12(svids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 12, false, secs2.L(svids...))
+func S1F12(variables ...StatusVariableName) secs2.SECS2Message {
+	return secs2.NewMessage(1, 12, false, secs2.L(groupItems(variables)...))
 }
 
 // S1F13 creates the S1F13 (Establish Communications Request) message for equipment, direction: bidirectional.
@@ -262,8 +262,8 @@ func S1F19(objtype secs2.Item, objids []secs2.Item, attrids ...secs2.Item) secs2
 // n = 0 means the object was not found.
 // A zero-length ATTRDATA means the attribute does not exist.
 // p = 0 means no errors.
-func S1F20(objects []secs2.Item, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 20, false, secs2.L(secs2.L(objects...), secs2.L(errors...)))
+func S1F20(objects [][]secs2.Item, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(1, 20, false, secs2.L(secs2.L(valueItems(objects, func(v []secs2.Item) secs2.Item { return secs2.L(v...) })...), secs2.L(groupItems(errors)...)))
 }
 
 // S1F21 creates the S1F21 (Data Variable Namelist Request) message, direction: host-to-equipment.
@@ -281,11 +281,11 @@ func S1F21(vids ...secs2.Item) secs2.SECS2Message {
 //
 // The equipment reports the information for the VIDs requested in S1F21.
 //
-// Body: L[n]{ <vids>... }.
+// Body: L[n]{ <variables>... }.
 //
 // Exception: Zero-length DVVALNAME and UNITS items indicate that the VID does not exist or is not a DVVAL-class variable.
-func S1F22(vids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 22, false, secs2.L(vids...))
+func S1F22(variables ...DataVariableName) secs2.SECS2Message {
+	return secs2.NewMessage(1, 22, false, secs2.L(groupItems(variables)...))
 }
 
 // S1F23 creates the S1F23 (Collection Event Namelist Request) message, direction: host-to-equipment.
@@ -303,9 +303,9 @@ func S1F23(ceids ...secs2.Item) secs2.SECS2Message {
 //
 // The equipment reports the collection events and associated VIDs for the CEIDs requested in S1F23.
 //
-// Body: L[n]{ <ceids>... }.
+// Body: L[n]{ <events>... }.
 //
 // Exception: Zero-length CENAME and associated-VID list indicate that the CEID does not exist.
-func S1F24(ceids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 24, false, secs2.L(ceids...))
+func S1F24(events ...CollectionEventName) secs2.SECS2Message {
+	return secs2.NewMessage(1, 24, false, secs2.L(groupItems(events)...))
 }

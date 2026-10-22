@@ -36,8 +36,8 @@ func S16F2(grant GRANT) secs2.SECS2Message {
 //
 // Exception: For the m length list, m = 0 may be allowed depending on the value of PRRECIPEMETHOD.
 // If an implementer uses PPID for this message, the format of PPID shall be ASCII, because RecID is defined as text in SEMI E40.
-func S16F3(dataid secs2.Item, mf secs2.Item, mids []secs2.Item, prrecipemethod PRRECIPEMETHOD, rcpspec string, recipeParams []secs2.Item, prprocessstart bool) secs2.SECS2Message {
-	return secs2.NewMessage(16, 3, true, secs2.L(dataid, mf, secs2.L(mids...), secs2.L(secs2.U1(uint8(prrecipemethod)), secs2.A(rcpspec), secs2.L(recipeParams...)), secs2.BOOLEAN(prprocessstart)))
+func S16F3(dataid secs2.Item, mf secs2.Item, mids []secs2.Item, prrecipemethod PRRECIPEMETHOD, rcpspec string, recipeParams []RecipeParam, prprocessstart bool) secs2.SECS2Message {
+	return secs2.NewMessage(16, 3, true, secs2.L(dataid, mf, secs2.L(mids...), secs2.L(secs2.U1(uint8(prrecipemethod)), secs2.A(rcpspec), secs2.L(groupItems(recipeParams)...)), secs2.BOOLEAN(prprocessstart)))
 }
 
 // S16F4 creates the S16F4 (Process Job Create Acknowledge) message, direction: equipment-to-host.
@@ -48,8 +48,8 @@ func S16F3(dataid secs2.Item, mf secs2.Item, mids []secs2.Item, prrecipemethod P
 //
 // Exception: The error list may be zero length, generally the case when ACKA indicates success.
 // When ACKA indicates a create failure, the equipment may supply one or more ERRCODEs.
-func S16F4(prjobid string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 4, false, secs2.L(secs2.A(prjobid), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
+func S16F4(prjobid string, acka bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(16, 4, false, secs2.L(secs2.A(prjobid), secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...))))
 }
 
 // S16F5 creates the S16F5 (Process Job Command Request) message, direction: host-to-equipment.
@@ -59,8 +59,8 @@ func S16F4(prjobid string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
 // Body: L[4]{ <dataid> A[prjobid] A[prcmdname] L[n]{ <params>... } }.
 //
 // Exception: The CPNAME, CPVAL pairs are command parameter identifiers and values; n = 0 is valid for some commands (PRCMDNAME).
-func S16F5(dataid secs2.Item, prjobid string, prcmdname PRCMDNAME, params ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 5, true, secs2.L(dataid, secs2.A(prjobid), secs2.A(string(prcmdname)), secs2.L(params...)))
+func S16F5(dataid secs2.Item, prjobid string, prcmdname PRCMDNAME, params ...CommandParam) secs2.SECS2Message {
+	return secs2.NewMessage(16, 5, true, secs2.L(dataid, secs2.A(prjobid), secs2.A(string(prcmdname)), secs2.L(groupItems(params)...)))
 }
 
 // S16F6 creates the S16F6 (Process Job Command Acknowledge) message, direction: equipment-to-host.
@@ -70,8 +70,8 @@ func S16F5(dataid secs2.Item, prjobid string, prcmdname PRCMDNAME, params ...sec
 // Body: L[2]{ A[prjobid] L[2]{ BOOLEAN[acka] L[n]{ <errors>... } } }.
 //
 // Exception: The error list may be zero length.
-func S16F6(prjobid string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 6, false, secs2.L(secs2.A(prjobid), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
+func S16F6(prjobid string, acka bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(16, 6, false, secs2.L(secs2.A(prjobid), secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...))))
 }
 
 // S16F7 creates the S16F7 (Process Job Alert Notify) message, direction: equipment-to-host.
@@ -86,8 +86,8 @@ func S16F6(prjobid string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
 // Body: L[4]{ A[timestamp] A[prjobid] <prjobmilestone> L[2]{ BOOLEAN[acka] L[n]{ <errors>... } } }.
 //
 // Exception: The error list may be zero length.
-func S16F7(timestamp string, prjobid string, prjobmilestone secs2.Item, acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 7, true, secs2.L(secs2.A(timestamp), secs2.A(prjobid), prjobmilestone, secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
+func S16F7(timestamp string, prjobid string, prjobmilestone secs2.Item, acka bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(16, 7, true, secs2.L(secs2.A(timestamp), secs2.A(prjobid), prjobmilestone, secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...))))
 }
 
 // S16F8 creates the S16F8 (Process Job Alert Confirm) message, direction: host-to-equipment.
@@ -109,8 +109,8 @@ func S16F8() secs2.SECS2Message {
 // Body: L[4]{ <preventid> A[timestamp] A[prjobid] L[n]{ <variables>... } }.
 //
 // Exception: The VID, V pairs are variable data identifiers and values; n = 0 is valid for some events (PREVENTID).
-func S16F9(preventid secs2.Item, timestamp string, prjobid string, variables ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 9, true, secs2.L(preventid, secs2.A(timestamp), secs2.A(prjobid), secs2.L(variables...)))
+func S16F9(preventid secs2.Item, timestamp string, prjobid string, variables ...VariableValue) secs2.SECS2Message {
+	return secs2.NewMessage(16, 9, true, secs2.L(preventid, secs2.A(timestamp), secs2.A(prjobid), secs2.L(groupItems(variables)...)))
 }
 
 // S16F10 creates the S16F10 (Process Job Event Confirm) message, direction: host-to-equipment.
@@ -137,8 +137,8 @@ func S16F10() secs2.SECS2Message {
 // Exception: The list for specifying material is empty (L,0 instead of L,n) when no material is specified for the process job.
 // The form of the material list depends on the value in MF.
 // If an implementer uses PPID for this message, the format of PPID shall be ASCII, because RecID is defined as text in SEMI E40.
-func S16F11(dataid secs2.Item, prjobid string, mf secs2.Item, material secs2.Item, prrecipemethod PRRECIPEMETHOD, rcpspec string, recipeParams []secs2.Item, prprocessstart bool, prpauseevent secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 11, true, secs2.L(dataid, secs2.A(prjobid), mf, material, secs2.L(secs2.U1(uint8(prrecipemethod)), secs2.A(rcpspec), secs2.L(recipeParams...)), secs2.BOOLEAN(prprocessstart), prpauseevent))
+func S16F11(dataid secs2.Item, prjobid string, mf secs2.Item, material secs2.Item, prrecipemethod PRRECIPEMETHOD, rcpspec string, recipeParams []RecipeParam, prprocessstart bool, prpauseevent secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(16, 11, true, secs2.L(dataid, secs2.A(prjobid), mf, material, secs2.L(secs2.U1(uint8(prrecipemethod)), secs2.A(rcpspec), secs2.L(groupItems(recipeParams)...)), secs2.BOOLEAN(prprocessstart), prpauseevent))
 }
 
 // S16F12 creates the S16F12 (PRJobCreateEnh Acknowledge) message, direction: equipment-to-host.
@@ -148,8 +148,8 @@ func S16F11(dataid secs2.Item, prjobid string, mf secs2.Item, material secs2.Ite
 // Body: L[2]{ A[prjobid] L[2]{ BOOLEAN[acka] L[n]{ <errors>... } } }.
 //
 // Exception: If n = 0, no errors exist.
-func S16F12(prjobid string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 12, false, secs2.L(secs2.A(prjobid), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
+func S16F12(prjobid string, acka bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(16, 12, false, secs2.L(secs2.A(prjobid), secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...))))
 }
 
 // S16F15 creates the S16F15 (PRJobMultiCreate) message, direction: host-to-equipment.
@@ -164,8 +164,8 @@ func S16F12(prjobid string, acka bool, errors ...secs2.Item) secs2.SECS2Message 
 // Exception: The list for specifying material is empty (L,0 instead of L,n) when no material is specified for the process job.
 // The form of the material list depends on the value in MF.
 // If an implementer uses PPID for this message, the format of PPID shall be ASCII, because RecID is defined as text in SEMI E40.
-func S16F15(dataid secs2.Item, jobs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 15, true, secs2.L(dataid, secs2.L(jobs...)))
+func S16F15(dataid secs2.Item, jobs ...ProcessJob) secs2.SECS2Message {
+	return secs2.NewMessage(16, 15, true, secs2.L(dataid, secs2.L(groupItems(jobs)...)))
 }
 
 // S16F16 creates the S16F16 (PRJobMultiCreate Acknowledge) message, direction: equipment-to-host.
@@ -177,8 +177,8 @@ func S16F15(dataid secs2.Item, jobs ...secs2.Item) secs2.SECS2Message {
 // Body: L[2]{ L[n]{ <prjobids>... } L[2]{ BOOLEAN[acka] L[n]{ <errors>... } } }.
 //
 // Exception: If n = 0, no errors exist.
-func S16F16(prjobids []string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 16, false, secs2.L(secs2.L(valueItems(prjobids, secs2.A)...), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
+func S16F16(prjobids []string, acka bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(16, 16, false, secs2.L(secs2.L(valueItems(prjobids, secs2.A)...), secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...))))
 }
 
 // S16F17 creates the S16F17 (PRJobDequeue) message, direction: host-to-equipment.
@@ -201,8 +201,8 @@ func S16F17(prjobids ...string) secs2.SECS2Message {
 // Body: L[2]{ L[n]{ <prjobids>... } L[2]{ BOOLEAN[acka] L[n]{ <errors>... } } }.
 //
 // Exception: If n = 0, no errors exist.
-func S16F18(prjobids []string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 18, false, secs2.L(secs2.L(valueItems(prjobids, secs2.A)...), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
+func S16F18(prjobids []string, acka bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(16, 18, false, secs2.L(secs2.L(valueItems(prjobids, secs2.A)...), secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...))))
 }
 
 // S16F19 creates the S16F19 (PRGetAllJobs) message, direction: host-to-equipment.
@@ -224,8 +224,8 @@ func S16F19() secs2.SECS2Message {
 // Body: L[n]{ <jobs>... }.
 //
 // Exception: If m = 0, then no process jobs are running or waiting to run.
-func S16F20(jobs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 20, false, secs2.L(jobs...))
+func S16F20(jobs ...ProcessJobState) secs2.SECS2Message {
+	return secs2.NewMessage(16, 20, false, secs2.L(groupItems(jobs)...))
 }
 
 // S16F21 creates the S16F21 (PRGetSpace) message, direction: host-to-equipment.
@@ -257,8 +257,8 @@ func S16F22(prjobspace uint16) secs2.SECS2Message {
 // Body: L[2]{ A[prjobid] L[n]{ <recipeParams>... } }.
 //
 // Exception: None.
-func S16F23(prjobid string, recipeParams ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 23, true, secs2.L(secs2.A(prjobid), secs2.L(recipeParams...)))
+func S16F23(prjobid string, recipeParams ...RecipeParam) secs2.SECS2Message {
+	return secs2.NewMessage(16, 23, true, secs2.L(secs2.A(prjobid), secs2.L(groupItems(recipeParams)...)))
 }
 
 // S16F24 creates the S16F24 (PRJobSetRecipeVariable Acknowledge) message, direction: equipment-to-host.
@@ -269,8 +269,8 @@ func S16F23(prjobid string, recipeParams ...secs2.Item) secs2.SECS2Message {
 // Body: L[2]{ BOOLEAN[acka] L[n]{ <errors>... } }.
 //
 // Exception: If n = 0, no errors exist.
-func S16F24(acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 24, false, secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...)))
+func S16F24(acka bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(16, 24, false, secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...)))
 }
 
 // S16F25 creates the S16F25 (PRJobSetStartMethod) message, direction: host-to-equipment.
@@ -294,8 +294,8 @@ func S16F25(prjobids []string, prprocessstart bool) secs2.SECS2Message {
 // Body: L[2]{ L[n]{ <prjobids>... } L[2]{ BOOLEAN[acka] L[n]{ <errors>... } } }.
 //
 // Exception: None.
-func S16F26(prjobids []string, acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(16, 26, false, secs2.L(secs2.L(valueItems(prjobids, secs2.A)...), secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...))))
+func S16F26(prjobids []string, acka bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(16, 26, false, secs2.L(secs2.L(valueItems(prjobids, secs2.A)...), secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...))))
 }
 
 // S16F27 creates the S16F27 (Control Job Command Request) message, direction: host-to-equipment.

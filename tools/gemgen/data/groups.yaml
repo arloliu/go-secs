@@ -1,0 +1,498 @@
+# The named list shapes the message bodies repeat.
+#
+# Each group becomes a Go struct of the same name in gem/groups.go,
+# with an Item method that builds its list and a decode function that reads one back.
+# A message references a group as a repeat's element, of: {group: Name},
+# and a group may hold another group as an omittable child,
+# {group: Name, as: field, optional: true}, for a list SEMI E5 lets be sent as L,0.
+# A group's own structure is always a fixed list.
+# The names are exported Go API: change one only when it collides with another gem identifier.
+groups:
+  - name: ErrorInfo
+    description: One error, its code and its text.
+    structure:
+      type: list
+      items: [{item: ERRCODE}, {item: ERRTEXT}]
+
+  - name: Attribute
+    description: One object attribute, its ID and its value.
+    structure:
+      type: list
+      items: [{item: ATTRID}, {item: ATTRDATA}]
+
+  - name: RecipeAttribute
+    description: One recipe attribute, its ID and its value.
+    structure:
+      type: list
+      items: [{item: RCPATTRID}, {item: RCPATTRDATA}]
+
+  - name: CommandParam
+    description: One parameter of a remote or enhanced command, its name and its value.
+    structure:
+      type: list
+      items: [{item: CPNAME}, {item: CPVAL}]
+
+  - name: Report
+    description: One report of an event report or a trace sample, its ID and its values in report order.
+    structure:
+      type: list
+      items:
+        - {item: RPTID}
+        - {type: list, repeat: values, of: {item: V}}
+
+  - name: ProgramMaterials
+    description: One process program and the materials it applies to.
+    structure:
+      type: list
+      items:
+        - {item: PPID}
+        - {type: list, repeat: mids, of: {item: MID}}
+
+  - name: ProcessCommand
+    description: One command of a process program, its code and its parameters.
+    structure:
+      type: list
+      items:
+        - {item: CCODE}
+        - {type: list, repeat: parameters, of: {item: PPARM}}
+
+  - name: ServiceParam
+    description: One parameter of an object service, its name and its value.
+    structure:
+      type: list
+      items: [{item: SPNAME}, {item: SPVAL}]
+
+  - name: RecipeParam
+    description: One recipe variable parameter, its name and its value.
+    structure:
+      type: list
+      items: [{item: RCPPARNM}, {item: RCPPARVAL}]
+
+  - name: PDEReference
+    description: One input or output map entry of a PDE, the PDE or group it refers to and how it resolves.
+    structure:
+      type: list
+      items: [{item: PDEREF}, {item: RESOLUTION}]
+
+  - name: PortActionParam
+    description: One parameter of a port action, its name and its value.
+    structure:
+      type: list
+      items: [{item: PARAMNAME}, {item: PARAMVAL}]
+
+  - name: Alarm
+    description: One alarm, its code, its ID, and its text.
+    structure:
+      type: list
+      items: [{item: ALCD}, {item: ALID}, {item: ALTX}]
+
+  - name: DataValue
+    description: One named data value of a data set.
+    structure:
+      type: list
+      items: [{item: DVNAME}, {item: DVVAL}]
+
+  - name: DataSet
+    description: One data set, its ID and its named data values.
+    structure:
+      type: list
+      items:
+        - {item: DSID}
+        - {type: list, repeat: values, of: {group: DataValue}}
+
+  - name: DataSetValues
+    description: One data set, its ID and its data values.
+    structure:
+      type: list
+      items:
+        - {item: DSID}
+        - {type: list, repeat: values, of: {item: DVVAL}}
+
+  - name: VariableValue
+    description: One variable, its ID and its value.
+    structure:
+      type: list
+      items: [{item: VID}, {item: V}]
+
+  - name: AnnotatedReport
+    description: One annotated report, its ID and each variable's ID with its value.
+    structure:
+      type: list
+      items:
+        - {item: RPTID}
+        - {type: list, repeat: values, of: {group: VariableValue}}
+
+  - name: MapRow
+    description: One row or column of a wafer map, its starting location and its bin values.
+    structure:
+      type: list
+      items: [{item: RSINF}, {item: BINLT}]
+
+  - name: MapPosition
+    description: One position of a wafer map, its coordinates and its bin values.
+    structure:
+      type: list
+      items: [{item: XYPOS}, {item: BINLT}]
+
+  - name: ObjectAttributes
+    description: One object, its ID and its attributes.
+    structure:
+      type: list
+      items:
+        - {item: OBJID}
+        - {type: list, repeat: attrs, of: {group: Attribute}}
+
+  - name: TraceError
+    description: One error of a trace definition, the trace ID, the error code, and its text.
+    structure:
+      type: list
+      items: [{item: TRID}, {item: ERRCODE}, {item: ERRTEXT}]
+
+  - name: ReportError
+    description: One error of a report definition, the report ID, the error code, and its text.
+    structure:
+      type: list
+      items: [{item: RPTID}, {item: ERRCODE}, {item: ERRTEXT}]
+
+  - name: PortError
+    description: One error of a port, the port number, the error code, and its text.
+    structure:
+      type: list
+      items: [{item: PTN}, {item: ERRCODE}, {item: ERRTEXT}]
+
+  - name: StatusVariableName
+    description: One status variable, its ID, its name, and its units.
+    structure:
+      type: list
+      items: [{item: SVID}, {item: SVNAME}, {item: UNITS}]
+
+  - name: DataVariableName
+    description: One data variable, its ID, its name, and its units.
+    structure:
+      type: list
+      items: [{item: VID}, {item: DVVALNAME}, {item: UNITS}]
+
+  - name: CollectionEventName
+    description: One collection event, its ID, its name, and the IDs of the data variables linked to it.
+    structure:
+      type: list
+      items:
+        - {item: CEID}
+        - {item: CENAME}
+        - {type: list, repeat: vids, of: {item: VID}}
+
+  - name: ConstantValue
+    description: One equipment constant, its ID and its value.
+    structure:
+      type: list
+      items: [{item: ECID}, {item: ECV}]
+
+  - name: ConstantName
+    description: One equipment constant, its ID, its name, its limits, its default, and its units.
+    structure:
+      type: list
+      items: [{item: ECID}, {item: ECNAME}, {item: ECMIN}, {item: ECMAX}, {item: ECDEF}, {item: UNITS}]
+
+  - name: ReportDefinition
+    description: One report definition, the report ID and the IDs of its variables.
+    structure:
+      type: list
+      items:
+        - {item: RPTID}
+        - {type: list, repeat: vids, of: {item: VID}}
+
+  - name: EventLink
+    description: One collection event and the IDs of the reports linked to it.
+    structure:
+      type: list
+      items:
+        - {item: CEID}
+        - {type: list, repeat: rptids, of: {item: RPTID}}
+
+  - name: CommandParamAck
+    description: One rejected parameter of a remote command, its name and the reason.
+    structure:
+      type: list
+      items: [{item: CPNAME}, {item: CPACK}]
+
+  - name: SpoolStream
+    description: One stream to spool, its number and the functions of it to spool.
+    structure:
+      type: list
+      items:
+        - {item: STRID}
+        - {type: list, repeat: fcnids, of: {item: FCNID}}
+
+  - name: SpoolStreamAck
+    description: One rejected stream of a spool request, its number, the reason, and the functions in error.
+    structure:
+      type: list
+      items:
+        - {item: STRID}
+        - {item: STRACK}
+        - {type: list, repeat: fcnids, of: {item: FCNID}}
+
+  - name: Deadband
+    description: The deadband of one limit, its upper and lower boundaries.
+    structure:
+      type: list
+      items: [{item: UPPERDB}, {item: LOWERDB}]
+
+  - name: Limit
+    description: One limit of a variable, its ID and its deadband.
+    structure:
+      type: list
+      items:
+        - {item: LIMITID}
+        - {group: Deadband, as: deadband, optional: true}
+
+  - name: VariableLimits
+    description: One variable and the limits to define for it.
+    structure:
+      type: list
+      items:
+        - {item: VID}
+        - {type: list, repeat: limits, of: {group: Limit}}
+
+  - name: LimitAck
+    description: The limit a variable limit definition failed on, its ID and the reason.
+    structure:
+      type: list
+      items: [{item: LIMITID}, {item: LIMITACK}]
+
+  - name: VariableLimitAck
+    description: One rejected variable of a limit definition, its ID, the reason, and the limit in error.
+    structure:
+      type: list
+      items:
+        - {item: VID}
+        - {item: LVACK}
+        - {group: LimitAck, as: limit, optional: true}
+
+  - name: LimitValues
+    description: One limit of a variable, its ID and its deadband boundaries.
+    structure:
+      type: list
+      items: [{item: LIMITID}, {item: UPPERDB}, {item: LOWERDB}]
+
+  - name: LimitAttributes
+    description: The limit attributes of one variable, its units, the range of its limit values, and its limits.
+    structure:
+      type: list
+      items:
+        - {item: UNITS}
+        - {item: LIMITMIN}
+        - {item: LIMITMAX}
+        - {type: list, repeat: limits, of: {group: LimitValues}}
+
+  - name: VariableLimitAttributes
+    description: One variable and its limit attributes.
+    structure:
+      type: list
+      items:
+        - {item: VID}
+        - {group: LimitAttributes, as: attributes, optional: true}
+
+  - name: MaterialLocation
+    description: One material at a location, the location, the quantity, and the material ID.
+    structure:
+      type: list
+      items: [{item: LOC}, {item: QUA}, {item: MID}]
+
+  - name: MaterialTimeToCompletion
+    description: One material in process, its time to completion, its quantity, and its ID.
+    structure:
+      type: list
+      items: [{item: TTC}, {item: QUA}, {item: MID}]
+
+  - name: CarrierAttribute
+    description: One carrier attribute, its name and its value.
+    structure:
+      type: list
+      items: [{item: CATTRID}, {item: CATTRDATA}]
+
+  - name: ReticleRemoval
+    description: One reticle to remove from a pod, its ID, the removal instruction, and its attributes.
+    structure:
+      type: list
+      items:
+        - {item: RETICLEID}
+        - {item: RETREMOVEINSTR}
+        - {type: list, repeat: reticleAttributes, of: {group: Attribute}}
+
+  - name: ReticlePlacement
+    description: One reticle to place in a pod, its ID and the placement instruction.
+    structure:
+      type: list
+      items: [{item: RETICLEID}, {item: RETPLACEINSTR}]
+
+  - name: TransferJob
+    description: One transfer of a transfer job, from its link identifier to its auto-start setting.
+    structure:
+      type: list
+      items:
+        - {item: TRLINK}
+        - {item: TRPORT}
+        - {item: TROBJNAME}
+        - {item: TROBJTYPE}
+        - {item: TRROLE}
+        - {item: TRRCP}
+        - {item: TRPTNR}
+        - {item: TRPTPORT}
+        - {item: TRDIR}
+        - {item: TRTYPE}
+        - {item: TRLOCATION}
+        - {item: TRAUTOSTART}
+
+  # A parameter specification is L,9, L,5 or L,4 depending on the parameter's data type,
+  # so each one is opaque.
+  - name: ProcessCommandDefinition
+    description: One process program command definition, its code, its name, and how its parameters are specified.
+    structure:
+      type: list
+      items:
+        - {item: CCODE}
+        - {item: CNAME}
+        - {item: RQCMD}
+        - {item: BLKDEF}
+        - {item: BCDS}
+        - {item: IBCDS}
+        - {item: NBCDS}
+        - {item: ACDS}
+        - {item: IACDS}
+        - {item: NACDS}
+        - {type: list, repeat: parameters, of: {type: opaque}}
+
+  - name: ProgramError
+    description: One error of a process program check, the error code, the line, and the error text.
+    structure:
+      type: list
+      items: [{item: ACKC7A}, {item: SEQNUM}, {item: ERRW7}]
+
+  - name: AttributeQualifier
+    description: One object qualifier, an attribute ID, a value, and how an object's attribute must relate to it.
+    structure:
+      type: list
+      items: [{item: ATTRID}, {item: ATTRDATA}, {item: ATTRRELN}]
+
+  - name: ObjectTypeAttributes
+    description: One object type and the IDs of its attributes.
+    structure:
+      type: list
+      items:
+        - {item: OBJTYPE}
+        - {type: list, repeat: attrids, of: {item: ATTRID}}
+
+  - name: ObjectTypeServices
+    description: One object type and the names of its services.
+    structure:
+      type: list
+      items:
+        - {item: OBJTYPE}
+        - {type: list, repeat: svcnames, of: {item: SVCNAME}}
+
+  - name: ServiceParams
+    description: One service and the names of its parameters.
+    structure:
+      type: list
+      items:
+        - {item: SVCNAME}
+        - {type: list, repeat: spnames, of: {item: SPNAME}}
+
+  - name: RecipeDescriptor
+    description: One descriptor of a recipe, its type, its timestamp, and its length.
+    structure:
+      type: list
+      items: [{item: RCPDESCNM}, {item: RCPDESCTIME}, {item: RCPDESCLTH}]
+
+  - name: RecipeParamRule
+    description: One recipe variable parameter, its name, its value, and its rule.
+    structure:
+      type: list
+      items: [{item: RCPPARNM}, {item: RCPPARVAL}, {item: RCPPARRULE}]
+
+  - name: RecipeSelection
+    description: One recipe to select, its ID and its variable parameters.
+    structure:
+      type: list
+      items:
+        - {item: RCPID}
+        - {type: list, repeat: parameters, of: {group: RecipeParam}}
+
+  - name: RecipeChange
+    description: One change to a recipe namespace segment, from the recipe ID to the requestor.
+    structure:
+      type: list
+      items: [{item: RCPID}, {item: RCPNEWID}, {item: RMSEGSPEC}, {item: RMCHGTYPE}, {item: OPID}, {item: TIMESTAMP}, {item: RMREQUESTOR}]
+
+  - name: ProcessJob
+    description: One process job to create, its ID, its material, its recipe, and how it starts and pauses.
+    structure:
+      type: list
+      items:
+        - {item: PRJOBID}
+        - {item: MF}
+        - {type: opaque, as: material}
+        - type: list
+          items:
+            - {item: PRRECIPEMETHOD}
+            - {item: RCPSPEC}
+            - {type: list, repeat: recipeParams, of: {group: RecipeParam}}
+        - {item: PRPROCESSSTART}
+        - {item: PRPAUSEEVENT}
+
+  - name: ProcessJobState
+    description: One process job, its ID and its state.
+    structure:
+      type: list
+      items: [{item: PRJOBID}, {item: PRSTATE}]
+
+  - name: PDEFilter
+    description: One filter of a PDE directory request, an attribute name, a comparison, and a value.
+    structure:
+      type: list
+      items: [{item: PDEATTRIBUTENAME}, {item: COMPARISONOPERATOR}, {item: PDEATTRIBUTEVALUE}]
+
+  - name: PDEAttributeValue
+    description: One attribute of a PDE, its name and its value.
+    structure:
+      type: list
+      items: [{item: PDEATTRIBUTE}, {item: PDEATTRIBUTEVALUE}]
+
+  - name: PDEAttributes
+    description: One PDE, its UID and its attributes.
+    structure:
+      type: list
+      items:
+        - {item: UID}
+        - {type: list, repeat: attributes, of: {group: PDEAttributeValue}}
+
+  - name: PDEGetResult
+    description: The result of getting one PDE or its header, its UID, the status, and the status text.
+    structure:
+      type: list
+      items: [{item: UID}, {item: GETRSPSTAT}, {item: STATUSTXT}]
+
+  - name: PDEDeleteResult
+    description: The result of deleting one PDE, its UID, the status, and the status text.
+    structure:
+      type: list
+      items: [{item: UID}, {item: DELRSPSTAT}, {item: STATUSTXT}]
+
+  - name: PDESendResult
+    description: The result of sending one PDE, its UID, the send and verify statuses, and the status text.
+    structure:
+      type: list
+      items: [{item: UID}, {item: SENDRSPSTAT}, {item: VERIFYRSPSTAT}, {item: STATUSTXT}]
+
+  - name: PDEResolveResult
+    description: The result of resolving one PDE, its UID, the status, and the status text.
+    structure:
+      type: list
+      items: [{item: UID}, {item: RESPDESTAT}, {item: STATUSTXT}]
+
+  - name: PDEVerifyResult
+    description: The result of verifying one PDE, its UID, the status, and the status text.
+    structure:
+      type: list
+      items: [{item: UID}, {item: VERIFYRSPSTAT}, {item: STATUSTXT}]

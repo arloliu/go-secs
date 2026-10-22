@@ -276,7 +276,7 @@ func DecodeS7F8(item secs2.Item) (S7F8Reply, error) {
 //
 // It is filled by [DecodeS7F10] and mirrors the parameters of [S7F10], in order.
 type S7F10Reply struct {
-	PROGRAMS []secs2.Item
+	PROGRAMS []ProgramMaterials
 }
 
 // DecodeS7F10 decodes the body of an S7F10 (M/P M Data) message into a [S7F10Reply].
@@ -291,7 +291,7 @@ func DecodeS7F10(item secs2.Item) (S7F10Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.PROGRAMS, err = decodeItems(root, "PROGRAMS"); err != nil {
+	if out.PROGRAMS, err = decodeEach(root, "PROGRAMS", decodeProgramMaterials); err != nil {
 		return out, err
 	}
 
@@ -304,7 +304,7 @@ func DecodeS7F10(item secs2.Item) (S7F10Reply, error) {
 //
 // It is filled by [DecodeS7F11] and mirrors the parameters of [S7F11], in order.
 type S7F11Body struct {
-	PROGRAMS []secs2.Item
+	PROGRAMS []ProgramMaterials
 }
 
 // DecodeS7F11 decodes the body of an S7F11 (M/P M Update Send) message into a [S7F11Body].
@@ -319,7 +319,7 @@ func DecodeS7F11(item secs2.Item) (S7F11Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.PROGRAMS, err = decodeItems(root, "PROGRAMS"); err != nil {
+	if out.PROGRAMS, err = decodeEach(root, "PROGRAMS", decodeProgramMaterials); err != nil {
 		return out, err
 	}
 
@@ -360,7 +360,7 @@ func DecodeS7F12(item secs2.Item) (S7F12Reply, error) {
 //
 // It is filled by [DecodeS7F13] and mirrors the parameters of [S7F13], in order.
 type S7F13Body struct {
-	PROGRAMS []secs2.Item
+	PROGRAMS []ProgramMaterials
 }
 
 // DecodeS7F13 decodes the body of an S7F13 (Delete M/P M Entry Send) message into a [S7F13Body].
@@ -375,7 +375,7 @@ func DecodeS7F13(item secs2.Item) (S7F13Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.PROGRAMS, err = decodeItems(root, "PROGRAMS"); err != nil {
+	if out.PROGRAMS, err = decodeEach(root, "PROGRAMS", decodeProgramMaterials); err != nil {
 		return out, err
 	}
 
@@ -560,7 +560,7 @@ type S7F22Reply struct {
 	SOFTREV  string
 	CMDMAX   secs2.Item
 	BYTMAX   secs2.Item
-	COMMANDS []secs2.Item
+	COMMANDS []ProcessCommandDefinition
 }
 
 // DecodeS7F22 decodes the body of an S7F22 (Equipment Process Capabilities Data) message into a [S7F22Reply].
@@ -595,7 +595,7 @@ func DecodeS7F22(item secs2.Item) (S7F22Reply, error) {
 		return out, err
 	}
 
-	if out.COMMANDS, err = decodeItems(root.At(4), "COMMANDS"); err != nil {
+	if out.COMMANDS, err = decodeEach(root.At(4), "COMMANDS", decodeProcessCommandDefinition); err != nil {
 		return out, err
 	}
 
@@ -611,7 +611,7 @@ type S7F23Body struct {
 	PPID     secs2.Item
 	MDLN     string
 	SOFTREV  string
-	COMMANDS []secs2.Item
+	COMMANDS []ProcessCommand
 }
 
 // DecodeS7F23 decodes the body of an S7F23 (Formatted Process Program Send) message into a [S7F23Body].
@@ -642,7 +642,7 @@ func DecodeS7F23(item secs2.Item) (S7F23Body, error) {
 		return out, err
 	}
 
-	if out.COMMANDS, err = decodeItems(root.At(3), "COMMANDS"); err != nil {
+	if out.COMMANDS, err = decodeEach(root.At(3), "COMMANDS", decodeProcessCommand); err != nil {
 		return out, err
 	}
 
@@ -714,7 +714,7 @@ type S7F26Reply struct {
 	PPID     secs2.Item
 	MDLN     string
 	SOFTREV  string
-	COMMANDS []secs2.Item
+	COMMANDS []ProcessCommand
 }
 
 // DecodeS7F26 decodes the body of an S7F26 (Formatted Process Program Data) message into a [S7F26Reply].
@@ -747,7 +747,7 @@ func DecodeS7F26(item secs2.Item) (S7F26Reply, error) {
 			return out, err
 		}
 
-		if out.COMMANDS, err = decodeItems(root.At(3), "COMMANDS"); err != nil {
+		if out.COMMANDS, err = decodeEach(root.At(3), "COMMANDS", decodeProcessCommand); err != nil {
 			return out, err
 		}
 	}
@@ -762,7 +762,7 @@ func DecodeS7F26(item secs2.Item) (S7F26Reply, error) {
 // It is filled by [DecodeS7F27] and mirrors the parameters of [S7F27], in order.
 type S7F27Body struct {
 	PPID   secs2.Item
-	ERRORS []secs2.Item
+	ERRORS []ProgramError
 }
 
 // DecodeS7F27 decodes the body of an S7F27 (Process Program Verification Send) message into a [S7F27Body].
@@ -785,7 +785,7 @@ func DecodeS7F27(item secs2.Item) (S7F27Body, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeProgramError); err != nil {
 		return out, err
 	}
 
@@ -857,7 +857,7 @@ type S7F31Body struct {
 	PPID     secs2.Item
 	MDLN     string
 	SOFTREV  string
-	COMMANDS []secs2.Item
+	COMMANDS []ProcessCommand
 }
 
 // DecodeS7F31 decodes the body of an S7F31 (Verification Request Send) message into a [S7F31Body].
@@ -888,7 +888,7 @@ func DecodeS7F31(item secs2.Item) (S7F31Body, error) {
 		return out, err
 	}
 
-	if out.COMMANDS, err = decodeItems(root.At(3), "COMMANDS"); err != nil {
+	if out.COMMANDS, err = decodeEach(root.At(3), "COMMANDS", decodeProcessCommand); err != nil {
 		return out, err
 	}
 

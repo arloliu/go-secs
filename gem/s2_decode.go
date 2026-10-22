@@ -383,7 +383,7 @@ func DecodeS2F14(item secs2.Item) (S2F14Reply, error) {
 //
 // It is filled by [DecodeS2F15] and mirrors the parameters of [S2F15], in order.
 type S2F15Body struct {
-	CONSTANTS []secs2.Item
+	CONSTANTS []ConstantValue
 }
 
 // DecodeS2F15 decodes the body of an S2F15 (New Equipment Constant Send) message into a [S2F15Body].
@@ -398,7 +398,7 @@ func DecodeS2F15(item secs2.Item) (S2F15Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.CONSTANTS, err = decodeItems(root, "CONSTANTS"); err != nil {
+	if out.CONSTANTS, err = decodeEach(root, "CONSTANTS", decodeConstantValue); err != nil {
 		return out, err
 	}
 
@@ -813,7 +813,7 @@ func DecodeS2F29(item secs2.Item) (S2F29Body, error) {
 //
 // It is filled by [DecodeS2F30] and mirrors the parameters of [S2F30], in order.
 type S2F30Reply struct {
-	CONSTANTS []secs2.Item
+	CONSTANTS []ConstantName
 }
 
 // DecodeS2F30 decodes the body of an S2F30 (Equipment Constant Namelist) message into a [S2F30Reply].
@@ -828,7 +828,7 @@ func DecodeS2F30(item secs2.Item) (S2F30Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.CONSTANTS, err = decodeItems(root, "CONSTANTS"); err != nil {
+	if out.CONSTANTS, err = decodeEach(root, "CONSTANTS", decodeConstantName); err != nil {
 		return out, err
 	}
 
@@ -898,7 +898,7 @@ func DecodeS2F32(item secs2.Item) (S2F32Reply, error) {
 // It is filled by [DecodeS2F33] and mirrors the parameters of [S2F33], in order.
 type S2F33Body struct {
 	DATAID  secs2.Item
-	REPORTS []secs2.Item
+	REPORTS []ReportDefinition
 }
 
 // DecodeS2F33 decodes the body of an S2F33 (Define Report) message into a [S2F33Body].
@@ -921,7 +921,7 @@ func DecodeS2F33(item secs2.Item) (S2F33Body, error) {
 		return out, err
 	}
 
-	if out.REPORTS, err = decodeItems(root.At(1), "REPORTS"); err != nil {
+	if out.REPORTS, err = decodeEach(root.At(1), "REPORTS", decodeReportDefinition); err != nil {
 		return out, err
 	}
 
@@ -963,7 +963,7 @@ func DecodeS2F34(item secs2.Item) (S2F34Reply, error) {
 // It is filled by [DecodeS2F35] and mirrors the parameters of [S2F35], in order.
 type S2F35Body struct {
 	DATAID secs2.Item
-	EVENTS []secs2.Item
+	EVENTS []EventLink
 }
 
 // DecodeS2F35 decodes the body of an S2F35 (Link Event Report) message into a [S2F35Body].
@@ -986,7 +986,7 @@ func DecodeS2F35(item secs2.Item) (S2F35Body, error) {
 		return out, err
 	}
 
-	if out.EVENTS, err = decodeItems(root.At(1), "EVENTS"); err != nil {
+	if out.EVENTS, err = decodeEach(root.At(1), "EVENTS", decodeEventLink); err != nil {
 		return out, err
 	}
 
@@ -1158,7 +1158,7 @@ func DecodeS2F40(item secs2.Item) (S2F40Reply, error) {
 // It is filled by [DecodeS2F41] and mirrors the parameters of [S2F41], in order.
 type S2F41Body struct {
 	RCMD   secs2.Item
-	PARAMS []secs2.Item
+	PARAMS []CommandParam
 }
 
 // DecodeS2F41 decodes the body of an S2F41 (Host Command Send) message into a [S2F41Body].
@@ -1181,7 +1181,7 @@ func DecodeS2F41(item secs2.Item) (S2F41Body, error) {
 		return out, err
 	}
 
-	if out.PARAMS, err = decodeItems(root.At(1), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(1), "PARAMS", decodeCommandParam); err != nil {
 		return out, err
 	}
 
@@ -1195,7 +1195,7 @@ func DecodeS2F41(item secs2.Item) (S2F41Body, error) {
 // It is filled by [DecodeS2F42] and mirrors the parameters of [S2F42], in order.
 type S2F42Reply struct {
 	HCACK  HCACK
-	PARAMS []secs2.Item
+	PARAMS []CommandParamAck
 }
 
 // DecodeS2F42 decodes the body of an S2F42 (Host Command Acknowledge) message into a [S2F42Reply].
@@ -1218,7 +1218,7 @@ func DecodeS2F42(item secs2.Item) (S2F42Reply, error) {
 		return out, err
 	}
 
-	if out.PARAMS, err = decodeItems(root.At(1), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(1), "PARAMS", decodeCommandParamAck); err != nil {
 		return out, err
 	}
 
@@ -1231,7 +1231,7 @@ func DecodeS2F42(item secs2.Item) (S2F42Reply, error) {
 //
 // It is filled by [DecodeS2F43] and mirrors the parameters of [S2F43], in order.
 type S2F43Body struct {
-	STREAMS []secs2.Item
+	STREAMS []SpoolStream
 }
 
 // DecodeS2F43 decodes the body of an S2F43 (Reset Spooling Streams and Functions) message into a [S2F43Body].
@@ -1246,7 +1246,7 @@ func DecodeS2F43(item secs2.Item) (S2F43Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.STREAMS, err = decodeItems(root, "STREAMS"); err != nil {
+	if out.STREAMS, err = decodeEach(root, "STREAMS", decodeSpoolStream); err != nil {
 		return out, err
 	}
 
@@ -1260,7 +1260,7 @@ func DecodeS2F43(item secs2.Item) (S2F43Body, error) {
 // It is filled by [DecodeS2F44] and mirrors the parameters of [S2F44], in order.
 type S2F44Reply struct {
 	RSPACK  RSPACK
-	STREAMS []secs2.Item
+	STREAMS []SpoolStreamAck
 }
 
 // DecodeS2F44 decodes the body of an S2F44 (Reset Spooling Acknowledge) message into a [S2F44Reply].
@@ -1283,7 +1283,7 @@ func DecodeS2F44(item secs2.Item) (S2F44Reply, error) {
 		return out, err
 	}
 
-	if out.STREAMS, err = decodeItems(root.At(1), "STREAMS"); err != nil {
+	if out.STREAMS, err = decodeEach(root.At(1), "STREAMS", decodeSpoolStreamAck); err != nil {
 		return out, err
 	}
 
@@ -1297,7 +1297,7 @@ func DecodeS2F44(item secs2.Item) (S2F44Reply, error) {
 // It is filled by [DecodeS2F45] and mirrors the parameters of [S2F45], in order.
 type S2F45Body struct {
 	DATAID    secs2.Item
-	VARIABLES []secs2.Item
+	VARIABLES []VariableLimits
 }
 
 // DecodeS2F45 decodes the body of an S2F45 (Define Variable Limit Attributes) message into a [S2F45Body].
@@ -1320,7 +1320,7 @@ func DecodeS2F45(item secs2.Item) (S2F45Body, error) {
 		return out, err
 	}
 
-	if out.VARIABLES, err = decodeItems(root.At(1), "VARIABLES"); err != nil {
+	if out.VARIABLES, err = decodeEach(root.At(1), "VARIABLES", decodeVariableLimits); err != nil {
 		return out, err
 	}
 
@@ -1334,7 +1334,7 @@ func DecodeS2F45(item secs2.Item) (S2F45Body, error) {
 // It is filled by [DecodeS2F46] and mirrors the parameters of [S2F46], in order.
 type S2F46Reply struct {
 	VLAACK    VLAACK
-	VARIABLES []secs2.Item
+	VARIABLES []VariableLimitAck
 }
 
 // DecodeS2F46 decodes the body of an S2F46 (Variable Limit Attribute Acknowledge) message into a [S2F46Reply].
@@ -1357,7 +1357,7 @@ func DecodeS2F46(item secs2.Item) (S2F46Reply, error) {
 		return out, err
 	}
 
-	if out.VARIABLES, err = decodeItems(root.At(1), "VARIABLES"); err != nil {
+	if out.VARIABLES, err = decodeEach(root.At(1), "VARIABLES", decodeVariableLimitAck); err != nil {
 		return out, err
 	}
 
@@ -1398,7 +1398,7 @@ func DecodeS2F47(item secs2.Item) (S2F47Body, error) {
 //
 // It is filled by [DecodeS2F48] and mirrors the parameters of [S2F48], in order.
 type S2F48Reply struct {
-	VARIABLES []secs2.Item
+	VARIABLES []VariableLimitAttributes
 }
 
 // DecodeS2F48 decodes the body of an S2F48 (Variable Limit Attributes Send) message into a [S2F48Reply].
@@ -1413,7 +1413,7 @@ func DecodeS2F48(item secs2.Item) (S2F48Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.VARIABLES, err = decodeItems(root, "VARIABLES"); err != nil {
+	if out.VARIABLES, err = decodeEach(root, "VARIABLES", decodeVariableLimitAttributes); err != nil {
 		return out, err
 	}
 

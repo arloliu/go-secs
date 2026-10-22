@@ -56,7 +56,7 @@ messages:
                 - {item: RCPSPEC}
                 - type: list
                   repeat: recipeParams
-                  of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}]}
+                  of: {group: RecipeParam}
             - {item: PRPROCESSSTART}
 
   - function: 4
@@ -80,7 +80,7 @@ messages:
                 - {item: ACKA}
                 - type: list
                   repeat: errors
-                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                  of: {group: ErrorInfo}
 
   - function: 5
     name: Process Job Command Request
@@ -102,7 +102,7 @@ messages:
             - {item: PRCMDNAME}
             - type: list
               repeat: params
-              of: {type: list, items: [{item: CPNAME}, {item: CPVAL}]}
+              of: {group: CommandParam}
 
   - function: 6
     name: Process Job Command Acknowledge
@@ -123,7 +123,7 @@ messages:
                 - {item: ACKA}
                 - type: list
                   repeat: errors
-                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                  of: {group: ErrorInfo}
 
   - function: 7
     name: Process Job Alert Notify
@@ -153,7 +153,7 @@ messages:
                 - {item: ACKA}
                 - type: list
                   repeat: errors
-                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                  of: {group: ErrorInfo}
 
   - function: 8
     name: Process Job Alert Confirm
@@ -189,7 +189,7 @@ messages:
             - {item: PRJOBID}
             - type: list
               repeat: variables
-              of: {type: list, items: [{item: VID}, {item: V}]}
+              of: {group: VariableValue}
 
   - function: 10
     name: Process Job Event Confirm
@@ -244,7 +244,7 @@ messages:
                 - {item: RCPSPEC}
                 - type: list
                   repeat: recipeParams
-                  of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}]}
+                  of: {group: RecipeParam}
             - {item: PRPROCESSSTART}
             - {item: PRPAUSEEVENT}
 
@@ -268,7 +268,7 @@ messages:
                 - {item: ACKA}
                 - type: list
                   repeat: errors
-                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                  of: {group: ErrorInfo}
 
   # Each job element has the S16F11 shape without DATAID:
   # L,6 {PRJOBID, MF, material list, L,3 {PRRECIPEMETHOD, RCPSPEC, L,m of L,2 {RCPPARNM, RCPPARVAL}},
@@ -303,21 +303,7 @@ messages:
             - {item: DATAID}
             - type: list
               repeat: jobs
-              of:
-                type: list
-                items:
-                  - {item: PRJOBID}
-                  - {item: MF}
-                  - {type: opaque, as: material}
-                  - type: list
-                    items:
-                      - {item: PRRECIPEMETHOD}
-                      - {item: RCPSPEC}
-                      - type: list
-                        repeat: recipeParams
-                        of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}]}
-                  - {item: PRPROCESSSTART}
-                  - {item: PRPAUSEEVENT}
+              of: {group: ProcessJob}
 
   - function: 16
     name: PRJobMultiCreate Acknowledge
@@ -341,7 +327,7 @@ messages:
                 - {item: ACKA}
                 - type: list
                   repeat: errors
-                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                  of: {group: ErrorInfo}
 
   - function: 17
     name: PRJobDequeue
@@ -378,7 +364,7 @@ messages:
                 - {item: ACKA}
                 - type: list
                   repeat: errors
-                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                  of: {group: ErrorInfo}
 
   # E5's Direction column for S16F19 omits "reply",
   # but S16F20 is its paired reply and SEMI E40.1 maps the two as a request and its response,
@@ -410,7 +396,7 @@ messages:
         structure:
           type: list
           repeat: jobs
-          of: {type: list, items: [{item: PRJOBID}, {item: PRSTATE}]}
+          of: {group: ProcessJobState}
 
   # E5's Direction column for S16F21 omits "reply",
   # but S16F22 is its paired reply and SEMI E40.1 maps the two as a request and its response,
@@ -458,7 +444,7 @@ messages:
             - {item: PRJOBID}
             - type: list
               repeat: recipeParams
-              of: {type: list, items: [{item: RCPPARNM}, {item: RCPPARVAL}]}
+              of: {group: RecipeParam}
 
   - function: 24
     name: PRJobSetRecipeVariable Acknowledge
@@ -478,7 +464,7 @@ messages:
             - {item: ACKA}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: ErrorInfo}
 
   # E5's Direction column for S16F25 omits "reply",
   # but S16F26 is its paired acknowledge and SEMI E40.1 maps the two as a request and its acknowledge,
@@ -527,7 +513,7 @@ messages:
                 - {item: ACKA}
                 - type: list
                   repeat: errors
-                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                  of: {group: ErrorInfo}
 
   # E5's Direction column for S16F27 omits "reply",
   # but S16F28 is its paired acknowledge and SEMI E94.1 maps every control job command as a request and its acknowledge,

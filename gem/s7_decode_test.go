@@ -54,12 +54,12 @@ func init() {
 		_, err := gem.DecodeS7F10(item)
 
 		return err
-	}, gem.S7F10(secs2.A("programs")).Item())
+	}, gem.S7F10(gem.ProgramMaterials{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}}).Item())
 	registerFuzzDecoder("DecodeS7F11", func(item secs2.Item) error {
 		_, err := gem.DecodeS7F11(item)
 
 		return err
-	}, gem.S7F11(secs2.A("programs")).Item())
+	}, gem.S7F11(gem.ProgramMaterials{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}}).Item())
 	registerFuzzDecoder("DecodeS7F12", func(item secs2.Item) error {
 		_, err := gem.DecodeS7F12(item)
 
@@ -69,7 +69,7 @@ func init() {
 		_, err := gem.DecodeS7F13(item)
 
 		return err
-	}, gem.S7F13(secs2.A("programs")).Item())
+	}, gem.S7F13(gem.ProgramMaterials{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}}).Item())
 	registerFuzzDecoder("DecodeS7F14", func(item secs2.Item) error {
 		_, err := gem.DecodeS7F14(item)
 
@@ -104,12 +104,12 @@ func init() {
 		_, err := gem.DecodeS7F22(item)
 
 		return err
-	}, gem.S7F22("mdln", "softrev", secs2.A("cmdmax"), secs2.A("bytmax"), secs2.A("commands")).Item())
+	}, gem.S7F22("mdln", "softrev", secs2.A("cmdmax"), secs2.A("bytmax"), gem.ProcessCommandDefinition{CCODE: secs2.A("ccode"), CNAME: "cname", RQCMD: true, BLKDEF: secs2.A("blkdef"), BCDS: secs2.A("bcds"), IBCDS: secs2.A("ibcds"), NBCDS: secs2.A("nbcds"), ACDS: secs2.A("acds"), IACDS: secs2.A("iacds"), NACDS: secs2.A("nacds"), PARAMETERS: []secs2.Item{secs2.A("parameters")}}).Item())
 	registerFuzzDecoder("DecodeS7F23", func(item secs2.Item) error {
 		_, err := gem.DecodeS7F23(item)
 
 		return err
-	}, gem.S7F23(secs2.A("ppid"), "mdln", "softrev", secs2.A("commands")).Item())
+	}, gem.S7F23(secs2.A("ppid"), "mdln", "softrev", gem.ProcessCommand{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}}).Item())
 	registerFuzzDecoder("DecodeS7F24", func(item secs2.Item) error {
 		_, err := gem.DecodeS7F24(item)
 
@@ -124,12 +124,12 @@ func init() {
 		_, err := gem.DecodeS7F26(item)
 
 		return err
-	}, gem.S7F26(secs2.A("ppid"), "mdln", "softrev", secs2.A("commands")).Item())
+	}, gem.S7F26(secs2.A("ppid"), "mdln", "softrev", gem.ProcessCommand{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}}).Item())
 	registerFuzzDecoder("DecodeS7F27", func(item secs2.Item) error {
 		_, err := gem.DecodeS7F27(item)
 
 		return err
-	}, gem.S7F27(secs2.A("ppid"), secs2.A("errors")).Item())
+	}, gem.S7F27(secs2.A("ppid"), gem.ProgramError{ACKC7A: secs2.A("ackc7a"), SEQNUM: secs2.A("seqnum"), ERRW7: "errw7"}).Item())
 	registerFuzzDecoder("DecodeS7F29", func(item secs2.Item) error {
 		_, err := gem.DecodeS7F29(item)
 
@@ -144,7 +144,7 @@ func init() {
 		_, err := gem.DecodeS7F31(item)
 
 		return err
-	}, gem.S7F31(secs2.A("ppid"), "mdln", "softrev", secs2.A("commands")).Item())
+	}, gem.S7F31(secs2.A("ppid"), "mdln", "softrev", gem.ProcessCommand{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}}).Item())
 	registerFuzzDecoder("DecodeS7F32", func(item secs2.Item) error {
 		_, err := gem.DecodeS7F32(item)
 
@@ -395,7 +395,7 @@ func TestDecodeS7F8EmptyList(t *testing.T) {
 }
 
 func TestDecodeS7F10RoundTrip(t *testing.T) {
-	msg := gem.S7F10(secs2.A("programs"))
+	msg := gem.S7F10(gem.ProgramMaterials{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -408,14 +408,14 @@ func TestDecodeS7F10RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S7F10Reply{
-		PROGRAMS: []secs2.Item{secs2.A("programs")},
+		PROGRAMS: []gem.ProgramMaterials{{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS7F11RoundTrip(t *testing.T) {
-	msg := gem.S7F11(secs2.A("programs"))
+	msg := gem.S7F11(gem.ProgramMaterials{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -428,7 +428,7 @@ func TestDecodeS7F11RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S7F11Body{
-		PROGRAMS: []secs2.Item{secs2.A("programs")},
+		PROGRAMS: []gem.ProgramMaterials{{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -455,7 +455,7 @@ func TestDecodeS7F12RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS7F13RoundTrip(t *testing.T) {
-	msg := gem.S7F13(secs2.A("programs"))
+	msg := gem.S7F13(gem.ProgramMaterials{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -468,7 +468,7 @@ func TestDecodeS7F13RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S7F13Body{
-		PROGRAMS: []secs2.Item{secs2.A("programs")},
+		PROGRAMS: []gem.ProgramMaterials{{PPID: secs2.A("ppid"), MIDS: []secs2.Item{secs2.A("mids")}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -595,7 +595,7 @@ func TestDecodeS7F20RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS7F22RoundTrip(t *testing.T) {
-	msg := gem.S7F22("mdln", "softrev", secs2.A("cmdmax"), secs2.A("bytmax"), secs2.A("commands"))
+	msg := gem.S7F22("mdln", "softrev", secs2.A("cmdmax"), secs2.A("bytmax"), gem.ProcessCommandDefinition{CCODE: secs2.A("ccode"), CNAME: "cname", RQCMD: true, BLKDEF: secs2.A("blkdef"), BCDS: secs2.A("bcds"), IBCDS: secs2.A("ibcds"), NBCDS: secs2.A("nbcds"), ACDS: secs2.A("acds"), IACDS: secs2.A("iacds"), NACDS: secs2.A("nacds"), PARAMETERS: []secs2.Item{secs2.A("parameters")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -612,14 +612,14 @@ func TestDecodeS7F22RoundTrip(t *testing.T) {
 		SOFTREV:  "softrev",
 		CMDMAX:   secs2.A("cmdmax"),
 		BYTMAX:   secs2.A("bytmax"),
-		COMMANDS: []secs2.Item{secs2.A("commands")},
+		COMMANDS: []gem.ProcessCommandDefinition{{CCODE: secs2.A("ccode"), CNAME: "cname", RQCMD: true, BLKDEF: secs2.A("blkdef"), BCDS: secs2.A("bcds"), IBCDS: secs2.A("ibcds"), NBCDS: secs2.A("nbcds"), ACDS: secs2.A("acds"), IACDS: secs2.A("iacds"), NACDS: secs2.A("nacds"), PARAMETERS: []secs2.Item{secs2.A("parameters")}}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS7F23RoundTrip(t *testing.T) {
-	msg := gem.S7F23(secs2.A("ppid"), "mdln", "softrev", secs2.A("commands"))
+	msg := gem.S7F23(secs2.A("ppid"), "mdln", "softrev", gem.ProcessCommand{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -635,7 +635,7 @@ func TestDecodeS7F23RoundTrip(t *testing.T) {
 		PPID:     secs2.A("ppid"),
 		MDLN:     "mdln",
 		SOFTREV:  "softrev",
-		COMMANDS: []secs2.Item{secs2.A("commands")},
+		COMMANDS: []gem.ProcessCommand{{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -682,7 +682,7 @@ func TestDecodeS7F25RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS7F26RoundTrip(t *testing.T) {
-	msg := gem.S7F26(secs2.A("ppid"), "mdln", "softrev", secs2.A("commands"))
+	msg := gem.S7F26(secs2.A("ppid"), "mdln", "softrev", gem.ProcessCommand{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -698,7 +698,7 @@ func TestDecodeS7F26RoundTrip(t *testing.T) {
 		PPID:     secs2.A("ppid"),
 		MDLN:     "mdln",
 		SOFTREV:  "softrev",
-		COMMANDS: []secs2.Item{secs2.A("commands")},
+		COMMANDS: []gem.ProcessCommand{{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -714,7 +714,7 @@ func TestDecodeS7F26EmptyList(t *testing.T) {
 }
 
 func TestDecodeS7F27RoundTrip(t *testing.T) {
-	msg := gem.S7F27(secs2.A("ppid"), secs2.A("errors"))
+	msg := gem.S7F27(secs2.A("ppid"), gem.ProgramError{ACKC7A: secs2.A("ackc7a"), SEQNUM: secs2.A("seqnum"), ERRW7: "errw7"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -728,7 +728,7 @@ func TestDecodeS7F27RoundTrip(t *testing.T) {
 
 	want := gem.S7F27Body{
 		PPID:   secs2.A("ppid"),
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ProgramError{{ACKC7A: secs2.A("ackc7a"), SEQNUM: secs2.A("seqnum"), ERRW7: "errw7"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -775,7 +775,7 @@ func TestDecodeS7F30RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS7F31RoundTrip(t *testing.T) {
-	msg := gem.S7F31(secs2.A("ppid"), "mdln", "softrev", secs2.A("commands"))
+	msg := gem.S7F31(secs2.A("ppid"), "mdln", "softrev", gem.ProcessCommand{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -791,7 +791,7 @@ func TestDecodeS7F31RoundTrip(t *testing.T) {
 		PPID:     secs2.A("ppid"),
 		MDLN:     "mdln",
 		SOFTREV:  "softrev",
-		COMMANDS: []secs2.Item{secs2.A("commands")},
+		COMMANDS: []gem.ProcessCommand{{CCODE: secs2.A("ccode"), PARAMETERS: []secs2.Item{secs2.A("parameters")}}},
 	}
 
 	assertDecoded(t, got, want)

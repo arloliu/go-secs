@@ -27,7 +27,7 @@ func TestGemDirIsFresh(t *testing.T) {
 	committedDir := filepath.Join(rootDir, "gem")
 
 	genDir := t.TempDir()
-	err = run(filepath.Join(wd, "data", "items.yaml"), filepath.Join(wd, "data", "messages"), genDir)
+	err = run(filepath.Join(wd, "data", "items.yaml"), filepath.Join(wd, "data", "groups.yaml"), filepath.Join(wd, "data", "messages"), genDir)
 	require.NoError(t, err, "regeneration itself failed -- fix the generator before the freshness gate can check its output")
 
 	generated, err := os.ReadDir(genDir)

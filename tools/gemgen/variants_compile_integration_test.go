@@ -147,7 +147,7 @@ func TestVariantsCompileAndRunAgainstRealSecs2(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(checkDir)
 
-	require.NoError(t, run(itemsPath, msgsDir, checkDir))
+	require.NoError(t, run(itemsPath, "", msgsDir, checkDir))
 
 	builders, err := os.ReadFile(filepath.Join(checkDir, "s16.go"))
 	require.NoError(t, err)

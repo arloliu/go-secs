@@ -75,7 +75,7 @@ messages:
             - {item: ACKA}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: RPTID}, {item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: ReportError}
 
   - function: 5
     name: Trace Create Request
@@ -177,7 +177,7 @@ messages:
             - {item: ACKA}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: TRID}, {item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: TraceError}
 
   - function: 9
     name: Collection Event Link Request
@@ -278,4 +278,4 @@ messages:
             - {item: ACKA}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: TRID}, {item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: TraceError}
