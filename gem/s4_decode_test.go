@@ -10,133 +10,133 @@ import (
 )
 
 func init() {
-	registerFuzzDecoder("DecodeS4F1", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F1(item)
+	registerFuzzDecoder("DecodeS4F1", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F1(item, opts...)
 
 		return err
 	}, gem.S4F1(secs2.A("ptn"), secs2.A("mid")).Item())
-	registerFuzzDecoder("DecodeS4F2", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F2(item)
+	registerFuzzDecoder("DecodeS4F2", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F2(item, opts...)
 
 		return err
 	}, gem.S4F2(0x65).Item())
-	registerFuzzDecoder("DecodeS4F3", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F3(item)
+	registerFuzzDecoder("DecodeS4F3", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F3(item, opts...)
 
 		return err
 	}, gem.S4F3(secs2.A("ptn"), secs2.A("mid")).Item())
-	registerFuzzDecoder("DecodeS4F5", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F5(item)
+	registerFuzzDecoder("DecodeS4F5", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F5(item, opts...)
 
 		return err
 	}, gem.S4F5(secs2.A("ptn"), secs2.A("mid")).Item())
-	registerFuzzDecoder("DecodeS4F7", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F7(item)
+	registerFuzzDecoder("DecodeS4F7", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F7(item, opts...)
 
 		return err
 	}, gem.S4F7(secs2.A("ptn"), secs2.A("mid")).Item())
-	registerFuzzDecoder("DecodeS4F9", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F9(item)
+	registerFuzzDecoder("DecodeS4F9", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F9(item, opts...)
 
 		return err
 	}, gem.S4F9(secs2.A("ptn"), secs2.A("mid")).Item())
-	registerFuzzDecoder("DecodeS4F11", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F11(item)
+	registerFuzzDecoder("DecodeS4F11", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F11(item, opts...)
 
 		return err
 	}, gem.S4F11(secs2.A("ptn"), secs2.A("mid")).Item())
-	registerFuzzDecoder("DecodeS4F13", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F13(item)
+	registerFuzzDecoder("DecodeS4F13", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F13(item, opts...)
 
 		return err
 	}, gem.S4F13(secs2.A("ptn"), secs2.A("mid")).Item())
-	registerFuzzDecoder("DecodeS4F15", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F15(item)
+	registerFuzzDecoder("DecodeS4F15", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F15(item, opts...)
 
 		return err
 	}, gem.S4F15(secs2.A("ptn"), secs2.A("mid")).Item())
-	registerFuzzDecoder("DecodeS4F17", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F17(item)
+	registerFuzzDecoder("DecodeS4F17", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F17(item, opts...)
 
 		return err
 	}, gem.S4F17(secs2.A("ptn"), secs2.A("mid")).Item())
-	registerFuzzDecoder("DecodeS4F18", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F18(item)
+	registerFuzzDecoder("DecodeS4F18", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F18(item, opts...)
 
 		return err
 	}, gem.S4F18(0x18).Item())
-	registerFuzzDecoder("DecodeS4F19", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F19(item)
+	registerFuzzDecoder("DecodeS4F19", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F19(item, opts...)
 
 		return err
 	}, gem.S4F19(secs2.A("dataid"), "trjobname", gem.TransferJob{TRLINK: secs2.A("trlink"), TRPORT: secs2.A("trport"), TROBJNAME: "trobjname", TROBJTYPE: secs2.A("trobjtype"), TRROLE: 80, TRRCP: "trrcp", TRPTNR: "trptnr", TRPTPORT: secs2.A("trptport"), TRDIR: 51, TRTYPE: 6, TRLOCATION: secs2.A("trlocation"), TRAUTOSTART: true}).Item())
-	registerFuzzDecoder("DecodeS4F20", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F20(item)
+	registerFuzzDecoder("DecodeS4F20", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F20(item, opts...)
 
 		return err
 	}, gem.S4F20([]byte{0x9b, 0x00, 0x92, 0x23}, []secs2.Item{secs2.A("atomicids")}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS4F21", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F21(item)
+	registerFuzzDecoder("DecodeS4F21", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F21(item, opts...)
 
 		return err
 	}, gem.S4F21([]byte{0x9b, 0x00, 0x92, 0x23}, "trcmdname", gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")}).Item())
-	registerFuzzDecoder("DecodeS4F22", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F22(item)
+	registerFuzzDecoder("DecodeS4F22", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F22(item, opts...)
 
 		return err
 	}, gem.S4F22(true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS4F23", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F23(item)
+	registerFuzzDecoder("DecodeS4F23", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F23(item, opts...)
 
 		return err
 	}, gem.S4F23([]byte{0x9b, 0x00, 0x92, 0x23}, "trjobname", 43, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS4F25", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F25(item)
+	registerFuzzDecoder("DecodeS4F25", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F25(item, opts...)
 
 		return err
 	}, gem.S4F25(secs2.A("dataid"), secs2.A("datalength")).Item())
-	registerFuzzDecoder("DecodeS4F26", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F26(item)
+	registerFuzzDecoder("DecodeS4F26", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F26(item, opts...)
 
 		return err
 	}, gem.S4F26(0xee).Item())
-	registerFuzzDecoder("DecodeS4F27", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F27(item)
+	registerFuzzDecoder("DecodeS4F27", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F27(item, opts...)
 
 		return err
 	}, gem.S4F27("eqname", secs2.A("trlink"), secs2.A("trport"), "trobjname", secs2.A("trobjtype"), 80, "trptnr", secs2.A("trptport"), 51, 6, secs2.A("trlocation")).Item())
-	registerFuzzDecoder("DecodeS4F29", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F29(item)
+	registerFuzzDecoder("DecodeS4F29", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F29(item, opts...)
 
 		return err
 	}, gem.S4F29(secs2.A("trlink"), secs2.A("mcindex"), "hocmdname", gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")}).Item())
-	registerFuzzDecoder("DecodeS4F31", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F31(item)
+	registerFuzzDecoder("DecodeS4F31", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F31(item, opts...)
 
 		return err
 	}, gem.S4F31(secs2.A("trlink"), secs2.A("mcindex"), true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS4F33", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F33(item)
+	registerFuzzDecoder("DecodeS4F33", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F33(item, opts...)
 
 		return err
 	}, gem.S4F33(secs2.A("trlink"), true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS4F35", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F35(item)
+	registerFuzzDecoder("DecodeS4F35", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F35(item, opts...)
 
 		return err
 	}, gem.S4F35(secs2.A("trlink")).Item())
-	registerFuzzDecoder("DecodeS4F37", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F37(item)
+	registerFuzzDecoder("DecodeS4F37", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F37(item, opts...)
 
 		return err
 	}, gem.S4F37(secs2.A("trlink"), 54).Item())
-	registerFuzzDecoder("DecodeS4F39", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F39(item)
+	registerFuzzDecoder("DecodeS4F39", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F39(item, opts...)
 
 		return err
 	}, gem.S4F39(secs2.A("trlink")).Item())
-	registerFuzzDecoder("DecodeS4F41", func(item secs2.Item) error {
-		_, err := gem.DecodeS4F41(item)
+	registerFuzzDecoder("DecodeS4F41", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS4F41(item, opts...)
 
 		return err
 	}, gem.S4F41(secs2.A("trlink"), 39).Item())

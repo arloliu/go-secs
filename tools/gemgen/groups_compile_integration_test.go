@@ -189,7 +189,7 @@ func TestGroupsCompileAndRunAgainstRealSecs2(t *testing.T) {
 
 	groupsSrc, err := os.ReadFile(filepath.Join(checkDir, "groups.go"))
 	require.NoError(t, err)
-	require.Contains(t, string(groupsSrc), "func decodeHolder(c secs2.Cursor, field string) (Holder, error) {")
+	require.Contains(t, string(groupsSrc), "func decodeHolder(c secs2.Cursor, field string, cfg *decodeConfig) (Holder, error) {")
 
 	// Rewrite `package gem` and `package gem_test` to one unique name,
 	// so the generated tests become internal tests of the generated builders and decoders.

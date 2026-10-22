@@ -18,13 +18,13 @@ func (g ErrorInfo) Item() secs2.Item {
 	return secs2.L(g.ERRCODE, secs2.A(g.ERRTEXT))
 }
 
-// decodeErrorInfo decodes one [ErrorInfo] from the list at c, naming field in its errors.
-func decodeErrorInfo(c secs2.Cursor, field string) (ErrorInfo, error) {
+// decodeErrorInfo decodes one [ErrorInfo] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeErrorInfo(c secs2.Cursor, field string, cfg *decodeConfig) (ErrorInfo, error) {
 	var g ErrorInfo
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -53,13 +53,13 @@ func (g Attribute) Item() secs2.Item {
 	return secs2.L(g.ATTRID, g.ATTRDATA)
 }
 
-// decodeAttribute decodes one [Attribute] from the list at c, naming field in its errors.
-func decodeAttribute(c secs2.Cursor, field string) (Attribute, error) {
+// decodeAttribute decodes one [Attribute] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeAttribute(c secs2.Cursor, field string, cfg *decodeConfig) (Attribute, error) {
 	var g Attribute
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -88,13 +88,13 @@ func (g RecipeAttribute) Item() secs2.Item {
 	return secs2.L(secs2.A(g.RCPATTRID), g.RCPATTRDATA)
 }
 
-// decodeRecipeAttribute decodes one [RecipeAttribute] from the list at c, naming field in its errors.
-func decodeRecipeAttribute(c secs2.Cursor, field string) (RecipeAttribute, error) {
+// decodeRecipeAttribute decodes one [RecipeAttribute] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeRecipeAttribute(c secs2.Cursor, field string, cfg *decodeConfig) (RecipeAttribute, error) {
 	var g RecipeAttribute
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -123,13 +123,13 @@ func (g CommandParam) Item() secs2.Item {
 	return secs2.L(g.CPNAME, g.CPVAL)
 }
 
-// decodeCommandParam decodes one [CommandParam] from the list at c, naming field in its errors.
-func decodeCommandParam(c secs2.Cursor, field string) (CommandParam, error) {
+// decodeCommandParam decodes one [CommandParam] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeCommandParam(c secs2.Cursor, field string, cfg *decodeConfig) (CommandParam, error) {
 	var g CommandParam
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -158,13 +158,13 @@ func (g Report) Item() secs2.Item {
 	return secs2.L(g.RPTID, secs2.L(g.VALUES...))
 }
 
-// decodeReport decodes one [Report] from the list at c, naming field in its errors.
-func decodeReport(c secs2.Cursor, field string) (Report, error) {
+// decodeReport decodes one [Report] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeReport(c secs2.Cursor, field string, cfg *decodeConfig) (Report, error) {
 	var g Report
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -195,13 +195,13 @@ func (g ProgramMaterials) Item() secs2.Item {
 	return secs2.L(g.PPID, secs2.L(g.MIDS...))
 }
 
-// decodeProgramMaterials decodes one [ProgramMaterials] from the list at c, naming field in its errors.
-func decodeProgramMaterials(c secs2.Cursor, field string) (ProgramMaterials, error) {
+// decodeProgramMaterials decodes one [ProgramMaterials] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeProgramMaterials(c secs2.Cursor, field string, cfg *decodeConfig) (ProgramMaterials, error) {
 	var g ProgramMaterials
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -232,13 +232,13 @@ func (g ProcessCommand) Item() secs2.Item {
 	return secs2.L(g.CCODE, secs2.L(g.PARAMETERS...))
 }
 
-// decodeProcessCommand decodes one [ProcessCommand] from the list at c, naming field in its errors.
-func decodeProcessCommand(c secs2.Cursor, field string) (ProcessCommand, error) {
+// decodeProcessCommand decodes one [ProcessCommand] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeProcessCommand(c secs2.Cursor, field string, cfg *decodeConfig) (ProcessCommand, error) {
 	var g ProcessCommand
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -269,13 +269,13 @@ func (g ServiceParam) Item() secs2.Item {
 	return secs2.L(secs2.A(g.SPNAME), g.SPVAL)
 }
 
-// decodeServiceParam decodes one [ServiceParam] from the list at c, naming field in its errors.
-func decodeServiceParam(c secs2.Cursor, field string) (ServiceParam, error) {
+// decodeServiceParam decodes one [ServiceParam] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeServiceParam(c secs2.Cursor, field string, cfg *decodeConfig) (ServiceParam, error) {
 	var g ServiceParam
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -304,13 +304,13 @@ func (g RecipeParam) Item() secs2.Item {
 	return secs2.L(secs2.A(g.RCPPARNM), g.RCPPARVAL)
 }
 
-// decodeRecipeParam decodes one [RecipeParam] from the list at c, naming field in its errors.
-func decodeRecipeParam(c secs2.Cursor, field string) (RecipeParam, error) {
+// decodeRecipeParam decodes one [RecipeParam] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeRecipeParam(c secs2.Cursor, field string, cfg *decodeConfig) (RecipeParam, error) {
 	var g RecipeParam
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -341,13 +341,13 @@ func (g PDEReference) Item() secs2.Item {
 	return secs2.L(secs2.A(g.PDEREF), secs2.A(g.RESOLUTION))
 }
 
-// decodePDEReference decodes one [PDEReference] from the list at c, naming field in its errors.
-func decodePDEReference(c secs2.Cursor, field string) (PDEReference, error) {
+// decodePDEReference decodes one [PDEReference] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePDEReference(c secs2.Cursor, field string, cfg *decodeConfig) (PDEReference, error) {
 	var g PDEReference
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -378,13 +378,13 @@ func (g PortActionParam) Item() secs2.Item {
 	return secs2.L(secs2.A(g.PARAMNAME), g.PARAMVAL)
 }
 
-// decodePortActionParam decodes one [PortActionParam] from the list at c, naming field in its errors.
-func decodePortActionParam(c secs2.Cursor, field string) (PortActionParam, error) {
+// decodePortActionParam decodes one [PortActionParam] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePortActionParam(c secs2.Cursor, field string, cfg *decodeConfig) (PortActionParam, error) {
 	var g PortActionParam
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -416,13 +416,13 @@ func (g Alarm) Item() secs2.Item {
 	return secs2.L(secs2.B(g.ALCD), g.ALID, secs2.A(g.ALTX))
 }
 
-// decodeAlarm decodes one [Alarm] from the list at c, naming field in its errors.
-func decodeAlarm(c secs2.Cursor, field string) (Alarm, error) {
+// decodeAlarm decodes one [Alarm] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeAlarm(c secs2.Cursor, field string, cfg *decodeConfig) (Alarm, error) {
 	var g Alarm
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -457,13 +457,13 @@ func (g DataValue) Item() secs2.Item {
 	return secs2.L(g.DVNAME, g.DVVAL)
 }
 
-// decodeDataValue decodes one [DataValue] from the list at c, naming field in its errors.
-func decodeDataValue(c secs2.Cursor, field string) (DataValue, error) {
+// decodeDataValue decodes one [DataValue] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeDataValue(c secs2.Cursor, field string, cfg *decodeConfig) (DataValue, error) {
 	var g DataValue
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -494,13 +494,13 @@ func (g DataSet) Item() secs2.Item {
 	return secs2.L(g.DSID, secs2.L(groupItems(g.VALUES)...))
 }
 
-// decodeDataSet decodes one [DataSet] from the list at c, naming field in its errors.
-func decodeDataSet(c secs2.Cursor, field string) (DataSet, error) {
+// decodeDataSet decodes one [DataSet] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeDataSet(c secs2.Cursor, field string, cfg *decodeConfig) (DataSet, error) {
 	var g DataSet
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -508,7 +508,7 @@ func decodeDataSet(c secs2.Cursor, field string) (DataSet, error) {
 		return g, err
 	}
 
-	if g.VALUES, err = decodeEach(c.At(1), field+".VALUES", decodeDataValue); err != nil {
+	if g.VALUES, err = decodeEach(c.At(1), field+".VALUES", withConfig(cfg, decodeDataValue)); err != nil {
 		return g, err
 	}
 
@@ -531,13 +531,13 @@ func (g DataSetValues) Item() secs2.Item {
 	return secs2.L(g.DSID, secs2.L(g.VALUES...))
 }
 
-// decodeDataSetValues decodes one [DataSetValues] from the list at c, naming field in its errors.
-func decodeDataSetValues(c secs2.Cursor, field string) (DataSetValues, error) {
+// decodeDataSetValues decodes one [DataSetValues] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeDataSetValues(c secs2.Cursor, field string, cfg *decodeConfig) (DataSetValues, error) {
 	var g DataSetValues
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -568,13 +568,13 @@ func (g VariableValue) Item() secs2.Item {
 	return secs2.L(g.VID, g.V)
 }
 
-// decodeVariableValue decodes one [VariableValue] from the list at c, naming field in its errors.
-func decodeVariableValue(c secs2.Cursor, field string) (VariableValue, error) {
+// decodeVariableValue decodes one [VariableValue] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeVariableValue(c secs2.Cursor, field string, cfg *decodeConfig) (VariableValue, error) {
 	var g VariableValue
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -605,13 +605,13 @@ func (g AnnotatedReport) Item() secs2.Item {
 	return secs2.L(g.RPTID, secs2.L(groupItems(g.VALUES)...))
 }
 
-// decodeAnnotatedReport decodes one [AnnotatedReport] from the list at c, naming field in its errors.
-func decodeAnnotatedReport(c secs2.Cursor, field string) (AnnotatedReport, error) {
+// decodeAnnotatedReport decodes one [AnnotatedReport] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeAnnotatedReport(c secs2.Cursor, field string, cfg *decodeConfig) (AnnotatedReport, error) {
 	var g AnnotatedReport
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -619,7 +619,7 @@ func decodeAnnotatedReport(c secs2.Cursor, field string) (AnnotatedReport, error
 		return g, err
 	}
 
-	if g.VALUES, err = decodeEach(c.At(1), field+".VALUES", decodeVariableValue); err != nil {
+	if g.VALUES, err = decodeEach(c.At(1), field+".VALUES", withConfig(cfg, decodeVariableValue)); err != nil {
 		return g, err
 	}
 
@@ -642,13 +642,13 @@ func (g MapRow) Item() secs2.Item {
 	return secs2.L(g.RSINF, g.BINLT)
 }
 
-// decodeMapRow decodes one [MapRow] from the list at c, naming field in its errors.
-func decodeMapRow(c secs2.Cursor, field string) (MapRow, error) {
+// decodeMapRow decodes one [MapRow] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeMapRow(c secs2.Cursor, field string, cfg *decodeConfig) (MapRow, error) {
 	var g MapRow
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -679,13 +679,13 @@ func (g MapPosition) Item() secs2.Item {
 	return secs2.L(g.XYPOS, g.BINLT)
 }
 
-// decodeMapPosition decodes one [MapPosition] from the list at c, naming field in its errors.
-func decodeMapPosition(c secs2.Cursor, field string) (MapPosition, error) {
+// decodeMapPosition decodes one [MapPosition] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeMapPosition(c secs2.Cursor, field string, cfg *decodeConfig) (MapPosition, error) {
 	var g MapPosition
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -716,13 +716,13 @@ func (g ObjectAttributes) Item() secs2.Item {
 	return secs2.L(g.OBJID, secs2.L(groupItems(g.ATTRS)...))
 }
 
-// decodeObjectAttributes decodes one [ObjectAttributes] from the list at c, naming field in its errors.
-func decodeObjectAttributes(c secs2.Cursor, field string) (ObjectAttributes, error) {
+// decodeObjectAttributes decodes one [ObjectAttributes] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeObjectAttributes(c secs2.Cursor, field string, cfg *decodeConfig) (ObjectAttributes, error) {
 	var g ObjectAttributes
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -730,7 +730,7 @@ func decodeObjectAttributes(c secs2.Cursor, field string) (ObjectAttributes, err
 		return g, err
 	}
 
-	if g.ATTRS, err = decodeEach(c.At(1), field+".ATTRS", decodeAttribute); err != nil {
+	if g.ATTRS, err = decodeEach(c.At(1), field+".ATTRS", withConfig(cfg, decodeAttribute)); err != nil {
 		return g, err
 	}
 
@@ -754,13 +754,13 @@ func (g TraceError) Item() secs2.Item {
 	return secs2.L(g.TRID, g.ERRCODE, secs2.A(g.ERRTEXT))
 }
 
-// decodeTraceError decodes one [TraceError] from the list at c, naming field in its errors.
-func decodeTraceError(c secs2.Cursor, field string) (TraceError, error) {
+// decodeTraceError decodes one [TraceError] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeTraceError(c secs2.Cursor, field string, cfg *decodeConfig) (TraceError, error) {
 	var g TraceError
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -796,13 +796,13 @@ func (g ReportError) Item() secs2.Item {
 	return secs2.L(g.RPTID, g.ERRCODE, secs2.A(g.ERRTEXT))
 }
 
-// decodeReportError decodes one [ReportError] from the list at c, naming field in its errors.
-func decodeReportError(c secs2.Cursor, field string) (ReportError, error) {
+// decodeReportError decodes one [ReportError] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeReportError(c secs2.Cursor, field string, cfg *decodeConfig) (ReportError, error) {
 	var g ReportError
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -838,13 +838,13 @@ func (g PortError) Item() secs2.Item {
 	return secs2.L(g.PTN, g.ERRCODE, secs2.A(g.ERRTEXT))
 }
 
-// decodePortError decodes one [PortError] from the list at c, naming field in its errors.
-func decodePortError(c secs2.Cursor, field string) (PortError, error) {
+// decodePortError decodes one [PortError] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePortError(c secs2.Cursor, field string, cfg *decodeConfig) (PortError, error) {
 	var g PortError
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -880,13 +880,13 @@ func (g StatusVariableName) Item() secs2.Item {
 	return secs2.L(g.SVID, secs2.A(g.SVNAME), secs2.A(g.UNITS))
 }
 
-// decodeStatusVariableName decodes one [StatusVariableName] from the list at c, naming field in its errors.
-func decodeStatusVariableName(c secs2.Cursor, field string) (StatusVariableName, error) {
+// decodeStatusVariableName decodes one [StatusVariableName] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeStatusVariableName(c secs2.Cursor, field string, cfg *decodeConfig) (StatusVariableName, error) {
 	var g StatusVariableName
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -922,13 +922,13 @@ func (g DataVariableName) Item() secs2.Item {
 	return secs2.L(g.VID, secs2.A(g.DVVALNAME), secs2.A(g.UNITS))
 }
 
-// decodeDataVariableName decodes one [DataVariableName] from the list at c, naming field in its errors.
-func decodeDataVariableName(c secs2.Cursor, field string) (DataVariableName, error) {
+// decodeDataVariableName decodes one [DataVariableName] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeDataVariableName(c secs2.Cursor, field string, cfg *decodeConfig) (DataVariableName, error) {
 	var g DataVariableName
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -964,13 +964,13 @@ func (g CollectionEventName) Item() secs2.Item {
 	return secs2.L(g.CEID, secs2.A(g.CENAME), secs2.L(g.VIDS...))
 }
 
-// decodeCollectionEventName decodes one [CollectionEventName] from the list at c, naming field in its errors.
-func decodeCollectionEventName(c secs2.Cursor, field string) (CollectionEventName, error) {
+// decodeCollectionEventName decodes one [CollectionEventName] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeCollectionEventName(c secs2.Cursor, field string, cfg *decodeConfig) (CollectionEventName, error) {
 	var g CollectionEventName
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -1005,13 +1005,13 @@ func (g ConstantValue) Item() secs2.Item {
 	return secs2.L(g.ECID, g.ECV)
 }
 
-// decodeConstantValue decodes one [ConstantValue] from the list at c, naming field in its errors.
-func decodeConstantValue(c secs2.Cursor, field string) (ConstantValue, error) {
+// decodeConstantValue decodes one [ConstantValue] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeConstantValue(c secs2.Cursor, field string, cfg *decodeConfig) (ConstantValue, error) {
 	var g ConstantValue
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1046,13 +1046,13 @@ func (g ConstantName) Item() secs2.Item {
 	return secs2.L(g.ECID, secs2.A(g.ECNAME), g.ECMIN, g.ECMAX, g.ECDEF, secs2.A(g.UNITS))
 }
 
-// decodeConstantName decodes one [ConstantName] from the list at c, naming field in its errors.
-func decodeConstantName(c secs2.Cursor, field string) (ConstantName, error) {
+// decodeConstantName decodes one [ConstantName] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeConstantName(c secs2.Cursor, field string, cfg *decodeConfig) (ConstantName, error) {
 	var g ConstantName
 
 	var err error
 
-	if err = requireArity(c, field, 6); err != nil {
+	if err = requireArity(c, field, 6, cfg); err != nil {
 		return g, err
 	}
 
@@ -1099,13 +1099,13 @@ func (g ReportDefinition) Item() secs2.Item {
 	return secs2.L(g.RPTID, secs2.L(g.VIDS...))
 }
 
-// decodeReportDefinition decodes one [ReportDefinition] from the list at c, naming field in its errors.
-func decodeReportDefinition(c secs2.Cursor, field string) (ReportDefinition, error) {
+// decodeReportDefinition decodes one [ReportDefinition] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeReportDefinition(c secs2.Cursor, field string, cfg *decodeConfig) (ReportDefinition, error) {
 	var g ReportDefinition
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1136,13 +1136,13 @@ func (g EventLink) Item() secs2.Item {
 	return secs2.L(g.CEID, secs2.L(g.RPTIDS...))
 }
 
-// decodeEventLink decodes one [EventLink] from the list at c, naming field in its errors.
-func decodeEventLink(c secs2.Cursor, field string) (EventLink, error) {
+// decodeEventLink decodes one [EventLink] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeEventLink(c secs2.Cursor, field string, cfg *decodeConfig) (EventLink, error) {
 	var g EventLink
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1173,13 +1173,13 @@ func (g CommandParamAck) Item() secs2.Item {
 	return secs2.L(g.CPNAME, secs2.B(byte(g.CPACK)))
 }
 
-// decodeCommandParamAck decodes one [CommandParamAck] from the list at c, naming field in its errors.
-func decodeCommandParamAck(c secs2.Cursor, field string) (CommandParamAck, error) {
+// decodeCommandParamAck decodes one [CommandParamAck] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeCommandParamAck(c secs2.Cursor, field string, cfg *decodeConfig) (CommandParamAck, error) {
 	var g CommandParamAck
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1210,13 +1210,13 @@ func (g SpoolStream) Item() secs2.Item {
 	return secs2.L(secs2.U1(g.STRID), secs2.L(valueItems(g.FCNIDS, func(v uint8) secs2.Item { return secs2.U1(v) })...))
 }
 
-// decodeSpoolStream decodes one [SpoolStream] from the list at c, naming field in its errors.
-func decodeSpoolStream(c secs2.Cursor, field string) (SpoolStream, error) {
+// decodeSpoolStream decodes one [SpoolStream] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeSpoolStream(c secs2.Cursor, field string, cfg *decodeConfig) (SpoolStream, error) {
 	var g SpoolStream
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1248,13 +1248,13 @@ func (g SpoolStreamAck) Item() secs2.Item {
 	return secs2.L(secs2.U1(g.STRID), secs2.B(byte(g.STRACK)), secs2.L(valueItems(g.FCNIDS, func(v uint8) secs2.Item { return secs2.U1(v) })...))
 }
 
-// decodeSpoolStreamAck decodes one [SpoolStreamAck] from the list at c, naming field in its errors.
-func decodeSpoolStreamAck(c secs2.Cursor, field string) (SpoolStreamAck, error) {
+// decodeSpoolStreamAck decodes one [SpoolStreamAck] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeSpoolStreamAck(c secs2.Cursor, field string, cfg *decodeConfig) (SpoolStreamAck, error) {
 	var g SpoolStreamAck
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -1289,13 +1289,13 @@ func (g Deadband) Item() secs2.Item {
 	return secs2.L(g.UPPERDB, g.LOWERDB)
 }
 
-// decodeDeadband decodes one [Deadband] from the list at c, naming field in its errors.
-func decodeDeadband(c secs2.Cursor, field string) (Deadband, error) {
+// decodeDeadband decodes one [Deadband] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeDeadband(c secs2.Cursor, field string, cfg *decodeConfig) (Deadband, error) {
 	var g Deadband
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1327,13 +1327,13 @@ func (g Limit) Item() secs2.Item {
 	return secs2.L(secs2.B(g.LIMITID), optionalGroupItem(g.DEADBAND))
 }
 
-// decodeLimit decodes one [Limit] from the list at c, naming field in its errors.
-func decodeLimit(c secs2.Cursor, field string) (Limit, error) {
+// decodeLimit decodes one [Limit] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeLimit(c secs2.Cursor, field string, cfg *decodeConfig) (Limit, error) {
 	var g Limit
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1341,7 +1341,7 @@ func decodeLimit(c secs2.Cursor, field string) (Limit, error) {
 		return g, err
 	}
 
-	if g.DEADBAND, err = decodeOptionalGroup(c.At(1), field+".DEADBAND", 2, decodeDeadband); err != nil {
+	if g.DEADBAND, err = decodeOptionalGroup(c.At(1), field+".DEADBAND", 2, cfg, decodeDeadband); err != nil {
 		return g, err
 	}
 
@@ -1364,13 +1364,13 @@ func (g VariableLimits) Item() secs2.Item {
 	return secs2.L(g.VID, secs2.L(groupItems(g.LIMITS)...))
 }
 
-// decodeVariableLimits decodes one [VariableLimits] from the list at c, naming field in its errors.
-func decodeVariableLimits(c secs2.Cursor, field string) (VariableLimits, error) {
+// decodeVariableLimits decodes one [VariableLimits] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeVariableLimits(c secs2.Cursor, field string, cfg *decodeConfig) (VariableLimits, error) {
 	var g VariableLimits
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1378,7 +1378,7 @@ func decodeVariableLimits(c secs2.Cursor, field string) (VariableLimits, error) 
 		return g, err
 	}
 
-	if g.LIMITS, err = decodeEach(c.At(1), field+".LIMITS", decodeLimit); err != nil {
+	if g.LIMITS, err = decodeEach(c.At(1), field+".LIMITS", withConfig(cfg, decodeLimit)); err != nil {
 		return g, err
 	}
 
@@ -1401,13 +1401,13 @@ func (g LimitAck) Item() secs2.Item {
 	return secs2.L(secs2.B(g.LIMITID), secs2.B(byte(g.LIMITACK)))
 }
 
-// decodeLimitAck decodes one [LimitAck] from the list at c, naming field in its errors.
-func decodeLimitAck(c secs2.Cursor, field string) (LimitAck, error) {
+// decodeLimitAck decodes one [LimitAck] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeLimitAck(c secs2.Cursor, field string, cfg *decodeConfig) (LimitAck, error) {
 	var g LimitAck
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1440,13 +1440,13 @@ func (g VariableLimitAck) Item() secs2.Item {
 	return secs2.L(g.VID, secs2.B(byte(g.LVACK)), optionalGroupItem(g.LIMIT))
 }
 
-// decodeVariableLimitAck decodes one [VariableLimitAck] from the list at c, naming field in its errors.
-func decodeVariableLimitAck(c secs2.Cursor, field string) (VariableLimitAck, error) {
+// decodeVariableLimitAck decodes one [VariableLimitAck] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeVariableLimitAck(c secs2.Cursor, field string, cfg *decodeConfig) (VariableLimitAck, error) {
 	var g VariableLimitAck
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -1458,7 +1458,7 @@ func decodeVariableLimitAck(c secs2.Cursor, field string) (VariableLimitAck, err
 		return g, err
 	}
 
-	if g.LIMIT, err = decodeOptionalGroup(c.At(2), field+".LIMIT", 2, decodeLimitAck); err != nil {
+	if g.LIMIT, err = decodeOptionalGroup(c.At(2), field+".LIMIT", 2, cfg, decodeLimitAck); err != nil {
 		return g, err
 	}
 
@@ -1482,13 +1482,13 @@ func (g LimitValues) Item() secs2.Item {
 	return secs2.L(secs2.B(g.LIMITID), g.UPPERDB, g.LOWERDB)
 }
 
-// decodeLimitValues decodes one [LimitValues] from the list at c, naming field in its errors.
-func decodeLimitValues(c secs2.Cursor, field string) (LimitValues, error) {
+// decodeLimitValues decodes one [LimitValues] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeLimitValues(c secs2.Cursor, field string, cfg *decodeConfig) (LimitValues, error) {
 	var g LimitValues
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -1526,13 +1526,13 @@ func (g LimitAttributes) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UNITS), g.LIMITMIN, g.LIMITMAX, secs2.L(groupItems(g.LIMITS)...))
 }
 
-// decodeLimitAttributes decodes one [LimitAttributes] from the list at c, naming field in its errors.
-func decodeLimitAttributes(c secs2.Cursor, field string) (LimitAttributes, error) {
+// decodeLimitAttributes decodes one [LimitAttributes] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeLimitAttributes(c secs2.Cursor, field string, cfg *decodeConfig) (LimitAttributes, error) {
 	var g LimitAttributes
 
 	var err error
 
-	if err = requireArity(c, field, 4); err != nil {
+	if err = requireArity(c, field, 4, cfg); err != nil {
 		return g, err
 	}
 
@@ -1548,7 +1548,7 @@ func decodeLimitAttributes(c secs2.Cursor, field string) (LimitAttributes, error
 		return g, err
 	}
 
-	if g.LIMITS, err = decodeEach(c.At(3), field+".LIMITS", decodeLimitValues); err != nil {
+	if g.LIMITS, err = decodeEach(c.At(3), field+".LIMITS", withConfig(cfg, decodeLimitValues)); err != nil {
 		return g, err
 	}
 
@@ -1572,13 +1572,13 @@ func (g VariableLimitAttributes) Item() secs2.Item {
 	return secs2.L(g.VID, optionalGroupItem(g.ATTRIBUTES))
 }
 
-// decodeVariableLimitAttributes decodes one [VariableLimitAttributes] from the list at c, naming field in its errors.
-func decodeVariableLimitAttributes(c secs2.Cursor, field string) (VariableLimitAttributes, error) {
+// decodeVariableLimitAttributes decodes one [VariableLimitAttributes] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeVariableLimitAttributes(c secs2.Cursor, field string, cfg *decodeConfig) (VariableLimitAttributes, error) {
 	var g VariableLimitAttributes
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1586,7 +1586,7 @@ func decodeVariableLimitAttributes(c secs2.Cursor, field string) (VariableLimitA
 		return g, err
 	}
 
-	if g.ATTRIBUTES, err = decodeOptionalGroup(c.At(1), field+".ATTRIBUTES", 4, decodeLimitAttributes); err != nil {
+	if g.ATTRIBUTES, err = decodeOptionalGroup(c.At(1), field+".ATTRIBUTES", 4, cfg, decodeLimitAttributes); err != nil {
 		return g, err
 	}
 
@@ -1610,13 +1610,13 @@ func (g MaterialLocation) Item() secs2.Item {
 	return secs2.L(secs2.B(g.LOC), secs2.B(g.QUA), g.MID)
 }
 
-// decodeMaterialLocation decodes one [MaterialLocation] from the list at c, naming field in its errors.
-func decodeMaterialLocation(c secs2.Cursor, field string) (MaterialLocation, error) {
+// decodeMaterialLocation decodes one [MaterialLocation] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeMaterialLocation(c secs2.Cursor, field string, cfg *decodeConfig) (MaterialLocation, error) {
 	var g MaterialLocation
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -1653,13 +1653,13 @@ func (g MaterialTimeToCompletion) Item() secs2.Item {
 	return secs2.L(g.TTC, secs2.B(g.QUA), g.MID)
 }
 
-// decodeMaterialTimeToCompletion decodes one [MaterialTimeToCompletion] from the list at c, naming field in its errors.
-func decodeMaterialTimeToCompletion(c secs2.Cursor, field string) (MaterialTimeToCompletion, error) {
+// decodeMaterialTimeToCompletion decodes one [MaterialTimeToCompletion] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeMaterialTimeToCompletion(c secs2.Cursor, field string, cfg *decodeConfig) (MaterialTimeToCompletion, error) {
 	var g MaterialTimeToCompletion
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -1694,13 +1694,13 @@ func (g CarrierAttribute) Item() secs2.Item {
 	return secs2.L(secs2.A(g.CATTRID), g.CATTRDATA)
 }
 
-// decodeCarrierAttribute decodes one [CarrierAttribute] from the list at c, naming field in its errors.
-func decodeCarrierAttribute(c secs2.Cursor, field string) (CarrierAttribute, error) {
+// decodeCarrierAttribute decodes one [CarrierAttribute] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeCarrierAttribute(c secs2.Cursor, field string, cfg *decodeConfig) (CarrierAttribute, error) {
 	var g CarrierAttribute
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1732,13 +1732,13 @@ func (g ReticleRemoval) Item() secs2.Item {
 	return secs2.L(secs2.A(g.RETICLEID), secs2.U1(uint8(g.RETREMOVEINSTR)), secs2.L(groupItems(g.RETICLEATTRIBUTES)...))
 }
 
-// decodeReticleRemoval decodes one [ReticleRemoval] from the list at c, naming field in its errors.
-func decodeReticleRemoval(c secs2.Cursor, field string) (ReticleRemoval, error) {
+// decodeReticleRemoval decodes one [ReticleRemoval] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeReticleRemoval(c secs2.Cursor, field string, cfg *decodeConfig) (ReticleRemoval, error) {
 	var g ReticleRemoval
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -1750,7 +1750,7 @@ func decodeReticleRemoval(c secs2.Cursor, field string) (ReticleRemoval, error) 
 		return g, err
 	}
 
-	if g.RETICLEATTRIBUTES, err = decodeEach(c.At(2), field+".RETICLEATTRIBUTES", decodeAttribute); err != nil {
+	if g.RETICLEATTRIBUTES, err = decodeEach(c.At(2), field+".RETICLEATTRIBUTES", withConfig(cfg, decodeAttribute)); err != nil {
 		return g, err
 	}
 
@@ -1773,13 +1773,13 @@ func (g ReticlePlacement) Item() secs2.Item {
 	return secs2.L(secs2.A(g.RETICLEID), secs2.U1(uint8(g.RETPLACEINSTR)))
 }
 
-// decodeReticlePlacement decodes one [ReticlePlacement] from the list at c, naming field in its errors.
-func decodeReticlePlacement(c secs2.Cursor, field string) (ReticlePlacement, error) {
+// decodeReticlePlacement decodes one [ReticlePlacement] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeReticlePlacement(c secs2.Cursor, field string, cfg *decodeConfig) (ReticlePlacement, error) {
 	var g ReticlePlacement
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -1820,13 +1820,13 @@ func (g TransferJob) Item() secs2.Item {
 	return secs2.L(g.TRLINK, g.TRPORT, secs2.A(g.TROBJNAME), g.TROBJTYPE, secs2.U1(uint8(g.TRROLE)), secs2.A(g.TRRCP), secs2.A(g.TRPTNR), g.TRPTPORT, secs2.U1(uint8(g.TRDIR)), secs2.U1(uint8(g.TRTYPE)), g.TRLOCATION, secs2.BOOLEAN(g.TRAUTOSTART))
 }
 
-// decodeTransferJob decodes one [TransferJob] from the list at c, naming field in its errors.
-func decodeTransferJob(c secs2.Cursor, field string) (TransferJob, error) {
+// decodeTransferJob decodes one [TransferJob] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeTransferJob(c secs2.Cursor, field string, cfg *decodeConfig) (TransferJob, error) {
 	var g TransferJob
 
 	var err error
 
-	if err = requireArity(c, field, 12); err != nil {
+	if err = requireArity(c, field, 12, cfg); err != nil {
 		return g, err
 	}
 
@@ -1906,13 +1906,13 @@ func (g ProcessCommandDefinition) Item() secs2.Item {
 	return secs2.L(g.CCODE, secs2.A(g.CNAME), secs2.BOOLEAN(g.RQCMD), g.BLKDEF, g.BCDS, g.IBCDS, g.NBCDS, g.ACDS, g.IACDS, g.NACDS, secs2.L(g.PARAMETERS...))
 }
 
-// decodeProcessCommandDefinition decodes one [ProcessCommandDefinition] from the list at c, naming field in its errors.
-func decodeProcessCommandDefinition(c secs2.Cursor, field string) (ProcessCommandDefinition, error) {
+// decodeProcessCommandDefinition decodes one [ProcessCommandDefinition] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeProcessCommandDefinition(c secs2.Cursor, field string, cfg *decodeConfig) (ProcessCommandDefinition, error) {
 	var g ProcessCommandDefinition
 
 	var err error
 
-	if err = requireArity(c, field, 11); err != nil {
+	if err = requireArity(c, field, 11, cfg); err != nil {
 		return g, err
 	}
 
@@ -1980,13 +1980,13 @@ func (g ProgramError) Item() secs2.Item {
 	return secs2.L(g.ACKC7A, g.SEQNUM, secs2.A(g.ERRW7))
 }
 
-// decodeProgramError decodes one [ProgramError] from the list at c, naming field in its errors.
-func decodeProgramError(c secs2.Cursor, field string) (ProgramError, error) {
+// decodeProgramError decodes one [ProgramError] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeProgramError(c secs2.Cursor, field string, cfg *decodeConfig) (ProgramError, error) {
 	var g ProgramError
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -2022,13 +2022,13 @@ func (g AttributeQualifier) Item() secs2.Item {
 	return secs2.L(g.ATTRID, g.ATTRDATA, secs2.U1(uint8(g.ATTRRELN)))
 }
 
-// decodeAttributeQualifier decodes one [AttributeQualifier] from the list at c, naming field in its errors.
-func decodeAttributeQualifier(c secs2.Cursor, field string) (AttributeQualifier, error) {
+// decodeAttributeQualifier decodes one [AttributeQualifier] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeAttributeQualifier(c secs2.Cursor, field string, cfg *decodeConfig) (AttributeQualifier, error) {
 	var g AttributeQualifier
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -2063,13 +2063,13 @@ func (g ObjectTypeAttributes) Item() secs2.Item {
 	return secs2.L(g.OBJTYPE, secs2.L(g.ATTRIDS...))
 }
 
-// decodeObjectTypeAttributes decodes one [ObjectTypeAttributes] from the list at c, naming field in its errors.
-func decodeObjectTypeAttributes(c secs2.Cursor, field string) (ObjectTypeAttributes, error) {
+// decodeObjectTypeAttributes decodes one [ObjectTypeAttributes] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeObjectTypeAttributes(c secs2.Cursor, field string, cfg *decodeConfig) (ObjectTypeAttributes, error) {
 	var g ObjectTypeAttributes
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -2100,13 +2100,13 @@ func (g ObjectTypeServices) Item() secs2.Item {
 	return secs2.L(g.OBJTYPE, secs2.L(valueItems(g.SVCNAMES, func(v SVCNAME) secs2.Item { return secs2.A(string(v)) })...))
 }
 
-// decodeObjectTypeServices decodes one [ObjectTypeServices] from the list at c, naming field in its errors.
-func decodeObjectTypeServices(c secs2.Cursor, field string) (ObjectTypeServices, error) {
+// decodeObjectTypeServices decodes one [ObjectTypeServices] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeObjectTypeServices(c secs2.Cursor, field string, cfg *decodeConfig) (ObjectTypeServices, error) {
 	var g ObjectTypeServices
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -2137,13 +2137,13 @@ func (g ServiceParams) Item() secs2.Item {
 	return secs2.L(secs2.A(string(g.SVCNAME)), secs2.L(valueItems(g.SPNAMES, secs2.A)...))
 }
 
-// decodeServiceParams decodes one [ServiceParams] from the list at c, naming field in its errors.
-func decodeServiceParams(c secs2.Cursor, field string) (ServiceParams, error) {
+// decodeServiceParams decodes one [ServiceParams] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeServiceParams(c secs2.Cursor, field string, cfg *decodeConfig) (ServiceParams, error) {
 	var g ServiceParams
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -2178,13 +2178,13 @@ func (g RecipeDescriptor) Item() secs2.Item {
 	return secs2.L(secs2.A(string(g.RCPDESCNM)), secs2.A(g.RCPDESCTIME), g.RCPDESCLTH)
 }
 
-// decodeRecipeDescriptor decodes one [RecipeDescriptor] from the list at c, naming field in its errors.
-func decodeRecipeDescriptor(c secs2.Cursor, field string) (RecipeDescriptor, error) {
+// decodeRecipeDescriptor decodes one [RecipeDescriptor] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeRecipeDescriptor(c secs2.Cursor, field string, cfg *decodeConfig) (RecipeDescriptor, error) {
 	var g RecipeDescriptor
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -2223,13 +2223,13 @@ func (g RecipeParamRule) Item() secs2.Item {
 	return secs2.L(secs2.A(g.RCPPARNM), g.RCPPARVAL, secs2.A(g.RCPPARRULE))
 }
 
-// decodeRecipeParamRule decodes one [RecipeParamRule] from the list at c, naming field in its errors.
-func decodeRecipeParamRule(c secs2.Cursor, field string) (RecipeParamRule, error) {
+// decodeRecipeParamRule decodes one [RecipeParamRule] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeRecipeParamRule(c secs2.Cursor, field string, cfg *decodeConfig) (RecipeParamRule, error) {
 	var g RecipeParamRule
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -2264,13 +2264,13 @@ func (g RecipeSelection) Item() secs2.Item {
 	return secs2.L(secs2.A(g.RCPID), secs2.L(groupItems(g.PARAMETERS)...))
 }
 
-// decodeRecipeSelection decodes one [RecipeSelection] from the list at c, naming field in its errors.
-func decodeRecipeSelection(c secs2.Cursor, field string) (RecipeSelection, error) {
+// decodeRecipeSelection decodes one [RecipeSelection] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeRecipeSelection(c secs2.Cursor, field string, cfg *decodeConfig) (RecipeSelection, error) {
 	var g RecipeSelection
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -2278,7 +2278,7 @@ func decodeRecipeSelection(c secs2.Cursor, field string) (RecipeSelection, error
 		return g, err
 	}
 
-	if g.PARAMETERS, err = decodeEach(c.At(1), field+".PARAMETERS", decodeRecipeParam); err != nil {
+	if g.PARAMETERS, err = decodeEach(c.At(1), field+".PARAMETERS", withConfig(cfg, decodeRecipeParam)); err != nil {
 		return g, err
 	}
 
@@ -2306,13 +2306,13 @@ func (g RecipeChange) Item() secs2.Item {
 	return secs2.L(secs2.A(g.RCPID), secs2.A(g.RCPNEWID), secs2.A(g.RMSEGSPEC), g.RMCHGTYPE, g.OPID, secs2.A(g.TIMESTAMP), secs2.BOOLEAN(g.RMREQUESTOR))
 }
 
-// decodeRecipeChange decodes one [RecipeChange] from the list at c, naming field in its errors.
-func decodeRecipeChange(c secs2.Cursor, field string) (RecipeChange, error) {
+// decodeRecipeChange decodes one [RecipeChange] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeRecipeChange(c secs2.Cursor, field string, cfg *decodeConfig) (RecipeChange, error) {
 	var g RecipeChange
 
 	var err error
 
-	if err = requireArity(c, field, 7); err != nil {
+	if err = requireArity(c, field, 7, cfg); err != nil {
 		return g, err
 	}
 
@@ -2370,13 +2370,13 @@ func (g ProcessJob) Item() secs2.Item {
 	return secs2.L(secs2.A(g.PRJOBID), g.MF, g.MATERIAL, secs2.L(secs2.U1(uint8(g.PRRECIPEMETHOD)), secs2.A(g.RCPSPEC), secs2.L(groupItems(g.RECIPEPARAMS)...)), secs2.BOOLEAN(g.PRPROCESSSTART), g.PRPAUSEEVENT)
 }
 
-// decodeProcessJob decodes one [ProcessJob] from the list at c, naming field in its errors.
-func decodeProcessJob(c secs2.Cursor, field string) (ProcessJob, error) {
+// decodeProcessJob decodes one [ProcessJob] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeProcessJob(c secs2.Cursor, field string, cfg *decodeConfig) (ProcessJob, error) {
 	var g ProcessJob
 
 	var err error
 
-	if err = requireArity(c, field, 6); err != nil {
+	if err = requireArity(c, field, 6, cfg); err != nil {
 		return g, err
 	}
 
@@ -2392,7 +2392,7 @@ func decodeProcessJob(c secs2.Cursor, field string) (ProcessJob, error) {
 		return g, err
 	}
 
-	if err = requireArity(c.At(3), field+"[3]", 3); err != nil {
+	if err = requireArity(c.At(3), field+"[3]", 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -2404,7 +2404,7 @@ func decodeProcessJob(c secs2.Cursor, field string) (ProcessJob, error) {
 		return g, err
 	}
 
-	if g.RECIPEPARAMS, err = decodeEach(c.At(3, 2), field+".RECIPEPARAMS", decodeRecipeParam); err != nil {
+	if g.RECIPEPARAMS, err = decodeEach(c.At(3, 2), field+".RECIPEPARAMS", withConfig(cfg, decodeRecipeParam)); err != nil {
 		return g, err
 	}
 
@@ -2435,13 +2435,13 @@ func (g ProcessJobState) Item() secs2.Item {
 	return secs2.L(secs2.A(g.PRJOBID), secs2.U1(uint8(g.PRSTATE)))
 }
 
-// decodeProcessJobState decodes one [ProcessJobState] from the list at c, naming field in its errors.
-func decodeProcessJobState(c secs2.Cursor, field string) (ProcessJobState, error) {
+// decodeProcessJobState decodes one [ProcessJobState] from the list at c, with the decode options cfg, naming field in its errors.
+func decodeProcessJobState(c secs2.Cursor, field string, cfg *decodeConfig) (ProcessJobState, error) {
 	var g ProcessJobState
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -2473,13 +2473,13 @@ func (g PDEFilter) Item() secs2.Item {
 	return secs2.L(secs2.U1(uint8(g.PDEATTRIBUTENAME)), secs2.U1(uint8(g.COMPARISONOPERATOR)), g.PDEATTRIBUTEVALUE)
 }
 
-// decodePDEFilter decodes one [PDEFilter] from the list at c, naming field in its errors.
-func decodePDEFilter(c secs2.Cursor, field string) (PDEFilter, error) {
+// decodePDEFilter decodes one [PDEFilter] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePDEFilter(c secs2.Cursor, field string, cfg *decodeConfig) (PDEFilter, error) {
 	var g PDEFilter
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -2514,13 +2514,13 @@ func (g PDEAttributeValue) Item() secs2.Item {
 	return secs2.L(secs2.U1(uint8(g.PDEATTRIBUTE)), g.PDEATTRIBUTEVALUE)
 }
 
-// decodePDEAttributeValue decodes one [PDEAttributeValue] from the list at c, naming field in its errors.
-func decodePDEAttributeValue(c secs2.Cursor, field string) (PDEAttributeValue, error) {
+// decodePDEAttributeValue decodes one [PDEAttributeValue] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePDEAttributeValue(c secs2.Cursor, field string, cfg *decodeConfig) (PDEAttributeValue, error) {
 	var g PDEAttributeValue
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -2551,13 +2551,13 @@ func (g PDEAttributes) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.L(groupItems(g.ATTRIBUTES)...))
 }
 
-// decodePDEAttributes decodes one [PDEAttributes] from the list at c, naming field in its errors.
-func decodePDEAttributes(c secs2.Cursor, field string) (PDEAttributes, error) {
+// decodePDEAttributes decodes one [PDEAttributes] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePDEAttributes(c secs2.Cursor, field string, cfg *decodeConfig) (PDEAttributes, error) {
 	var g PDEAttributes
 
 	var err error
 
-	if err = requireArity(c, field, 2); err != nil {
+	if err = requireArity(c, field, 2, cfg); err != nil {
 		return g, err
 	}
 
@@ -2565,7 +2565,7 @@ func decodePDEAttributes(c secs2.Cursor, field string) (PDEAttributes, error) {
 		return g, err
 	}
 
-	if g.ATTRIBUTES, err = decodeEach(c.At(1), field+".ATTRIBUTES", decodePDEAttributeValue); err != nil {
+	if g.ATTRIBUTES, err = decodeEach(c.At(1), field+".ATTRIBUTES", withConfig(cfg, decodePDEAttributeValue)); err != nil {
 		return g, err
 	}
 
@@ -2589,13 +2589,13 @@ func (g PDEGetResult) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.GETRSPSTAT)), secs2.A(g.STATUSTXT))
 }
 
-// decodePDEGetResult decodes one [PDEGetResult] from the list at c, naming field in its errors.
-func decodePDEGetResult(c secs2.Cursor, field string) (PDEGetResult, error) {
+// decodePDEGetResult decodes one [PDEGetResult] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePDEGetResult(c secs2.Cursor, field string, cfg *decodeConfig) (PDEGetResult, error) {
 	var g PDEGetResult
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -2631,13 +2631,13 @@ func (g PDEDeleteResult) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.DELRSPSTAT)), secs2.A(g.STATUSTXT))
 }
 
-// decodePDEDeleteResult decodes one [PDEDeleteResult] from the list at c, naming field in its errors.
-func decodePDEDeleteResult(c secs2.Cursor, field string) (PDEDeleteResult, error) {
+// decodePDEDeleteResult decodes one [PDEDeleteResult] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePDEDeleteResult(c secs2.Cursor, field string, cfg *decodeConfig) (PDEDeleteResult, error) {
 	var g PDEDeleteResult
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -2674,13 +2674,13 @@ func (g PDESendResult) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.SENDRSPSTAT)), secs2.U1(uint8(g.VERIFYRSPSTAT)), secs2.A(g.STATUSTXT))
 }
 
-// decodePDESendResult decodes one [PDESendResult] from the list at c, naming field in its errors.
-func decodePDESendResult(c secs2.Cursor, field string) (PDESendResult, error) {
+// decodePDESendResult decodes one [PDESendResult] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePDESendResult(c secs2.Cursor, field string, cfg *decodeConfig) (PDESendResult, error) {
 	var g PDESendResult
 
 	var err error
 
-	if err = requireArity(c, field, 4); err != nil {
+	if err = requireArity(c, field, 4, cfg); err != nil {
 		return g, err
 	}
 
@@ -2720,13 +2720,13 @@ func (g PDEResolveResult) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.RESPDESTAT)), secs2.A(g.STATUSTXT))
 }
 
-// decodePDEResolveResult decodes one [PDEResolveResult] from the list at c, naming field in its errors.
-func decodePDEResolveResult(c secs2.Cursor, field string) (PDEResolveResult, error) {
+// decodePDEResolveResult decodes one [PDEResolveResult] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePDEResolveResult(c secs2.Cursor, field string, cfg *decodeConfig) (PDEResolveResult, error) {
 	var g PDEResolveResult
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 
@@ -2762,13 +2762,13 @@ func (g PDEVerifyResult) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.VERIFYRSPSTAT)), secs2.A(g.STATUSTXT))
 }
 
-// decodePDEVerifyResult decodes one [PDEVerifyResult] from the list at c, naming field in its errors.
-func decodePDEVerifyResult(c secs2.Cursor, field string) (PDEVerifyResult, error) {
+// decodePDEVerifyResult decodes one [PDEVerifyResult] from the list at c, with the decode options cfg, naming field in its errors.
+func decodePDEVerifyResult(c secs2.Cursor, field string, cfg *decodeConfig) (PDEVerifyResult, error) {
 	var g PDEVerifyResult
 
 	var err error
 
-	if err = requireArity(c, field, 3); err != nil {
+	if err = requireArity(c, field, 3, cfg); err != nil {
 		return g, err
 	}
 

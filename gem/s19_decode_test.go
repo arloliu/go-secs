@@ -10,93 +10,93 @@ import (
 )
 
 func init() {
-	registerFuzzDecoder("DecodeS19F1", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F1(item)
+	registerFuzzDecoder("DecodeS19F1", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F1(item, opts...)
 
 		return err
 	}, gem.S19F1([]gem.PDEFilter{{PDEATTRIBUTENAME: 50, COMPARISONOPERATOR: 31, PDEATTRIBUTEVALUE: secs2.A("pdeattributevalue")}}, 81).Item())
-	registerFuzzDecoder("DecodeS19F2", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F2(item)
+	registerFuzzDecoder("DecodeS19F2", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F2(item, opts...)
 
 		return err
 	}, gem.S19F2(62, "statustxt", gem.PDEAttributes{UID: "uid", ATTRIBUTES: []gem.PDEAttributeValue{{PDEATTRIBUTE: 6, PDEATTRIBUTEVALUE: secs2.A("pdeattributevalue")}}}).Item())
-	registerFuzzDecoder("DecodeS19F3", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F3(item)
+	registerFuzzDecoder("DecodeS19F3", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F3(item, opts...)
 
 		return err
 	}, gem.S19F3("uids").Item())
-	registerFuzzDecoder("DecodeS19F4", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F4(item)
+	registerFuzzDecoder("DecodeS19F4", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F4(item, opts...)
 
 		return err
 	}, gem.S19F4(gem.PDEDeleteResult{UID: "uid", DELRSPSTAT: 43, STATUSTXT: "statustxt"}).Item())
-	registerFuzzDecoder("DecodeS19F5", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F5(item)
+	registerFuzzDecoder("DecodeS19F5", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F5(item, opts...)
 
 		return err
 	}, gem.S19F5("uids").Item())
-	registerFuzzDecoder("DecodeS19F6", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F6(item)
+	registerFuzzDecoder("DecodeS19F6", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F6(item, opts...)
 
 		return err
 	}, gem.S19F6("tcid", gem.PDEGetResult{UID: "uid", GETRSPSTAT: 99, STATUSTXT: "statustxt"}).Item())
-	registerFuzzDecoder("DecodeS19F7", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F7(item)
+	registerFuzzDecoder("DecodeS19F7", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F7(item, opts...)
 
 		return err
 	}, gem.S19F7("uids").Item())
-	registerFuzzDecoder("DecodeS19F8", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F8(item)
+	registerFuzzDecoder("DecodeS19F8", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F8(item, opts...)
 
 		return err
 	}, gem.S19F8("tcid", gem.PDEGetResult{UID: "uid", GETRSPSTAT: 99, STATUSTXT: "statustxt"}).Item())
-	registerFuzzDecoder("DecodeS19F9", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F9(item)
+	registerFuzzDecoder("DecodeS19F9", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F9(item, opts...)
 
 		return err
 	}, gem.S19F9("tcid", 27).Item())
-	registerFuzzDecoder("DecodeS19F10", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F10(item)
+	registerFuzzDecoder("DecodeS19F10", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F10(item, opts...)
 
 		return err
 	}, gem.S19F10("tcid", 0, "statustxt").Item())
-	registerFuzzDecoder("DecodeS19F11", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F11(item)
+	registerFuzzDecoder("DecodeS19F11", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F11(item, opts...)
 
 		return err
 	}, gem.S19F11("tcid").Item())
-	registerFuzzDecoder("DecodeS19F13", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F13(item)
+	registerFuzzDecoder("DecodeS19F13", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F13(item, opts...)
 
 		return err
 	}, gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"}).Item())
-	registerFuzzDecoder("DecodeS19F15", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F15(item)
+	registerFuzzDecoder("DecodeS19F15", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F15(item, opts...)
 
 		return err
 	}, gem.S19F15("targetpde", gem.PDEReference{PDEREF: "pderef", RESOLUTION: "resolution"}).Item())
-	registerFuzzDecoder("DecodeS19F16", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F16(item)
+	registerFuzzDecoder("DecodeS19F16", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F16(item, opts...)
 
 		return err
 	}, gem.S19F16([]gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}}, gem.PDEResolveResult{UID: "uid", RESPDESTAT: 45, STATUSTXT: "statustxt"}).Item())
-	registerFuzzDecoder("DecodeS19F17", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F17(item)
+	registerFuzzDecoder("DecodeS19F17", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F17(item, opts...)
 
 		return err
 	}, gem.S19F17("targetpde", []gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}}, 93, 61).Item())
-	registerFuzzDecoder("DecodeS19F18", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F18(item)
+	registerFuzzDecoder("DecodeS19F18", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F18(item, opts...)
 
 		return err
 	}, gem.S19F18(true, gem.PDEVerifyResult{UID: "uid", VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"}).Item())
-	registerFuzzDecoder("DecodeS19F19", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F19(item)
+	registerFuzzDecoder("DecodeS19F19", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F19(item, opts...)
 
 		return err
 	}, gem.S19F19(secs2.A("datalength")).Item())
-	registerFuzzDecoder("DecodeS19F20", func(item secs2.Item) error {
-		_, err := gem.DecodeS19F20(item)
+	registerFuzzDecoder("DecodeS19F20", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS19F20(item, opts...)
 
 		return err
 	}, gem.S19F20(0xee).Item())

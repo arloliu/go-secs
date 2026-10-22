@@ -10,48 +10,48 @@ import (
 )
 
 func init() {
-	registerFuzzDecoder("DecodeS10F1", func(item secs2.Item) error {
-		_, err := gem.DecodeS10F1(item)
+	registerFuzzDecoder("DecodeS10F1", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS10F1(item, opts...)
 
 		return err
 	}, gem.S10F1(0x5d, secs2.A("text")).Item())
-	registerFuzzDecoder("DecodeS10F2", func(item secs2.Item) error {
-		_, err := gem.DecodeS10F2(item)
+	registerFuzzDecoder("DecodeS10F2", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS10F2(item, opts...)
 
 		return err
 	}, gem.S10F2(0x29).Item())
-	registerFuzzDecoder("DecodeS10F3", func(item secs2.Item) error {
-		_, err := gem.DecodeS10F3(item)
+	registerFuzzDecoder("DecodeS10F3", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS10F3(item, opts...)
 
 		return err
 	}, gem.S10F3(0x5d, secs2.A("text")).Item())
-	registerFuzzDecoder("DecodeS10F4", func(item secs2.Item) error {
-		_, err := gem.DecodeS10F4(item)
+	registerFuzzDecoder("DecodeS10F4", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS10F4(item, opts...)
 
 		return err
 	}, gem.S10F4(0x29).Item())
-	registerFuzzDecoder("DecodeS10F5", func(item secs2.Item) error {
-		_, err := gem.DecodeS10F5(item)
+	registerFuzzDecoder("DecodeS10F5", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS10F5(item, opts...)
 
 		return err
 	}, gem.S10F5(0x5d, secs2.A("texts")).Item())
-	registerFuzzDecoder("DecodeS10F6", func(item secs2.Item) error {
-		_, err := gem.DecodeS10F6(item)
+	registerFuzzDecoder("DecodeS10F6", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS10F6(item, opts...)
 
 		return err
 	}, gem.S10F6(0x29).Item())
-	registerFuzzDecoder("DecodeS10F7", func(item secs2.Item) error {
-		_, err := gem.DecodeS10F7(item)
+	registerFuzzDecoder("DecodeS10F7", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS10F7(item, opts...)
 
 		return err
 	}, gem.S10F7(0x5d).Item())
-	registerFuzzDecoder("DecodeS10F9", func(item secs2.Item) error {
-		_, err := gem.DecodeS10F9(item)
+	registerFuzzDecoder("DecodeS10F9", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS10F9(item, opts...)
 
 		return err
 	}, gem.S10F9(secs2.A("text")).Item())
-	registerFuzzDecoder("DecodeS10F10", func(item secs2.Item) error {
-		_, err := gem.DecodeS10F10(item)
+	registerFuzzDecoder("DecodeS10F10", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS10F10(item, opts...)
 
 		return err
 	}, gem.S10F10(0x29).Item())

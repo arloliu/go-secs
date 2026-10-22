@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and values in and out for repeated groups of one fixed-format item.
 - A named struct for each list shape a message repeats, such as `Report` and `ErrorInfo`,
   which builders take and decoders return, checked element by element.
+- Decoder options, starting with `AllowTrailing`, which accepts a list holding more items than E5 declares.
 - A fuzz target runs every generated decoder over arbitrary bytes.
 
 Several shipped `gem` signatures change; see Upgrade notes.
@@ -60,6 +61,10 @@ Several shipped `gem` signatures change; see Upgrade notes.
 - `gem`: a repeat whose elements are themselves lists of one shape is a slice of slices:
   `S1F20` takes `objects [][]secs2.Item`, and `S6F27` takes `samples ...[]Report`,
   one `[]Report` per trace sample; their result fields change the same way.
+- `gem`: every decoder takes options after the body, `DecodeSxFy(item secs2.Item, opts ...DecodeOption) (T, error)`.
+  A call such as `DecodeS6F11(item)` compiles unchanged,
+  but a decoder stored as a `func(secs2.Item) (T, error)` value no longer fits that type:
+  declare it as `func(secs2.Item, ...gem.DecodeOption) (T, error)`, or wrap the call in a closure.
 
 ### Added
 
@@ -93,7 +98,14 @@ Several shipped `gem` signatures change; see Upgrade notes.
   Every message that repeats a structured list uses them.
 - `gem`: `PRCMDNAMEStartProcess`, the SEMI E40 spelling of the process job start command, `STARTPROCESS`,
   which equipment following E40 expects instead of E5's `START`.
-- `gem`: `FuzzDecoders` runs every generated decoder over arbitrary wire bytes, and `make fuzz-test` covers `gem`.
+- `gem`: `DecodeOption`, which every decoder takes, and `AllowTrailing`, the first option:
+  a list of fixed length may hold more items than E5 declares, in the body or in a group,
+  and the decoder reads the declared ones and ignores the rest,
+  for equipment that appends its own items to a standard body, such as a captured S5F1 with a fourth item.
+  A list holding fewer items, or a list E5 lets be sent short with a length between its short and full forms, is still an error;
+  item formats and the lists E5 excludes are still checked.
+- `gem`: `FuzzDecoders` runs every generated decoder over arbitrary wire bytes, strictly and with `AllowTrailing`,
+  and `make fuzz-test` covers `gem`.
 
 ### Changed
 
@@ -124,6 +136,7 @@ Several shipped `gem` signatures change; see Upgrade notes.
   Only lists are rejected: an item in a format E5 does not list, such as an ASCII ALID or CEID, still decodes.
   `DecodeS2F14` alone accepts an empty list `L,0` as a constant value,
   which E5 defines there to mean the constant does not exist.
+- `gem`: every decoder takes `opts ...DecodeOption` after the body item (see Upgrade notes).
 
 ## [2.6.0] - 2026-09-28
 

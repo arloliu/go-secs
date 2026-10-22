@@ -53,6 +53,7 @@ type decoderView struct {
 	FuncName string        // "DecodeS1F14"
 	Fields   []decodeField // result-struct fields, in body order
 	Lines    []string      // pre-rendered Go statement lines of the decoder body
+	UsesCfg  bool          // whether Lines read the decode options, which the decoder then builds as cfg
 	TypeDoc  []string      // godoc lines for the result struct (without leading "// ")
 	FuncDoc  []string      // godoc lines for the decoder function (without leading "// ")
 }
@@ -144,8 +145,9 @@ func newDecoderView(stream int, m Message, b Body, items map[string]Item) (decod
 		FuncName: "Decode" + name,
 		Fields:   e.fields,
 		Lines:    e.lines,
+		UsesCfg:  e.usesCfg,
 		TypeDoc:  resultTypeDoc(typeName, code, name, m, b, items),
-		FuncDoc:  decoderDoc(typeName, code, name, m, b),
+		FuncDoc:  decoderDoc(typeName, code, name, m, b, e.usesCfg),
 	}, nil
 }
 
@@ -216,7 +218,17 @@ type decodeEmitter struct {
 	optionals []optionalLeaf
 	lines     []string
 	counter   int
-	params    int // builder parameters mirrored so far: the next value field's Param
+	params    int  // builder parameters mirrored so far: the next value field's Param
+	usesCfg   bool // whether a statement reads the decode options, so a message decoder must build cfg
+}
+
+// cfg renders the expression of the decode options the emitted statements pass on,
+// and records that they read them.
+// A message decoder builds cfg from its options; a group's decode function takes it as a parameter.
+func (e *decodeEmitter) cfg() string {
+	e.usesCfg = true
+
+	return "cfg"
 }
 
 // label renders the Go expression of the label the errors of the field name report.
@@ -333,7 +345,7 @@ func (e *decodeEmitter) emitNode(n *StructureNode, path []int) error {
 		// Only an optional reference sits outside a repeat, as a child of a group's fixed list.
 		name := nodeNames(n)
 		e.assign(e.field(name.Field, elemType(n, e.items), path),
-			fmt.Sprintf("decodeOptionalGroup(%s, %s, %d, decode%s)", e.pathExpr(path), e.label(name.Label), len(n.def.Structure.Items), n.Group))
+			fmt.Sprintf("decodeOptionalGroup(%s, %s, %d, %s, decode%s)", e.pathExpr(path), e.label(name.Label), len(n.def.Structure.Items), e.cfg(), n.Group))
 
 		return nil
 	default: // list
@@ -407,7 +419,7 @@ func (e *decodeEmitter) repeatCall(n *StructureNode, cursor string, label string
 // elemDecodeFunc renders the function that decodes one element of the repeat n
 // from a cursor and a label, as decodeEach calls it:
 // the decode helper a leaf of a fixed scalar element item uses,
-// a group's decode function, wrapped by optionalGroup when the element is optional,
+// a group's decode function bound to the decode options by withConfig, or by optionalGroup when the element is optional,
 // or, for a repeat element, the decoding of that inner repeat.
 func (e *decodeEmitter) elemDecodeFunc(n *StructureNode) (string, error) {
 	of := n.Of
@@ -415,10 +427,10 @@ func (e *decodeEmitter) elemDecodeFunc(n *StructureNode) (string, error) {
 	switch of.Kind() {
 	case "group":
 		if of.Optional {
-			return fmt.Sprintf("optionalGroup(%d, decode%s)", len(of.def.Structure.Items), of.Group), nil
+			return fmt.Sprintf("optionalGroup(%s, %d, decode%s)", e.cfg(), len(of.def.Structure.Items), of.Group), nil
 		}
 
-		return "decode" + of.Group, nil
+		return fmt.Sprintf("withConfig(%s, decode%s)", e.cfg(), of.Group), nil
 	case "list":
 		if elemType(of.Of, e.items) == "secs2.Item" {
 			if fn := itemDecodeFunc(of.Of, e.items); fn != "decodeItem" {
@@ -509,7 +521,7 @@ func (e *decodeEmitter) emitFixedList(n *StructureNode, path []int) error {
 
 	if short == full {
 		e.emit(
-			fmt.Sprintf("if err = requireArity(%s, %s, %d); err != nil {", e.pathExpr(path), e.listLabel(path), full),
+			fmt.Sprintf("if err = requireArity(%s, %s, %d, %s); err != nil {", e.pathExpr(path), e.listLabel(path), full, e.cfg()),
 			e.fail(),
 			"}",
 			"",
@@ -520,7 +532,7 @@ func (e *decodeEmitter) emitFixedList(n *StructureNode, path []int) error {
 
 	count := fmt.Sprintf("n%d", e.nextID())
 	e.emit(
-		fmt.Sprintf("%s, err := optionalArity(%s, %s, %d, %d)", count, e.pathExpr(path), e.listLabel(path), short, full),
+		fmt.Sprintf("%s, err := optionalArity(%s, %s, %d, %d, %s)", count, e.pathExpr(path), e.listLabel(path), short, full, e.cfg()),
 		"if err != nil {",
 		e.fail(),
 		"}",
@@ -540,6 +552,7 @@ func (e *decodeEmitter) emitFixedList(n *StructureNode, path []int) error {
 
 	e.counter = tail.counter
 	e.params = tail.params
+	e.usesCfg = e.usesCfg || tail.usesCfg
 	e.fields = append(e.fields, tail.fields...)
 	e.optionals = append(e.optionals, tail.optionals...)
 
@@ -830,13 +843,20 @@ func resultTypeDoc(typeName string, code string, mainName string, m Message, b B
 }
 
 // decoderDoc renders the godoc lines for a decoder function.
-func decoderDoc(typeName string, code string, mainName string, m Message, b Body) []string {
+// usesCfg says whether the decoder reads its options, which only a body with a list of fixed length does.
+func decoderDoc(typeName string, code string, mainName string, m Message, b Body, usesCfg bool) []string {
 	doc := []string{
 		fmt.Sprintf("Decode%s decodes the body of an %s (%s) message%s into a [%s].", mainName, code, m.Name, actorClause(b.Actor), typeName),
 		"",
 		"item is the message body, as returned by SECS2Message.Item.",
 		"The body must match the shape [" + typeName + "] documents:",
 		"a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.",
+	}
+
+	if usesCfg {
+		doc = append(doc, "With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.")
+	} else {
+		doc = append(doc, "No [DecodeOption] changes how it decodes: the body declares no list of fixed length.")
 	}
 
 	doc = append(doc, emptyListDoc(b.Structure, m)...)

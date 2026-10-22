@@ -135,7 +135,7 @@ func TestRenderDecodersOptionalGroup(t *testing.T) {
 		{Type: "list", MinItems: new(0), MaxItems: new(2), Items: []StructureNode{{Item: "ERRCODE"}, {Item: "ERRTEXT"}}},
 	}}, decoderItems())
 
-	require.Contains(t, src, `optionalArity(root.At(1), "S1F14 body[1]", 0, 2)`)
+	require.Contains(t, src, `optionalArity(root.At(1), "S1F14 body[1]", 0, 2, cfg)`)
 	require.Contains(t, src, "if n1 == 2 {")
 	require.Contains(t, src, `decodeScalarItem(root.At(1, 0), "ERRCODE")`)
 	require.Contains(t, src, `decodeASCII(root.At(1, 1), "ERRTEXT")`)
@@ -165,7 +165,26 @@ func TestRenderDecodersEmptyListBody(t *testing.T) {
 	src := renderOneDecoder(t, 2, "host", &StructureNode{Type: "list", Items: []StructureNode{}}, decoderItems())
 
 	require.Contains(t, src, "type S1F2HostReply struct{}")
-	require.Contains(t, src, `requireArity(root, "S1F2 body", 0)`)
+	require.Contains(t, src, `requireArity(root, "S1F2 body", 0, cfg)`)
+}
+
+// TestRenderDecodersTakeOptions proves every decoder takes decode options,
+// and builds them only when a statement passes them on:
+// a body with a list of fixed length checks its arity with them, and its godoc names AllowTrailing,
+// while a body with none, such as a repeat of single items, leaves them unread and says no option applies.
+func TestRenderDecodersTakeOptions(t *testing.T) {
+	fixed := renderOneDecoder(t, 2, "both", &StructureNode{Type: "list", Items: []StructureNode{{Item: "COMMACK"}, {Item: "RMACK"}}}, decoderItems())
+
+	require.Contains(t, fixed, "func DecodeS1F2(item secs2.Item, opts ...DecodeOption) (S1F2Reply, error) {")
+	require.Contains(t, fixed, "cfg := newDecodeConfig(opts)")
+	require.Contains(t, fixed, `requireArity(root, "S1F2 body", 2, cfg)`)
+	require.Contains(t, fixed, "// With [AllowTrailing], a list may hold more children than the shape declares")
+
+	repeat := renderOneDecoder(t, 2, "both", &StructureNode{Type: "list", Repeat: "svids", Of: &StructureNode{Item: "SVID"}}, decoderItems())
+
+	require.Contains(t, repeat, "func DecodeS1F2(item secs2.Item, opts ...DecodeOption) (S1F2Reply, error) {")
+	require.NotContains(t, repeat, "cfg")
+	require.Contains(t, repeat, "// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.")
 }
 
 // TestResultTypeName asserts the primary/secondary suffix and the host-variant infix.

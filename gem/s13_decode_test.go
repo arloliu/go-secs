@@ -10,73 +10,73 @@ import (
 )
 
 func init() {
-	registerFuzzDecoder("DecodeS13F1", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F1(item)
+	registerFuzzDecoder("DecodeS13F1", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F1(item, opts...)
 
 		return err
 	}, gem.S13F1("dsname").Item())
-	registerFuzzDecoder("DecodeS13F2", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F2(item)
+	registerFuzzDecoder("DecodeS13F2", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F2(item, opts...)
 
 		return err
 	}, gem.S13F2("dsname", 0x87).Item())
-	registerFuzzDecoder("DecodeS13F3", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F3(item)
+	registerFuzzDecoder("DecodeS13F3", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F3(item, opts...)
 
 		return err
 	}, gem.S13F3(secs2.A("handle"), "dsname", 25).Item())
-	registerFuzzDecoder("DecodeS13F4", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F4(item)
+	registerFuzzDecoder("DecodeS13F4", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F4(item, opts...)
 
 		return err
 	}, gem.S13F4(secs2.A("handle"), "dsname", 0x87, secs2.A("rtype"), secs2.A("reclen")).Item())
-	registerFuzzDecoder("DecodeS13F5", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F5(item)
+	registerFuzzDecoder("DecodeS13F5", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F5(item, opts...)
 
 		return err
 	}, gem.S13F5(secs2.A("handle"), secs2.A("readln")).Item())
-	registerFuzzDecoder("DecodeS13F6", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F6(item)
+	registerFuzzDecoder("DecodeS13F6", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F6(item, opts...)
 
 		return err
 	}, gem.S13F6(secs2.A("handle"), 0x87, 25, secs2.A("fildats")).Item())
-	registerFuzzDecoder("DecodeS13F7", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F7(item)
+	registerFuzzDecoder("DecodeS13F7", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F7(item, opts...)
 
 		return err
 	}, gem.S13F7(secs2.A("handle")).Item())
-	registerFuzzDecoder("DecodeS13F8", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F8(item)
+	registerFuzzDecoder("DecodeS13F8", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F8(item, opts...)
 
 		return err
 	}, gem.S13F8(secs2.A("handle"), 0x87).Item())
-	registerFuzzDecoder("DecodeS13F11", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F11(item)
+	registerFuzzDecoder("DecodeS13F11", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F11(item, opts...)
 
 		return err
 	}, gem.S13F11(secs2.A("dataid"), "objspec", secs2.A("datalength")).Item())
-	registerFuzzDecoder("DecodeS13F12", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F12(item)
+	registerFuzzDecoder("DecodeS13F12", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F12(item, opts...)
 
 		return err
 	}, gem.S13F12(0xee).Item())
-	registerFuzzDecoder("DecodeS13F13", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F13(item)
+	registerFuzzDecoder("DecodeS13F13", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F13(item, opts...)
 
 		return err
 	}, gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}, []string{"colhdrs"}, []secs2.Item{secs2.A("tblelts")}).Item())
-	registerFuzzDecoder("DecodeS13F14", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F14(item)
+	registerFuzzDecoder("DecodeS13F14", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F14(item, opts...)
 
 		return err
 	}, gem.S13F14(82, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
-	registerFuzzDecoder("DecodeS13F15", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F15(item)
+	registerFuzzDecoder("DecodeS13F15", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F15(item, opts...)
 
 		return err
 	}, gem.S13F15(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []string{"colhdrs"}, secs2.A("tblelts")).Item())
-	registerFuzzDecoder("DecodeS13F16", func(item secs2.Item) error {
-		_, err := gem.DecodeS13F16(item)
+	registerFuzzDecoder("DecodeS13F16", func(item secs2.Item, opts ...gem.DecodeOption) error {
+		_, err := gem.DecodeS13F16(item, opts...)
 
 		return err
 	}, gem.S13F16("tbltyp", "tblid", []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}, []string{"colhdrs"}, [][]secs2.Item{{secs2.A("tblelts")}}, 82, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())

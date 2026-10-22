@@ -334,8 +334,8 @@ func TestRenderDecodeTestsRegistersFuzzDecoders(t *testing.T) {
 	got := string(src)
 	require.Equal(t, 1, strings.Count(got, "registerFuzzDecoder("))
 	require.Contains(t, got, "func init() {\n"+
-		"\tregisterFuzzDecoder(\"DecodeS16F28\", func(item secs2.Item) error {\n"+
-		"\t\t_, err := gem.DecodeS16F28(item)\n"+
+		"\tregisterFuzzDecoder(\"DecodeS16F28\", func(item secs2.Item, opts ...gem.DecodeOption) error {\n"+
+		"\t\t_, err := gem.DecodeS16F28(item, opts...)\n"+
 		"\n"+
 		"\t\treturn err\n"+
 		"\t}, gem.S16F28(\"mdln\", \"softrev\", secs2.A(\"svid\")).Item())\n"+
