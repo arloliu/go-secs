@@ -161,6 +161,12 @@ type StructureNode struct {
 	// On a group reference it marks a list SEMI E5 lets be sent as L[0] instead:
 	// the field or element is then a pointer, nil for L[0].
 	Optional bool `yaml:"optional"`
+	// AllowEmptyList marks a leaf where SEMI E5 gives the zero-length list L[0] a meaning,
+	// although its item's formats exclude L, as S2F14 does for an equipment constant value.
+	// Its decoder then accepts L[0] as well as any non-list item; a list with children is still an error.
+	// It is valid only on a leaf of a binding: open item whose formats are declared and exclude L,
+	// whose decoder otherwise rejects every list.
+	AllowEmptyList bool `yaml:"allowEmptyList"`
 	// Group names the group of groups.yaml this node references.
 	Group string `yaml:"group"`
 

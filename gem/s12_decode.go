@@ -53,7 +53,7 @@ func DecodeS12F1(item secs2.Item) (S12F1Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
@@ -95,7 +95,7 @@ func DecodeS12F1(item secs2.Item) (S12F1Body, error) {
 		return out, err
 	}
 
-	if out.REFPS, err = decodeItems(root.At(6), "REFPS"); err != nil {
+	if out.REFPS, err = decodeEach(root.At(6), "REFPS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -103,27 +103,27 @@ func DecodeS12F1(item secs2.Item) (S12F1Body, error) {
 		return out, err
 	}
 
-	if out.XDIES, err = decodeItem(root.At(8), "XDIES"); err != nil {
+	if out.XDIES, err = decodeScalarItem(root.At(8), "XDIES"); err != nil {
 		return out, err
 	}
 
-	if out.YDIES, err = decodeItem(root.At(9), "YDIES"); err != nil {
+	if out.YDIES, err = decodeScalarItem(root.At(9), "YDIES"); err != nil {
 		return out, err
 	}
 
-	if out.ROWCT, err = decodeItem(root.At(10), "ROWCT"); err != nil {
+	if out.ROWCT, err = decodeScalarItem(root.At(10), "ROWCT"); err != nil {
 		return out, err
 	}
 
-	if out.COLCT, err = decodeItem(root.At(11), "COLCT"); err != nil {
+	if out.COLCT, err = decodeScalarItem(root.At(11), "COLCT"); err != nil {
 		return out, err
 	}
 
-	if out.NULBC, err = decodeItem(root.At(12), "NULBC"); err != nil {
+	if out.NULBC, err = decodeScalarItem(root.At(12), "NULBC"); err != nil {
 		return out, err
 	}
 
-	if out.PRDCT, err = decodeItem(root.At(13), "PRDCT"); err != nil {
+	if out.PRDCT, err = decodeScalarItem(root.At(13), "PRDCT"); err != nil {
 		return out, err
 	}
 
@@ -205,7 +205,7 @@ func DecodeS12F3(item secs2.Item) (S12F3Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
@@ -251,11 +251,11 @@ func DecodeS12F3(item secs2.Item) (S12F3Body, error) {
 		return out, err
 	}
 
-	if out.BCEQU, err = decodeItem(root.At(7), "BCEQU"); err != nil {
+	if out.BCEQU, err = decodeScalarItem(root.At(7), "BCEQU"); err != nil {
 		return out, err
 	}
 
-	if out.NULBC, err = decodeItem(root.At(8), "NULBC"); err != nil {
+	if out.NULBC, err = decodeScalarItem(root.At(8), "NULBC"); err != nil {
 		return out, err
 	}
 
@@ -312,7 +312,7 @@ func DecodeS12F4(item secs2.Item) (S12F4Reply, error) {
 	}
 
 	if n1 == 15 {
-		if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+		if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 			return out, err
 		}
 
@@ -344,7 +344,7 @@ func DecodeS12F4(item secs2.Item) (S12F4Reply, error) {
 			return out, err
 		}
 
-		if out.REFPS, err = decodeItems(root.At(5), "REFPS"); err != nil {
+		if out.REFPS, err = decodeEach(root.At(5), "REFPS", decodeScalarItem); err != nil {
 			return out, err
 		}
 
@@ -352,35 +352,35 @@ func DecodeS12F4(item secs2.Item) (S12F4Reply, error) {
 			return out, err
 		}
 
-		if out.XDIES, err = decodeItem(root.At(7), "XDIES"); err != nil {
+		if out.XDIES, err = decodeScalarItem(root.At(7), "XDIES"); err != nil {
 			return out, err
 		}
 
-		if out.YDIES, err = decodeItem(root.At(8), "YDIES"); err != nil {
+		if out.YDIES, err = decodeScalarItem(root.At(8), "YDIES"); err != nil {
 			return out, err
 		}
 
-		if out.ROWCT, err = decodeItem(root.At(9), "ROWCT"); err != nil {
+		if out.ROWCT, err = decodeScalarItem(root.At(9), "ROWCT"); err != nil {
 			return out, err
 		}
 
-		if out.COLCT, err = decodeItem(root.At(10), "COLCT"); err != nil {
+		if out.COLCT, err = decodeScalarItem(root.At(10), "COLCT"); err != nil {
 			return out, err
 		}
 
-		if out.PRDCT, err = decodeItem(root.At(11), "PRDCT"); err != nil {
+		if out.PRDCT, err = decodeScalarItem(root.At(11), "PRDCT"); err != nil {
 			return out, err
 		}
 
-		if out.BCEQU, err = decodeItem(root.At(12), "BCEQU"); err != nil {
+		if out.BCEQU, err = decodeScalarItem(root.At(12), "BCEQU"); err != nil {
 			return out, err
 		}
 
-		if out.NULBC, err = decodeItem(root.At(13), "NULBC"); err != nil {
+		if out.NULBC, err = decodeScalarItem(root.At(13), "NULBC"); err != nil {
 			return out, err
 		}
 
-		if out.MLCL, err = decodeItem(root.At(14), "MLCL"); err != nil {
+		if out.MLCL, err = decodeScalarItem(root.At(14), "MLCL"); err != nil {
 			return out, err
 		}
 	}
@@ -416,7 +416,7 @@ func DecodeS12F5(item secs2.Item) (S12F5Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
@@ -428,7 +428,7 @@ func DecodeS12F5(item secs2.Item) (S12F5Body, error) {
 		return out, err
 	}
 
-	if out.MLCL, err = decodeItem(root.At(3), "MLCL"); err != nil {
+	if out.MLCL, err = decodeScalarItem(root.At(3), "MLCL"); err != nil {
 		return out, err
 	}
 
@@ -490,7 +490,7 @@ func DecodeS12F7(item secs2.Item) (S12F7Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
@@ -561,7 +561,7 @@ func DecodeS12F9(item secs2.Item) (S12F9Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
@@ -569,11 +569,11 @@ func DecodeS12F9(item secs2.Item) (S12F9Body, error) {
 		return out, err
 	}
 
-	if out.STRP, err = decodeItem(root.At(2), "STRP"); err != nil {
+	if out.STRP, err = decodeScalarItem(root.At(2), "STRP"); err != nil {
 		return out, err
 	}
 
-	if out.BINLT, err = decodeItem(root.At(3), "BINLT"); err != nil {
+	if out.BINLT, err = decodeScalarItem(root.At(3), "BINLT"); err != nil {
 		return out, err
 	}
 
@@ -635,7 +635,7 @@ func DecodeS12F11(item secs2.Item) (S12F11Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
@@ -704,7 +704,7 @@ func DecodeS12F13(item secs2.Item) (S12F13Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
@@ -742,7 +742,7 @@ func DecodeS12F14(item secs2.Item) (S12F14Reply, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
@@ -783,7 +783,7 @@ func DecodeS12F15(item secs2.Item) (S12F15Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
@@ -824,7 +824,7 @@ func DecodeS12F16(item secs2.Item) (S12F16Reply, error) {
 	}
 
 	if n1 == 4 {
-		if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+		if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 			return out, err
 		}
 
@@ -832,11 +832,11 @@ func DecodeS12F16(item secs2.Item) (S12F16Reply, error) {
 			return out, err
 		}
 
-		if out.STRP, err = decodeItem(root.At(2), "STRP"); err != nil {
+		if out.STRP, err = decodeScalarItem(root.At(2), "STRP"); err != nil {
 			return out, err
 		}
 
-		if out.BINLT, err = decodeItem(root.At(3), "BINLT"); err != nil {
+		if out.BINLT, err = decodeScalarItem(root.At(3), "BINLT"); err != nil {
 			return out, err
 		}
 	}
@@ -871,7 +871,7 @@ func DecodeS12F17(item secs2.Item) (S12F17Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
@@ -915,7 +915,7 @@ func DecodeS12F18(item secs2.Item) (S12F18Reply, error) {
 	}
 
 	if n1 == 3 {
-		if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+		if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 			return out, err
 		}
 

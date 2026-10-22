@@ -21,12 +21,13 @@ import (
 // width-checked.
 // None of that is visible to a syntax-only or gofmt pass.
 //
-// The message rendered here carries one leaf of every shape class the DSL can express — the two
-// formats that share a Go type (B/byte and U1/uint8), a boolean, a fixed-width byte array, a
-// variable-length byte string, a signed and a floating-point width, an open leaf, an opaque body,
-// a repeated group, a packed group, a nested list, and a minItems-bounded optional group — so the
-// build covers every emitter branch at once, and the generated round-trip test then proves the
-// decoder actually reads back what the builder wrote.
+// The message rendered here carries one leaf of every shape class the DSL can express:
+// the two formats that share a Go type (B/byte and U1/uint8), a boolean, a fixed-width byte array,
+// a variable-length byte string, a signed and a floating-point width,
+// an open leaf of each list rule (no list, L[0] only, any list), an opaque body,
+// a repeated group, a repeat of repeats, a packed group, a nested list, and a minItems-bounded optional group.
+// So the build covers every emitter branch at once,
+// and the generated round-trip test then proves the decoder actually reads back what the builder wrote.
 //
 // It is gated behind the `integration` build tag because it shells out to the go toolchain and
 // reaches across module boundaries; run it with `go test -tags integration ./...`.
@@ -46,6 +47,8 @@ func TestDecodersCompileAndRoundTripAgainstRealSecs2(t *testing.T) {
 		"TSIP":    {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte"},
 		"SVID":    {Formats: []string{"A", "U1", "U2", "U4", "U8"}, Binding: BindingOpen},
 		"ERRCODE": {Formats: []string{"U1", "U2", "U4", "U8"}, Binding: BindingOpen},
+		"ECV":     {Formats: []string{"A", "U4"}, Binding: BindingOpen},
+		"V":       {Formats: []string{"L", "A", "U4"}, Binding: BindingOpen},
 	}
 
 	// One body carrying every shape class the emitter branches on.
@@ -60,8 +63,13 @@ func TestDecodersCompileAndRoundTripAgainstRealSecs2(t *testing.T) {
 		{Item: "MHEAD"},
 		{Item: "ABS"},
 		{Item: "SVID"},
+		{Item: "ECV", AllowEmptyList: true}, // open leaf that also accepts L[0]
+		{Item: "V"},                         // open leaf that may be a list
 		{Type: "list", Items: []StructureNode{{Item: "MDLN"}}},            // nested fixed list
 		{Type: "list", Repeat: "svids", Of: &StructureNode{Item: "SVID"}}, // repeated group
+		{Type: "list", Repeat: "rows", Of: &StructureNode{ // repeat of repeats of an open leaf that rejects lists
+			Type: "list", Repeat: "cells", Of: &StructureNode{Item: "SVID"},
+		}},
 		{Type: "list", Packed: "tsips", Of: &StructureNode{Item: "TSIP"}}, // packed group
 		{Type: "list", MinItems: new(0), MaxItems: new(2), Items: []StructureNode{ // optional group
 			{Item: "ERRCODE"},
@@ -107,6 +115,7 @@ func TestDecodersCompileAndRoundTripAgainstRealSecs2(t *testing.T) {
 	// spending a build on the output.
 	require.Contains(t, string(decodeOut), "decodeByteAs[COMMACK]")
 	require.Contains(t, string(decodeOut), "decodeUintAs[RMACK]")
+	require.Contains(t, string(decodeOut), "eachOf(decodeScalarItem)")
 	require.NotContains(t, string(decodeOut), "func DecodeS2F46")
 
 	// Locate the root go-secs module (two levels up from tools/gemgen), which provides the real

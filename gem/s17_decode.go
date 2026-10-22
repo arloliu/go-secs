@@ -32,11 +32,11 @@ func DecodeS17F1(item secs2.Item) (S17F1Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
-	if out.RPTID, err = decodeItem(root.At(1), "RPTID"); err != nil {
+	if out.RPTID, err = decodeScalarItem(root.At(1), "RPTID"); err != nil {
 		return out, err
 	}
 
@@ -44,7 +44,7 @@ func DecodeS17F1(item secs2.Item) (S17F1Body, error) {
 		return out, err
 	}
 
-	if out.VIDS, err = decodeItems(root.At(3), "VIDS"); err != nil {
+	if out.VIDS, err = decodeEach(root.At(3), "VIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -77,11 +77,11 @@ func DecodeS17F2(item secs2.Item) (S17F2Reply, error) {
 		return out, err
 	}
 
-	if out.RPTID, err = decodeItem(root.At(0), "RPTID"); err != nil {
+	if out.RPTID, err = decodeScalarItem(root.At(0), "RPTID"); err != nil {
 		return out, err
 	}
 
-	if out.ERRCODE, err = decodeItem(root.At(1), "ERRCODE"); err != nil {
+	if out.ERRCODE, err = decodeScalarItem(root.At(1), "ERRCODE"); err != nil {
 		return out, err
 	}
 
@@ -109,7 +109,7 @@ func DecodeS17F3(item secs2.Item) (S17F3Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.RPTIDS, err = decodeItems(root, "RPTIDS"); err != nil {
+	if out.RPTIDS, err = decodeEach(root, "RPTIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -199,11 +199,11 @@ func DecodeS17F5(item secs2.Item) (S17F5Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
-	if out.TRID, err = decodeItem(root.At(1), "TRID"); err != nil {
+	if out.TRID, err = decodeScalarItem(root.At(1), "TRID"); err != nil {
 		return out, err
 	}
 
@@ -211,11 +211,11 @@ func DecodeS17F5(item secs2.Item) (S17F5Body, error) {
 		return out, err
 	}
 
-	if out.RPTIDS, err = decodeItems(root.At(3), "RPTIDS"); err != nil {
+	if out.RPTIDS, err = decodeEach(root.At(3), "RPTIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
-	if out.TRSPER, err = decodeItem(root.At(4), "TRSPER"); err != nil {
+	if out.TRSPER, err = decodeScalarItem(root.At(4), "TRSPER"); err != nil {
 		return out, err
 	}
 
@@ -225,11 +225,11 @@ func DecodeS17F5(item secs2.Item) (S17F5Body, error) {
 	}
 
 	if n1 == 8 {
-		if out.TOTSMP, err = decodeItem(root.At(5, 0), "TOTSMP"); err != nil {
+		if out.TOTSMP, err = decodeScalarItem(root.At(5, 0), "TOTSMP"); err != nil {
 			return out, err
 		}
 
-		if out.REPGSZ, err = decodeItem(root.At(5, 1), "REPGSZ"); err != nil {
+		if out.REPGSZ, err = decodeScalarItem(root.At(5, 1), "REPGSZ"); err != nil {
 			return out, err
 		}
 
@@ -237,7 +237,7 @@ func DecodeS17F5(item secs2.Item) (S17F5Body, error) {
 			return out, err
 		}
 
-		if out.STARTCEID, err = decodeItem(root.At(5, 3), "STARTCEID"); err != nil {
+		if out.STARTCEID, err = decodeScalarItem(root.At(5, 3), "STARTCEID"); err != nil {
 			return out, err
 		}
 
@@ -245,7 +245,7 @@ func DecodeS17F5(item secs2.Item) (S17F5Body, error) {
 			return out, err
 		}
 
-		if out.STOPCEID, err = decodeItem(root.At(5, 5), "STOPCEID"); err != nil {
+		if out.STOPCEID, err = decodeScalarItem(root.At(5, 5), "STOPCEID"); err != nil {
 			return out, err
 		}
 
@@ -299,11 +299,11 @@ func DecodeS17F6(item secs2.Item) (S17F6Reply, error) {
 		return out, err
 	}
 
-	if out.TRID, err = decodeItem(root.At(0), "TRID"); err != nil {
+	if out.TRID, err = decodeScalarItem(root.At(0), "TRID"); err != nil {
 		return out, err
 	}
 
-	if out.ERRCODE, err = decodeItem(root.At(1), "ERRCODE"); err != nil {
+	if out.ERRCODE, err = decodeScalarItem(root.At(1), "ERRCODE"); err != nil {
 		return out, err
 	}
 
@@ -331,7 +331,7 @@ func DecodeS17F7(item secs2.Item) (S17F7Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.TRIDS, err = decodeItems(root, "TRIDS"); err != nil {
+	if out.TRIDS, err = decodeEach(root, "TRIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -403,7 +403,7 @@ func DecodeS17F9(item secs2.Item) (S17F9Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -411,11 +411,11 @@ func DecodeS17F9(item secs2.Item) (S17F9Body, error) {
 		return out, err
 	}
 
-	if out.CEID, err = decodeItem(root.At(2), "CEID"); err != nil {
+	if out.CEID, err = decodeScalarItem(root.At(2), "CEID"); err != nil {
 		return out, err
 	}
 
-	if out.RPTIDS, err = decodeItems(root.At(3), "RPTIDS"); err != nil {
+	if out.RPTIDS, err = decodeEach(root.At(3), "RPTIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -453,11 +453,11 @@ func DecodeS17F10(item secs2.Item) (S17F10Reply, error) {
 		return out, err
 	}
 
-	if out.CEID, err = decodeItem(root.At(1), "CEID"); err != nil {
+	if out.CEID, err = decodeScalarItem(root.At(1), "CEID"); err != nil {
 		return out, err
 	}
 
-	if out.ERRCODE, err = decodeItem(root.At(2), "ERRCODE"); err != nil {
+	if out.ERRCODE, err = decodeScalarItem(root.At(2), "ERRCODE"); err != nil {
 		return out, err
 	}
 
@@ -495,11 +495,11 @@ func DecodeS17F11(item secs2.Item) (S17F11Body, error) {
 		return out, err
 	}
 
-	if out.CEID, err = decodeItem(root.At(1), "CEID"); err != nil {
+	if out.CEID, err = decodeScalarItem(root.At(1), "CEID"); err != nil {
 		return out, err
 	}
 
-	if out.RPTID, err = decodeItem(root.At(2), "RPTID"); err != nil {
+	if out.RPTID, err = decodeScalarItem(root.At(2), "RPTID"); err != nil {
 		return out, err
 	}
 
@@ -538,15 +538,15 @@ func DecodeS17F12(item secs2.Item) (S17F12Reply, error) {
 		return out, err
 	}
 
-	if out.CEID, err = decodeItem(root.At(1), "CEID"); err != nil {
+	if out.CEID, err = decodeScalarItem(root.At(1), "CEID"); err != nil {
 		return out, err
 	}
 
-	if out.RPTID, err = decodeItem(root.At(2), "RPTID"); err != nil {
+	if out.RPTID, err = decodeScalarItem(root.At(2), "RPTID"); err != nil {
 		return out, err
 	}
 
-	if out.ERRCODE, err = decodeItem(root.At(3), "ERRCODE"); err != nil {
+	if out.ERRCODE, err = decodeScalarItem(root.At(3), "ERRCODE"); err != nil {
 		return out, err
 	}
 
@@ -574,7 +574,7 @@ func DecodeS17F13(item secs2.Item) (S17F13Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.TRIDS, err = decodeItems(root, "TRIDS"); err != nil {
+	if out.TRIDS, err = decodeEach(root, "TRIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 

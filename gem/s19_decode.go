@@ -597,7 +597,7 @@ func DecodeS19F19(item secs2.Item) (S19F19Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.DATALENGTH, err = decodeItem(root, "DATALENGTH"); err != nil {
+	if out.DATALENGTH, err = decodeScalarItem(root, "DATALENGTH"); err != nil {
 		return out, err
 	}
 

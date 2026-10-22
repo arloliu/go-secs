@@ -34,7 +34,7 @@ func DecodeS18F1(item secs2.Item) (S18F1Body, error) {
 		return out, err
 	}
 
-	if out.ATTRIDS, err = decodeItems(root.At(1), "ATTRIDS"); err != nil {
+	if out.ATTRIDS, err = decodeEach(root.At(1), "ATTRIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -197,7 +197,7 @@ func DecodeS18F5(item secs2.Item) (S18F5Body, error) {
 		return out, err
 	}
 
-	if out.DATALENGTH, err = decodeItem(root.At(2), "DATALENGTH"); err != nil {
+	if out.DATALENGTH, err = decodeScalarItem(root.At(2), "DATALENGTH"); err != nil {
 		return out, err
 	}
 
@@ -287,7 +287,7 @@ func DecodeS18F7(item secs2.Item) (S18F7Body, error) {
 		return out, err
 	}
 
-	if out.DATALENGTH, err = decodeItem(root.At(2), "DATALENGTH"); err != nil {
+	if out.DATALENGTH, err = decodeScalarItem(root.At(2), "DATALENGTH"); err != nil {
 		return out, err
 	}
 
@@ -404,7 +404,7 @@ func DecodeS18F10(item secs2.Item) (S18F10Reply, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(2), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(2), "MID"); err != nil {
 		return out, err
 	}
 
@@ -445,7 +445,7 @@ func DecodeS18F11(item secs2.Item) (S18F11Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -529,7 +529,7 @@ func DecodeS18F13(item secs2.Item) (S18F13Body, error) {
 		return out, err
 	}
 
-	if out.PARAMS, err = decodeItems(root.At(2), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(2), "PARAMS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -643,7 +643,7 @@ func DecodeS18F16(item secs2.Item) (S18F16Reply, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(2), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(2), "MID"); err != nil {
 		return out, err
 	}
 

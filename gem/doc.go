@@ -69,7 +69,9 @@
 //     a U8 item carrying more than a uint32 can hold is an error, not a wrapped value.
 //
 // Fields whose SECS-II type is equipment-defined stay [secs2.Item]:
-// the decoder returns them unexamined rather than guessing a type the standard leaves open.
+// the decoder returns them as they arrived rather than guessing a type the standard leaves open.
+// It rejects only a list where the item's E5 formats exclude one,
+// and accepts a format E5 does not list, such as an ASCII ALID.
 //
 // Equipment that pads or extends a body beyond the standard shape will not decode here.
 // That case is served by the manual path, [secs2.NewCursor] over the body item, which reads only the positions a caller asks for.

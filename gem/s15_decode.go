@@ -31,7 +31,7 @@ func DecodeS15F1(item secs2.Item) (S15F1Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -39,7 +39,7 @@ func DecodeS15F1(item secs2.Item) (S15F1Body, error) {
 		return out, err
 	}
 
-	if out.RMDATASIZE, err = decodeItem(root.At(2), "RMDATASIZE"); err != nil {
+	if out.RMDATASIZE, err = decodeScalarItem(root.At(2), "RMDATASIZE"); err != nil {
 		return out, err
 	}
 
@@ -277,7 +277,7 @@ func DecodeS15F8(item secs2.Item) (S15F8Reply, error) {
 		return out, err
 	}
 
-	if out.RMSPACE, err = decodeItem(root.At(0), "RMSPACE"); err != nil {
+	if out.RMSPACE, err = decodeScalarItem(root.At(0), "RMSPACE"); err != nil {
 		return out, err
 	}
 
@@ -502,7 +502,7 @@ func DecodeS15F13(item secs2.Item) (S15F13Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -518,7 +518,7 @@ func DecodeS15F13(item secs2.Item) (S15F13Body, error) {
 		return out, err
 	}
 
-	if out.RCPBODY, err = decodeItem(root.At(4), "RCPBODY"); err != nil {
+	if out.RCPBODY, err = decodeScalarItem(root.At(4), "RCPBODY"); err != nil {
 		return out, err
 	}
 
@@ -590,7 +590,7 @@ func DecodeS15F15(item secs2.Item) (S15F15Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -847,7 +847,7 @@ func DecodeS15F21(item secs2.Item) (S15F21Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -859,7 +859,7 @@ func DecodeS15F21(item secs2.Item) (S15F21Body, error) {
 		return out, err
 	}
 
-	if out.OPID, err = decodeItem(root.At(3), "OPID"); err != nil {
+	if out.OPID, err = decodeScalarItem(root.At(3), "OPID"); err != nil {
 		return out, err
 	}
 
@@ -957,7 +957,7 @@ func DecodeS15F23(item secs2.Item) (S15F23Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1046,7 +1046,7 @@ func DecodeS15F25(item secs2.Item) (S15F25Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1131,7 +1131,7 @@ func DecodeS15F27(item secs2.Item) (S15F27Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1147,7 +1147,7 @@ func DecodeS15F27(item secs2.Item) (S15F27Body, error) {
 		return out, err
 	}
 
-	if out.RCPBODY, err = decodeItem(root.At(4), "RCPBODY"); err != nil {
+	if out.RCPBODY, err = decodeScalarItem(root.At(4), "RCPBODY"); err != nil {
 		return out, err
 	}
 
@@ -1233,11 +1233,11 @@ func DecodeS15F29(item secs2.Item) (S15F29Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
-	if out.OPID, err = decodeItem(root.At(1), "OPID"); err != nil {
+	if out.OPID, err = decodeScalarItem(root.At(1), "OPID"); err != nil {
 		return out, err
 	}
 
@@ -1282,7 +1282,7 @@ func DecodeS15F30(item secs2.Item) (S15F30Reply, error) {
 		return out, err
 	}
 
-	if out.OPID, err = decodeItem(root.At(0), "OPID"); err != nil {
+	if out.OPID, err = decodeScalarItem(root.At(0), "OPID"); err != nil {
 		return out, err
 	}
 
@@ -1378,7 +1378,7 @@ func DecodeS15F32(item secs2.Item) (S15F32Reply, error) {
 		return out, err
 	}
 
-	if out.RCPBODY, err = decodeItem(root.At(2), "RCPBODY"); err != nil {
+	if out.RCPBODY, err = decodeScalarItem(root.At(2), "RCPBODY"); err != nil {
 		return out, err
 	}
 
@@ -1424,7 +1424,7 @@ func DecodeS15F33(item secs2.Item) (S15F33Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1504,7 +1504,7 @@ func DecodeS15F35(item secs2.Item) (S15F35Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1602,7 +1602,7 @@ func DecodeS15F37(item secs2.Item) (S15F37Body, error) {
 		return out, err
 	}
 
-	if out.OPID, err = decodeItem(root.At(3), "OPID"); err != nil {
+	if out.OPID, err = decodeScalarItem(root.At(3), "OPID"); err != nil {
 		return out, err
 	}
 
@@ -1610,7 +1610,7 @@ func DecodeS15F37(item secs2.Item) (S15F37Body, error) {
 		return out, err
 	}
 
-	if out.RMCHGTYPE, err = decodeItem(root.At(5), "RMCHGTYPE"); err != nil {
+	if out.RMCHGTYPE, err = decodeScalarItem(root.At(5), "RMCHGTYPE"); err != nil {
 		return out, err
 	}
 
@@ -1683,7 +1683,7 @@ func DecodeS15F39(item secs2.Item) (S15F39Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1778,7 +1778,7 @@ func DecodeS15F41(item secs2.Item) (S15F41Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1812,11 +1812,11 @@ func DecodeS15F41(item secs2.Item) (S15F41Body, error) {
 			return out, err
 		}
 
-		if out.RMCHGTYPE, err = decodeItem(root.At(4, 3), "RMCHGTYPE"); err != nil {
+		if out.RMCHGTYPE, err = decodeScalarItem(root.At(4, 3), "RMCHGTYPE"); err != nil {
 			return out, err
 		}
 
-		if out.OPID, err = decodeItem(root.At(4, 4), "OPID"); err != nil {
+		if out.OPID, err = decodeScalarItem(root.At(4, 4), "OPID"); err != nil {
 			return out, err
 		}
 
@@ -1896,7 +1896,7 @@ func DecodeS15F43(item secs2.Item) (S15F43Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1985,7 +1985,7 @@ func DecodeS15F45(item secs2.Item) (S15F45Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1997,7 +1997,7 @@ func DecodeS15F45(item secs2.Item) (S15F45Body, error) {
 		return out, err
 	}
 
-	if out.RMCHGTYPE, err = decodeItem(root.At(3), "RMCHGTYPE"); err != nil {
+	if out.RMCHGTYPE, err = decodeScalarItem(root.At(3), "RMCHGTYPE"); err != nil {
 		return out, err
 	}
 
@@ -2031,7 +2031,7 @@ func DecodeS15F46(item secs2.Item) (S15F46Reply, error) {
 		return out, err
 	}
 
-	if out.RMCHGTYPE, err = decodeItem(root.At(0), "RMCHGTYPE"); err != nil {
+	if out.RMCHGTYPE, err = decodeScalarItem(root.At(0), "RMCHGTYPE"); err != nil {
 		return out, err
 	}
 
@@ -2039,7 +2039,7 @@ func DecodeS15F46(item secs2.Item) (S15F46Reply, error) {
 		return out, err
 	}
 
-	if out.OPID, err = decodeItem(root.At(2), "OPID"); err != nil {
+	if out.OPID, err = decodeScalarItem(root.At(2), "OPID"); err != nil {
 		return out, err
 	}
 
@@ -2075,7 +2075,7 @@ func DecodeS15F47(item secs2.Item) (S15F47Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 

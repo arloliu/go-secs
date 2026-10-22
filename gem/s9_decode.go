@@ -244,7 +244,7 @@ func DecodeS9F13(item secs2.Item) (S9F13Body, error) {
 		return out, err
 	}
 
-	if out.EDID, err = decodeItem(root.At(1), "EDID"); err != nil {
+	if out.EDID, err = decodeScalarItem(root.At(1), "EDID"); err != nil {
 		return out, err
 	}
 

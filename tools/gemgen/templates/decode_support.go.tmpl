@@ -179,7 +179,9 @@ func optionalGroup[T any](full int, decode func(secs2.Cursor, string) (T, error)
 	}
 }
 
-// decodeItem returns the item at c unchanged, for a field whose SECS-II type is equipment-defined.
+// decodeItem returns the item at c unchanged,
+// for a field whose SECS-II type is equipment-defined and may be a list:
+// an item whose E5 formats include L or name none, or an opaque node.
 func decodeItem(c secs2.Cursor, field string) (secs2.Item, error) {
 	item, err := c.Item()
 	if err != nil {
@@ -188,6 +190,43 @@ func decodeItem(c secs2.Cursor, field string) (secs2.Item, error) {
 
 	if err := item.Error(); err != nil {
 		return nil, wrapField(field, err)
+	}
+
+	return item, nil
+}
+
+// decodeScalarItem returns the item at c unchanged, as [decodeItem] does,
+// for a field whose E5 formats exclude L: a list there is an error.
+//
+// Only the list is rejected.
+// The item's format is not checked against the E5 formats,
+// since peers send formats E5 does not list, such as an ASCII ALID.
+func decodeScalarItem(c secs2.Cursor, field string) (secs2.Item, error) {
+	item, err := decodeItem(c, field)
+	if err != nil {
+		return nil, err
+	}
+
+	if item.IsList() {
+		return nil, fmt.Errorf("gem: %s: got %s, want a non-list item", field, secs2.ListType)
+	}
+
+	return item, nil
+}
+
+// decodeScalarOrEmptyList returns the item at c unchanged, as [decodeScalarItem] does,
+// but also accepts the zero-length list L[0],
+// for a position where SEMI E5 gives it a meaning,
+// such as an equipment constant value of S2F14, where L[0] means the constant does not exist.
+// A list with children is still an error.
+func decodeScalarOrEmptyList(c secs2.Cursor, field string) (secs2.Item, error) {
+	item, err := decodeItem(c, field)
+	if err != nil {
+		return nil, err
+	}
+
+	if item.IsList() && item.Size() != 0 {
+		return nil, fmt.Errorf("gem: %s: got %s length %d, want a non-list item or an empty list", field, secs2.ListType, item.Size())
 	}
 
 	return item, nil

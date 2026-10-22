@@ -88,7 +88,7 @@ func TestRenderDecodersLeafShapes(t *testing.T) {
 	require.Contains(t, src, `decodeBinary(root.At(2), "ABS")`)
 	require.Contains(t, src, `decodeIntAs[int32](root.At(3), "SIGNED")`)
 	require.Contains(t, src, `decodeFloatAs[float32](root.At(4), "REAL")`)
-	require.Contains(t, src, `decodeItem(root.At(5), "SVID")`)
+	require.Contains(t, src, `decodeScalarItem(root.At(5), "SVID")`)
 
 	require.Contains(t, src, "MDLN   string")
 	require.Contains(t, src, "ACKA   bool")
@@ -116,7 +116,7 @@ func TestRenderDecodersRepeatAndPackedGroups(t *testing.T) {
 
 	repeat := renderOneDecoder(t, 3, "both", &StructureNode{Type: "list", Repeat: "svids", Of: &StructureNode{Item: "SVID"}}, items)
 	require.Contains(t, repeat, "SVIDS []secs2.Item")
-	require.Contains(t, repeat, `decodeItems(root, "SVIDS")`)
+	require.Contains(t, repeat, `decodeEach(root, "SVIDS", decodeScalarItem)`)
 
 	packed := renderOneDecoder(t, 10, "both", &StructureNode{Type: "list", Items: []StructureNode{
 		{Type: "list", Packed: "tsips", Of: &StructureNode{Item: "TSIP"}},
@@ -137,7 +137,7 @@ func TestRenderDecodersOptionalGroup(t *testing.T) {
 
 	require.Contains(t, src, `optionalArity(root.At(1), "S1F14 body[1]", 0, 2)`)
 	require.Contains(t, src, "if n1 == 2 {")
-	require.Contains(t, src, `decodeItem(root.At(1, 0), "ERRCODE")`)
+	require.Contains(t, src, `decodeScalarItem(root.At(1, 0), "ERRCODE")`)
 	require.Contains(t, src, `decodeASCII(root.At(1, 1), "ERRTEXT")`)
 
 	// The optional fields still exist on the struct; the short form leaves them zero.

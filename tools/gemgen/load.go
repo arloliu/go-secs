@@ -699,14 +699,51 @@ func checkGroupRef(n *StructureNode, ctx nodeCtx, role nodeRole) error {
 	return nil
 }
 
-// checkNodeOptions checks the as: and optional: settings of one node,
+// checkNodeOptions checks the as:, optional:, and allowEmptyList: settings of one node,
 // leaving its children to walkNode.
 func checkNodeOptions(n *StructureNode, items map[string]Item, ctx nodeCtx) error {
 	if err := checkAs(n, ctx.where); err != nil {
 		return err
 	}
 
-	return checkOptional(n, items, ctx)
+	if err := checkOptional(n, items, ctx); err != nil {
+		return err
+	}
+
+	return checkAllowEmptyList(n, items, ctx.where)
+}
+
+// checkAllowEmptyList rejects allowEmptyList: true anywhere but on a leaf whose decoder rejects lists:
+// one of a binding: open item whose formats are declared and exclude L.
+// A fixed item's decoder reads one format, never a list;
+// an item whose formats include L, or that declares none, already decodes any list.
+// The leaf may sit anywhere, a repeat's of included, since the setting belongs to its position.
+func checkAllowEmptyList(n *StructureNode, items map[string]Item, where string) error {
+	if !n.AllowEmptyList {
+		return nil
+	}
+
+	if n.Kind() != "leaf" {
+		return fmt.Errorf("%s: allowEmptyList is valid only on a leaf, not a list, repeat, packed group, opaque node, or group reference", where)
+	}
+
+	it, ok := items[n.Item]
+	if !ok {
+		return fmt.Errorf("%s: unknown item %q", where, n.Item)
+	}
+
+	if !rejectsList(it) {
+		return fmt.Errorf("%s: allowEmptyList item %s must be binding: open with declared formats that exclude L, whose decoder rejects a list", where, n.Item)
+	}
+
+	return nil
+}
+
+// rejectsList reports whether a leaf of it decodes whatever item arrives except a list:
+// it is binding: open, and its declared formats exclude L.
+// An open item that declares no formats, such as SPR, accepts any item.
+func rejectsList(it Item) bool {
+	return it.Binding == BindingOpen && len(it.Formats) > 0 && !slices.Contains(it.Formats, "L")
 }
 
 // checkAs rejects an as: name on a list, repeat, or packed node,

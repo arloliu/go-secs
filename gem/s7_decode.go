@@ -30,11 +30,11 @@ func DecodeS7F1(item secs2.Item) (S7F1Body, error) {
 		return out, err
 	}
 
-	if out.PPID, err = decodeItem(root.At(0), "PPID"); err != nil {
+	if out.PPID, err = decodeScalarItem(root.At(0), "PPID"); err != nil {
 		return out, err
 	}
 
-	if out.LENGTH, err = decodeItem(root.At(1), "LENGTH"); err != nil {
+	if out.LENGTH, err = decodeScalarItem(root.At(1), "LENGTH"); err != nil {
 		return out, err
 	}
 
@@ -95,11 +95,11 @@ func DecodeS7F3(item secs2.Item) (S7F3Body, error) {
 		return out, err
 	}
 
-	if out.PPID, err = decodeItem(root.At(0), "PPID"); err != nil {
+	if out.PPID, err = decodeScalarItem(root.At(0), "PPID"); err != nil {
 		return out, err
 	}
 
-	if out.PPBODY, err = decodeItem(root.At(1), "PPBODY"); err != nil {
+	if out.PPBODY, err = decodeScalarItem(root.At(1), "PPBODY"); err != nil {
 		return out, err
 	}
 
@@ -155,7 +155,7 @@ func DecodeS7F5(item secs2.Item) (S7F5Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.PPID, err = decodeItem(root, "PPID"); err != nil {
+	if out.PPID, err = decodeScalarItem(root, "PPID"); err != nil {
 		return out, err
 	}
 
@@ -190,11 +190,11 @@ func DecodeS7F6(item secs2.Item) (S7F6Reply, error) {
 	}
 
 	if n1 == 2 {
-		if out.PPID, err = decodeItem(root.At(0), "PPID"); err != nil {
+		if out.PPID, err = decodeScalarItem(root.At(0), "PPID"); err != nil {
 			return out, err
 		}
 
-		if out.PPBODY, err = decodeItem(root.At(1), "PPBODY"); err != nil {
+		if out.PPBODY, err = decodeScalarItem(root.At(1), "PPBODY"); err != nil {
 			return out, err
 		}
 	}
@@ -223,7 +223,7 @@ func DecodeS7F7(item secs2.Item) (S7F7Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.MID, err = decodeItem(root, "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root, "MID"); err != nil {
 		return out, err
 	}
 
@@ -258,11 +258,11 @@ func DecodeS7F8(item secs2.Item) (S7F8Reply, error) {
 	}
 
 	if n1 == 2 {
-		if out.PPID, err = decodeItem(root.At(0), "PPID"); err != nil {
+		if out.PPID, err = decodeScalarItem(root.At(0), "PPID"); err != nil {
 			return out, err
 		}
 
-		if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+		if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 			return out, err
 		}
 	}
@@ -487,7 +487,7 @@ func DecodeS7F17(item secs2.Item) (S7F17Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.PPIDS, err = decodeItems(root, "PPIDS"); err != nil {
+	if out.PPIDS, err = decodeEach(root, "PPIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -543,7 +543,7 @@ func DecodeS7F20(item secs2.Item) (S7F20Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.PPIDS, err = decodeItems(root, "PPIDS"); err != nil {
+	if out.PPIDS, err = decodeEach(root, "PPIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -587,11 +587,11 @@ func DecodeS7F22(item secs2.Item) (S7F22Reply, error) {
 		return out, err
 	}
 
-	if out.CMDMAX, err = decodeItem(root.At(2), "CMDMAX"); err != nil {
+	if out.CMDMAX, err = decodeScalarItem(root.At(2), "CMDMAX"); err != nil {
 		return out, err
 	}
 
-	if out.BYTMAX, err = decodeItem(root.At(3), "BYTMAX"); err != nil {
+	if out.BYTMAX, err = decodeScalarItem(root.At(3), "BYTMAX"); err != nil {
 		return out, err
 	}
 
@@ -630,7 +630,7 @@ func DecodeS7F23(item secs2.Item) (S7F23Body, error) {
 		return out, err
 	}
 
-	if out.PPID, err = decodeItem(root.At(0), "PPID"); err != nil {
+	if out.PPID, err = decodeScalarItem(root.At(0), "PPID"); err != nil {
 		return out, err
 	}
 
@@ -698,7 +698,7 @@ func DecodeS7F25(item secs2.Item) (S7F25Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.PPID, err = decodeItem(root, "PPID"); err != nil {
+	if out.PPID, err = decodeScalarItem(root, "PPID"); err != nil {
 		return out, err
 	}
 
@@ -735,7 +735,7 @@ func DecodeS7F26(item secs2.Item) (S7F26Reply, error) {
 	}
 
 	if n1 == 4 {
-		if out.PPID, err = decodeItem(root.At(0), "PPID"); err != nil {
+		if out.PPID, err = decodeScalarItem(root.At(0), "PPID"); err != nil {
 			return out, err
 		}
 
@@ -781,7 +781,7 @@ func DecodeS7F27(item secs2.Item) (S7F27Body, error) {
 		return out, err
 	}
 
-	if out.PPID, err = decodeItem(root.At(0), "PPID"); err != nil {
+	if out.PPID, err = decodeScalarItem(root.At(0), "PPID"); err != nil {
 		return out, err
 	}
 
@@ -813,7 +813,7 @@ func DecodeS7F29(item secs2.Item) (S7F29Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.LENGTH, err = decodeItem(root, "LENGTH"); err != nil {
+	if out.LENGTH, err = decodeScalarItem(root, "LENGTH"); err != nil {
 		return out, err
 	}
 
@@ -876,7 +876,7 @@ func DecodeS7F31(item secs2.Item) (S7F31Body, error) {
 		return out, err
 	}
 
-	if out.PPID, err = decodeItem(root.At(0), "PPID"); err != nil {
+	if out.PPID, err = decodeScalarItem(root.At(0), "PPID"); err != nil {
 		return out, err
 	}
 
@@ -944,7 +944,7 @@ func DecodeS7F33(item secs2.Item) (S7F33Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.PPID, err = decodeItem(root, "PPID"); err != nil {
+	if out.PPID, err = decodeScalarItem(root, "PPID"); err != nil {
 		return out, err
 	}
 
@@ -978,15 +978,15 @@ func DecodeS7F34(item secs2.Item) (S7F34Reply, error) {
 		return out, err
 	}
 
-	if out.PPID, err = decodeItem(root.At(0), "PPID"); err != nil {
+	if out.PPID, err = decodeScalarItem(root.At(0), "PPID"); err != nil {
 		return out, err
 	}
 
-	if out.UNFLEN, err = decodeItem(root.At(1), "UNFLEN"); err != nil {
+	if out.UNFLEN, err = decodeScalarItem(root.At(1), "UNFLEN"); err != nil {
 		return out, err
 	}
 
-	if out.FRMLEN, err = decodeItem(root.At(2), "FRMLEN"); err != nil {
+	if out.FRMLEN, err = decodeScalarItem(root.At(2), "FRMLEN"); err != nil {
 		return out, err
 	}
 
@@ -1014,7 +1014,7 @@ func DecodeS7F35(item secs2.Item) (S7F35Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.MID, err = decodeItem(root, "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root, "MID"); err != nil {
 		return out, err
 	}
 
@@ -1050,15 +1050,15 @@ func DecodeS7F36(item secs2.Item) (S7F36Reply, error) {
 	}
 
 	if n1 == 3 {
-		if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+		if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 			return out, err
 		}
 
-		if out.PPID, err = decodeItem(root.At(1), "PPID"); err != nil {
+		if out.PPID, err = decodeScalarItem(root.At(1), "PPID"); err != nil {
 			return out, err
 		}
 
-		if out.PPBODY, err = decodeItem(root.At(2), "PPBODY"); err != nil {
+		if out.PPBODY, err = decodeScalarItem(root.At(2), "PPBODY"); err != nil {
 			return out, err
 		}
 	}
