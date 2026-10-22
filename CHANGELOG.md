@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-22
+
 `gem` covers every SEMI E5 message of streams 1 to 10 and 12 to 19.
 
 - Builders, decoders, and their tests are generated for streams 3, 4, 7, 8, 10, and 12 to 19: 315 more messages.
@@ -1959,6 +1961,7 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
+[2.7.0]: https://github.com/arloliu/go-secs/releases/tag/v2.7.0
 [2.6.0]: https://github.com/arloliu/go-secs/releases/tag/v2.6.0
 [2.5.0]: https://github.com/arloliu/go-secs/releases/tag/v2.5.0
 [2.4.2]: https://github.com/arloliu/go-secs/releases/tag/v2.4.2
