@@ -542,9 +542,10 @@ messages:
       Request that the data reports assigned to the trace report be sampled and returned to the host.
     exception: None
     source: e5
+    # The E5-0813 header omits the reply marker, but S6F30 is this message's reply.
     bodies:
       - actor: both
-        replyExpected: false
+        replyExpected: true
         structure: {item: TRID}
 
   - function: 30

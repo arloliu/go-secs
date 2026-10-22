@@ -1135,7 +1135,7 @@ func TestS2F48(t *testing.T) {
 func TestS2F49(t *testing.T) {
 	msg := gem.S2F49(secs2.A("body"))
 
-	assertS2Header(t, msg, 49, false)
+	assertS2Header(t, msg, 49, true)
 
 	decoded, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {

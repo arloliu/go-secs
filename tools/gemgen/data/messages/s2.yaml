@@ -810,9 +810,10 @@ messages:
       A zero-length list, m = 0, indicates that no parameter groups are sent with the command. OBJSPEC
       may be a null-length item.
     source: e5
+    # The E5-0813 header omits the reply marker, but S2F50 is this message's reply.
     bodies:
       - actor: both
-        replyExpected: false
+        replyExpected: true
         structure: {type: opaque}
 
   - function: 50

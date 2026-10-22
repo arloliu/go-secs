@@ -65,6 +65,8 @@ Several shipped `gem` signatures change; see Upgrade notes.
 - `gem`: godoc shows an empty list as `L[0]{}` instead of `L[0]{  }`.
 - `gem`: `S5F5` sends its ALIDs as one item, `<ALID1,...,ALIDn>`, and `DecodeS5F5` accepts that item (see Upgrade notes).
   It previously sent a list of items, which E5 does not define for this message.
+- `gem`: `S2F49` and `S6F29` set the reply bit, since S2F50 and S6F30 are their replies.
+  They previously sent W=0, so the equipment's acknowledge or trace data never came back.
 
 ## [2.6.0] - 2026-09-28
 
