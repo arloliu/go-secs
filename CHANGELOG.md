@@ -51,6 +51,8 @@ Several shipped `gem` signatures change; see Upgrade notes.
   the FNLOC and ORLOC fields of S12F4, and the TRAUTOD and RPTOC fields of S17F5.
   The decoder accepts a zero-length item there and reports it absent; the builder always sends a value.
 - `gem`: the STATUS and CONDITION lists of stream 18 decode into `[]string` rather than `[]secs2.Item`.
+- `gem`: `PRCMDNAMEStartProcess`, the SEMI E40 spelling of the process job start command, `STARTPROCESS`,
+  which equipment following E40 expects instead of E5's `START`.
 - `gem`: `FuzzDecoders` runs every generated decoder over arbitrary wire bytes, and `make fuzz-test` covers `gem`.
 
 ### Changed

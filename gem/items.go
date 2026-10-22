@@ -719,13 +719,16 @@ const (
 type PRCMDNAME string
 
 const (
-	// SEMI E40-0813 spells this command STARTPROCESS.
-	PRCMDNAMEStart  PRCMDNAME = "START"
-	PRCMDNAMEStop   PRCMDNAME = "STOP"
-	PRCMDNAMEPause  PRCMDNAME = "PAUSE"
-	PRCMDNAMEResume PRCMDNAME = "RESUME"
-	PRCMDNAMEAbort  PRCMDNAME = "ABORT"
-	PRCMDNAMECancel PRCMDNAME = "CANCEL"
+	// SEMI E40-0813 spells this command STARTPROCESS: see PRCMDNAMEStartProcess.
+	PRCMDNAMEStart PRCMDNAME = "START"
+	// PRCMDNAMEStartProcess is defined by SEMI E40.
+	// SEMI E5 spells this command START.
+	PRCMDNAMEStartProcess PRCMDNAME = "STARTPROCESS"
+	PRCMDNAMEStop         PRCMDNAME = "STOP"
+	PRCMDNAMEPause        PRCMDNAME = "PAUSE"
+	PRCMDNAMEResume       PRCMDNAME = "RESUME"
+	PRCMDNAMEAbort        PRCMDNAME = "ABORT"
+	PRCMDNAMECancel       PRCMDNAME = "CANCEL"
 )
 
 // Defined values of the PREVENTID item, which may be sent as U1, U2, U4, or U8.
