@@ -14,7 +14,8 @@ import (
 
 // enumsItemsYAML is the item dictionary the enumeration fixture draws on:
 // a fixed string item with string values, one of them from another standard,
-// an open item with integer values, and an open item with string values.
+// an open item with integer values, an open item with string values,
+// and a fixed byte item with a named type and no values.
 // Notes on items and values, one beside a value's own source, must render as godoc that compiles.
 const enumsItemsYAML = `
 CARRIERACTION:
@@ -42,10 +43,17 @@ OBJTYPE:
   values:
     - {name: Carrier, value: Carrier}
     - {name: Ten, value: "10"}
+FORMCODE:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Form code, 1 byte."
+  source: e5
+  namedType: true
 `
 
 // enumsS3YAML carries the string enumeration as a plain and as an optional leaf,
-// beside the two open items.
+// beside the two open items and the named type without values.
 const enumsS3YAML = `
 stream: 3
 messages:
@@ -66,13 +74,15 @@ messages:
             - {item: CARRIERACTION, as: next, optional: true}
             - {item: ERRCODE}
             - {item: OBJTYPE}
+            - {item: FORMCODE}
 `
 
 // enumsConstantsTest is a hand-written test planted beside the generated code.
 // It passes the generated constants where callers would:
 // typed string constants to the builder,
-// and untyped constants of the open items to the secs2 constructor of the format sent.
-// The decoded fields must give back the same constants.
+// untyped constants of the open items to the secs2 constructor of the format sent,
+// and a value of the named type without constants to the builder.
+// The decoded fields must give back the same constants and value.
 const enumsConstantsTest = `package PKG
 
 import (
@@ -82,7 +92,7 @@ import (
 )
 
 func TestEnumConstantsRoundTrip(t *testing.T) {
-	msg := S3F17(CARRIERACTIONProceedWithCarrier, CARRIERACTIONPodRelease, secs2.I1(ERRCODEMinus), secs2.A(OBJTYPECarrier))
+	msg := S3F17(CARRIERACTIONProceedWithCarrier, CARRIERACTIONPodRelease, secs2.I1(ERRCODEMinus), secs2.A(OBJTYPECarrier), FORMCODE(0x81))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -120,6 +130,15 @@ func TestEnumConstantsRoundTrip(t *testing.T) {
 		t.Errorf("OBJTYPE: got %q, %v", s, err)
 	}
 
+	var code FORMCODE = got.FORMCODE
+	if code != 0x81 {
+		t.Errorf("FORMCODE: got %#x", byte(code))
+	}
+
+	if b, err := list[4].ToBinary(); err != nil || len(b) != 1 || b[0] != 0x81 {
+		t.Errorf("wire FORMCODE: got %v, %v", b, err)
+	}
+
 	if v, err := secs2.U1(ERRCODEUnknownObject).ToUint(); err != nil || len(v) != 1 || v[0] != ERRCODEUnknownObject {
 		t.Errorf("secs2.U1(ERRCODEUnknownObject): got %v, %v", v, err)
 	}
@@ -138,6 +157,7 @@ func TestEnumConstantsRoundTrip(t *testing.T) {
 // then builds, vets, and runs every test against the real secs2.
 // A decoder that assigned decodeASCII's string straight to a named string field would not compile,
 // and neither would a builder that passed the named type to secs2.A.
+// A named type without values must be declared, and taken and returned as itself.
 //
 // It is gated behind the `integration` build tag,
 // because it shells out to the go toolchain and reaches across module boundaries;
@@ -176,10 +196,13 @@ func TestEnumsCompileAndRunAgainstRealSecs2(t *testing.T) {
 	require.Contains(t, string(enums), "// A note on an untyped const block.\nconst (")
 	require.NotContains(t, string(enums), "type ERRCODE")
 	require.NotContains(t, string(enums), "type OBJTYPE")
+	require.Contains(t, string(enums), "// FORMCODE is the type of the FORMCODE item.\n// Form code, 1 byte.\ntype FORMCODE byte\n")
+	require.NotContains(t, string(enums), "FORMCODE enumerates")
+	require.NotContains(t, string(enums), " FORMCODE = ")
 
 	builders, err := os.ReadFile(filepath.Join(checkDir, "s3.go"))
 	require.NoError(t, err)
-	require.Contains(t, string(builders), "func S3F17(carrieraction CARRIERACTION, next CARRIERACTION, errcode secs2.Item, objtype secs2.Item) secs2.SECS2Message")
+	require.Contains(t, string(builders), "func S3F17(carrieraction CARRIERACTION, next CARRIERACTION, errcode secs2.Item, objtype secs2.Item, formcode FORMCODE) secs2.SECS2Message")
 
 	// Rewrite `package gem` and `package gem_test` to one unique name,
 	// so the generated tests become internal tests of the generated builders and decoders.

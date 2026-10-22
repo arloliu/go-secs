@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -224,6 +225,18 @@ ACKC:
   goType: byte
   values: [{name: Ok, value: 0}]
 `,
+		"constant and a type without values": `
+ACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  values: [{name: C, value: 0}]
+ACKC:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  namedType: true
+`,
 		"constant and type": `
 ACK:
   formats: [B]
@@ -303,4 +316,45 @@ func TestLoadItemsNotes(t *testing.T) {
 	require.NoError(t, ValidateItems(items))
 	require.Equal(t, "Item note.", items["X"].Note)
 	require.Equal(t, "Spelled STARTPROCESS elsewhere.", items["X"].Values[0].Note)
+}
+
+// TestNamedTypeItems proves which items namedType may mark:
+// a fixed item whose goType a values table could carry loads and validates,
+// and an open item, another goType, or an item that already has values is rejected.
+func TestNamedTypeItems(t *testing.T) {
+	const named = "X:\n  formats: %s\n  binding: %s\n  goType: %s\n  source: e5\n  namedType: true\n"
+
+	tests := []struct {
+		name    string
+		yml     string
+		wantErr string
+	}{
+		{"byte", fmt.Sprintf(named, "[B]", "fixed", "byte"), ""},
+		{"unsigned", fmt.Sprintf(named, "[U2]", "fixed", "uint16"), ""},
+		{"ASCII string", fmt.Sprintf(named, "[A]", "fixed", "string"), ""},
+		{"open item", "X:\n  formats: [U1, U2]\n  binding: open\n  source: e5\n  namedType: true\n", "namedType needs a fixed item"},
+		{"bool", fmt.Sprintf(named, "[BOOLEAN]", "fixed", "bool"), "namedType needs an integer or float goType"},
+		{"byte slice", fmt.Sprintf(named, "[B]", "fixed", `"[]byte"`), "namedType needs an integer or float goType"},
+		{"byte array", fmt.Sprintf(named, "[B]", "fixed", `"[10]byte"`), "namedType needs an integer or float goType"},
+		{"Unicode string", fmt.Sprintf(named, "[W]", "fixed", "string"), "string on format A"},
+		{"with values", fmt.Sprintf(named, "[B]", "fixed", "byte") + "  values:\n    - {name: One, value: 1}\n", "namedType is for an item without values"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			items, err := LoadItems([]byte(tt.yml))
+			require.NoError(t, err)
+
+			err = ValidateItems(items)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				require.True(t, items["X"].NamedType)
+				require.True(t, hasNamedType(items["X"]))
+
+				return
+			}
+
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
 }

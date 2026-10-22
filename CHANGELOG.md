@@ -27,6 +27,10 @@ Several shipped `gem` signatures change; see Upgrade notes.
   `S1F16` and `S1F16Reply.OFLACK` use `OFLACK`, `S1F18` and `S1F18Reply.ONLACK` use `ONLACK`,
   `S6F6` and `S6F6Reply.GRANT6` use `GRANT6`, and `S6F23` and `S6F23Body.RSDC` use `RSDC`.
   An untyped constant such as `0` still compiles; a `byte` or `uint8` variable needs a conversion.
+- `gem`: the alarm code ALCD and the predefined form code PFCD now take and decode as named types instead of `byte`:
+  `S5F1` and `S5F1Body.ALCD` use `ALCD`,
+  and `S6F9` and `S6F9Body.PFCD` use `PFCD`.
+  An untyped constant such as `0x86` still compiles; a `byte` variable needs a conversion.
 - `gem`: SPD in `S2F3` and `S2F6` is a binary item of any length, as E5 defines it,
   so the builders take and the decoders return `[]byte` instead of a single `byte`.
 - `gem`: `S6F25Body` gains `LINKIDPresent`, which is false when LINKID arrived zero-length;
@@ -104,6 +108,11 @@ Several shipped `gem` signatures change; see Upgrade notes.
   for equipment that appends its own items to a standard body, such as a captured S5F1 with a fourth item.
   A list holding fewer items, or a list E5 lets be sent short with a length between its short and full forms, is still an error;
   item formats and the lists E5 excludes are still checked.
+- `gem`: constants for the alarm categories E5 defines for ALCD, such as `ALCDPersonalSafety`,
+  and `ALCDAlarmSet` for its set bit, with the methods `Set` and `Category` that read the two parts of a code:
+  `S5F1(gem.ALCDAlarmSet|gem.ALCDPersonalSafety, alid, altx)` reports a personal-safety alarm set.
+  A category E5 reserves or leaves to the equipment decodes as is.
+- `gem`: the named type `PFCD` for the predefined form code of `S6F9`, which E5 defines no values for.
 - `gem`: `FuzzDecoders` runs every generated decoder over arbitrary wire bytes, strictly and with `AllowTrailing`,
   and `make fuzz-test` covers `gem`.
 
@@ -111,6 +120,7 @@ Several shipped `gem` signatures change; see Upgrade notes.
 
 - `gem`: `S1F16`, `S1F18`, `S6F6`, and `S6F23` and their result types
   use the named types `OFLACK`, `ONLACK`, `GRANT6`, and `RSDC` (see Upgrade notes).
+- `gem`: `S5F1`, `S5F6`, `S5F8`, and `S6F9` and their result types use the named types `ALCD` and `PFCD` (see Upgrade notes).
 - `gem`: `S2F3` and `S2F6` take SPD as `[]byte`, and their decoders return it so (see Upgrade notes).
 - `gem`: `DecodeS6F25` accepts a zero-length LINKID and reports it through `LINKIDPresent` (see Upgrade notes).
 - `gem`: `S2F12` and `S5F9` take their SPIDs and recovery actions as strings,
