@@ -586,7 +586,7 @@ func S2F48(variables ...secs2.Item) secs2.SECS2Message {
 // Exception: A zero-length list, m = 0, indicates that no parameter groups are sent with the command.
 // OBJSPEC may be a null-length item.
 func S2F49(body secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 49, false, body)
+	return secs2.NewMessage(2, 49, true, body)
 }
 
 // S2F50 creates the S2F50 (Enhanced Remote Command Acknowledge) message, direction: equipment-to-host.

@@ -278,11 +278,12 @@ func TestDataMessagesS6YAML(t *testing.T) {
 	}
 
 	// Reply expectation matches E5's W-bit markers: every primary marked reply or
-	// [reply] expects a reply; every acknowledge/data reply (and F29, which E5
-	// leaves unmarked) does not.
+	// [reply] expects a reply, and every acknowledge/data reply does not.
+	// F29 expects one too: E5 leaves its header unmarked, but S6F30 is its reply.
 	replyExpected := map[int]bool{
 		1: true, 3: true, 5: true, 7: true, 9: true, 11: true, 13: true,
 		15: true, 17: true, 19: true, 21: true, 23: true, 25: true, 27: true,
+		29: true,
 	}
 	for _, m := range mf.Messages {
 		require.Lenf(t, m.Bodies, 1, "S6F%d must have a single body", m.Function)

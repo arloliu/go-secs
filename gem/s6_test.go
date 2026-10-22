@@ -821,7 +821,7 @@ func TestS6F28(t *testing.T) {
 func TestS6F29(t *testing.T) {
 	msg := gem.S6F29(secs2.A("trid"))
 
-	assertS6Header(t, msg, 29, false)
+	assertS6Header(t, msg, 29, true)
 
 	decoded, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {

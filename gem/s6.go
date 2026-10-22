@@ -356,7 +356,7 @@ func S6F28(trid secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S6F29(trid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 29, false, trid)
+	return secs2.NewMessage(6, 29, true, trid)
 }
 
 // S6F30 creates the S6F30 (Trace Report Data) message, direction: equipment-to-host.
