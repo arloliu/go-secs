@@ -102,11 +102,25 @@ type Message struct {
 // for a form SEMI E5 allows the sender to omit part of:
 // it gets its own builder, SxFy[Host]<Variant>, but no decoder,
 // since the main body's decoder already accepts it.
+//
+// AcceptReply marks a reply body that, built with one value and every repeat empty,
+// accepts its primary as a whole:
+// the value means acceptance and an empty repeat means nothing went wrong, never that there is no data.
+// It is what the catalog's AcceptReply sends.
 type Body struct {
 	Actor         string         `yaml:"actor"`
 	ReplyExpected bool           `yaml:"replyExpected"`
 	Variant       string         `yaml:"variant"`
+	AcceptReply   *Acceptance    `yaml:"acceptReply"`
 	Structure     *StructureNode `yaml:"structure"`
+}
+
+// Acceptance is a reply body's acceptReply annotation.
+//
+// Value names the value of the body's one values-table leaf that means acceptance, such as Accepted.
+// It is empty, as in acceptReply: {}, for a body with no builder parameters at all.
+type Acceptance struct {
+	Value string `yaml:"value"`
 }
 
 // GroupFile is the groups file, groups.yaml:

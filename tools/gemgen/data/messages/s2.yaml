@@ -22,6 +22,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PermissionGranted}
         structure: {item: GRANT}
 
   - function: 3
@@ -48,6 +49,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: EverythingCorrect}
         structure: {item: SPAACK}
 
   - function: 5
@@ -96,6 +98,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: EverythingCorrect}
         structure: {item: CSAACK}
 
   - function: 9
@@ -204,6 +207,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Acknowledge}
         structure: {item: EAC}
 
   - function: 17
@@ -319,6 +323,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: EverythingCorrect}
         structure: {item: TIAACK}
 
   - function: 25
@@ -436,6 +441,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: OK}
         structure: {item: TIACK}
 
   - function: 33
@@ -475,6 +481,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accept}
         structure: {item: DRACK}
 
   - function: 35
@@ -511,6 +518,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: LRACK}
 
   - function: 37
@@ -544,6 +552,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ERACK}
 
   - function: 39
@@ -570,6 +579,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PermissionGranted}
         structure: {item: GRANT}
 
   - function: 41
@@ -605,6 +615,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeCommandPerformed}
         structure:
           type: list
           items:
@@ -645,6 +656,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: SpoolingSetupAccepted}
         structure:
           type: list
           items:
@@ -693,6 +705,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeCommandWillBePerformed}
         structure:
           type: list
           items:

@@ -93,6 +93,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC3}
 
   - function: 7
@@ -119,6 +120,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC3}
 
   - function: 9
@@ -143,6 +145,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ACKC3}
 
   - function: 11
@@ -200,6 +203,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: MIDAC}
 
   - function: 15
@@ -226,6 +230,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PermissionGranted}
         structure: {item: GRANT}
 
   - function: 17
@@ -268,6 +273,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeCommandPerformed}
         structure:
           type: list
           items:
@@ -298,6 +304,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeCommandPerformed}
         structure:
           type: list
           items:
@@ -333,6 +340,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeCommandPerformed}
         structure:
           type: list
           items:
@@ -372,6 +380,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeCommandPerformed}
         structure:
           type: list
           items:
@@ -410,6 +419,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeCommandPerformed}
         structure:
           type: list
           items:
@@ -457,6 +467,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeCommandPerformed}
         structure:
           type: list
           items:
@@ -545,6 +556,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeCommandPerformed}
         structure:
           type: list
           items:
@@ -578,6 +590,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeCommandPerformed}
         structure:
           type: list
           items:

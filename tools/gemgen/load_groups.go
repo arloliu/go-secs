@@ -246,13 +246,19 @@ func collectRefs(n *StructureNode, refs *[]*Group) {
 //
 // A name must be an exported Go identifier.
 // It must not be the name of an item, whose named type items.go may declare,
-// nor any value constant, builder, decoder, or result type.
+// nor any value constant, builder, decoder, or result type,
+// nor a name the catalog declares, such as MessageInfo or Lookup.
 // The group's unexported decode function, decode<Name>,
-// must not be a top-level name of the decode support file.
+// must not be a top-level name of the decode support file or the catalog.
 func checkGroupNames(groups []Group, files []MessageFile, items map[string]Item) error {
 	taken := generatedNames(files, items)
 
 	support, err := supportNames()
+	if err != nil {
+		return err
+	}
+
+	catalog, err := catalogNames()
 	if err != nil {
 		return err
 	}
@@ -263,8 +269,12 @@ func checkGroupNames(groups []Group, files []MessageFile, items map[string]Item)
 			return fmt.Errorf("group %q: name must be an exported Go identifier", g.Name)
 		case taken[g.Name] != "":
 			return fmt.Errorf("group %s: name is already %s", g.Name, taken[g.Name])
+		case catalog[g.Name]:
+			return fmt.Errorf("group %s: name is already declared by the catalog", g.Name)
 		case support["decode"+g.Name]:
 			return fmt.Errorf("group %s: its decode function decode%s would collide with a decode support helper", g.Name, g.Name)
+		case catalog["decode"+g.Name]:
+			return fmt.Errorf("group %s: its decode function decode%s would collide with a catalog helper", g.Name, g.Name)
 		}
 	}
 
@@ -305,9 +315,15 @@ func generatedNames(files []MessageFile, items map[string]Item) map[string]strin
 
 // supportNames returns the top-level names the decode support file declares.
 func supportNames() (map[string]bool, error) {
-	f, err := parser.ParseFile(token.NewFileSet(), "decode.go", decodeSupportSource, 0)
+	return declaredNames("decode.go", []byte(decodeSupportSource))
+}
+
+// declaredNames returns the top-level names the Go source src declares, exported or not;
+// filename labels its parse errors.
+func declaredNames(filename string, src []byte) (map[string]bool, error) {
+	f, err := parser.ParseFile(token.NewFileSet(), filename, src, 0)
 	if err != nil {
-		return nil, fmt.Errorf("parse decode support source: %w", err)
+		return nil, fmt.Errorf("parse %s: %w", filename, err)
 	}
 
 	names := map[string]bool{}

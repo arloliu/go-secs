@@ -25,6 +25,7 @@ messages:
         structure: {type: list, items: [{item: MDLN}, {item: SOFTREV}]}
       - actor: host
         replyExpected: false
+        acceptReply: {}
         structure: {type: list, items: []}
 
   - function: 3
@@ -199,6 +200,7 @@ messages:
             - {type: list, items: [{item: MDLN}, {item: SOFTREV}]}
       - actor: host
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure:
           type: list
           items:
@@ -227,6 +229,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Acknowledge}
         structure: {item: OFLACK}
 
   - function: 17
@@ -251,6 +254,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Accepted}
         structure: {item: ONLACK}
 
   - function: 19

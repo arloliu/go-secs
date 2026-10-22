@@ -23,6 +23,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeOK}
         structure: {item: RSACK}
 
   - function: 3
@@ -150,6 +151,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: AcknowledgeOK}
         structure: {item: RRACK}
 
   # SEMI E32 macro level messages (SEMI E5 §10.8.2.1); S1F19/S1F20 belong to this group too.
@@ -308,6 +310,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PermissionGranted}
         structure: {item: GRANT}
 
   # SEMI E32 micro level messages (SEMI E5 §10.8.2.2), passed directly between two equipment.

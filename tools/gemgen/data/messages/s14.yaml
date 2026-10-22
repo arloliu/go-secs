@@ -568,6 +568,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: Acknowledge}
         structure: {item: DATAACK}
 
   - function: 23
@@ -592,6 +593,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
+        acceptReply: {value: PermissionGranted}
         structure: {item: GRANT}
 
   - function: 25
