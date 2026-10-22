@@ -252,8 +252,8 @@ func S15F20(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: AGENT may be a zero-length item except for requests for certify, de-certify, download,
 // and upload.
-func S15F21(dataid secs2.Item, rcpcmd RCPCMD, rmnsspec string, opid secs2.Item, agent string, recipes ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 21, true, secs2.L(dataid, secs2.U1(uint8(rcpcmd)), secs2.A(rmnsspec), opid, secs2.A(agent), secs2.L(recipes...)))
+func S15F21(dataid secs2.Item, rcpcmd RCPCMD, rmnsspec string, opid secs2.Item, agent string, recipes ...string) secs2.SECS2Message {
+	return secs2.NewMessage(15, 21, true, secs2.L(dataid, secs2.U1(uint8(rcpcmd)), secs2.A(rmnsspec), opid, secs2.A(agent), secs2.L(valueItems(recipes, secs2.A)...)))
 }
 
 // S15F22 creates the S15F22 (Recipe Action Acknowledge) message, direction: bidirectional.
@@ -277,8 +277,8 @@ func S15F22(agent string, linkid uint32, rcpcmd RCPCMD, rmack RMACK, errors ...s
 // Body: L[3]{ <dataid> A[objspec] L[n]{ <recipes>... } }.
 //
 // Exception: None.
-func S15F23(dataid secs2.Item, objspec string, recipes ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 23, true, secs2.L(dataid, secs2.A(objspec), secs2.L(recipes...)))
+func S15F23(dataid secs2.Item, objspec string, recipes ...string) secs2.SECS2Message {
+	return secs2.NewMessage(15, 23, true, secs2.L(dataid, secs2.A(objspec), secs2.L(valueItems(recipes, secs2.A)...)))
 }
 
 // S15F24 creates the S15F24 (Recipe Descriptor Data) message, direction: bidirectional.
@@ -356,8 +356,8 @@ func S15F28(rcpid string, attributes []secs2.Item, rmack RMACK, errors ...secs2.
 // Body: L[4]{ <dataid> <opid> A[respec] L[n]{ <recipes>... } }.
 //
 // Exception: If RESPEC is a zero length item, the target is the recipient of the message.
-func S15F29(dataid secs2.Item, opid secs2.Item, respec string, recipes ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 29, true, secs2.L(dataid, opid, secs2.A(respec), secs2.L(recipes...)))
+func S15F29(dataid secs2.Item, opid secs2.Item, respec string, recipes ...string) secs2.SECS2Message {
+	return secs2.NewMessage(15, 29, true, secs2.L(dataid, opid, secs2.A(respec), secs2.L(valueItems(recipes, secs2.A)...)))
 }
 
 // S15F30 creates the S15F30 (Recipe Verify Acknowledge) message, direction: equipment-to-host.
@@ -431,8 +431,8 @@ func S15F34(rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
 // Body: L[4]{ <dataid> A[respec] U1[rcpdel] L[n]{ <recipes>... } }.
 //
 // Exception: If n = 0 and recipes are to be deselected (RCPDEL = 1), then all currently-selected recipes are indicated.
-func S15F35(dataid secs2.Item, respec string, rcpdel RCPDEL, recipes ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 35, true, secs2.L(dataid, secs2.A(respec), secs2.U1(uint8(rcpdel)), secs2.L(recipes...)))
+func S15F35(dataid secs2.Item, respec string, rcpdel RCPDEL, recipes ...string) secs2.SECS2Message {
+	return secs2.NewMessage(15, 35, true, secs2.L(dataid, secs2.A(respec), secs2.U1(uint8(rcpdel)), secs2.L(valueItems(recipes, secs2.A)...)))
 }
 
 // S15F36 creates the S15F36 (Recipe Delete Acknowledge) message, direction: equipment-to-host.
@@ -582,8 +582,8 @@ func S15F46(rmchgtype secs2.Item, rmgrnt RMGRNT, opid secs2.Item) secs2.SECS2Mes
 //
 // Exception: If RMRECSPEC is a non-zero length item, then n is zero.
 // If RMRECSPEC is a zero length item, then n is non-zero.
-func S15F47(dataid secs2.Item, objspec string, rmnsspec string, rmrecspec string, segments ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(15, 47, true, secs2.L(dataid, secs2.A(objspec), secs2.A(rmnsspec), secs2.A(rmrecspec), secs2.L(segments...)))
+func S15F47(dataid secs2.Item, objspec string, rmnsspec string, rmrecspec string, segments ...string) secs2.SECS2Message {
+	return secs2.NewMessage(15, 47, true, secs2.L(dataid, secs2.A(objspec), secs2.A(rmnsspec), secs2.A(rmrecspec), secs2.L(valueItems(segments, secs2.A)...)))
 }
 
 // S15F48 creates the S15F48 (DRNS Manager Rebuild Acknowledge) message, direction: bidirectional.

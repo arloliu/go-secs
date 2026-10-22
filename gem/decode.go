@@ -113,9 +113,10 @@ func decodeItems(c secs2.Cursor, field string) ([]secs2.Item, error) {
 	return values, nil
 }
 
-// decodeEach decodes every child of the list at c with decode, one per element of a typed repeated group.
+// decodeEach decodes every child of the list at c with decode, one value per child,
+// for a repeat whose elements decode to values.
 //
-// An element's error names field and the element's index, e.g. STATUSLIST[2],
+// An element's error names field and the element's index, e.g. PRJOBIDS[2],
 // so a caller can tell which element of the list failed.
 // A zero-length list yields an empty slice, as for [decodeItems].
 func decodeEach[T any](c secs2.Cursor, field string, decode func(secs2.Cursor, string) (T, error)) ([]T, error) {
@@ -276,4 +277,15 @@ func decodeFloatAs[T ~float32 | ~float64](c secs2.Cursor, field string) (T, erro
 	}
 
 	return out, nil
+}
+
+// valueItems builds one item per value with item, for a builder's repeated group of one fixed data item:
+// the caller passes the values, and the builder sends each as an item of the data item's format.
+func valueItems[T any](values []T, item func(T) secs2.Item) []secs2.Item {
+	items := make([]secs2.Item, len(values))
+	for i, v := range values {
+		items[i] = item(v)
+	}
+
+	return items
 }

@@ -3,7 +3,6 @@
 package gem_test
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -70,17 +69,17 @@ func init() {
 		_, err := gem.DecodeS16F16(item)
 
 		return err
-	}, gem.S16F16([]secs2.Item{secs2.A("prjobids")}, true, secs2.A("errors")).Item())
+	}, gem.S16F16([]string{"prjobids"}, true, secs2.A("errors")).Item())
 	registerFuzzDecoder("DecodeS16F17", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F17(item)
 
 		return err
-	}, gem.S16F17(secs2.A("prjobids")).Item())
+	}, gem.S16F17("prjobids").Item())
 	registerFuzzDecoder("DecodeS16F18", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F18(item)
 
 		return err
-	}, gem.S16F18([]secs2.Item{secs2.A("prjobids")}, true, secs2.A("errors")).Item())
+	}, gem.S16F18([]string{"prjobids"}, true, secs2.A("errors")).Item())
 	registerFuzzDecoder("DecodeS16F20", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F20(item)
 
@@ -105,12 +104,12 @@ func init() {
 		_, err := gem.DecodeS16F25(item)
 
 		return err
-	}, gem.S16F25([]secs2.Item{secs2.A("prjobids")}, true).Item())
+	}, gem.S16F25([]string{"prjobids"}, true).Item())
 	registerFuzzDecoder("DecodeS16F26", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F26(item)
 
 		return err
-	}, gem.S16F26([]secs2.Item{secs2.A("prjobids")}, true, secs2.A("errors")).Item())
+	}, gem.S16F26([]string{"prjobids"}, true, secs2.A("errors")).Item())
 	registerFuzzDecoder("DecodeS16F27", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F27(item)
 
@@ -146,13 +145,12 @@ func TestDecodeS16F1RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F1: %v", err)
 	}
 
-	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
-		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	want := gem.S16F1Body{
+		DATAID:     secs2.A("dataid"),
+		DATALENGTH: secs2.A("datalength"),
 	}
 
-	if !bytes.Equal(got.DATALENGTH.ToBytes(), secs2.A("datalength").ToBytes()) {
-		t.Errorf("DATALENGTH: got %x, want %x", got.DATALENGTH.ToBytes(), secs2.A("datalength").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F2RoundTrip(t *testing.T) {
@@ -168,9 +166,11 @@ func TestDecodeS16F2RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F2: %v", err)
 	}
 
-	if got.GRANT != 0xee {
-		t.Errorf("GRANT: got %v, want %v", got.GRANT, 0xee)
+	want := gem.S16F2Reply{
+		GRANT: 0xee,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F3RoundTrip(t *testing.T) {
@@ -186,41 +186,17 @@ func TestDecodeS16F3RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F3: %v", err)
 	}
 
-	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
-		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	want := gem.S16F3Body{
+		DATAID:         secs2.A("dataid"),
+		MF:             secs2.A("mf"),
+		MIDS:           []secs2.Item{secs2.A("mids")},
+		PRRECIPEMETHOD: 41,
+		RCPSPEC:        "rcpspec",
+		RECIPEPARAMS:   []secs2.Item{secs2.A("recipeParams")},
+		PRPROCESSSTART: true,
 	}
 
-	if !bytes.Equal(got.MF.ToBytes(), secs2.A("mf").ToBytes()) {
-		t.Errorf("MF: got %x, want %x", got.MF.ToBytes(), secs2.A("mf").ToBytes())
-	}
-
-	if len(got.MIDS) != 1 {
-		t.Fatalf("MIDS: got %d elements, want 1", len(got.MIDS))
-	}
-
-	if !bytes.Equal(got.MIDS[0].ToBytes(), secs2.A("mids").ToBytes()) {
-		t.Errorf("MIDS: got %x, want %x", got.MIDS[0].ToBytes(), secs2.A("mids").ToBytes())
-	}
-
-	if got.PRRECIPEMETHOD != 41 {
-		t.Errorf("PRRECIPEMETHOD: got %v, want %v", got.PRRECIPEMETHOD, 41)
-	}
-
-	if got.RCPSPEC != "rcpspec" {
-		t.Errorf("RCPSPEC: got %v, want %v", got.RCPSPEC, "rcpspec")
-	}
-
-	if len(got.RECIPEPARAMS) != 1 {
-		t.Fatalf("RECIPEPARAMS: got %d elements, want 1", len(got.RECIPEPARAMS))
-	}
-
-	if !bytes.Equal(got.RECIPEPARAMS[0].ToBytes(), secs2.A("recipeParams").ToBytes()) {
-		t.Errorf("RECIPEPARAMS: got %x, want %x", got.RECIPEPARAMS[0].ToBytes(), secs2.A("recipeParams").ToBytes())
-	}
-
-	if !got.PRPROCESSSTART {
-		t.Errorf("PRPROCESSSTART: got %v, want true", got.PRPROCESSSTART)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F4RoundTrip(t *testing.T) {
@@ -236,21 +212,13 @@ func TestDecodeS16F4RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F4: %v", err)
 	}
 
-	if got.PRJOBID != "prjobid" {
-		t.Errorf("PRJOBID: got %v, want %v", got.PRJOBID, "prjobid")
+	want := gem.S16F4Reply{
+		PRJOBID: "prjobid",
+		ACKA:    true,
+		ERRORS:  []secs2.Item{secs2.A("errors")},
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	if len(got.ERRORS) != 1 {
-		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
-	}
-
-	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
-		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F5RoundTrip(t *testing.T) {
@@ -266,25 +234,14 @@ func TestDecodeS16F5RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F5: %v", err)
 	}
 
-	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
-		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	want := gem.S16F5Body{
+		DATAID:    secs2.A("dataid"),
+		PRJOBID:   "prjobid",
+		PRCMDNAME: "prcmdname",
+		PARAMS:    []secs2.Item{secs2.A("params")},
 	}
 
-	if got.PRJOBID != "prjobid" {
-		t.Errorf("PRJOBID: got %v, want %v", got.PRJOBID, "prjobid")
-	}
-
-	if got.PRCMDNAME != "prcmdname" {
-		t.Errorf("PRCMDNAME: got %v, want %v", got.PRCMDNAME, "prcmdname")
-	}
-
-	if len(got.PARAMS) != 1 {
-		t.Fatalf("PARAMS: got %d elements, want 1", len(got.PARAMS))
-	}
-
-	if !bytes.Equal(got.PARAMS[0].ToBytes(), secs2.A("params").ToBytes()) {
-		t.Errorf("PARAMS: got %x, want %x", got.PARAMS[0].ToBytes(), secs2.A("params").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F6RoundTrip(t *testing.T) {
@@ -300,21 +257,13 @@ func TestDecodeS16F6RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F6: %v", err)
 	}
 
-	if got.PRJOBID != "prjobid" {
-		t.Errorf("PRJOBID: got %v, want %v", got.PRJOBID, "prjobid")
+	want := gem.S16F6Reply{
+		PRJOBID: "prjobid",
+		ACKA:    true,
+		ERRORS:  []secs2.Item{secs2.A("errors")},
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	if len(got.ERRORS) != 1 {
-		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
-	}
-
-	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
-		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F7RoundTrip(t *testing.T) {
@@ -330,29 +279,15 @@ func TestDecodeS16F7RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F7: %v", err)
 	}
 
-	if got.TIMESTAMP != "timestamp" {
-		t.Errorf("TIMESTAMP: got %v, want %v", got.TIMESTAMP, "timestamp")
+	want := gem.S16F7Body{
+		TIMESTAMP:      "timestamp",
+		PRJOBID:        "prjobid",
+		PRJOBMILESTONE: secs2.A("prjobmilestone"),
+		ACKA:           true,
+		ERRORS:         []secs2.Item{secs2.A("errors")},
 	}
 
-	if got.PRJOBID != "prjobid" {
-		t.Errorf("PRJOBID: got %v, want %v", got.PRJOBID, "prjobid")
-	}
-
-	if !bytes.Equal(got.PRJOBMILESTONE.ToBytes(), secs2.A("prjobmilestone").ToBytes()) {
-		t.Errorf("PRJOBMILESTONE: got %x, want %x", got.PRJOBMILESTONE.ToBytes(), secs2.A("prjobmilestone").ToBytes())
-	}
-
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	if len(got.ERRORS) != 1 {
-		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
-	}
-
-	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
-		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F9RoundTrip(t *testing.T) {
@@ -368,25 +303,14 @@ func TestDecodeS16F9RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F9: %v", err)
 	}
 
-	if !bytes.Equal(got.PREVENTID.ToBytes(), secs2.A("preventid").ToBytes()) {
-		t.Errorf("PREVENTID: got %x, want %x", got.PREVENTID.ToBytes(), secs2.A("preventid").ToBytes())
+	want := gem.S16F9Body{
+		PREVENTID: secs2.A("preventid"),
+		TIMESTAMP: "timestamp",
+		PRJOBID:   "prjobid",
+		VARIABLES: []secs2.Item{secs2.A("variables")},
 	}
 
-	if got.TIMESTAMP != "timestamp" {
-		t.Errorf("TIMESTAMP: got %v, want %v", got.TIMESTAMP, "timestamp")
-	}
-
-	if got.PRJOBID != "prjobid" {
-		t.Errorf("PRJOBID: got %v, want %v", got.PRJOBID, "prjobid")
-	}
-
-	if len(got.VARIABLES) != 1 {
-		t.Fatalf("VARIABLES: got %d elements, want 1", len(got.VARIABLES))
-	}
-
-	if !bytes.Equal(got.VARIABLES[0].ToBytes(), secs2.A("variables").ToBytes()) {
-		t.Errorf("VARIABLES: got %x, want %x", got.VARIABLES[0].ToBytes(), secs2.A("variables").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F11RoundTrip(t *testing.T) {
@@ -402,45 +326,19 @@ func TestDecodeS16F11RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F11: %v", err)
 	}
 
-	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
-		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	want := gem.S16F11Body{
+		DATAID:         secs2.A("dataid"),
+		PRJOBID:        "prjobid",
+		MF:             secs2.A("mf"),
+		MATERIAL:       secs2.A("material"),
+		PRRECIPEMETHOD: 41,
+		RCPSPEC:        "rcpspec",
+		RECIPEPARAMS:   []secs2.Item{secs2.A("recipeParams")},
+		PRPROCESSSTART: true,
+		PRPAUSEEVENT:   secs2.A("prpauseevent"),
 	}
 
-	if got.PRJOBID != "prjobid" {
-		t.Errorf("PRJOBID: got %v, want %v", got.PRJOBID, "prjobid")
-	}
-
-	if !bytes.Equal(got.MF.ToBytes(), secs2.A("mf").ToBytes()) {
-		t.Errorf("MF: got %x, want %x", got.MF.ToBytes(), secs2.A("mf").ToBytes())
-	}
-
-	if !bytes.Equal(got.MATERIAL.ToBytes(), secs2.A("material").ToBytes()) {
-		t.Errorf("MATERIAL: got %x, want %x", got.MATERIAL.ToBytes(), secs2.A("material").ToBytes())
-	}
-
-	if got.PRRECIPEMETHOD != 41 {
-		t.Errorf("PRRECIPEMETHOD: got %v, want %v", got.PRRECIPEMETHOD, 41)
-	}
-
-	if got.RCPSPEC != "rcpspec" {
-		t.Errorf("RCPSPEC: got %v, want %v", got.RCPSPEC, "rcpspec")
-	}
-
-	if len(got.RECIPEPARAMS) != 1 {
-		t.Fatalf("RECIPEPARAMS: got %d elements, want 1", len(got.RECIPEPARAMS))
-	}
-
-	if !bytes.Equal(got.RECIPEPARAMS[0].ToBytes(), secs2.A("recipeParams").ToBytes()) {
-		t.Errorf("RECIPEPARAMS: got %x, want %x", got.RECIPEPARAMS[0].ToBytes(), secs2.A("recipeParams").ToBytes())
-	}
-
-	if !got.PRPROCESSSTART {
-		t.Errorf("PRPROCESSSTART: got %v, want true", got.PRPROCESSSTART)
-	}
-
-	if !bytes.Equal(got.PRPAUSEEVENT.ToBytes(), secs2.A("prpauseevent").ToBytes()) {
-		t.Errorf("PRPAUSEEVENT: got %x, want %x", got.PRPAUSEEVENT.ToBytes(), secs2.A("prpauseevent").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F12RoundTrip(t *testing.T) {
@@ -456,21 +354,13 @@ func TestDecodeS16F12RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F12: %v", err)
 	}
 
-	if got.PRJOBID != "prjobid" {
-		t.Errorf("PRJOBID: got %v, want %v", got.PRJOBID, "prjobid")
+	want := gem.S16F12Reply{
+		PRJOBID: "prjobid",
+		ACKA:    true,
+		ERRORS:  []secs2.Item{secs2.A("errors")},
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	if len(got.ERRORS) != 1 {
-		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
-	}
-
-	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
-		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F15RoundTrip(t *testing.T) {
@@ -486,21 +376,16 @@ func TestDecodeS16F15RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F15: %v", err)
 	}
 
-	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
-		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	want := gem.S16F15Body{
+		DATAID: secs2.A("dataid"),
+		JOBS:   []secs2.Item{secs2.A("jobs")},
 	}
 
-	if len(got.JOBS) != 1 {
-		t.Fatalf("JOBS: got %d elements, want 1", len(got.JOBS))
-	}
-
-	if !bytes.Equal(got.JOBS[0].ToBytes(), secs2.A("jobs").ToBytes()) {
-		t.Errorf("JOBS: got %x, want %x", got.JOBS[0].ToBytes(), secs2.A("jobs").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F16RoundTrip(t *testing.T) {
-	msg := gem.S16F16([]secs2.Item{secs2.A("prjobids")}, true, secs2.A("errors"))
+	msg := gem.S16F16([]string{"prjobids"}, true, secs2.A("errors"))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -512,29 +397,17 @@ func TestDecodeS16F16RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F16: %v", err)
 	}
 
-	if len(got.PRJOBIDS) != 1 {
-		t.Fatalf("PRJOBIDS: got %d elements, want 1", len(got.PRJOBIDS))
+	want := gem.S16F16Reply{
+		PRJOBIDS: []string{"prjobids"},
+		ACKA:     true,
+		ERRORS:   []secs2.Item{secs2.A("errors")},
 	}
 
-	if !bytes.Equal(got.PRJOBIDS[0].ToBytes(), secs2.A("prjobids").ToBytes()) {
-		t.Errorf("PRJOBIDS: got %x, want %x", got.PRJOBIDS[0].ToBytes(), secs2.A("prjobids").ToBytes())
-	}
-
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	if len(got.ERRORS) != 1 {
-		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
-	}
-
-	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
-		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F17RoundTrip(t *testing.T) {
-	msg := gem.S16F17(secs2.A("prjobids"))
+	msg := gem.S16F17("prjobids")
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -546,17 +419,15 @@ func TestDecodeS16F17RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F17: %v", err)
 	}
 
-	if len(got.PRJOBIDS) != 1 {
-		t.Fatalf("PRJOBIDS: got %d elements, want 1", len(got.PRJOBIDS))
+	want := gem.S16F17Body{
+		PRJOBIDS: []string{"prjobids"},
 	}
 
-	if !bytes.Equal(got.PRJOBIDS[0].ToBytes(), secs2.A("prjobids").ToBytes()) {
-		t.Errorf("PRJOBIDS: got %x, want %x", got.PRJOBIDS[0].ToBytes(), secs2.A("prjobids").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F18RoundTrip(t *testing.T) {
-	msg := gem.S16F18([]secs2.Item{secs2.A("prjobids")}, true, secs2.A("errors"))
+	msg := gem.S16F18([]string{"prjobids"}, true, secs2.A("errors"))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -568,25 +439,13 @@ func TestDecodeS16F18RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F18: %v", err)
 	}
 
-	if len(got.PRJOBIDS) != 1 {
-		t.Fatalf("PRJOBIDS: got %d elements, want 1", len(got.PRJOBIDS))
+	want := gem.S16F18Reply{
+		PRJOBIDS: []string{"prjobids"},
+		ACKA:     true,
+		ERRORS:   []secs2.Item{secs2.A("errors")},
 	}
 
-	if !bytes.Equal(got.PRJOBIDS[0].ToBytes(), secs2.A("prjobids").ToBytes()) {
-		t.Errorf("PRJOBIDS: got %x, want %x", got.PRJOBIDS[0].ToBytes(), secs2.A("prjobids").ToBytes())
-	}
-
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	if len(got.ERRORS) != 1 {
-		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
-	}
-
-	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
-		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F20RoundTrip(t *testing.T) {
@@ -602,13 +461,11 @@ func TestDecodeS16F20RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F20: %v", err)
 	}
 
-	if len(got.JOBS) != 1 {
-		t.Fatalf("JOBS: got %d elements, want 1", len(got.JOBS))
+	want := gem.S16F20Reply{
+		JOBS: []secs2.Item{secs2.A("jobs")},
 	}
 
-	if !bytes.Equal(got.JOBS[0].ToBytes(), secs2.A("jobs").ToBytes()) {
-		t.Errorf("JOBS: got %x, want %x", got.JOBS[0].ToBytes(), secs2.A("jobs").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F22RoundTrip(t *testing.T) {
@@ -624,9 +481,11 @@ func TestDecodeS16F22RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F22: %v", err)
 	}
 
-	if got.PRJOBSPACE != 97 {
-		t.Errorf("PRJOBSPACE: got %v, want %v", got.PRJOBSPACE, 97)
+	want := gem.S16F22Reply{
+		PRJOBSPACE: 97,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F23RoundTrip(t *testing.T) {
@@ -642,17 +501,12 @@ func TestDecodeS16F23RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F23: %v", err)
 	}
 
-	if got.PRJOBID != "prjobid" {
-		t.Errorf("PRJOBID: got %v, want %v", got.PRJOBID, "prjobid")
+	want := gem.S16F23Body{
+		PRJOBID:      "prjobid",
+		RECIPEPARAMS: []secs2.Item{secs2.A("recipeParams")},
 	}
 
-	if len(got.RECIPEPARAMS) != 1 {
-		t.Fatalf("RECIPEPARAMS: got %d elements, want 1", len(got.RECIPEPARAMS))
-	}
-
-	if !bytes.Equal(got.RECIPEPARAMS[0].ToBytes(), secs2.A("recipeParams").ToBytes()) {
-		t.Errorf("RECIPEPARAMS: got %x, want %x", got.RECIPEPARAMS[0].ToBytes(), secs2.A("recipeParams").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F24RoundTrip(t *testing.T) {
@@ -668,21 +522,16 @@ func TestDecodeS16F24RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F24: %v", err)
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
+	want := gem.S16F24Reply{
+		ACKA:   true,
+		ERRORS: []secs2.Item{secs2.A("errors")},
 	}
 
-	if len(got.ERRORS) != 1 {
-		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
-	}
-
-	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
-		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F25RoundTrip(t *testing.T) {
-	msg := gem.S16F25([]secs2.Item{secs2.A("prjobids")}, true)
+	msg := gem.S16F25([]string{"prjobids"}, true)
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -694,21 +543,16 @@ func TestDecodeS16F25RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F25: %v", err)
 	}
 
-	if len(got.PRJOBIDS) != 1 {
-		t.Fatalf("PRJOBIDS: got %d elements, want 1", len(got.PRJOBIDS))
+	want := gem.S16F25Body{
+		PRJOBIDS:       []string{"prjobids"},
+		PRPROCESSSTART: true,
 	}
 
-	if !bytes.Equal(got.PRJOBIDS[0].ToBytes(), secs2.A("prjobids").ToBytes()) {
-		t.Errorf("PRJOBIDS: got %x, want %x", got.PRJOBIDS[0].ToBytes(), secs2.A("prjobids").ToBytes())
-	}
-
-	if !got.PRPROCESSSTART {
-		t.Errorf("PRPROCESSSTART: got %v, want true", got.PRPROCESSSTART)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F26RoundTrip(t *testing.T) {
-	msg := gem.S16F26([]secs2.Item{secs2.A("prjobids")}, true, secs2.A("errors"))
+	msg := gem.S16F26([]string{"prjobids"}, true, secs2.A("errors"))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -720,25 +564,13 @@ func TestDecodeS16F26RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F26: %v", err)
 	}
 
-	if len(got.PRJOBIDS) != 1 {
-		t.Fatalf("PRJOBIDS: got %d elements, want 1", len(got.PRJOBIDS))
+	want := gem.S16F26Reply{
+		PRJOBIDS: []string{"prjobids"},
+		ACKA:     true,
+		ERRORS:   []secs2.Item{secs2.A("errors")},
 	}
 
-	if !bytes.Equal(got.PRJOBIDS[0].ToBytes(), secs2.A("prjobids").ToBytes()) {
-		t.Errorf("PRJOBIDS: got %x, want %x", got.PRJOBIDS[0].ToBytes(), secs2.A("prjobids").ToBytes())
-	}
-
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
-	}
-
-	if len(got.ERRORS) != 1 {
-		t.Fatalf("ERRORS: got %d elements, want 1", len(got.ERRORS))
-	}
-
-	if !bytes.Equal(got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes()) {
-		t.Errorf("ERRORS: got %x, want %x", got.ERRORS[0].ToBytes(), secs2.A("errors").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F27RoundTrip(t *testing.T) {
@@ -754,21 +586,14 @@ func TestDecodeS16F27RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F27: %v", err)
 	}
 
-	if got.CTLJOBID != "ctljobid" {
-		t.Errorf("CTLJOBID: got %v, want %v", got.CTLJOBID, "ctljobid")
+	want := gem.S16F27Body{
+		CTLJOBID:  "ctljobid",
+		CTLJOBCMD: 19,
+		CPNAME:    secs2.A("cpname"),
+		CPVAL:     secs2.A("cpval"),
 	}
 
-	if got.CTLJOBCMD != 19 {
-		t.Errorf("CTLJOBCMD: got %v, want %v", got.CTLJOBCMD, 19)
-	}
-
-	if !bytes.Equal(got.CPNAME.ToBytes(), secs2.A("cpname").ToBytes()) {
-		t.Errorf("CPNAME: got %x, want %x", got.CPNAME.ToBytes(), secs2.A("cpname").ToBytes())
-	}
-
-	if !bytes.Equal(got.CPVAL.ToBytes(), secs2.A("cpval").ToBytes()) {
-		t.Errorf("CPVAL: got %x, want %x", got.CPVAL.ToBytes(), secs2.A("cpval").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F28RoundTrip(t *testing.T) {
@@ -784,17 +609,13 @@ func TestDecodeS16F28RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F28: %v", err)
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
+	want := gem.S16F28Reply{
+		ACKA:    true,
+		ERRCODE: secs2.A("errcode"),
+		ERRTEXT: "errtext",
 	}
 
-	if !bytes.Equal(got.ERRCODE.ToBytes(), secs2.A("errcode").ToBytes()) {
-		t.Errorf("ERRCODE: got %x, want %x", got.ERRCODE.ToBytes(), secs2.A("errcode").ToBytes())
-	}
-
-	if got.ERRTEXT != "errtext" {
-		t.Errorf("ERRTEXT: got %v, want %v", got.ERRTEXT, "errtext")
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F29RoundTrip(t *testing.T) {
@@ -810,9 +631,11 @@ func TestDecodeS16F29RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F29: %v", err)
 	}
 
-	if got.PRMTRLORDER != 55 {
-		t.Errorf("PRMTRLORDER: got %v, want %v", got.PRMTRLORDER, 55)
+	want := gem.S16F29Body{
+		PRMTRLORDER: 55,
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F30RoundTrip(t *testing.T) {
@@ -828,7 +651,9 @@ func TestDecodeS16F30RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS16F30: %v", err)
 	}
 
-	if !got.ACKA {
-		t.Errorf("ACKA: got %v, want true", got.ACKA)
+	want := gem.S16F30Reply{
+		ACKA: true,
 	}
+
+	assertDecoded(t, got, want)
 }

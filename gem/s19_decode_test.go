@@ -3,7 +3,6 @@
 package gem_test
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -15,7 +14,7 @@ func init() {
 		_, err := gem.DecodeS19F1(item)
 
 		return err
-	}, gem.S19F1([]secs2.Item{secs2.A("filters")}, secs2.A("attributes")).Item())
+	}, gem.S19F1([]secs2.Item{secs2.A("filters")}, 81).Item())
 	registerFuzzDecoder("DecodeS19F2", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F2(item)
 
@@ -25,7 +24,7 @@ func init() {
 		_, err := gem.DecodeS19F3(item)
 
 		return err
-	}, gem.S19F3(secs2.A("uids")).Item())
+	}, gem.S19F3("uids").Item())
 	registerFuzzDecoder("DecodeS19F4", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F4(item)
 
@@ -35,7 +34,7 @@ func init() {
 		_, err := gem.DecodeS19F5(item)
 
 		return err
-	}, gem.S19F5(secs2.A("uids")).Item())
+	}, gem.S19F5("uids").Item())
 	registerFuzzDecoder("DecodeS19F6", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F6(item)
 
@@ -45,7 +44,7 @@ func init() {
 		_, err := gem.DecodeS19F7(item)
 
 		return err
-	}, gem.S19F7(secs2.A("uids")).Item())
+	}, gem.S19F7("uids").Item())
 	registerFuzzDecoder("DecodeS19F8", func(item secs2.Item) error {
 		_, err := gem.DecodeS19F8(item)
 
@@ -104,7 +103,7 @@ func init() {
 }
 
 func TestDecodeS19F1RoundTrip(t *testing.T) {
-	msg := gem.S19F1([]secs2.Item{secs2.A("filters")}, secs2.A("attributes"))
+	msg := gem.S19F1([]secs2.Item{secs2.A("filters")}, 81)
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -116,21 +115,12 @@ func TestDecodeS19F1RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F1: %v", err)
 	}
 
-	if len(got.FILTERS) != 1 {
-		t.Fatalf("FILTERS: got %d elements, want 1", len(got.FILTERS))
+	want := gem.S19F1Body{
+		FILTERS:    []secs2.Item{secs2.A("filters")},
+		ATTRIBUTES: []gem.PDEATTRIBUTE{81},
 	}
 
-	if !bytes.Equal(got.FILTERS[0].ToBytes(), secs2.A("filters").ToBytes()) {
-		t.Errorf("FILTERS: got %x, want %x", got.FILTERS[0].ToBytes(), secs2.A("filters").ToBytes())
-	}
-
-	if len(got.ATTRIBUTES) != 1 {
-		t.Fatalf("ATTRIBUTES: got %d elements, want 1", len(got.ATTRIBUTES))
-	}
-
-	if !bytes.Equal(got.ATTRIBUTES[0].ToBytes(), secs2.A("attributes").ToBytes()) {
-		t.Errorf("ATTRIBUTES: got %x, want %x", got.ATTRIBUTES[0].ToBytes(), secs2.A("attributes").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F2RoundTrip(t *testing.T) {
@@ -146,25 +136,17 @@ func TestDecodeS19F2RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F2: %v", err)
 	}
 
-	if got.DIRRSPSTAT != 62 {
-		t.Errorf("DIRRSPSTAT: got %v, want %v", got.DIRRSPSTAT, 62)
+	want := gem.S19F2Reply{
+		DIRRSPSTAT: 62,
+		STATUSTXT:  "statustxt",
+		PDES:       []secs2.Item{secs2.A("pdes")},
 	}
 
-	if got.STATUSTXT != "statustxt" {
-		t.Errorf("STATUSTXT: got %v, want %v", got.STATUSTXT, "statustxt")
-	}
-
-	if len(got.PDES) != 1 {
-		t.Fatalf("PDES: got %d elements, want 1", len(got.PDES))
-	}
-
-	if !bytes.Equal(got.PDES[0].ToBytes(), secs2.A("pdes").ToBytes()) {
-		t.Errorf("PDES: got %x, want %x", got.PDES[0].ToBytes(), secs2.A("pdes").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F3RoundTrip(t *testing.T) {
-	msg := gem.S19F3(secs2.A("uids"))
+	msg := gem.S19F3("uids")
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -176,13 +158,11 @@ func TestDecodeS19F3RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F3: %v", err)
 	}
 
-	if len(got.UIDS) != 1 {
-		t.Fatalf("UIDS: got %d elements, want 1", len(got.UIDS))
+	want := gem.S19F3Body{
+		UIDS: []string{"uids"},
 	}
 
-	if !bytes.Equal(got.UIDS[0].ToBytes(), secs2.A("uids").ToBytes()) {
-		t.Errorf("UIDS: got %x, want %x", got.UIDS[0].ToBytes(), secs2.A("uids").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F4RoundTrip(t *testing.T) {
@@ -198,17 +178,15 @@ func TestDecodeS19F4RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F4: %v", err)
 	}
 
-	if len(got.RESULTS) != 1 {
-		t.Fatalf("RESULTS: got %d elements, want 1", len(got.RESULTS))
+	want := gem.S19F4Reply{
+		RESULTS: []secs2.Item{secs2.A("results")},
 	}
 
-	if !bytes.Equal(got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes()) {
-		t.Errorf("RESULTS: got %x, want %x", got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F5RoundTrip(t *testing.T) {
-	msg := gem.S19F5(secs2.A("uids"))
+	msg := gem.S19F5("uids")
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -220,13 +198,11 @@ func TestDecodeS19F5RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F5: %v", err)
 	}
 
-	if len(got.UIDS) != 1 {
-		t.Fatalf("UIDS: got %d elements, want 1", len(got.UIDS))
+	want := gem.S19F5Body{
+		UIDS: []string{"uids"},
 	}
 
-	if !bytes.Equal(got.UIDS[0].ToBytes(), secs2.A("uids").ToBytes()) {
-		t.Errorf("UIDS: got %x, want %x", got.UIDS[0].ToBytes(), secs2.A("uids").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F6RoundTrip(t *testing.T) {
@@ -242,21 +218,16 @@ func TestDecodeS19F6RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F6: %v", err)
 	}
 
-	if got.TCID != "tcid" {
-		t.Errorf("TCID: got %v, want %v", got.TCID, "tcid")
+	want := gem.S19F6Reply{
+		TCID:    "tcid",
+		RESULTS: []secs2.Item{secs2.A("results")},
 	}
 
-	if len(got.RESULTS) != 1 {
-		t.Fatalf("RESULTS: got %d elements, want 1", len(got.RESULTS))
-	}
-
-	if !bytes.Equal(got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes()) {
-		t.Errorf("RESULTS: got %x, want %x", got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F7RoundTrip(t *testing.T) {
-	msg := gem.S19F7(secs2.A("uids"))
+	msg := gem.S19F7("uids")
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -268,13 +239,11 @@ func TestDecodeS19F7RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F7: %v", err)
 	}
 
-	if len(got.UIDS) != 1 {
-		t.Fatalf("UIDS: got %d elements, want 1", len(got.UIDS))
+	want := gem.S19F7Body{
+		UIDS: []string{"uids"},
 	}
 
-	if !bytes.Equal(got.UIDS[0].ToBytes(), secs2.A("uids").ToBytes()) {
-		t.Errorf("UIDS: got %x, want %x", got.UIDS[0].ToBytes(), secs2.A("uids").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F8RoundTrip(t *testing.T) {
@@ -290,17 +259,12 @@ func TestDecodeS19F8RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F8: %v", err)
 	}
 
-	if got.TCID != "tcid" {
-		t.Errorf("TCID: got %v, want %v", got.TCID, "tcid")
+	want := gem.S19F8Reply{
+		TCID:    "tcid",
+		RESULTS: []secs2.Item{secs2.A("results")},
 	}
 
-	if len(got.RESULTS) != 1 {
-		t.Fatalf("RESULTS: got %d elements, want 1", len(got.RESULTS))
-	}
-
-	if !bytes.Equal(got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes()) {
-		t.Errorf("RESULTS: got %x, want %x", got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F9RoundTrip(t *testing.T) {
@@ -316,13 +280,12 @@ func TestDecodeS19F9RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F9: %v", err)
 	}
 
-	if got.TCID != "tcid" {
-		t.Errorf("TCID: got %v, want %v", got.TCID, "tcid")
+	want := gem.S19F9Body{
+		TCID:         "tcid",
+		TRANSFERSIZE: 27,
 	}
 
-	if got.TRANSFERSIZE != 27 {
-		t.Errorf("TRANSFERSIZE: got %v, want %v", got.TRANSFERSIZE, 27)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F10RoundTrip(t *testing.T) {
@@ -338,17 +301,13 @@ func TestDecodeS19F10RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F10: %v", err)
 	}
 
-	if got.TCID != "tcid" {
-		t.Errorf("TCID: got %v, want %v", got.TCID, "tcid")
+	want := gem.S19F10Reply{
+		TCID:       "tcid",
+		RTSRSPSTAT: 0,
+		STATUSTXT:  "statustxt",
 	}
 
-	if got.RTSRSPSTAT != 0 {
-		t.Errorf("RTSRSPSTAT: got %v, want %v", got.RTSRSPSTAT, 0)
-	}
-
-	if got.STATUSTXT != "statustxt" {
-		t.Errorf("STATUSTXT: got %v, want %v", got.STATUSTXT, "statustxt")
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F11RoundTrip(t *testing.T) {
@@ -364,9 +323,11 @@ func TestDecodeS19F11RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F11: %v", err)
 	}
 
-	if got.TCID != "tcid" {
-		t.Errorf("TCID: got %v, want %v", got.TCID, "tcid")
+	want := gem.S19F11Body{
+		TCID: "tcid",
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F13RoundTrip(t *testing.T) {
@@ -382,21 +343,13 @@ func TestDecodeS19F13RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F13: %v", err)
 	}
 
-	if got.TCID != "tcid" {
-		t.Errorf("TCID: got %v, want %v", got.TCID, "tcid")
+	want := gem.S19F13Body{
+		TCID:       "tcid",
+		SENDRESULT: 69,
+		RESULTS:    []secs2.Item{secs2.A("results")},
 	}
 
-	if got.SENDRESULT != 69 {
-		t.Errorf("SENDRESULT: got %v, want %v", got.SENDRESULT, 69)
-	}
-
-	if len(got.RESULTS) != 1 {
-		t.Fatalf("RESULTS: got %d elements, want 1", len(got.RESULTS))
-	}
-
-	if !bytes.Equal(got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes()) {
-		t.Errorf("RESULTS: got %x, want %x", got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F15RoundTrip(t *testing.T) {
@@ -412,17 +365,12 @@ func TestDecodeS19F15RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F15: %v", err)
 	}
 
-	if got.TARGETPDE != "targetpde" {
-		t.Errorf("TARGETPDE: got %v, want %v", got.TARGETPDE, "targetpde")
+	want := gem.S19F15Body{
+		TARGETPDE: "targetpde",
+		INPUTMAP:  []secs2.Item{secs2.A("inputMap")},
 	}
 
-	if len(got.INPUTMAP) != 1 {
-		t.Fatalf("INPUTMAP: got %d elements, want 1", len(got.INPUTMAP))
-	}
-
-	if !bytes.Equal(got.INPUTMAP[0].ToBytes(), secs2.A("inputMap").ToBytes()) {
-		t.Errorf("INPUTMAP: got %x, want %x", got.INPUTMAP[0].ToBytes(), secs2.A("inputMap").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F16RoundTrip(t *testing.T) {
@@ -438,21 +386,12 @@ func TestDecodeS19F16RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F16: %v", err)
 	}
 
-	if len(got.OUTPUTMAP) != 1 {
-		t.Fatalf("OUTPUTMAP: got %d elements, want 1", len(got.OUTPUTMAP))
+	want := gem.S19F16Reply{
+		OUTPUTMAP: []secs2.Item{secs2.A("outputMap")},
+		RESULTS:   []secs2.Item{secs2.A("results")},
 	}
 
-	if !bytes.Equal(got.OUTPUTMAP[0].ToBytes(), secs2.A("outputMap").ToBytes()) {
-		t.Errorf("OUTPUTMAP: got %x, want %x", got.OUTPUTMAP[0].ToBytes(), secs2.A("outputMap").ToBytes())
-	}
-
-	if len(got.RESULTS) != 1 {
-		t.Fatalf("RESULTS: got %d elements, want 1", len(got.RESULTS))
-	}
-
-	if !bytes.Equal(got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes()) {
-		t.Errorf("RESULTS: got %x, want %x", got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F17RoundTrip(t *testing.T) {
@@ -468,25 +407,14 @@ func TestDecodeS19F17RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F17: %v", err)
 	}
 
-	if got.TARGETPDE != "targetpde" {
-		t.Errorf("TARGETPDE: got %v, want %v", got.TARGETPDE, "targetpde")
+	want := gem.S19F17Body{
+		TARGETPDE:   "targetpde",
+		INPUTMAP:    []secs2.Item{secs2.A("inputMap")},
+		VERIFYTYPE:  93,
+		VERIFYDEPTH: 61,
 	}
 
-	if len(got.INPUTMAP) != 1 {
-		t.Fatalf("INPUTMAP: got %d elements, want 1", len(got.INPUTMAP))
-	}
-
-	if !bytes.Equal(got.INPUTMAP[0].ToBytes(), secs2.A("inputMap").ToBytes()) {
-		t.Errorf("INPUTMAP: got %x, want %x", got.INPUTMAP[0].ToBytes(), secs2.A("inputMap").ToBytes())
-	}
-
-	if got.VERIFYTYPE != 93 {
-		t.Errorf("VERIFYTYPE: got %v, want %v", got.VERIFYTYPE, 93)
-	}
-
-	if got.VERIFYDEPTH != 61 {
-		t.Errorf("VERIFYDEPTH: got %v, want %v", got.VERIFYDEPTH, 61)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F18RoundTrip(t *testing.T) {
@@ -502,17 +430,12 @@ func TestDecodeS19F18RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F18: %v", err)
 	}
 
-	if !got.VERIFYSUCCESS {
-		t.Errorf("VERIFYSUCCESS: got %v, want true", got.VERIFYSUCCESS)
+	want := gem.S19F18Reply{
+		VERIFYSUCCESS: true,
+		RESULTS:       []secs2.Item{secs2.A("results")},
 	}
 
-	if len(got.RESULTS) != 1 {
-		t.Fatalf("RESULTS: got %d elements, want 1", len(got.RESULTS))
-	}
-
-	if !bytes.Equal(got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes()) {
-		t.Errorf("RESULTS: got %x, want %x", got.RESULTS[0].ToBytes(), secs2.A("results").ToBytes())
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F19RoundTrip(t *testing.T) {
@@ -528,9 +451,11 @@ func TestDecodeS19F19RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F19: %v", err)
 	}
 
-	if !bytes.Equal(got.DATALENGTH.ToBytes(), secs2.A("datalength").ToBytes()) {
-		t.Errorf("DATALENGTH: got %x, want %x", got.DATALENGTH.ToBytes(), secs2.A("datalength").ToBytes())
+	want := gem.S19F19Body{
+		DATALENGTH: secs2.A("datalength"),
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS19F20RoundTrip(t *testing.T) {
@@ -546,7 +471,9 @@ func TestDecodeS19F20RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS19F20: %v", err)
 	}
 
-	if got.GRANT != 0xee {
-		t.Errorf("GRANT: got %v, want %v", got.GRANT, 0xee)
+	want := gem.S19F20Reply{
+		GRANT: 0xee,
 	}
+
+	assertDecoded(t, got, want)
 }

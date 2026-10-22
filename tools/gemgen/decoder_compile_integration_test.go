@@ -153,7 +153,7 @@ func TestDecodersCompileAndRoundTripAgainstRealSecs2(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(checkDir, name), []byte(src), 0o600))
 	}
 
-	plantFuzzHarness(t, rootDir, checkDir, pkg)
+	plantTestSupport(t, rootDir, checkDir, pkg)
 
 	// Real build + test against real secs2 -- the whole point: prove the emitted accessors, generic
 	// instantiations, and field types type-check, and that the round-trip assertions pass.

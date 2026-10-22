@@ -26,8 +26,8 @@ var decodeSupportSource string
 // Param is the index of the builder parameter the field mirrors, or -1 when it mirrors none.
 // Presence marks the <FIELD>Present field an optional leaf adds right after its value field:
 // it mirrors no parameter and reports whether the item arrived with a value.
-// Elem is the element item's goType for the field of a typed repeat, and empty for any other field:
-// such a field is a slice of decoded values, while its parameter takes secs2 items.
+// Elem is the element item's goType for the field of a value repeat, and empty for any other field:
+// such a field is a slice of decoded values, as its parameter is a slice of values to send.
 // Path is the list-index path from the body root to the item the field is read from;
 // a presence field shares its value field's path.
 type decodeField struct {
@@ -57,7 +57,8 @@ type decoderView struct {
 	FuncDoc  []string      // godoc lines for the decoder function (without leading "// ")
 }
 
-// renderDecodeSupport returns the shared decode helpers every generated decoder calls.
+// renderDecodeSupport returns the shared helpers every generated decoder calls,
+// and the one a builder calls to send a repeat of values.
 //
 // The source is a fixed file rather than a rendered template: it carries no per-message data, and
 // keeping it under templates/ means the generator remains the single writer of every gem file the
@@ -287,9 +288,11 @@ func (e *decodeEmitter) emitNode(n *StructureNode, path []int) error {
 
 // emitList walks a list node: a repeated group, a packed group, or a fixed group of children.
 func (e *decodeEmitter) emitList(n *StructureNode, path []int) error {
+	if it, ok := valueRepeatItem(n, e.items); ok {
+		return e.emitValueRepeat(n, it, path)
+	}
+
 	switch {
-	case n.Repeat != "" && n.Typed:
-		return e.emitTypedRepeat(n, path)
 	case n.Repeat != "":
 		name := nodeNames(n)
 		e.assign(e.field(name.Field, "[]secs2.Item", path), fmt.Sprintf("decodeItems(%s, %q)", pathExpr(path), name.Label))
@@ -302,24 +305,16 @@ func (e *decodeEmitter) emitList(n *StructureNode, path []int) error {
 	}
 }
 
-// emitTypedRepeat walks a typed repeat:
+// emitValueRepeat walks a repeat of the fixed scalar item it:
 // a list whose every element is one item of the of leaf's format,
 // decoded element by element with the helper a leaf of that item uses.
 // An element's decode error names the field and the element's index.
-func (e *decodeEmitter) emitTypedRepeat(n *StructureNode, path []int) error {
-	it := e.items[n.Of.Item]
-	if it.Binding != BindingFixed || isByteArrayGoType(it.GoType) {
-		return fmt.Errorf("typed repeat %s: item %s needs a binding: fixed item with a scalar goType", n.Repeat, n.Of.Item)
-	}
-
-	goType := it.GoType
-	if hasNamedType(it) {
-		goType = n.Of.Item // enum item: the named defined type generated into items.go
-	}
+func (e *decodeEmitter) emitValueRepeat(n *StructureNode, it Item, path []int) error {
+	goType := fixedGoType(n.Of.Item, it)
 
 	sf, err := scalarDecodeFunc(firstFormat(it), goType)
 	if err != nil {
-		return fmt.Errorf("typed repeat %s: item %s: %w", n.Repeat, n.Of.Item, err)
+		return fmt.Errorf("repeat %s: item %s: %w", n.Repeat, n.Of.Item, err)
 	}
 
 	fn := sf.fn
@@ -328,7 +323,7 @@ func (e *decodeEmitter) emitTypedRepeat(n *StructureNode, path []int) error {
 		// decodeASCIIAs reads a named string enum directly;
 		// no other format has such a helper.
 		if firstFormat(it) != "A" {
-			return fmt.Errorf("typed repeat %s: item %s: no decoder for a named %s type of format %s", n.Repeat, n.Of.Item, sf.result, firstFormat(it))
+			return fmt.Errorf("repeat %s: item %s: no decoder for a named %s type of format %s", n.Repeat, n.Of.Item, sf.result, firstFormat(it))
 		}
 
 		fn = fmt.Sprintf("decodeASCIIAs[%s]", goType)
@@ -455,10 +450,7 @@ func (e *decodeEmitter) emitLeaf(n *StructureNode, path []int) error {
 		return nil
 	}
 
-	goType := it.GoType
-	if hasNamedType(it) {
-		goType = n.Item // enum item: the named defined type generated into items.go
-	}
+	goType := fixedGoType(n.Item, it)
 
 	itemFormat := firstFormat(it)
 	if itemFormat == "B" && it.GoType != "byte" {
@@ -653,7 +645,7 @@ func resultTypeDoc(typeName string, code string, mainName string, m Message, b B
 	}
 
 	names := optionalFieldNames(b.Structure)
-	doc = append(doc, mirrorsDoc(mainName, names, typedRepeats(b.Structure))...)
+	doc = append(doc, mirrorsDoc(mainName, names)...)
 
 	if len(names) > 0 {
 		pairs := make([]string, len(names))
@@ -706,61 +698,25 @@ func decoderDoc(typeName string, code string, mainName string, m Message, b Body
 }
 
 // mirrorsDoc renders the godoc sentence saying a result struct mirrors the parameters of its builder mainName,
-// naming the exceptions:
-// the presence fields of the optional leaves names,
-// and the fields of the typed repeats, which hold decoded values where the builder takes secs2 items.
-func mirrorsDoc(mainName string, names []string, typed []*StructureNode) []string {
+// naming the exceptions: the presence fields of the optional leaves names.
+func mirrorsDoc(mainName string, names []string) []string {
 	head := fmt.Sprintf("It is filled by [Decode%s] and mirrors the parameters of [%s], in order", mainName, mainName)
 
-	var tails []string
-
-	if len(names) > 0 {
-		presence := make([]string, len(names))
-		for i, name := range names {
-			presence[i] = name + "Present"
-		}
-
-		fields := "field"
-		if len(names) > 1 {
-			fields = "fields"
-		}
-
-		tails = append(tails, fmt.Sprintf("apart from its %s %s", joinAnd(presence), fields))
-	}
-
-	if len(typed) > 0 {
-		fields := make([]string, len(typed))
-		for i, r := range typed {
-			fields[i] = nodeNames(r).Field
-		}
-
-		verb := "holds"
-		if len(typed) > 1 {
-			verb = "hold"
-		}
-
-		clause := fmt.Sprintf("except that %s %s decoded values where [%s] takes [secs2.Item] elements", joinAnd(fields), verb, mainName)
-		if len(tails) > 0 {
-			clause = "and " + clause
-		}
-
-		tails = append(tails, clause)
-	}
-
-	if len(tails) == 0 {
+	if len(names) == 0 {
 		return []string{head + "."}
 	}
 
-	doc := []string{head + ","}
-	for i, tail := range tails {
-		if i == len(tails)-1 {
-			doc = append(doc, tail+".")
-		} else {
-			doc = append(doc, tail+",")
-		}
+	presence := make([]string, len(names))
+	for i, name := range names {
+		presence[i] = name + "Present"
 	}
 
-	return doc
+	fields := "field"
+	if len(names) > 1 {
+		fields = "fields"
+	}
+
+	return []string{head + ",", fmt.Sprintf("apart from its %s %s.", joinAnd(presence), fields)}
 }
 
 // optionalFieldNames returns the value field names of a body's optional leaves, in body order.
@@ -824,53 +780,6 @@ func optionalBuilderDoc(n *StructureNode) []string {
 		"but this builder always sends a value:",
 		"callers that need the zero-length form build the body with [secs2] directly.",
 	}
-}
-
-// typedBuilderDoc renders the godoc paragraph a builder of a body with typed repeats carries,
-// or nil when the body has none:
-// the builder takes each element as a secs2 item,
-// while the decoder returns the elements as values.
-func typedBuilderDoc(n *StructureNode, items map[string]Item) []string {
-	repeats := typedRepeats(n)
-	doc := make([]string, 0, 4*len(repeats))
-
-	for _, r := range repeats {
-		it := items[r.Of.Item]
-		goType := it.GoType
-		if hasNamedType(it) {
-			goType = r.Of.Item
-		}
-
-		doc = append(doc,
-			"",
-			fmt.Sprintf("Each element of %s is a [secs2.Item] holding one %s of format %s,", nodeNames(r).Param, r.Of.Item, firstFormat(it)),
-			fmt.Sprintf("which the caller builds with [secs2.%s];", firstFormat(it)),
-			fmt.Sprintf("the decoder returns the elements as values, in a []%s.", goType),
-		)
-	}
-
-	return doc
-}
-
-// typedRepeats returns the typed repeats of a body, in body order.
-//
-// It walks the same nodes as [BuildParams]:
-// nothing below a repeat's or packed group's of may be typed.
-func typedRepeats(n *StructureNode) []*StructureNode {
-	if n == nil {
-		return nil
-	}
-
-	if n.Repeat != "" && n.Typed {
-		return []*StructureNode{n}
-	}
-
-	var out []*StructureNode
-	for i := range n.Items {
-		out = append(out, typedRepeats(&n.Items[i])...)
-	}
-
-	return out
 }
 
 // actorClause renders the " for equipment" / " for host" godoc fragment for a body's actor.

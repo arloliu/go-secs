@@ -87,6 +87,6 @@ func TestStringEnumTests(t *testing.T) {
 
 	decodeTests, err := renderDecodeTests(mf, items)
 	require.NoError(t, err)
-	require.Contains(t, string(decodeTests), `if got.CARRIERACTION != "carrieraction" {`)
+	require.Contains(t, string(decodeTests), `CARRIERACTION: "carrieraction",`)
 	require.Contains(t, string(decodeTests), "func TestDecodeS1F1NEXTAbsent(t *testing.T) {")
 }

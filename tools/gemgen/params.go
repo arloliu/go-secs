@@ -7,9 +7,11 @@ import (
 
 // Param is one generated function parameter.
 //
-// Repeat is true when the parameter originates from a repeat node. Such a
-// parameter renders as name []secs2.Item, or name ...secs2.Item when it is
-// also the final parameter (Variadic). A non-repeat leaf renders as name <Type>.
+// Repeat is true when the parameter originates from a repeat or packed node,
+// and Type is then its element type.
+// Such a parameter renders as name []<Type>,
+// or name ...<Type> when it is also the final parameter (Variadic).
+// A non-repeat leaf renders as name <Type>.
 // Repeat is independent of position: a non-final repeat is still Repeat: true
 // (a slice) without being Variadic.
 type Param struct {
@@ -26,11 +28,13 @@ type emittedName struct {
 	Label string // the name the node's decode errors report
 }
 
-// BuildParams walks a validated structure node and returns the ordered function
-// parameters a generated builder needs. A repeat node contributes a single
-// caller-supplied slice parameter and does NOT recurse into Of. After the walk,
-// the final parameter is promoted to variadic when (and only when) it is itself
-// a repeat.
+// BuildParams walks a validated structure node
+// and returns the ordered function parameters a generated builder needs.
+// A repeat node contributes a single caller-supplied slice parameter and does NOT recurse into Of:
+// a slice of values for a repeat of a fixed scalar leaf (see [valueRepeatItem]),
+// and of secs2 items for any other repeat.
+// After the walk, the final parameter is promoted to variadic
+// when (and only when) it is itself a repeat.
 func BuildParams(n *StructureNode, items map[string]Item) []Param {
 	var out []Param
 
@@ -45,17 +49,19 @@ func BuildParams(n *StructureNode, items map[string]Item) []Param {
 			it := items[n.Item]
 			typ := "secs2.Item"
 			if it.Binding == BindingFixed {
-				typ = it.GoType
-				if hasNamedType(it) {
-					typ = n.Item // enum item: named defined type, e.g. COMMACK (over goType byte)
-				}
+				typ = fixedGoType(n.Item, it)
 			}
 			out = append(out, Param{Name: nodeNames(n).Param, Type: typ})
 		case "opaque":
 			out = append(out, Param{Name: nodeNames(n).Param, Type: "secs2.Item"})
 		default: // list
 			if n.Repeat != "" {
-				out = append(out, Param{Name: nodeNames(n).Param, Type: "secs2.Item", Repeat: true})
+				typ := "secs2.Item"
+				if it, ok := valueRepeatItem(n, items); ok {
+					typ = fixedGoType(n.Of.Item, it)
+				}
+				out = append(out, Param{Name: nodeNames(n).Param, Type: typ, Repeat: true})
+
 				return // do NOT recurse into Of
 			}
 			if n.Packed != "" {
@@ -94,26 +100,7 @@ func BodyExpr(n *StructureNode, items map[string]Item) string {
 	case "leaf":
 		it := items[n.Item]
 		if it.Binding == BindingFixed {
-			arg := nodeNames(n).Param
-			switch {
-			case hasNamedType(it):
-				// Enum item: the parameter is the named type (e.g. COMMACK), but the secs2
-				// constructor combiners type-switch on the exact primitive (case byte:), which a
-				// named type does not satisfy, and secs2.A takes a plain string. Convert back to
-				// goType at the call site so the value encodes instead of becoming a deferred-error
-				// item or failing to compile.
-				arg = fmt.Sprintf("%s(%s)", it.GoType, arg) // e.g. byte(commack), string(carrieraction)
-			case byteArrayGoTypeRE.MatchString(it.GoType):
-				// Fixed-size byte array: secs2.B takes ...any, and a [N]byte does not satisfy its
-				// []byte type-switch case directly -- slice it. NEVER add a "..." spread here too;
-				// spreading a []byte into ...any is a Go compile error (constraint 14).
-				arg += "[:]"
-			default:
-				// Empty on purpose: exists solely to satisfy golangci-lint's revive
-				// enforce-switch-style rule, which requires a default clause.
-			}
-
-			return fmt.Sprintf("secs2.%s(%s)", it.Formats[0], arg)
+			return fixedItemExpr(it, nodeNames(n).Param)
 		}
 
 		return nodeNames(n).Param
@@ -121,6 +108,10 @@ func BodyExpr(n *StructureNode, items map[string]Item) string {
 		return nodeNames(n).Param
 	default: // list
 		if n.Repeat != "" {
+			if it, ok := valueRepeatItem(n, items); ok {
+				return fmt.Sprintf("secs2.L(valueItems(%s, %s)...)", nodeNames(n).Param, valueItemFunc(n.Of.Item, it))
+			}
+
 			return fmt.Sprintf("secs2.L(%s...)", nodeNames(n).Param)
 		}
 		if n.Packed != "" {
@@ -137,6 +128,44 @@ func BodyExpr(n *StructureNode, items map[string]Item) string {
 
 		return "secs2.L(" + strings.Join(parts, ", ") + ")"
 	}
+}
+
+// fixedItemExpr renders the secs2 expression that builds one item of the fixed item it
+// from the Go value arg, which has the type [fixedGoType] gives it.
+func fixedItemExpr(it Item, arg string) string {
+	switch {
+	case hasNamedType(it):
+		// Enum item: the value has the named type (e.g. COMMACK),
+		// but the secs2 constructor combiners type-switch on the exact primitive (case byte:),
+		// which a named type does not satisfy, and secs2.A takes a plain string.
+		// Convert back to goType at the call site,
+		// so the value encodes instead of becoming a deferred-error item or failing to compile.
+		arg = fmt.Sprintf("%s(%s)", it.GoType, arg) // e.g. byte(commack), string(carrieraction)
+	case byteArrayGoTypeRE.MatchString(it.GoType):
+		// Fixed-size byte array: secs2.B takes ...any,
+		// and a [N]byte does not satisfy its []byte type-switch case directly -- slice it.
+		// NEVER add a "..." spread here too;
+		// spreading a []byte into ...any is a Go compile error.
+		arg += "[:]"
+	default:
+		// Empty on purpose: it exists solely to satisfy golangci-lint's revive enforce-switch-style rule,
+		// which requires a default clause.
+	}
+
+	return fmt.Sprintf("secs2.%s(%s)", it.Formats[0], arg)
+}
+
+// valueItemFunc renders the function a value repeat's builder passes to valueItems,
+// which builds one element item from one value of the fixed item it, named name.
+// A plain string element needs no conversion, so secs2.A itself serves;
+// any other element gets a one-line function literal around [fixedItemExpr].
+func valueItemFunc(name string, it Item) string {
+	goType := fixedGoType(name, it)
+	if goType == "string" && it.Formats[0] == "A" {
+		return "secs2.A"
+	}
+
+	return fmt.Sprintf("func(v %s) secs2.Item { return %s }", goType, fixedItemExpr(it, "v"))
 }
 
 // BodyDoc renders the human-readable godoc shorthand describing a body shape.
@@ -236,6 +265,34 @@ func nodeNames(n *StructureNode) emittedName {
 	}
 
 	return emittedName{Param: param, Field: field, Label: field}
+}
+
+// valueRepeatItem returns the element item of a repeat whose elements are values,
+// and reports whether n is such a repeat:
+// one whose of is a leaf of a binding: fixed item with a scalar goType.
+// The builder takes those elements as values of the item's [fixedGoType] and the decoder returns them so.
+// The elements of any other repeat are secs2 items both ways.
+func valueRepeatItem(n *StructureNode, items map[string]Item) (Item, bool) {
+	if n.Repeat == "" || n.Of == nil || n.Of.Kind() != "leaf" {
+		return Item{}, false
+	}
+
+	it, ok := items[n.Of.Item]
+	if !ok || it.Binding != BindingFixed || isByteArrayGoType(it.GoType) {
+		return Item{}, false
+	}
+
+	return it, true
+}
+
+// fixedGoType returns the Go type a value of the fixed item it, named name, has in parameters and decoder fields:
+// the named type items.go declares for it, if any, and its goType otherwise.
+func fixedGoType(name string, it Item) string {
+	if hasNamedType(it) {
+		return name // enum item: named defined type, e.g. COMMACK (over goType byte)
+	}
+
+	return it.GoType
 }
 
 // hasNamedType reports whether an item's parameters and decoder fields use the named type items.go declares for it:

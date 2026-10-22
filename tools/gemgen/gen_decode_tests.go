@@ -20,7 +20,7 @@ type decodeTestView struct {
 	DecodeName string   // "DecodeS1F14"
 	CallArgs   string   // rendered builder argument list
 	HasFields  bool     // false for a body whose result struct has no fields
-	Lines      []string // pre-rendered Go statement lines asserting the decoded fields
+	Lines      []string // pre-rendered Go statement lines asserting the decoded result
 	EmptyName  string   // "TestDecodeS3F2EmptyList", or "" when the body gets no empty-list test
 	EmptyLines []string // pre-rendered Go statement lines of the empty-list test
 	Absent     []absentTestView
@@ -36,7 +36,9 @@ type absentTestView struct {
 //
 // Each test builds the message with the same deterministic samples the builder tests use, encodes
 // the body to wire bytes, decodes it back through [secs2.Decode], runs the generated decoder over
-// the result, and compares every field against the sample it was built from.
+// the result, and compares it with the result the samples describe,
+// built field by field from those samples rather than by decoding anything,
+// through the hand-written assertDecoded helper in gem/assert_decoded_test.go.
 // Driving the decoder from wire bytes rather than from the builder's own items is what makes the
 // test able to catch a decoder that reads the wrong SECS-II format for a field.
 // A variant body has no decoder of its own;
@@ -53,29 +55,25 @@ func renderDecodeTests(mf MessageFile, items map[string]Item) ([]byte, error) {
 
 	var tests []decodeTestView
 
-	usesBytes := false
-
 	for _, m := range mf.Messages {
 		for _, b := range m.Bodies {
 			if b.Structure == nil || b.Variant != "" {
 				continue // header-only or variant: no decoder of its own to round-trip
 			}
 
-			tv, tb, err := newDecodeTestView(mf.Stream, m, b, items)
+			tv, err := newDecodeTestView(mf.Stream, m, b, items)
 			if err != nil {
 				return nil, fmt.Errorf("S%dF%d: %w", mf.Stream, m.Function, err)
 			}
 
 			tests = append(tests, tv)
-			usesBytes = usesBytes || tb
 		}
 	}
 
 	data := struct {
-		Stream    int
-		Tests     []decodeTestView
-		UsesBytes bool
-	}{Stream: mf.Stream, Tests: tests, UsesBytes: usesBytes}
+		Stream int
+		Tests  []decodeTestView
+	}{Stream: mf.Stream, Tests: tests}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
@@ -91,26 +89,26 @@ func renderDecodeTests(mf MessageFile, items map[string]Item) ([]byte, error) {
 }
 
 // newDecodeTestView builds the view model for one (message, body) pair's round-trip test.
-func newDecodeTestView(stream int, m Message, b Body, items map[string]Item) (decodeTestView, bool, error) {
+func newDecodeTestView(stream int, m Message, b Body, items map[string]Item) (decodeTestView, error) {
 	name := callName(stream, m.Function, b.Actor)
 
 	params := BuildParams(b.Structure, items)
 
 	exprs, err := SampleExprs(b.Structure, items)
 	if err != nil {
-		return decodeTestView{}, false, err
+		return decodeTestView{}, err
 	}
 
 	fields, err := BuildFields(b.Structure, items)
 	if err != nil {
-		return decodeTestView{}, false, err
+		return decodeTestView{}, err
 	}
 
 	if n := valueFieldCount(fields); n != len(params) || n != len(exprs) {
-		return decodeTestView{}, false, fmt.Errorf("%s: %d value fields, %d parameters, %d samples", name, n, len(params), len(exprs))
+		return decodeTestView{}, fmt.Errorf("%s: %d value fields, %d parameters, %d samples", name, n, len(params), len(exprs))
 	}
 
-	lines, usesBytes := decodeAssertLines(params, fields, exprs)
+	typeName := ResultTypeName(stream, m.Function, b.Actor)
 
 	tv := decodeTestView{
 		Name:       "TestDecode" + name + "RoundTrip",
@@ -118,10 +116,8 @@ func newDecodeTestView(stream int, m Message, b Body, items map[string]Item) (de
 		DecodeName: "Decode" + name,
 		CallArgs:   callArgs(params, exprs),
 		HasFields:  len(fields) > 0,
-		Lines:      lines,
+		Lines:      assertDecodedLines(typeName, sampleFields(params, fields, exprs)),
 	}
-
-	typeName := ResultTypeName(stream, m.Function, b.Actor)
 
 	if topListMayBeEmpty(b.Structure) {
 		tv.EmptyName = "TestDecode" + name + "EmptyList"
@@ -130,16 +126,17 @@ func newDecodeTestView(stream int, m Message, b Body, items map[string]Item) (de
 
 	optionals, err := optionalLeaves(b.Structure, items)
 	if err != nil {
-		return decodeTestView{}, false, err
+		return decodeTestView{}, err
 	}
 
 	for _, opt := range optionals {
-		absent, absentBytes := absentTestLines(tv, typeName, opt, params, fields, exprs)
-		tv.Absent = append(tv.Absent, absentTestView{Name: "TestDecode" + name + opt.Field + "Absent", Lines: absent})
-		usesBytes = usesBytes || absentBytes
+		tv.Absent = append(tv.Absent, absentTestView{
+			Name:  "TestDecode" + name + opt.Field + "Absent",
+			Lines: absentTestLines(tv, typeName, opt, params, fields, exprs),
+		})
 	}
 
-	return tv, usesBytes, nil
+	return tv, nil
 }
 
 // valueFieldCount returns how many of fields mirror a builder parameter: every field but a presence field.
@@ -163,8 +160,7 @@ func valueFieldCount(fields []decodeField) int {
 // The leaf's field must come back at its zero value with its presence field false,
 // and every other field must still equal its sample.
 // tv is the body's round-trip test, which supplies the builder call and the decoder.
-// It reports whether any emitted line needs the "bytes" import.
-func absentTestLines(tv decodeTestView, typeName string, opt optionalLeaf, params []Param, fields []decodeField, exprs []string) ([]string, bool) {
+func absentTestLines(tv decodeTestView, typeName string, opt optionalLeaf, params []Param, fields []decodeField, exprs []string) []string {
 	var lines []string
 
 	if len(opt.Path) == 0 {
@@ -217,20 +213,15 @@ func absentTestLines(tv decodeTestView, typeName string, opt optionalLeaf, param
 		"",
 	)
 
-	var others, absent []decodeField
+	var others []decodeField
 
 	for _, f := range fields {
-		if f.Name == opt.Field || f.Name == opt.Field+"Present" {
-			absent = append(absent, f)
-		} else {
+		if f.Name != opt.Field && f.Name != opt.Field+"Present" {
 			others = append(others, f)
 		}
 	}
 
-	assertLines, usesBytes := decodeAssertLines(params, others, exprs)
-	lines = slices.Concat(lines, assertLines, zeroAssertLines(typeName, absent))
-
-	return trimTrailingBlank(lines), usesBytes
+	return slices.Concat(lines, assertDecodedLines(typeName, sampleFields(params, others, exprs)))
 }
 
 // topListMayBeEmpty reports whether a body's outermost node is a list bounded with minItems: 0.
@@ -266,155 +257,72 @@ func decodeZeroLines(decoder string, expr string, typeName string, fields []deco
 		"",
 	}
 
-	return trimTrailingBlank(slices.Concat(decode, zeroAssertLines(typeName, fields)))
+	return slices.Concat(decode, assertDecodedLines(typeName, nil))
 }
 
-// zeroAssertLines renders the checks that every field in fields of the decoded result got is at its zero value.
-//
-// typeName is the result type the fields belong to.
-// A slice field must be empty;
-// any other field is compared with the same field of a zero result,
-// which is declared only when at least one field needs it, so the generated test never holds an unused variable.
-func zeroAssertLines(typeName string, fields []decodeField) []string {
-	var lines []string
+// fieldValue is one field of an expected decoder result: its name and the Go expression of its value.
+type fieldValue struct {
+	Name  string
+	Value string
+}
 
-	declared := false
-
-	for _, f := range fields {
-		got := "got." + f.Name
-
-		if strings.HasPrefix(f.Type, "[]") {
-			lines = append(lines,
-				fmt.Sprintf("if len(%s) != 0 {", got),
-				fmt.Sprintf("t.Errorf(%q, len(%s))", f.Name+": got %d elements, want none", got),
-				"}",
-				"",
-			)
-
-			continue
-		}
-
-		if !declared {
-			lines = append(lines, fmt.Sprintf("var zero gem.%s", typeName), "")
-			declared = true
-		}
-
-		lines = append(lines,
-			fmt.Sprintf("if %s != zero.%s {", got, f.Name),
-			fmt.Sprintf("t.Errorf(%q, %s)", f.Name+": got %v, want the zero value", got),
-			"}",
-			"",
-		)
+// assertDecodedLines renders the statements that compare the decoded result got,
+// through the hand-written assertDecoded helper,
+// with the result of type typeName whose fields are set as values lists,
+// every other field at its zero value.
+func assertDecodedLines(typeName string, values []fieldValue) []string {
+	if len(values) == 0 {
+		return []string{fmt.Sprintf("assertDecoded(t, got, gem.%s{})", typeName)}
 	}
 
-	return lines
+	lines := []string{fmt.Sprintf("want := gem.%s{", typeName)}
+	for _, v := range values {
+		lines = append(lines, fmt.Sprintf("%s: %s,", v.Name, v.Value))
+	}
+
+	return append(lines, "}", "", "assertDecoded(t, got, want)")
 }
 
-// decodeAssertLines renders the per-field comparisons of a round-trip test, and reports whether
-// any of them needs the "bytes" import.
+// sampleFields returns the expected value of each of fields
+// when the body was built from the samples exprs.
 //
 // params and exprs are index-aligned by construction: both come from the same structure walk.
 // A field finds its parameter and sample through its Param;
-// a presence field mirrors none and must be true, since the builder always sends a value.
-func decodeAssertLines(params []Param, fields []decodeField, exprs []string) ([]string, bool) {
-	var lines []string
-
-	usesBytes := false
+// a presence field mirrors none and is true, since the builder always sends a value.
+// A repeat's field holds the one sample element its call sent.
+func sampleFields(params []Param, fields []decodeField, exprs []string) []fieldValue {
+	values := make([]fieldValue, 0, len(fields))
 
 	for _, f := range fields {
-		got := "got." + f.Name
-
 		if f.Presence {
-			lines = append(lines,
-				fmt.Sprintf("if !%s {", got),
-				fmt.Sprintf("t.Errorf(%q)", f.Name+": got false, want true"),
-				"}",
-				"",
-			)
+			values = append(values, fieldValue{f.Name, "true"})
 
 			continue
 		}
 
 		i := f.Param
+		value := exprs[i]
 
-		if f.Elem != "" {
-			lines = append(lines, typedAssertLines(f, params[i].Name)...)
-
-			continue
-		}
-
-		switch f.Type {
-		case "secs2.Item":
-			lines = append(lines, compareBytesLines(f.Name, got+".ToBytes()", exprs[i]+".ToBytes()")...)
-			usesBytes = true
-		case "[]secs2.Item":
-			lines = append(lines,
-				fmt.Sprintf("if len(%s) != 1 {", got),
-				fmt.Sprintf("t.Fatalf(%q, len(%s))", f.Name+": got %d elements, want 1", got),
-				"}",
-				"",
-			)
-			lines = append(lines, compareBytesLines(f.Name, got+"[0].ToBytes()", exprs[i]+".ToBytes()")...)
-			usesBytes = true
-		case "[]byte":
-			want := exprs[i]
-			if params[i].Repeat {
-				want = "[]byte{" + want + "}" // packed group: the sample is one bare element
-			}
-
-			lines = append(lines, compareBytesLines(f.Name, got, want)...)
-			usesBytes = true
-		case "bool":
-			cond := "!" + got
-			if exprs[i] == "false" {
-				cond = got
-			}
-
-			lines = append(lines,
-				fmt.Sprintf("if %s {", cond),
-				fmt.Sprintf("t.Errorf(%q, %s)", f.Name+": got %v, want "+exprs[i], got),
-				"}",
-				"",
-			)
+		switch {
+		case f.Elem != "":
+			// Value repeat: one element, the bare literal its call sent.
+			value = fmt.Sprintf("%s{%s}", qualifiedSliceType(f.Type), exprs[i])
+		case f.Type == "[]secs2.Item":
+			value = fmt.Sprintf("[]secs2.Item{%s}", exprs[i])
+		case f.Type == "[]byte" && params[i].Repeat:
+			value = fmt.Sprintf("[]byte{%s}", exprs[i]) // packed group: the sample is one bare element
 		default:
-			lines = append(lines,
-				fmt.Sprintf("if %s != %s {", got, exprs[i]),
-				fmt.Sprintf("t.Errorf(%q, %s, %s)", f.Name+": got %v, want %v", got, exprs[i]),
-				"}",
-				"",
-			)
+			// A leaf, opaque node, or byte slice or array: the sample is the field's own value,
+			// and an untyped constant converts to a named enum type as well as to a plain one.
 		}
+
+		values = append(values, fieldValue{f.Name, value})
 	}
 
-	return lines, usesBytes
+	return values
 }
 
-// typedAssertLines renders the comparison of a typed repeat's decoded field against its one sample element,
-// whose value typedElementSample derives from the parameter name param.
-// An untyped constant compares with a named enum element type as well as with a plain one.
-func typedAssertLines(f decodeField, param string) []string {
-	got := "got." + f.Name
-	literal := fixedSamples[f.Elem].literal(param)
-
-	cond := fmt.Sprintf("%s[0] != %s", got, literal)
-	if f.Elem == "bool" {
-		cond = "!" + got + "[0]"
-	}
-
-	return []string{
-		fmt.Sprintf("if len(%s) != 1 || %s {", got, cond),
-		fmt.Sprintf("t.Errorf(%q, %s)", f.Name+": got %v, want ["+strings.Trim(literal, `"`)+"]", got),
-		"}",
-		"",
-	}
-}
-
-// compareBytesLines renders a bytes.Equal comparison of a decoded field against its sample.
-func compareBytesLines(name string, got string, want string) []string {
-	return []string{
-		fmt.Sprintf("if !bytes.Equal(%s, %s) {", got, want),
-		fmt.Sprintf("t.Errorf(%q, %s, %s)", name+": got %x, want %x", got, want),
-		"}",
-		"",
-	}
+// qualifiedSliceType spells the slice type typ, e.g. []STATUS, as the generated tests must: see [qualifiedType].
+func qualifiedSliceType(typ string) string {
+	return "[]" + qualifiedType(strings.TrimPrefix(typ, "[]"))
 }

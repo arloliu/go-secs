@@ -828,7 +828,7 @@ type S15F21Body struct {
 	RMNSSPEC string
 	OPID     secs2.Item
 	AGENT    string
-	RECIPES  []secs2.Item
+	RECIPES  []string
 }
 
 // DecodeS15F21 decodes the body of an S15F21 (Recipe Action Request) message into a [S15F21Body].
@@ -867,7 +867,7 @@ func DecodeS15F21(item secs2.Item) (S15F21Body, error) {
 		return out, err
 	}
 
-	if out.RECIPES, err = decodeItems(root.At(5), "RECIPES"); err != nil {
+	if out.RECIPES, err = decodeEach(root.At(5), "RECIPES", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -938,7 +938,7 @@ func DecodeS15F22(item secs2.Item) (S15F22Reply, error) {
 type S15F23Body struct {
 	DATAID  secs2.Item
 	OBJSPEC string
-	RECIPES []secs2.Item
+	RECIPES []string
 }
 
 // DecodeS15F23 decodes the body of an S15F23 (Recipe Descriptor Request) message into a [S15F23Body].
@@ -965,7 +965,7 @@ func DecodeS15F23(item secs2.Item) (S15F23Body, error) {
 		return out, err
 	}
 
-	if out.RECIPES, err = decodeItems(root.At(2), "RECIPES"); err != nil {
+	if out.RECIPES, err = decodeEach(root.At(2), "RECIPES", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -1214,7 +1214,7 @@ type S15F29Body struct {
 	DATAID  secs2.Item
 	OPID    secs2.Item
 	RESPEC  string
-	RECIPES []secs2.Item
+	RECIPES []string
 }
 
 // DecodeS15F29 decodes the body of an S15F29 (Recipe Verify Request) message into a [S15F29Body].
@@ -1245,7 +1245,7 @@ func DecodeS15F29(item secs2.Item) (S15F29Body, error) {
 		return out, err
 	}
 
-	if out.RECIPES, err = decodeItems(root.At(3), "RECIPES"); err != nil {
+	if out.RECIPES, err = decodeEach(root.At(3), "RECIPES", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -1485,7 +1485,7 @@ type S15F35Body struct {
 	DATAID  secs2.Item
 	RESPEC  string
 	RCPDEL  RCPDEL
-	RECIPES []secs2.Item
+	RECIPES []string
 }
 
 // DecodeS15F35 decodes the body of an S15F35 (Recipe Delete Request) message into a [S15F35Body].
@@ -1516,7 +1516,7 @@ func DecodeS15F35(item secs2.Item) (S15F35Body, error) {
 		return out, err
 	}
 
-	if out.RECIPES, err = decodeItems(root.At(3), "RECIPES"); err != nil {
+	if out.RECIPES, err = decodeEach(root.At(3), "RECIPES", decodeASCII); err != nil {
 		return out, err
 	}
 
@@ -2056,7 +2056,7 @@ type S15F47Body struct {
 	OBJSPEC   string
 	RMNSSPEC  string
 	RMRECSPEC string
-	SEGMENTS  []secs2.Item
+	SEGMENTS  []string
 }
 
 // DecodeS15F47 decodes the body of an S15F47 (DRNS Manager Rebuild Request) message into a [S15F47Body].
@@ -2091,7 +2091,7 @@ func DecodeS15F47(item secs2.Item) (S15F47Body, error) {
 		return out, err
 	}
 
-	if out.SEGMENTS, err = decodeItems(root.At(4), "SEGMENTS"); err != nil {
+	if out.SEGMENTS, err = decodeEach(root.At(4), "SEGMENTS", decodeASCII); err != nil {
 		return out, err
 	}
 

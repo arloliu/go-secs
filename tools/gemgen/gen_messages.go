@@ -117,7 +117,6 @@ func variantDoc(funcName string, code string, mainName string, m Message, b Body
 	}
 	doc = append(doc, wrapParagraph(ensurePeriod("Body: "+BodyDoc(b.Structure, items)))...)
 	doc = append(doc, optionalBuilderDoc(b.Structure)...)
-	doc = append(doc, typedBuilderDoc(b.Structure, items)...)
 
 	if m.Source == "external" {
 		doc = append(doc, "")
@@ -146,7 +145,6 @@ func messageDoc(funcName, code string, m Message, b Body, items map[string]Item)
 	doc = append(doc, "")
 	doc = append(doc, wrapParagraph(ensurePeriod("Body: "+BodyDoc(b.Structure, items)))...)
 	doc = append(doc, optionalBuilderDoc(b.Structure)...)
-	doc = append(doc, typedBuilderDoc(b.Structure, items)...)
 	doc = append(doc, "")
 	doc = append(doc, wrapParagraph(ensurePeriod("Exception: "+m.Exception))...)
 
@@ -173,8 +171,9 @@ func ensurePeriod(s string) string {
 // function's parameter list joined by ", ", using each param's own Type field
 // throughout. A variadic (final repeat/packed) param renders as name ...<Type>;
 // a non-final repeat/packed renders as name []<Type>; every other param
-// (fixed/open leaf or opaque) renders as name <Type>. Type is secs2.Item for a
-// repeat-origin param but a concrete goType (e.g. byte) for a packed-origin one;
+// (fixed/open leaf or opaque) renders as name <Type>. Type is the element type:
+// secs2.Item for a repeat of anything but a fixed scalar item,
+// and a concrete Go type (e.g. byte, or a named type such as STATUS) for a packed group or a value repeat;
 // the branch structure is identical, only the wrapped type differs.
 func renderParamList(params []Param) string {
 	parts := make([]string, len(params))

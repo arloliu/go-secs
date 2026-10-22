@@ -299,7 +299,7 @@ func DecodeS2F10(item secs2.Item) (S2F10Reply, error) {
 //
 // It is filled by [DecodeS2F12] and mirrors the parameters of [S2F12], in order.
 type S2F12Reply struct {
-	SPIDS []secs2.Item
+	SPIDS []string
 }
 
 // DecodeS2F12 decodes the body of an S2F12 (Service Program Directory Data) message into a [S2F12Reply].
@@ -314,7 +314,7 @@ func DecodeS2F12(item secs2.Item) (S2F12Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.SPIDS, err = decodeItems(root, "SPIDS"); err != nil {
+	if out.SPIDS, err = decodeEach(root, "SPIDS", decodeASCII); err != nil {
 		return out, err
 	}
 

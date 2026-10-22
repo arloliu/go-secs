@@ -111,10 +111,14 @@ type Body struct {
 // Packed+Of. An opaque body sets Type "opaque". A nil *StructureNode is a
 // header-only body.
 type StructureNode struct {
-	Type   string          `yaml:"type"`
-	Item   string          `yaml:"item"`
-	Items  []StructureNode `yaml:"items"`
-	Repeat string          `yaml:"repeat"`
+	Type  string          `yaml:"type"`
+	Item  string          `yaml:"item"`
+	Items []StructureNode `yaml:"items"`
+	// Repeat names a list of separate items, each of the shape Of declares.
+	// When Of is a binding: fixed leaf with a scalar goType,
+	// the builder takes the elements as values of that type and the decoder returns them so;
+	// any other element is taken and returned as a secs2.Item.
+	Repeat string `yaml:"repeat"`
 	// Packed marks E5's packed multi-value single item (e.g. S1F10's
 	// <tsip1,,tsipn>): all values share one item header and one format, unlike
 	// Repeat's list of separate items. Of.Item must be a binding: fixed item.
@@ -132,13 +136,6 @@ type StructureNode struct {
 	// It is valid only on a binding: fixed leaf with a scalar goType,
 	// outside any repeat's or packed group's of.
 	Optional bool `yaml:"optional"`
-	// Typed marks a repeat whose elements the decoder reads as values rather than raw items:
-	// its decoder field becomes a slice of the element item's Go type,
-	// or of the item's named type when it has a values table.
-	// Its builder still takes the elements as secs2 items.
-	// It is valid only on a repeat whose of is a single binding: fixed leaf with a scalar goType,
-	// outside any repeat's or packed group's of.
-	Typed bool `yaml:"typed"`
 }
 
 // leadingZeroRE matches a decimal number written with a leading zero, e.g. 010 or -08.

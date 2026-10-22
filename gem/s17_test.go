@@ -332,71 +332,15 @@ func TestS17F5Untriggered(t *testing.T) {
 		t.Fatalf("DecodeS17F5: %v", err)
 	}
 
-	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
-		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	want := gem.S17F5Body{
+		DATAID: secs2.A("dataid"),
+		TRID:   secs2.A("trid"),
+		CEED:   true,
+		RPTIDS: []secs2.Item{secs2.A("rptids")},
+		TRSPER: secs2.A("trsper"),
 	}
 
-	if !bytes.Equal(got.TRID.ToBytes(), secs2.A("trid").ToBytes()) {
-		t.Errorf("TRID: got %x, want %x", got.TRID.ToBytes(), secs2.A("trid").ToBytes())
-	}
-
-	if !got.CEED {
-		t.Errorf("CEED: got %v, want true", got.CEED)
-	}
-
-	if len(got.RPTIDS) != 1 {
-		t.Fatalf("RPTIDS: got %d elements, want 1", len(got.RPTIDS))
-	}
-
-	if !bytes.Equal(got.RPTIDS[0].ToBytes(), secs2.A("rptids").ToBytes()) {
-		t.Errorf("RPTIDS: got %x, want %x", got.RPTIDS[0].ToBytes(), secs2.A("rptids").ToBytes())
-	}
-
-	if !bytes.Equal(got.TRSPER.ToBytes(), secs2.A("trsper").ToBytes()) {
-		t.Errorf("TRSPER: got %x, want %x", got.TRSPER.ToBytes(), secs2.A("trsper").ToBytes())
-	}
-
-	var zero gem.S17F5Body
-
-	if got.TOTSMP != zero.TOTSMP {
-		t.Errorf("TOTSMP: got %v, want the zero value", got.TOTSMP)
-	}
-
-	if got.REPGSZ != zero.REPGSZ {
-		t.Errorf("REPGSZ: got %v, want the zero value", got.REPGSZ)
-	}
-
-	if got.STARTEVNTSRC != zero.STARTEVNTSRC {
-		t.Errorf("STARTEVNTSRC: got %v, want the zero value", got.STARTEVNTSRC)
-	}
-
-	if got.STARTCEID != zero.STARTCEID {
-		t.Errorf("STARTCEID: got %v, want the zero value", got.STARTCEID)
-	}
-
-	if got.STOPEVNTSRC != zero.STOPEVNTSRC {
-		t.Errorf("STOPEVNTSRC: got %v, want the zero value", got.STOPEVNTSRC)
-	}
-
-	if got.STOPCEID != zero.STOPCEID {
-		t.Errorf("STOPCEID: got %v, want the zero value", got.STOPCEID)
-	}
-
-	if got.TRAUTOD != zero.TRAUTOD {
-		t.Errorf("TRAUTOD: got %v, want the zero value", got.TRAUTOD)
-	}
-
-	if got.TRAUTODPresent != zero.TRAUTODPresent {
-		t.Errorf("TRAUTODPresent: got %v, want the zero value", got.TRAUTODPresent)
-	}
-
-	if got.RPTOC != zero.RPTOC {
-		t.Errorf("RPTOC: got %v, want the zero value", got.RPTOC)
-	}
-
-	if got.RPTOCPresent != zero.RPTOCPresent {
-		t.Errorf("RPTOCPresent: got %v, want the zero value", got.RPTOCPresent)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestS17F6(t *testing.T) {

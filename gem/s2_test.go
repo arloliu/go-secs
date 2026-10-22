@@ -228,7 +228,7 @@ func TestS2F11(t *testing.T) {
 }
 
 func TestS2F12(t *testing.T) {
-	msg := gem.S2F12(secs2.A("spids"))
+	msg := gem.S2F12("spids")
 
 	assertS2Header(t, msg, 12, false)
 
@@ -243,10 +243,12 @@ func TestS2F12(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("spids").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("spids: got %x, want %x", got2, want2)
+	v2, err := list1[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[0].ToASCII: %v", err)
+	}
+	if v2 != "spids" {
+		t.Errorf("spids: got %q, want %q", v2, "spids")
 	}
 }
 

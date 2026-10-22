@@ -28,7 +28,7 @@ func assertS19Header(t *testing.T, msg secs2.SECS2Message, function uint8, wantW
 }
 
 func TestS19F1(t *testing.T) {
-	msg := gem.S19F1([]secs2.Item{secs2.A("filters")}, secs2.A("attributes"))
+	msg := gem.S19F1([]secs2.Item{secs2.A("filters")}, 81)
 
 	assertS19Header(t, msg, 1, true)
 
@@ -62,10 +62,12 @@ func TestS19F1(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("attributes").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("attributes: got %x, want %x", got5, want5)
+	v5, err := list4[0].ToUint()
+	if err != nil {
+		t.Fatalf("list4[0].ToUint: %v", err)
+	}
+	if len(v5) != 1 || v5[0] != 81 {
+		t.Errorf("attributes: got %v, want %v", v5, 81)
 	}
 }
 
@@ -114,7 +116,7 @@ func TestS19F2(t *testing.T) {
 }
 
 func TestS19F3(t *testing.T) {
-	msg := gem.S19F3(secs2.A("uids"))
+	msg := gem.S19F3("uids")
 
 	assertS19Header(t, msg, 3, true)
 
@@ -129,10 +131,12 @@ func TestS19F3(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("uids").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("uids: got %x, want %x", got2, want2)
+	v2, err := list1[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[0].ToASCII: %v", err)
+	}
+	if v2 != "uids" {
+		t.Errorf("uids: got %q, want %q", v2, "uids")
 	}
 }
 
@@ -160,7 +164,7 @@ func TestS19F4(t *testing.T) {
 }
 
 func TestS19F5(t *testing.T) {
-	msg := gem.S19F5(secs2.A("uids"))
+	msg := gem.S19F5("uids")
 
 	assertS19Header(t, msg, 5, true)
 
@@ -175,10 +179,12 @@ func TestS19F5(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("uids").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("uids: got %x, want %x", got2, want2)
+	v2, err := list1[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[0].ToASCII: %v", err)
+	}
+	if v2 != "uids" {
+		t.Errorf("uids: got %q, want %q", v2, "uids")
 	}
 }
 
@@ -220,7 +226,7 @@ func TestS19F6(t *testing.T) {
 }
 
 func TestS19F7(t *testing.T) {
-	msg := gem.S19F7(secs2.A("uids"))
+	msg := gem.S19F7("uids")
 
 	assertS19Header(t, msg, 7, true)
 
@@ -235,10 +241,12 @@ func TestS19F7(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("uids").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("uids: got %x, want %x", got2, want2)
+	v2, err := list1[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[0].ToASCII: %v", err)
+	}
+	if v2 != "uids" {
+		t.Errorf("uids: got %q, want %q", v2, "uids")
 	}
 }
 

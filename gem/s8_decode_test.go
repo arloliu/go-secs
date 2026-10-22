@@ -3,7 +3,6 @@
 package gem_test
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -36,9 +35,11 @@ func TestDecodeS8F2RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS8F2: %v", err)
 	}
 
-	if !bytes.Equal(got.BPD, []byte{0x6d, 0xfe, 0x4c, 0xd1}) {
-		t.Errorf("BPD: got %x, want %x", got.BPD, []byte{0x6d, 0xfe, 0x4c, 0xd1})
+	want := gem.S8F2Reply{
+		BPD: []byte{0x6d, 0xfe, 0x4c, 0xd1},
 	}
+
+	assertDecoded(t, got, want)
 }
 
 func TestDecodeS8F4RoundTrip(t *testing.T) {
@@ -54,7 +55,9 @@ func TestDecodeS8F4RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS8F4: %v", err)
 	}
 
-	if !bytes.Equal(got.EPD, []byte{0x9b, 0x0c, 0x72, 0x94}) {
-		t.Errorf("EPD: got %x, want %x", got.EPD, []byte{0x9b, 0x0c, 0x72, 0x94})
+	want := gem.S8F4Reply{
+		EPD: []byte{0x9b, 0x0c, 0x72, 0x94},
 	}
+
+	assertDecoded(t, got, want)
 }

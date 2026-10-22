@@ -44,13 +44,9 @@ func S18F3(targetid string, attributes ...secs2.Item) secs2.SECS2Message {
 //
 // Body: L[3]{ A[targetid] A[ssack] L[n]{ <statuses>... } }.
 //
-// Each element of statuses is a [secs2.Item] holding one STATUS of format A,
-// which the caller builds with [secs2.A];
-// the decoder returns the elements as values, in a []string.
-//
 // Exception: s = 0 (an empty STATUSLIST) if the target component is unknown.
-func S18F4(targetid string, ssack string, statuses ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 4, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.L(statuses...)))
+func S18F4(targetid string, ssack string, statuses ...string) secs2.SECS2Message {
+	return secs2.NewMessage(18, 4, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.L(valueItems(statuses, secs2.A)...)))
 }
 
 // S18F5 creates the S18F5 (Read Request) message, direction: host-to-equipment.
@@ -73,13 +69,9 @@ func S18F5(targetid string, dataseg string, datalength secs2.Item) secs2.SECS2Me
 //
 // Body: L[4]{ A[targetid] A[ssack] A[data] L[n]{ <statuses>... } }.
 //
-// Each element of statuses is a [secs2.Item] holding one STATUS of format A,
-// which the caller builds with [secs2.A];
-// the decoder returns the elements as values, in a []string.
-//
 // Exception: If TARGETID is unknown, then DATA is zero length.
-func S18F6(targetid string, ssack string, data string, statuses ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 6, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.A(data), secs2.L(statuses...)))
+func S18F6(targetid string, ssack string, data string, statuses ...string) secs2.SECS2Message {
+	return secs2.NewMessage(18, 6, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.A(data), secs2.L(valueItems(statuses, secs2.A)...)))
 }
 
 // S18F7 creates the S18F7 (Write Data Request) message, direction: host-to-equipment.
@@ -101,13 +93,9 @@ func S18F7(targetid string, dataseg string, datalength secs2.Item, data string) 
 //
 // Body: L[3]{ A[targetid] A[ssack] L[n]{ <statuses>... } }.
 //
-// Each element of statuses is a [secs2.Item] holding one STATUS of format A,
-// which the caller builds with [secs2.A];
-// the decoder returns the elements as values, in a []string.
-//
 // Exception: s = 0 (an empty STATUSLIST) if and only if TARGETID is unknown.
-func S18F8(targetid string, ssack string, statuses ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 8, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.L(statuses...)))
+func S18F8(targetid string, ssack string, statuses ...string) secs2.SECS2Message {
+	return secs2.NewMessage(18, 8, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.L(valueItems(statuses, secs2.A)...)))
 }
 
 // S18F9 creates the S18F9 (Read ID Request) message, direction: host-to-equipment.
@@ -127,13 +115,9 @@ func S18F9(targetid string) secs2.SECS2Message {
 //
 // Body: L[4]{ A[targetid] A[ssack] <mid> L[n]{ <statuses>... } }.
 //
-// Each element of statuses is a [secs2.Item] holding one STATUS of format A,
-// which the caller builds with [secs2.A];
-// the decoder returns the elements as values, in a []string.
-//
 // Exception: s = 0 (an empty STATUSLIST) if and only if TARGETID is unknown.
-func S18F10(targetid string, ssack string, mid secs2.Item, statuses ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 10, false, secs2.L(secs2.A(targetid), secs2.A(ssack), mid, secs2.L(statuses...)))
+func S18F10(targetid string, ssack string, mid secs2.Item, statuses ...string) secs2.SECS2Message {
+	return secs2.NewMessage(18, 10, false, secs2.L(secs2.A(targetid), secs2.A(ssack), mid, secs2.L(valueItems(statuses, secs2.A)...)))
 }
 
 // S18F11 creates the S18F11 (Write ID Request) message, direction: host-to-equipment.
@@ -153,13 +137,9 @@ func S18F11(targetid string, mid secs2.Item) secs2.SECS2Message {
 //
 // Body: L[3]{ A[targetid] A[ssack] L[n]{ <statuses>... } }.
 //
-// Each element of statuses is a [secs2.Item] holding one STATUS of format A,
-// which the caller builds with [secs2.A];
-// the decoder returns the elements as values, in a []string.
-//
 // Exception: s = 0 (an empty STATUSLIST) if and only if TARGETID is unknown.
-func S18F12(targetid string, ssack string, statuses ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 12, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.L(statuses...)))
+func S18F12(targetid string, ssack string, statuses ...string) secs2.SECS2Message {
+	return secs2.NewMessage(18, 12, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.L(valueItems(statuses, secs2.A)...)))
 }
 
 // S18F13 creates the S18F13 (Subsystem Command Request) message, direction: host-to-equipment.
@@ -179,13 +159,9 @@ func S18F13(targetid string, sscmd string, params ...secs2.Item) secs2.SECS2Mess
 //
 // Body: L[3]{ A[targetid] A[ssack] L[n]{ <statuses>... } }.
 //
-// Each element of statuses is a [secs2.Item] holding one STATUS of format A,
-// which the caller builds with [secs2.A];
-// the decoder returns the elements as values, in a []string.
-//
 // Exception: s = 0 (an empty STATUSLIST) if and only if TARGETID is unknown.
-func S18F14(targetid string, ssack string, statuses ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 14, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.L(statuses...)))
+func S18F14(targetid string, ssack string, statuses ...string) secs2.SECS2Message {
+	return secs2.NewMessage(18, 14, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.L(valueItems(statuses, secs2.A)...)))
 }
 
 // S18F15 creates the S18F15 (Read 2D Code Condition Request) message, direction: host-to-equipment.
@@ -205,15 +181,7 @@ func S18F15(targetid string) secs2.SECS2Message {
 //
 // Body: L[5]{ A[targetid] A[ssack] <mid> L[n]{ <statuses>... } L[n]{ <conditions>... } }.
 //
-// Each element of statuses is a [secs2.Item] holding one STATUS of format A,
-// which the caller builds with [secs2.A];
-// the decoder returns the elements as values, in a []string.
-//
-// Each element of conditions is a [secs2.Item] holding one CONDITION of format A,
-// which the caller builds with [secs2.A];
-// the decoder returns the elements as values, in a []string.
-//
 // Exception: If SSACK is failure, the length of CONDITIONLIST must be zero.
-func S18F16(targetid string, ssack string, mid secs2.Item, statuses []secs2.Item, conditions ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 16, false, secs2.L(secs2.A(targetid), secs2.A(ssack), mid, secs2.L(statuses...), secs2.L(conditions...)))
+func S18F16(targetid string, ssack string, mid secs2.Item, statuses []string, conditions ...string) secs2.SECS2Message {
+	return secs2.NewMessage(18, 16, false, secs2.L(secs2.A(targetid), secs2.A(ssack), mid, secs2.L(valueItems(statuses, secs2.A)...), secs2.L(valueItems(conditions, secs2.A)...)))
 }

@@ -225,7 +225,7 @@ func TestOptionalSummary(t *testing.T) {
 	require.Equal(t, "SEMI E5 lets A, B, and C each be sent as a zero-length item", optionalSummary([]string{"A", "B", "C"}))
 }
 
-// TestRenderDecodeTestsOptionalLeaf proves the round trip asserts every presence field true,
+// TestRenderDecodeTestsOptionalLeaf proves the round trip expects every presence field true,
 // and that each optional leaf gets a test sending it zero-length,
 // which rebuilds the lists on the leaf's path and expects that leaf absent and the other fields intact.
 func TestRenderDecodeTestsOptionalLeaf(t *testing.T) {
@@ -233,26 +233,28 @@ func TestRenderDecodeTestsOptionalLeaf(t *testing.T) {
 	require.NoError(t, err)
 
 	got := string(src)
-	require.Contains(t, got, "if !got.FNLOCPresent {\n\t\tt.Errorf(\"FNLOCPresent: got false, want true\")")
-	require.Contains(t, got, "if !got.COMMACKPresent {")
-	require.Contains(t, got, `if got.MDLN != "mdln" {`)
-	require.Contains(t, got, "if got.TSIP != 0x")
+	round := testFuncBody(t, got, "TestDecodeS12F1RoundTrip")
+	require.Contains(t, round, "\t\tFNLOCPresent:   true,\n")
+	require.Contains(t, round, "\t\tCOMMACKPresent: true,\n")
+	require.Contains(t, round, "\t\tMDLN:           \"mdln\",\n")
+	require.Contains(t, round, "\t\tTSIP:           0x")
+	require.Contains(t, round, "assertDecoded(t, got, want)")
 
 	nested := testFuncBody(t, got, "TestDecodeS12F1COMMACKAbsent")
 	require.Contains(t, nested, "list0, err := full.ToList()")
 	require.Contains(t, nested, "list1, err := list0[2].ToList()")
 	require.Contains(t, nested, "list1[1] = secs2.B()\n\tlist0[2] = secs2.L(list1...)\n")
 	require.Contains(t, nested, "body, err := secs2.Decode(secs2.L(list0...).ToBytes())")
-	require.Contains(t, nested, "if got.COMMACK != zero.COMMACK {")
-	require.Contains(t, nested, "if got.COMMACKPresent != zero.COMMACKPresent {")
-	require.Contains(t, nested, "if !got.FNLOCPresent {")
-	require.Contains(t, nested, `if got.SOFTREV != "softrev" {`)
-	require.NotContains(t, nested, "if !got.COMMACKPresent {")
+	require.NotContains(t, nested, "COMMACK:")
+	require.NotContains(t, nested, "COMMACKPresent:")
+	require.Contains(t, nested, "\t\tFNLOCPresent: true,\n")
+	require.Contains(t, nested, "\t\tSOFTREV:      \"softrev\",\n")
 
 	top := testFuncBody(t, got, "TestDecodeS12F1FNLOCAbsent")
 	require.Contains(t, top, "list0[0] = secs2.U2()\n\n\tbody, err := secs2.Decode(secs2.L(list0...).ToBytes())")
-	require.Contains(t, top, "if got.FNLOCPresent != zero.FNLOCPresent {")
-	require.Contains(t, top, "if !got.COMMACKPresent {")
+	require.NotContains(t, top, "FNLOC:")
+	require.NotContains(t, top, "FNLOCPresent:")
+	require.Contains(t, top, "\t\tCOMMACKPresent: true,\n")
 
 	whole, err := renderDecodeTests(optionalMessage(&StructureNode{Item: "MDLN", Optional: true}), optionalItems())
 	require.NoError(t, err)
@@ -260,6 +262,7 @@ func TestRenderDecodeTestsOptionalLeaf(t *testing.T) {
 	body := testFuncBody(t, string(whole), "TestDecodeS12F1MDLNAbsent")
 	require.Contains(t, body, `body, err := secs2.Decode(secs2.A("").ToBytes())`)
 	require.NotContains(t, body, "msg :=")
+	require.Contains(t, body, "assertDecoded(t, got, gem.S12F1Body{})")
 }
 
 // TestRenderVariantTestOptionalLeaf proves a variant's generated test expects the main decoder's presence field true
@@ -284,13 +287,11 @@ func TestRenderVariantTestOptionalLeaf(t *testing.T) {
 	require.NoError(t, err)
 
 	short := testFuncBody(t, string(src), "TestS12F1Short")
-	require.Contains(t, short, "if got.FNLOCPresent != zero.FNLOCPresent {")
-	require.Contains(t, short, "if got.ACKAPresent != zero.ACKAPresent {")
+	require.Contains(t, short, "\twant := gem.S12F1Body{\n\t\tMDLN: \"mdln\",\n\t}\n")
 
 	plain := testFuncBody(t, string(src), "TestS12F1Plain")
-	require.Contains(t, plain, "if !got.FNLOCPresent {")
-	require.Contains(t, plain, "if !got.ACKAPresent {")
-	require.NotContains(t, plain, "zero.")
+	require.Contains(t, plain, "\t\tFNLOCPresent: true,\n")
+	require.Contains(t, plain, "\t\tACKAPresent:  true,\n")
 }
 
 // testFuncBody returns the source of the generated test function name,

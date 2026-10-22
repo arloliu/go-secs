@@ -807,7 +807,7 @@ func TestS15F20(t *testing.T) {
 }
 
 func TestS15F21(t *testing.T) {
-	msg := gem.S15F21(secs2.A("dataid"), 58, "rmnsspec", secs2.A("opid"), "agent", secs2.A("recipes"))
+	msg := gem.S15F21(secs2.A("dataid"), 58, "rmnsspec", secs2.A("opid"), "agent", "recipes")
 
 	assertS15Header(t, msg, 21, true)
 
@@ -860,10 +860,12 @@ func TestS15F21(t *testing.T) {
 	if len(list7) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list7))
 	}
-	got8 := list7[0].ToBytes()
-	want8 := secs2.A("recipes").ToBytes()
-	if !bytes.Equal(got8, want8) {
-		t.Errorf("recipes: got %x, want %x", got8, want8)
+	v8, err := list7[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list7[0].ToASCII: %v", err)
+	}
+	if v8 != "recipes" {
+		t.Errorf("recipes: got %q, want %q", v8, "recipes")
 	}
 }
 
@@ -933,7 +935,7 @@ func TestS15F22(t *testing.T) {
 }
 
 func TestS15F23(t *testing.T) {
-	msg := gem.S15F23(secs2.A("dataid"), "objspec", secs2.A("recipes"))
+	msg := gem.S15F23(secs2.A("dataid"), "objspec", "recipes")
 
 	assertS15Header(t, msg, 23, true)
 
@@ -967,10 +969,12 @@ func TestS15F23(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("recipes").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("recipes: got %x, want %x", got5, want5)
+	v5, err := list4[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[0].ToASCII: %v", err)
+	}
+	if v5 != "recipes" {
+		t.Errorf("recipes: got %q, want %q", v5, "recipes")
 	}
 }
 
@@ -1234,7 +1238,7 @@ func TestS15F28(t *testing.T) {
 }
 
 func TestS15F29(t *testing.T) {
-	msg := gem.S15F29(secs2.A("dataid"), secs2.A("opid"), "respec", secs2.A("recipes"))
+	msg := gem.S15F29(secs2.A("dataid"), secs2.A("opid"), "respec", "recipes")
 
 	assertS15Header(t, msg, 29, true)
 
@@ -1273,10 +1277,12 @@ func TestS15F29(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("recipes").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("recipes: got %x, want %x", got6, want6)
+	v6, err := list5[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list5[0].ToASCII: %v", err)
+	}
+	if v6 != "recipes" {
+		t.Errorf("recipes: got %q, want %q", v6, "recipes")
 	}
 }
 
@@ -1521,7 +1527,7 @@ func TestS15F34(t *testing.T) {
 }
 
 func TestS15F35(t *testing.T) {
-	msg := gem.S15F35(secs2.A("dataid"), "respec", 38, secs2.A("recipes"))
+	msg := gem.S15F35(secs2.A("dataid"), "respec", 38, "recipes")
 
 	assertS15Header(t, msg, 35, true)
 
@@ -1562,10 +1568,12 @@ func TestS15F35(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("recipes").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("recipes: got %x, want %x", got6, want6)
+	v6, err := list5[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list5[0].ToASCII: %v", err)
+	}
+	if v6 != "recipes" {
+		t.Errorf("recipes: got %q, want %q", v6, "recipes")
 	}
 }
 
@@ -1945,51 +1953,15 @@ func TestS15F41Delete(t *testing.T) {
 		t.Fatalf("DecodeS15F41: %v", err)
 	}
 
-	if !bytes.Equal(got.DATAID.ToBytes(), secs2.A("dataid").ToBytes()) {
-		t.Errorf("DATAID: got %x, want %x", got.DATAID.ToBytes(), secs2.A("dataid").ToBytes())
+	want := gem.S15F41Body{
+		DATAID:    secs2.A("dataid"),
+		RMRECSPEC: "rmrecspec",
+		OBJTOKEN:  11,
+		RMNSCMD:   27,
+		RCPID:     "rcpid",
 	}
 
-	if got.RMRECSPEC != "rmrecspec" {
-		t.Errorf("RMRECSPEC: got %v, want %v", got.RMRECSPEC, "rmrecspec")
-	}
-
-	if got.OBJTOKEN != 11 {
-		t.Errorf("OBJTOKEN: got %v, want %v", got.OBJTOKEN, 11)
-	}
-
-	if got.RMNSCMD != 27 {
-		t.Errorf("RMNSCMD: got %v, want %v", got.RMNSCMD, 27)
-	}
-
-	if got.RCPID != "rcpid" {
-		t.Errorf("RCPID: got %v, want %v", got.RCPID, "rcpid")
-	}
-
-	var zero gem.S15F41Body
-
-	if got.RCPNEWID != zero.RCPNEWID {
-		t.Errorf("RCPNEWID: got %v, want the zero value", got.RCPNEWID)
-	}
-
-	if got.RMSEGSPEC != zero.RMSEGSPEC {
-		t.Errorf("RMSEGSPEC: got %v, want the zero value", got.RMSEGSPEC)
-	}
-
-	if got.RMCHGTYPE != zero.RMCHGTYPE {
-		t.Errorf("RMCHGTYPE: got %v, want the zero value", got.RMCHGTYPE)
-	}
-
-	if got.OPID != zero.OPID {
-		t.Errorf("OPID: got %v, want the zero value", got.OPID)
-	}
-
-	if got.TIMESTAMP != zero.TIMESTAMP {
-		t.Errorf("TIMESTAMP: got %v, want the zero value", got.TIMESTAMP)
-	}
-
-	if got.RMREQUESTOR != zero.RMREQUESTOR {
-		t.Errorf("RMREQUESTOR: got %v, want the zero value", got.RMREQUESTOR)
-	}
+	assertDecoded(t, got, want)
 }
 
 func TestS15F42(t *testing.T) {
@@ -2200,7 +2172,7 @@ func TestS15F46(t *testing.T) {
 }
 
 func TestS15F47(t *testing.T) {
-	msg := gem.S15F47(secs2.A("dataid"), "objspec", "rmnsspec", "rmrecspec", secs2.A("segments"))
+	msg := gem.S15F47(secs2.A("dataid"), "objspec", "rmnsspec", "rmrecspec", "segments")
 
 	assertS15Header(t, msg, 47, true)
 
@@ -2248,10 +2220,12 @@ func TestS15F47(t *testing.T) {
 	if len(list6) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
-	got7 := list6[0].ToBytes()
-	want7 := secs2.A("segments").ToBytes()
-	if !bytes.Equal(got7, want7) {
-		t.Errorf("segments: got %x, want %x", got7, want7)
+	v7, err := list6[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list6[0].ToASCII: %v", err)
+	}
+	if v7 != "segments" {
+		t.Errorf("segments: got %q, want %q", v7, "segments")
 	}
 }
 

@@ -369,8 +369,8 @@ func S14F26(objtypes []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SE
 // Body: L[3]{ A[objspec] <objtype> L[n]{ <svcnames>... } }.
 //
 // Exception: If OBJSPEC is a zero-length item, no object specifier is provided.
-func S14F27(objspec string, objtype secs2.Item, svcnames ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 27, true, secs2.L(secs2.A(objspec), objtype, secs2.L(svcnames...)))
+func S14F27(objspec string, objtype secs2.Item, svcnames ...SVCNAME) secs2.SECS2Message {
+	return secs2.NewMessage(14, 27, true, secs2.L(secs2.A(objspec), objtype, secs2.L(valueItems(svcnames, func(v SVCNAME) secs2.Item { return secs2.A(string(v)) })...)))
 }
 
 // S14F28 creates the S14F28 (Get Service Parameter Name Data) message, direction: bidirectional.

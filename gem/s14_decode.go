@@ -1158,7 +1158,7 @@ func DecodeS14F26(item secs2.Item) (S14F26Reply, error) {
 type S14F27Body struct {
 	OBJSPEC  string
 	OBJTYPE  secs2.Item
-	SVCNAMES []secs2.Item
+	SVCNAMES []SVCNAME
 }
 
 // DecodeS14F27 decodes the body of an S14F27 (Get Service Parameter Name Request) message into a [S14F27Body].
@@ -1185,7 +1185,7 @@ func DecodeS14F27(item secs2.Item) (S14F27Body, error) {
 		return out, err
 	}
 
-	if out.SVCNAMES, err = decodeItems(root.At(2), "SVCNAMES"); err != nil {
+	if out.SVCNAMES, err = decodeEach(root.At(2), "SVCNAMES", decodeASCIIAs[SVCNAME]); err != nil {
 		return out, err
 	}
 

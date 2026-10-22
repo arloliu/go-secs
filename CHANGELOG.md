@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - E5 data items with defined values get typed constants,
   from the E5 tables and from the GEM300 standards that define value vocabularies for E5 items.
 - Builders for the short forms E5 names, presence fields for items E5 lets be sent zero-length,
-  and decoded values for repeated groups of one status item.
+  and values in and out for repeated groups of one fixed-format item.
 - A fuzz target runs every generated decoder over arbitrary bytes.
 
 Several shipped `gem` signatures change; see Upgrade notes.
@@ -31,6 +31,10 @@ Several shipped `gem` signatures change; see Upgrade notes.
 - `gem`: `S5F5` takes one item holding every ALID, as E5 defines it, instead of a list of ALID items,
   and `S5F5Body.ALIDS` is that item: call `S5F5(secs2.U4(1, 2, 3))` rather than `S5F5(secs2.U4(1), secs2.U4(2), secs2.U4(3))`,
   and `S5F5(secs2.U4())` to ask for every alarm.
+- `gem`: a repeated group of one fixed-format item takes and decodes as values instead of `secs2.Item` elements:
+  `S2F12` takes `spids ...string` and `S2F12Reply.SPIDS` is `[]string`,
+  and `S5F9` takes `recoveryActions ...string` and `S5F9Body.RECOVERYACTIONS` is `[]string`.
+  Call `S2F12("SP1", "SP2")` rather than `S2F12(secs2.A("SP1"), secs2.A("SP2"))`.
 
 ### Added
 
@@ -50,7 +54,11 @@ Several shipped `gem` signatures change; see Upgrade notes.
   `S6F25Body.LINKIDPresent`, the FNLOC, FFROT, and ORLOC fields of S12F1 and S12F3,
   the FNLOC and ORLOC fields of S12F4, and the TRAUTOD and RPTOC fields of S17F5.
   The decoder accepts a zero-length item there and reports it absent; the builder always sends a value.
-- `gem`: the STATUS and CONDITION lists of stream 18 decode into `[]string` rather than `[]secs2.Item`.
+- `gem`: a repeated group of one fixed-format item is a slice of values both ways:
+  the builder takes the values and the decoder returns them,
+  as a named type where the item has one (`S19F1` takes `attributes ...PDEATTRIBUTE`).
+  It applies across streams 2, 5, 13 to 16, 18, and 19,
+  for example to `S16F17(prjobids ...string)` and the STATUS lists of stream 18.
 - `gem`: `PRCMDNAMEStartProcess`, the SEMI E40 spelling of the process job start command, `STARTPROCESS`,
   which equipment following E40 expects instead of E5's `START`.
 - `gem`: `FuzzDecoders` runs every generated decoder over arbitrary wire bytes, and `make fuzz-test` covers `gem`.
@@ -61,6 +69,8 @@ Several shipped `gem` signatures change; see Upgrade notes.
   use the named types `OFLACK`, `ONLACK`, `GRANT6`, and `RSDC` (see Upgrade notes).
 - `gem`: `S2F3` and `S2F6` take SPD as `[]byte`, and their decoders return it so (see Upgrade notes).
 - `gem`: `DecodeS6F25` accepts a zero-length LINKID and reports it through `LINKIDPresent` (see Upgrade notes).
+- `gem`: `S2F12` and `S5F9` take their SPIDs and recovery actions as strings,
+  and their decoders return them so (see Upgrade notes).
 - `gem`: `DecodeS6F8`, `DecodeS6F16`, and `DecodeS6F18` accept an empty body list, `L,0`,
   which E5 allows when there is no data or no report for the CEID.
   They previously rejected it as a list of the wrong length.

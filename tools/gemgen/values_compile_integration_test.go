@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// typedItemsYAML is the item dictionary the typed: fixture draws on:
-// one element item of each kind a typed repeat decodes differently,
+// valuesItemsYAML is the item dictionary the value-repeat fixture draws on:
+// one element item of each kind a value repeat sends and decodes differently,
 // and the ordinary items around them.
-const typedItemsYAML = `
+const valuesItemsYAML = `
 FNLOC:
   formats: [U2]
   binding: fixed
@@ -46,17 +46,17 @@ SVID:
   binding: open
 `
 
-// typedS18YAML has a typed repeat of a plain number, of a numeric enum, of a string enum, and of a boolean,
-// an untyped repeat between them, and a short-form variant that sends one typed repeat.
-// S18F3's whole body is one typed repeat.
-const typedS18YAML = `
+// valuesS18YAML has a value repeat of a plain number, of a numeric enum, of a string enum, and of a boolean,
+// a repeat of open items between them, and a short-form variant that sends one value repeat.
+// S18F3's whole body is one value repeat.
+const valuesS18YAML = `
 stream: 18
 messages:
   - function: 1
-    name: Typed Sample
-    mnemonic: TS
+    name: Value Sample
+    mnemonic: VS
     direction: equipment-to-host
-    description: Carries lists of typed values.
+    description: Carries lists of values.
     exception: None
     source: e5
     bodies:
@@ -68,11 +68,11 @@ messages:
           maxItems: 6
           items:
             - {item: MDLN}
-            - {type: list, repeat: locs, typed: true, of: {item: FNLOC}}
-            - {type: list, repeat: statuslist, typed: true, of: {item: STATUS}}
+            - {type: list, repeat: locs, of: {item: FNLOC}}
+            - {type: list, repeat: statuslist, of: {item: STATUS}}
             - {type: list, repeat: svids, of: {item: SVID}}
-            - {type: list, repeat: actions, typed: true, of: {item: CARRIERACTION}}
-            - {type: list, repeat: flags, typed: true, of: {item: ACKA}}
+            - {type: list, repeat: actions, of: {item: CARRIERACTION}}
+            - {type: list, repeat: flags, of: {item: ACKA}}
       - actor: both
         replyExpected: false
         variant: Short
@@ -80,35 +80,37 @@ messages:
           type: list
           items:
             - {item: MDLN}
-            - {type: list, repeat: locs, typed: true, of: {item: FNLOC}}
+            - {type: list, repeat: locs, of: {item: FNLOC}}
   - function: 3
-    name: Typed Body Sample
-    mnemonic: TBS
+    name: Value Body Sample
+    mnemonic: VBS
     direction: host-to-equipment
-    description: Carries one list of typed values.
+    description: Carries one list of values.
     exception: None
     source: e5
     bodies:
       - actor: both
         replyExpected: false
-        structure: {type: list, repeat: statuslist, typed: true, of: {item: STATUS}}
+        structure: {type: list, repeat: statuslist, of: {item: STATUS}}
 `
 
-// typedExtraTest holds the decoder cases the generated tests do not reach:
-// several elements, an empty list, and elements of the wrong shape, which must fail naming their index.
+// valuesExtraTest holds the cases the generated tests do not reach:
+// several values sent and decoded back, an empty list,
+// and elements of the wrong shape, which must fail naming their index.
 // It is written into the generated package after its package clause is rewritten.
-const typedExtraTest = `package PKG
+const valuesExtraTest = `package PKG
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-// typedBody builds an S18F1 body around the given locs, statuslist, and actions lists,
+// valuesBody builds an S18F1 body around the given locs, statuslist, and actions lists,
 // then round-trips it through wire bytes, as a peer's message would arrive.
-func typedBody(t *testing.T, locs, statuslist, actions secs2.Item) secs2.Item {
+func valuesBody(t *testing.T, locs, statuslist, actions secs2.Item) secs2.Item {
 	t.Helper()
 
 	body := secs2.L(secs2.A("model"), locs, statuslist, secs2.L(secs2.U4(7)), actions, secs2.L(secs2.BOOLEAN(true), secs2.BOOLEAN(false)))
@@ -121,8 +123,23 @@ func typedBody(t *testing.T, locs, statuslist, actions secs2.Item) secs2.Item {
 	return decoded
 }
 
-func TestTypedRepeatDecodesEveryElement(t *testing.T) {
-	got, err := DecodeS18F1(typedBody(t,
+func TestValueRepeatBuilderSendsEveryValue(t *testing.T) {
+	msg := S18F1("model", []uint16{1, 65535}, []STATUS{STATUSOk, STATUSFailed}, []secs2.Item{secs2.U4(7)},
+		[]CARRIERACTION{CARRIERACTIONProceedWithCarrier, "Other"}, true, false)
+
+	want := secs2.L(secs2.A("model"), secs2.L(secs2.U2(1), secs2.U2(65535)), secs2.L(secs2.U1(0), secs2.U1(1)), secs2.L(secs2.U4(7)),
+		secs2.L(secs2.A("ProceedWithCarrier"), secs2.A("Other")), secs2.L(secs2.BOOLEAN(true), secs2.BOOLEAN(false)))
+	if !bytes.Equal(msg.Item().ToBytes(), want.ToBytes()) {
+		t.Errorf("S18F1 body: got %x, want %x", msg.Item().ToBytes(), want.ToBytes())
+	}
+
+	if empty := S18F3(); !bytes.Equal(empty.Item().ToBytes(), secs2.L().ToBytes()) {
+		t.Errorf("S18F3 with no values: got %x, want an empty list", empty.Item().ToBytes())
+	}
+}
+
+func TestValueRepeatDecodesEveryElement(t *testing.T) {
+	got, err := DecodeS18F1(valuesBody(t,
 		secs2.L(secs2.U2(1), secs2.U4(65535), secs2.U1(3)),
 		secs2.L(secs2.U1(0), secs2.U1(1)),
 		secs2.L(secs2.A("ProceedWithCarrier"), secs2.A("Other"))))
@@ -130,29 +147,18 @@ func TestTypedRepeatDecodesEveryElement(t *testing.T) {
 		t.Fatalf("DecodeS18F1: %v", err)
 	}
 
-	if len(got.LOCS) != 3 || got.LOCS[0] != 1 || got.LOCS[1] != 65535 || got.LOCS[2] != 3 {
-		t.Errorf("LOCS: got %v, want [1 65535 3]", got.LOCS)
-	}
-
-	if len(got.STATUSLIST) != 2 || got.STATUSLIST[0] != STATUSOk || got.STATUSLIST[1] != STATUSFailed {
-		t.Errorf("STATUSLIST: got %v, want [Ok Failed]", got.STATUSLIST)
-	}
-
-	if len(got.ACTIONS) != 2 || got.ACTIONS[0] != CARRIERACTIONProceedWithCarrier || got.ACTIONS[1] != "Other" {
-		t.Errorf("ACTIONS: got %v", got.ACTIONS)
-	}
-
-	if len(got.FLAGS) != 2 || !got.FLAGS[0] || got.FLAGS[1] {
-		t.Errorf("FLAGS: got %v, want [true false]", got.FLAGS)
-	}
-
-	if len(got.SVIDS) != 1 {
-		t.Errorf("SVIDS: got %d elements, want 1", len(got.SVIDS))
-	}
+	assertDecoded(t, got, S18F1Body{
+		MDLN:       "model",
+		LOCS:       []uint16{1, 65535, 3},
+		STATUSLIST: []STATUS{STATUSOk, STATUSFailed},
+		SVIDS:      []secs2.Item{secs2.U4(7)},
+		ACTIONS:    []CARRIERACTION{CARRIERACTIONProceedWithCarrier, "Other"},
+		FLAGS:      []bool{true, false},
+	})
 }
 
-func TestTypedRepeatDecodesEmptyList(t *testing.T) {
-	got, err := DecodeS18F1(typedBody(t, secs2.L(), secs2.L(), secs2.L()))
+func TestValueRepeatDecodesEmptyList(t *testing.T) {
+	got, err := DecodeS18F1(valuesBody(t, secs2.L(), secs2.L(), secs2.L()))
 	if err != nil {
 		t.Fatalf("DecodeS18F1: %v", err)
 	}
@@ -162,7 +168,7 @@ func TestTypedRepeatDecodesEmptyList(t *testing.T) {
 	}
 }
 
-func TestTypedRepeatRejectsWrongElements(t *testing.T) {
+func TestValueRepeatRejectsWrongElements(t *testing.T) {
 	tests := []struct {
 		name                     string
 		locs, statuslist, actions secs2.Item
@@ -178,7 +184,7 @@ func TestTypedRepeatRejectsWrongElements(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := DecodeS18F1(typedBody(t, tt.locs, tt.statuslist, tt.actions))
+			_, err := DecodeS18F1(valuesBody(t, tt.locs, tt.statuslist, tt.actions))
 			if err == nil {
 				t.Fatal("DecodeS18F1: got nil error, want one")
 			}
@@ -191,28 +197,28 @@ func TestTypedRepeatRejectsWrongElements(t *testing.T) {
 }
 `
 
-// TestTypedRepeatsCompileAndRunAgainstRealSecs2 is the real-compile guard for typed: repeats.
+// TestValueRepeatsCompileAndRunAgainstRealSecs2 is the real-compile guard for repeats of fixed scalar items.
 //
 // It runs the whole generator over a YAML fixture,
-// so typed: is read by the loader, accepted by validation, and honored by every walker.
-// The generated builder tests and round trips send each typed repeat one element of the element item's own format
-// and expect it back as a value,
-// and the variant's test reads its typed repeat through the main decoder.
+// so every walker treats such a repeat as a slice of values.
+// The generated builder tests and round trips send each value repeat one value
+// and expect it back as an item of the element's own format and as a value,
+// and the variant's test reads its value repeat through the main decoder.
 // A hand-written test adds the cases the generated ones cannot express:
-// several elements, an empty list,
+// several values sent through each element kind and decoded back, an empty list,
 // and elements of the wrong format, width, or size, which must fail naming the element's index.
 //
 // It is gated behind the `integration` build tag
 // because it shells out to the go toolchain and reaches across module boundaries;
 // run it with `go test -tags integration ./...`.
-func TestTypedRepeatsCompileAndRunAgainstRealSecs2(t *testing.T) {
+func TestValueRepeatsCompileAndRunAgainstRealSecs2(t *testing.T) {
 	src := t.TempDir()
 	itemsPath := filepath.Join(src, "items.yaml")
-	require.NoError(t, os.WriteFile(itemsPath, []byte(typedItemsYAML), 0o600))
+	require.NoError(t, os.WriteFile(itemsPath, []byte(valuesItemsYAML), 0o600))
 
 	msgsDir := filepath.Join(src, "messages")
 	require.NoError(t, os.MkdirAll(msgsDir, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(msgsDir, "s18.yaml"), []byte(typedS18YAML), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(msgsDir, "s18.yaml"), []byte(valuesS18YAML), 0o600))
 
 	// Locate the root go-secs module (two levels up from tools/gemgen),
 	// which provides the real secs2 package the generated code imports.
@@ -226,7 +232,7 @@ func TestTypedRepeatsCompileAndRunAgainstRealSecs2(t *testing.T) {
 
 	// Generate into a throwaway package directory inside the root module,
 	// so the go tool resolves the real secs2 import.
-	checkDir, err := os.MkdirTemp(rootDir, "gemtypedcheck-")
+	checkDir, err := os.MkdirTemp(rootDir, "gemvaluescheck-")
 	require.NoError(t, err)
 	defer os.RemoveAll(checkDir)
 
@@ -235,7 +241,8 @@ func TestTypedRepeatsCompileAndRunAgainstRealSecs2(t *testing.T) {
 	builders, err := os.ReadFile(filepath.Join(checkDir, "s18.go"))
 	require.NoError(t, err)
 	require.Contains(t, string(builders),
-		"func S18F1(mdln string, locs []secs2.Item, statuslist []secs2.Item, svids []secs2.Item, actions []secs2.Item, flags ...secs2.Item)")
+		"func S18F1(mdln string, locs []uint16, statuslist []STATUS, svids []secs2.Item, actions []CARRIERACTION, flags ...bool)")
+	require.Contains(t, string(builders), "func S18F3(statuslist ...STATUS)")
 
 	decoders, err := os.ReadFile(filepath.Join(checkDir, "s18_decode.go"))
 	require.NoError(t, err)
@@ -265,16 +272,16 @@ func TestTypedRepeatsCompileAndRunAgainstRealSecs2(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(out), 0o600))
 	}
 
-	plantFuzzHarness(t, rootDir, checkDir, pkg)
+	plantTestSupport(t, rootDir, checkDir, pkg)
 
-	extra := strings.Replace(typedExtraTest, "package PKG\n", "package "+pkg+"\n", 1)
-	require.NoError(t, os.WriteFile(filepath.Join(checkDir, "typed_extra_test.go"), []byte(extra), 0o600))
+	extra := strings.Replace(valuesExtraTest, "package PKG\n", "package "+pkg+"\n", 1)
+	require.NoError(t, os.WriteFile(filepath.Join(checkDir, "values_extra_test.go"), []byte(extra), 0o600))
 
 	target := "./" + filepath.Base(checkDir) + "/"
 	for _, args := range [][]string{{"build", target}, {"vet", target}, {"test", "-count=1", target}} {
 		cmd := exec.Command("go", args...)
 		cmd.Dir = rootDir
 		out, err := cmd.CombinedOutput()
-		require.NoErrorf(t, err, "go %s failed on the generated typed: fixture:\n%s", args[0], string(out))
+		require.NoErrorf(t, err, "go %s failed on the generated value-repeat fixture:\n%s", args[0], string(out))
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"unicode"
 )
 
 //go:embed templates/tests.go.tmpl
@@ -51,7 +52,7 @@ type fixedSample struct {
 // so swapping two adjacent BOOLEAN leaves changes the expected values.
 // A swap of two leaves with the same parity, such as the first and third, still goes unseen;
 // a variant cannot reorder fields that way, since validation checks every variant field's position.
-// The literal below covers the rest: a typed repeat's or packed group's bool element.
+// The literal below covers the rest: a value repeat's or packed group's bool element.
 var fixedSamples = map[string]fixedSample{
 	"string": {literal: func(name string) string { return fmt.Sprintf("%q", name) }, method: "ToASCII", scalar: true},
 	"byte":   {literal: func(name string) string { return fmt.Sprintf("0x%02x", byteSample(name)) }, method: "ToBinary", scalar: false},
@@ -307,13 +308,12 @@ func newFuncTestView(stream int, m Message, b Body, items map[string]Item) (func
 	}
 
 	if b.Variant != "" {
-		vLines, vBytes, err := variantDecodeLines(stream, m, b, params, exprs, items)
+		vLines, err := variantDecodeLines(stream, m, b, params, exprs, items)
 		if err != nil {
 			return funcTestView{}, false, fmt.Errorf("%s: %w", name, err)
 		}
 
 		lines = append(lines, vLines...)
-		usesBytes = usesBytes || vBytes
 	}
 
 	return funcTestView{
@@ -337,25 +337,24 @@ func newFuncTestView(stream int, m Message, b Body, items map[string]Item) (func
 // true when the variant supplies that value, since a builder always sends one,
 // and false when the variant omits it.
 // params and exprs are the variant's own builder parameters and samples.
-// It reports whether any emitted line needs the "bytes" import.
-func variantDecodeLines(stream int, m Message, b Body, params []Param, exprs []string, items map[string]Item) ([]string, bool, error) {
+func variantDecodeLines(stream int, m Message, b Body, params []Param, exprs []string, items map[string]Item) ([]string, error) {
 	main, ok := mainBody(m, b.Actor)
 	if !ok {
-		return nil, false, fmt.Errorf("no main body for actor %s", b.Actor)
+		return nil, fmt.Errorf("no main body for actor %s", b.Actor)
 	}
 
 	mainFields, err := BuildFields(main.Structure, items)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	fields, err := BuildFields(b.Structure, items)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
 	if n := valueFieldCount(fields); n != len(params) || n != len(exprs) {
-		return nil, false, fmt.Errorf("%d value fields, %d parameters, %d samples", n, len(params), len(exprs))
+		return nil, fmt.Errorf("%d value fields, %d parameters, %d samples", n, len(params), len(exprs))
 	}
 
 	decoder := "Decode" + callName(stream, m.Function, b.Actor)
@@ -366,7 +365,7 @@ func variantDecodeLines(stream int, m Message, b Body, params []Param, exprs []s
 			fmt.Sprintf("if _, err := gem.%s(decoded); err != nil {", decoder),
 			fmt.Sprintf("t.Fatalf(%q, err)", decoder+": %v"),
 			"}",
-		}, false, nil
+		}, nil
 	}
 
 	supplied := map[string]bool{}
@@ -374,17 +373,10 @@ func variantDecodeLines(stream int, m Message, b Body, params []Param, exprs []s
 		supplied[f.Name] = true
 	}
 
-	var omitted []decodeField
-
 	for i, f := range mainFields {
-		switch {
-		case supplied[f.Name]:
-			// Asserted with the variant's own fields.
-		case f.Presence && supplied[mainFields[i-1].Name]:
+		if f.Presence && !supplied[f.Name] && supplied[mainFields[i-1].Name] {
 			// The variant sends the value as a plain leaf, so the main decoder finds it present.
 			fields = append(fields, f)
-		default:
-			omitted = append(omitted, f)
 		}
 	}
 
@@ -397,10 +389,7 @@ func variantDecodeLines(stream int, m Message, b Body, params []Param, exprs []s
 		"",
 	}
 
-	assertLines, usesBytes := decodeAssertLines(params, fields, exprs)
-	zeroLines := zeroAssertLines(ResultTypeName(stream, m.Function, b.Actor), omitted)
-
-	return trimTrailingBlank(slices.Concat(decode, assertLines, zeroLines)), usesBytes, nil
+	return slices.Concat(decode, assertDecodedLines(ResultTypeName(stream, m.Function, b.Actor), sampleFields(params, fields, exprs))), nil
 }
 
 // mainBody returns the message's main body for actor: its one body that is not a variant.
@@ -426,7 +415,7 @@ func callArgs(params []Param, exprs []string) string {
 	parts := make([]string, len(params))
 	for i, p := range params {
 		if p.Repeat && !p.Variadic {
-			parts[i] = fmt.Sprintf("[]%s{%s}", p.Type, exprs[i])
+			parts[i] = fmt.Sprintf("[]%s{%s}", qualifiedType(p.Type), exprs[i])
 			continue
 		}
 
@@ -436,18 +425,29 @@ func callArgs(params []Param, exprs []string) string {
 	return strings.Join(parts, ", ")
 }
 
-// SampleExprs walks a validated structure node in the same order and with
-// the same stopping rules as BuildParams (a repeat or packed node contributes
-// a single entry and does NOT recurse into Of) and returns one deterministic
-// sample-value Go expression per resulting parameter: a fixed leaf's (or a
-// packed group's of.item's) underlying-GoType literal (an enum-typed parameter
-// like COMMACK still gets a bare, cast-free literal, since an untyped constant
-// is assignable to a named defined type), or a secs2.A("<name>") sample labeled
-// by the parameter's own name for an open leaf, an opaque body, or a repeat
-// element. Labeling every non-fixed sample by its own parameter name (rather
-// than a single shared value) means a bug that swaps two sibling parameters
-// changes the expected values at their positions, and the generated
-// assertion catches it.
+// qualifiedType spells the Go type typ as the generated tests, in package gem_test, must:
+// a named type gem declares, such as an enum item's COMMACK, takes the gem qualifier,
+// while a predeclared type or one already qualified, such as secs2.Item, stays as it is.
+func qualifiedType(typ string) string {
+	if typ == "" || strings.Contains(typ, ".") || !unicode.IsUpper(rune(typ[0])) {
+		return typ
+	}
+
+	return "gem." + typ
+}
+
+// SampleExprs walks a validated structure node in the same order and with the same stopping rules as BuildParams
+// (a repeat or packed node contributes a single entry and does NOT recurse into Of)
+// and returns one deterministic sample-value Go expression per resulting parameter:
+// a fixed leaf's (or a packed group's of.item's) underlying-GoType literal
+// (an enum-typed parameter like COMMACK still gets a bare, cast-free literal,
+// since an untyped constant is assignable to a named defined type),
+// the same bare literal as the one element of a value repeat,
+// or a secs2.A("<name>") sample labeled by the parameter's own name
+// for an open leaf, an opaque body, or any other repeat's element.
+// Labeling every non-fixed sample by its own parameter name (rather than a single shared value)
+// means a bug that swaps two sibling parameters changes the expected values at their positions,
+// and the generated assertion catches it.
 func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 	var out []string
 
@@ -488,14 +488,16 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 		case "opaque":
 			out = append(out, fmt.Sprintf("secs2.A(%q)", nodeNames(n).Param))
 		default: // list
-			if n.Repeat != "" && n.Typed {
-				expr, err := typedElementSample(n, items)
-				if err != nil {
-					walkErr = err
+			if it, ok := valueRepeatItem(n, items); ok {
+				// Value repeat: the parameter takes values of the element item's Go type,
+				// so its one sample element is a bare literal, as for a packed group.
+				fs, ok := fixedSamples[it.GoType]
+				if !ok {
+					walkErr = fmt.Errorf("repeat %s: no deterministic sample for goType %q", n.Repeat, it.GoType)
 					return
 				}
 
-				out = append(out, expr)
+				out = append(out, fs.literal(nodeNames(n).Param))
 
 				return
 			}
@@ -536,22 +538,6 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 	}
 
 	return out, nil
-}
-
-// typedElementSample returns the sample element of a typed repeat:
-// an item of the element item's own format,
-// holding that goType's deterministic sample labeled by the repeat's parameter name,
-// e.g. secs2.U1(42).
-// A raw secs2.A sample, as an untyped repeat gets, would fail the typed decoder.
-func typedElementSample(n *StructureNode, items map[string]Item) (string, error) {
-	it := items[n.Of.Item]
-
-	fs, ok := fixedSamples[it.GoType]
-	if !ok {
-		return "", fmt.Errorf("typed repeat %s: no deterministic sample for goType %q", n.Repeat, it.GoType)
-	}
-
-	return fmt.Sprintf("secs2.%s(%s)", firstFormat(it), fs.literal(nodeNames(n).Param)), nil
 }
 
 // testCtx accumulates the Go statement lines that assert a decoded body
@@ -660,10 +646,10 @@ func (c *testCtx) assertBlob(expr, name string, n int) {
 	c.usesBytes = true
 }
 
-// assertSample emits the decode-and-compare check for a caller-supplied
-// secs2.Item found at expr (an open leaf, an opaque body, or a repeat
-// element): it compares the decoded item's wire bytes against the same
-// labeled secs2.A(name) sample SampleExprs used at the call site.
+// assertSample emits the decode-and-compare check for a caller-supplied secs2.Item found at expr
+// (an open leaf, an opaque body, or an element of a repeat that is not a value repeat):
+// it compares the decoded item's wire bytes against the same labeled secs2.A(name) sample
+// that SampleExprs used at the call site.
 func (c *testCtx) assertSample(expr, name string) {
 	id := c.nextID()
 	got := fmt.Sprintf("got%d", id)
@@ -701,11 +687,11 @@ func (c *testCtx) assertNode(n *StructureNode, items map[string]Item, expr strin
 
 		return nil
 	default: // list
-		if n.Repeat != "" && n.Typed {
-			// The one element is the typedElementSample item: check it like a fixed leaf of the element item.
+		if it, ok := valueRepeatItem(n, items); ok {
+			// The one element is built from the bare sample value: check it like a fixed leaf of the element item.
 			v := c.assertList(expr, 1)
 
-			return c.assertFixed(v+"[0]", nodeNames(n).Param, items[n.Of.Item])
+			return c.assertFixed(v+"[0]", nodeNames(n).Param, it)
 		}
 
 		if n.Repeat != "" {

@@ -134,7 +134,7 @@ func TestRenamedNodesCompileAndRunAgainstRealSecs2(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte(out), 0o600))
 	}
 
-	plantFuzzHarness(t, rootDir, checkDir, pkg+"_test")
+	plantTestSupport(t, rootDir, checkDir, pkg+"_test")
 
 	target := "./" + filepath.Base(checkDir) + "/"
 	for _, args := range [][]string{{"build", target}, {"vet", target}, {"test", "-count=1", target}} {
