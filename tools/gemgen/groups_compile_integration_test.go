@@ -76,13 +76,13 @@ func groupsBody(t *testing.T, holders, rows, bands secs2.Item) secs2.Item {
 	return decoded
 }
 
-// holderItem is the wire form of a Holder with no band, the given pairs, and no values.
+// holderItem is the wire form of a Holder with no TSIP, no band, the given pairs, and no values.
 func holderItem(pairs ...secs2.Item) secs2.Item {
-	return secs2.L(secs2.B(7), secs2.L(), secs2.L(secs2.A("m"), secs2.U4(9)), secs2.L(pairs...), secs2.L())
+	return secs2.L(secs2.B(), secs2.L(), secs2.L(secs2.A("m"), secs2.U4(9)), secs2.L(pairs...), secs2.L())
 }
 
 func TestGroupBuilderSendsNilAsEmptyList(t *testing.T) {
-	msg := S1F2("model", []Holder{{TSIP: 7, MDLN: "m", EXTRA: secs2.U4(9)}}, [][]Pair{{}, {{MDLN: "a", SVID: secs2.U2(1)}}},
+	msg := S1F2("model", []Holder{{MDLN: "m", EXTRA: secs2.U4(9)}}, [][]Pair{{}, {{MDLN: "a", SVID: secs2.U2(1)}}},
 		nil, &Band{SVID: secs2.U1(2), SOFTREV: "r"})
 
 	want := secs2.L(secs2.A("model"),
@@ -105,10 +105,37 @@ func TestGroupDecodesEmptyListAsNil(t *testing.T) {
 
 	assertDecoded(t, got, S1F2Reply{
 		MDLN:    "model",
-		HOLDERS: []Holder{{TSIP: 7, MDLN: "m", EXTRA: secs2.U4(9), PAIRS: []Pair{{MDLN: "p", SVID: secs2.U4(3)}}, TSIPS: []byte{}}},
+		HOLDERS: []Holder{{MDLN: "m", EXTRA: secs2.U4(9), PAIRS: []Pair{{MDLN: "p", SVID: secs2.U4(3)}}, TSIPS: []byte{}}},
 		ROWS:    [][]Pair{{}},
 		BANDS:   []*Band{nil, {SVID: secs2.U1(2), SOFTREV: "r"}},
 	})
+}
+
+func TestGroupOptionalLeafNilIsZeroLength(t *testing.T) {
+	msg := S1F2("model", []Holder{{MDLN: "m", EXTRA: secs2.U4(9)}, {TSIP: new(byte(0)), MDLN: "m", EXTRA: secs2.U4(9)}}, nil)
+
+	holders, err := msg.Item().Get(1)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	zero := secs2.L(secs2.B(0), secs2.L(), secs2.L(secs2.A("m"), secs2.U4(9)), secs2.L(), secs2.L())
+	if want := secs2.L(holderItem(), zero); !bytes.Equal(holders.ToBytes(), want.ToBytes()) {
+		t.Errorf("HOLDERS: got %x, want %x", holders.ToBytes(), want.ToBytes())
+	}
+
+	got, err := DecodeS1F2(groupsBody(t, holders, secs2.L(), secs2.L()))
+	if err != nil {
+		t.Fatalf("DecodeS1F2: %v", err)
+	}
+
+	if got.HOLDERS[0].TSIP != nil {
+		t.Errorf("HOLDERS[0].TSIP: got %v, want nil", *got.HOLDERS[0].TSIP)
+	}
+
+	if got.HOLDERS[1].TSIP == nil || *got.HOLDERS[1].TSIP != 0 {
+		t.Errorf("HOLDERS[1].TSIP: got %v, want a non-nil 0", got.HOLDERS[1].TSIP)
+	}
 }
 
 func TestGroupRejectsMalformedElements(t *testing.T) {

@@ -402,10 +402,11 @@ func decodePortActionParam(c secs2.Cursor, field string, cfg *decodeConfig) (Por
 // Alarm is one alarm, its code, its ID, and its text.
 //
 // Shape: L[3]{ B[alcd] <alid> A[altx] }.
+// ALCD is nil when it is sent as a zero-length item, as SEMI E5 allows.
 //
 // Used by S5F6 and S5F8.
 type Alarm struct {
-	ALCD ALCD
+	ALCD *ALCD
 	ALID secs2.Item
 	ALTX string
 }
@@ -413,7 +414,7 @@ type Alarm struct {
 // Item returns the list item g is sent as.
 // Set every secs2.Item field: a nil one is dropped, which shortens the list.
 func (g Alarm) Item() secs2.Item {
-	return secs2.L(secs2.B(byte(g.ALCD)), g.ALID, secs2.A(g.ALTX))
+	return secs2.L(optionalItem(g.ALCD, func(v ALCD) secs2.Item { return secs2.B(byte(v)) }, secs2.B), g.ALID, secs2.A(g.ALTX))
 }
 
 // decodeAlarm decodes one [Alarm] from the list at c, with the decode options cfg, naming field in its errors.
@@ -426,7 +427,7 @@ func decodeAlarm(c secs2.Cursor, field string, cfg *decodeConfig) (Alarm, error)
 		return g, err
 	}
 
-	if g.ALCD, err = decodeByteAs[ALCD](c.At(0), field+".ALCD"); err != nil {
+	if g.ALCD, err = decodeOptional[*secs2.BinaryItem](c.At(0), field+".ALCD", decodeByteAs[ALCD]); err != nil {
 		return g, err
 	}
 
@@ -2659,19 +2660,20 @@ func decodePDEDeleteResult(c secs2.Cursor, field string, cfg *decodeConfig) (PDE
 // PDESendResult is the result of sending one PDE, its UID, the send and verify statuses, and the status text.
 //
 // Shape: L[4]{ A[uid] U1[sendrspstat] U1[verifyrspstat] A[statustxt] }.
+// VERIFYRSPSTAT is nil when it is sent as a zero-length item, as SEMI E5 allows.
 //
 // Used by S19F13.
 type PDESendResult struct {
 	UID           string
 	SENDRSPSTAT   SENDRSPSTAT
-	VERIFYRSPSTAT VERIFYRSPSTAT
+	VERIFYRSPSTAT *VERIFYRSPSTAT
 	STATUSTXT     string
 }
 
 // Item returns the list item g is sent as.
 // Set every secs2.Item field: a nil one is dropped, which shortens the list.
 func (g PDESendResult) Item() secs2.Item {
-	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.SENDRSPSTAT)), secs2.U1(uint8(g.VERIFYRSPSTAT)), secs2.A(g.STATUSTXT))
+	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.SENDRSPSTAT)), optionalItem(g.VERIFYRSPSTAT, func(v VERIFYRSPSTAT) secs2.Item { return secs2.U1(uint8(v)) }, secs2.U1), secs2.A(g.STATUSTXT))
 }
 
 // decodePDESendResult decodes one [PDESendResult] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2692,7 +2694,7 @@ func decodePDESendResult(c secs2.Cursor, field string, cfg *decodeConfig) (PDESe
 		return g, err
 	}
 
-	if g.VERIFYRSPSTAT, err = decodeUintAs[VERIFYRSPSTAT](c.At(2), field+".VERIFYRSPSTAT"); err != nil {
+	if g.VERIFYRSPSTAT, err = decodeOptional[*secs2.UintItem](c.At(2), field+".VERIFYRSPSTAT", decodeUintAs[VERIFYRSPSTAT]); err != nil {
 		return g, err
 	}
 

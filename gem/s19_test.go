@@ -512,7 +512,7 @@ func TestS19F12(t *testing.T) {
 }
 
 func TestS19F13(t *testing.T) {
-	msg := gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"})
+	msg := gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: new(gem.VERIFYRSPSTAT(34)), STATUSTXT: "statustxt"})
 
 	assertS19Header(t, msg, 13, true)
 

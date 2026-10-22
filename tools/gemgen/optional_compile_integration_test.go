@@ -28,10 +28,10 @@ TRAUTOD:
   formats: [BOOLEAN]
   binding: fixed
   goType: bool
-TIMESTAMP:
-  formats: [A]
+WEIGHT:
+  formats: [F4]
   binding: fixed
-  goType: string
+  goType: float32
 VERIFYRSPSTAT:
   formats: [U1]
   binding: fixed
@@ -82,7 +82,7 @@ messages:
                 - {item: OBJSPEC}
                 - {item: TRAUTOD, optional: true}
                 - {item: VERIFYRSPSTAT, optional: true}
-            - {item: TIMESTAMP, optional: true}
+            - {item: WEIGHT, optional: true}
       - actor: both
         replyExpected: false
         variant: Short
@@ -94,7 +94,7 @@ messages:
             - {item: ORLOC, optional: true}
             - {type: list, repeat: svids, of: {item: SVID}}
             - {type: list, items: [{item: OBJSPEC}]}
-            - {item: TIMESTAMP, optional: true}
+            - {item: WEIGHT, optional: true}
   - function: 3
     name: Optional Body Sample
     mnemonic: OBS
@@ -109,7 +109,9 @@ messages:
 `
 
 // optionalExtraTest holds the decoder cases the generated tests do not reach:
-// zero-length and multi-value items of the wrong shape, and real ASCII values.
+// zero-length items of another width, which still mean nil,
+// zero-length and multi-value items of the wrong shape, which must fail,
+// and zero values, which must decode as non-nil pointers.
 // It is written into the generated package after its package clause is rewritten.
 const optionalExtraTest = `package PKG
 
@@ -119,13 +121,13 @@ import (
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-// optionalBody builds an S12F1 body around the given FNLOC, ORLOC, and TIMESTAMP items,
+// optionalBody builds an S12F1 body around the given FNLOC, ORLOC, and WEIGHT items,
 // then round-trips it through wire bytes, as a peer's message would arrive.
-func optionalBody(t *testing.T, fnloc, orloc, timestamp secs2.Item) secs2.Item {
+func optionalBody(t *testing.T, fnloc, orloc, weight secs2.Item) secs2.Item {
 	t.Helper()
 
 	body := secs2.L(fnloc, secs2.A("model"), orloc, secs2.L(secs2.U4(7)),
-		secs2.L(secs2.A("spec"), secs2.BOOLEAN(true), secs2.U1(0)), timestamp)
+		secs2.L(secs2.A("spec"), secs2.BOOLEAN(false), secs2.U1(0)), weight)
 
 	decoded, err := secs2.Decode(body.ToBytes())
 	if err != nil {
@@ -137,20 +139,20 @@ func optionalBody(t *testing.T, fnloc, orloc, timestamp secs2.Item) secs2.Item {
 
 func TestOptionalRejectsWrongShapes(t *testing.T) {
 	tests := []struct {
-		name                     string
-		fnloc, orloc, timestamp  secs2.Item
+		name                 string
+		fnloc, orloc, weight secs2.Item
 	}{
-		{"wrong-format empty U2", secs2.A(""), secs2.B(1), secs2.A("")},
-		{"two-value U2", secs2.U2(1, 2), secs2.B(1), secs2.A("")},
-		{"wrong-format non-empty U2", secs2.I2(1), secs2.B(1), secs2.A("")},
-		{"wrong-format empty B", secs2.U2(1), secs2.U1(), secs2.A("")},
-		{"two-value B", secs2.U2(1), secs2.B(1, 2), secs2.A("")},
-		{"wrong-format empty A", secs2.U2(1), secs2.B(1), secs2.B()},
+		{"wrong-format empty U2", secs2.A(""), secs2.B(1), secs2.F4()},
+		{"two-value U2", secs2.U2(1, 2), secs2.B(1), secs2.F4()},
+		{"wrong-format non-empty U2", secs2.I2(1), secs2.B(1), secs2.F4()},
+		{"wrong-format empty B", secs2.U2(1), secs2.U1(), secs2.F4()},
+		{"two-value B", secs2.U2(1), secs2.B(1, 2), secs2.F4()},
+		{"wrong-format empty F4", secs2.U2(1), secs2.B(1), secs2.I4()},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := DecodeS12F1(optionalBody(t, tt.fnloc, tt.orloc, tt.timestamp)); err == nil {
+			if _, err := DecodeS12F1(optionalBody(t, tt.fnloc, tt.orloc, tt.weight)); err == nil {
 				t.Fatal("DecodeS12F1: got nil error, want one")
 			}
 		})
@@ -158,47 +160,50 @@ func TestOptionalRejectsWrongShapes(t *testing.T) {
 }
 
 func TestOptionalAcceptsZeroLengthOfAnyWidth(t *testing.T) {
-	got, err := DecodeS12F1(optionalBody(t, secs2.U4(), secs2.B(), secs2.A("")))
+	got, err := DecodeS12F1(optionalBody(t, secs2.U4(), secs2.B(), secs2.F8()))
 	if err != nil {
 		t.Fatalf("DecodeS12F1: %v", err)
 	}
 
-	if got.FNLOCPresent || got.ORLOCPresent || got.TIMESTAMPPresent {
-		t.Errorf("presence: got %v %v %v, want all false", got.FNLOCPresent, got.ORLOCPresent, got.TIMESTAMPPresent)
+	if got.FNLOC != nil || got.ORLOC != nil || got.WEIGHT != nil {
+		t.Errorf("FNLOC, ORLOC, WEIGHT: got %v %v %v, want all nil", got.FNLOC, got.ORLOC, got.WEIGHT)
 	}
 
-	if !got.TRAUTODPresent || !got.VERIFYRSPSTATPresent {
-		t.Errorf("tail presence: got %v %v, want both true", got.TRAUTODPresent, got.VERIFYRSPSTATPresent)
+	if got.TRAUTOD == nil || *got.TRAUTOD || got.VERIFYRSPSTAT == nil || *got.VERIFYRSPSTAT != 0 {
+		t.Errorf("TRAUTOD, VERIFYRSPSTAT: got %v %v, want false and 0", got.TRAUTOD, got.VERIFYRSPSTAT)
 	}
 }
 
-func TestOptionalASCII(t *testing.T) {
-	tests := []struct {
-		name        string
-		timestamp   string
-		wantPresent bool
-	}{
-		{"empty", "", false},
-		{"16-character timestamp", "2026102012345678", true},
-		{"one character", "x", true},
+func TestOptionalZeroValueIsNotNil(t *testing.T) {
+	got, err := DecodeS12F1(optionalBody(t, secs2.U2(0), secs2.B(0), secs2.F4(0)))
+	if err != nil {
+		t.Fatalf("DecodeS12F1: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := DecodeS12F1(optionalBody(t, secs2.U2(1), secs2.B(1), secs2.A(tt.timestamp)))
-			if err != nil {
-				t.Fatalf("DecodeS12F1: %v", err)
-			}
+	if got.FNLOC == nil || *got.FNLOC != 0 || got.ORLOC == nil || *got.ORLOC != 0 || got.WEIGHT == nil || *got.WEIGHT != 0 {
+		t.Errorf("FNLOC, ORLOC, WEIGHT: got %v %v %v, want three non-nil zeros", got.FNLOC, got.ORLOC, got.WEIGHT)
+	}
+}
 
-			if got.TIMESTAMPPresent != tt.wantPresent || got.TIMESTAMP != tt.timestamp {
-				t.Errorf("TIMESTAMP: got %q (present %v), want %q (present %v)",
-					got.TIMESTAMP, got.TIMESTAMPPresent, tt.timestamp, tt.wantPresent)
-			}
+func TestOptionalBuilderSendsZeroLengthForNil(t *testing.T) {
+	msg := S12F1(nil, "model", new(byte(0)), nil, "spec", new(false), nil, nil)
 
-			if !got.FNLOCPresent || got.FNLOC != 1 || !got.ORLOCPresent || got.ORLOC != 1 {
-				t.Errorf("FNLOC, ORLOC: got %v %v %v %v, want 1 and present", got.FNLOC, got.FNLOCPresent, got.ORLOC, got.ORLOCPresent)
-			}
-		})
+	list, err := msg.Item().ToList()
+	if err != nil {
+		t.Fatalf("ToList: %v", err)
+	}
+
+	for _, tt := range []struct {
+		name      string
+		got, want secs2.Item
+	}{
+		{"FNLOC", list[0], secs2.U2()},
+		{"ORLOC", list[2], secs2.B(0)},
+		{"WEIGHT", list[5], secs2.F4()},
+	} {
+		if got, want := tt.got.ToBytes(), tt.want.ToBytes(); string(got) != string(want) {
+			t.Errorf("%s: got %x, want %x", tt.name, got, want)
+		}
 	}
 }
 `
@@ -207,12 +212,12 @@ func TestOptionalASCII(t *testing.T) {
 //
 // It runs the whole generator over a YAML fixture,
 // so optional: is read by the loader, accepted by validation, and honored by every walker.
-// The generated round-trip tests expect every presence field true,
-// the generated absent tests send each optional item zero-length and expect it absent,
-// and the variant's test expects the main decoder's presence fields to follow what the variant sends.
+// The generated round-trip tests send and expect a pointer to each sample,
+// the generated absent tests pass nil for each optional item, expect it sent zero-length, and decode it as nil,
+// and the variant's test expects a pointer where the variant sends a plain value.
 // A hand-written test adds the cases the generated ones cannot express:
-// wrong-format and multi-value items, which must still fail,
-// and ASCII values, where any non-empty string is present.
+// zero-length items of another width, wrong-format and multi-value items, which must still fail,
+// and zero values, which must decode as non-nil pointers.
 //
 // It is gated behind the `integration` build tag
 // because it shells out to the go toolchain and reaches across module boundaries;
@@ -247,12 +252,12 @@ func TestOptionalLeavesCompileAndRunAgainstRealSecs2(t *testing.T) {
 	builders, err := os.ReadFile(filepath.Join(checkDir, "s12.go"))
 	require.NoError(t, err)
 	require.Contains(t, string(builders),
-		"func S12F1(fnloc uint16, mdln string, orloc byte, svids []secs2.Item, objspec string, trautod bool, verifyrspstat VERIFYRSPSTAT, timestamp string)")
+		"func S12F1(fnloc *uint16, mdln string, orloc *byte, svids []secs2.Item, objspec string, trautod *bool, verifyrspstat *VERIFYRSPSTAT, weight *float32)")
 
 	decodeTests, err := os.ReadFile(filepath.Join(checkDir, "s12_decode_test.go"))
 	require.NoError(t, err)
 
-	for _, name := range []string{"FNLOC", "ORLOC", "TRAUTOD", "VERIFYRSPSTAT", "TIMESTAMP"} {
+	for _, name := range []string{"FNLOC", "ORLOC", "TRAUTOD", "VERIFYRSPSTAT", "WEIGHT"} {
 		require.Contains(t, string(decodeTests), "func TestDecodeS12F1"+name+"Absent(t *testing.T) {")
 	}
 

@@ -19,7 +19,7 @@ func groupTestItems() map[string]Item {
 }
 
 // groupTestGroups declares a group of each kind of field:
-// Holder holds a leaf, an optional group, a flattened sub-list with an opaque node,
+// Holder holds an optional leaf, an optional group, a flattened sub-list with an opaque node,
 // a repeat of a group, and a repeat of values.
 const groupTestGroups = `
 groups:
@@ -34,7 +34,7 @@ groups:
     structure:
       type: list
       items:
-        - {item: TSIP}
+        - {item: TSIP, optional: true}
         - {group: Band, as: band, optional: true}
         - {type: list, items: [{item: MDLN}, {type: opaque, as: extra}]}
         - {type: list, repeat: pairs, of: {group: Pair}}
@@ -156,7 +156,7 @@ func TestResolveGroupsRejectsBadGroups(t *testing.T) {
 		{"repeat structure", group("Extra", "{type: list, repeat: mdlns, of: {item: MDLN}}"), useBoth, "list of declared children"},
 		{"bounded sub-list", group("Extra", "{type: list, items: [{type: list, minItems: 0, maxItems: 1, items: [{item: MDLN}]}]}"), useBoth, "cannot be bounded"},
 		{"packed", group("Extra", "{type: list, items: [{type: list, packed: tsips, of: {item: TSIP}}]}"), useBoth, "cannot sit inside a group"},
-		{"optional leaf", group("Extra", "{type: list, items: [{item: MDLN, optional: true}]}"), useBoth, "inside a group"},
+		{"optional ASCII leaf", group("Extra", "{type: list, items: [{item: MDLN, optional: true}]}"), useBoth, "an empty string already sends the zero-length item"},
 		{"inline list element", group("Extra", "{type: list, items: [{type: list, repeat: rows, of: {type: list, items: [{item: MDLN}]}}]}"), useBoth, "declare it in groups.yaml"},
 		{"child not optional", group("Extra", "{type: list, items: [{group: Pair, as: pair}]}"), useBoth, "needs optional: true and an as: name"},
 		{"child without as", group("Extra", "{type: list, items: [{group: Pair, optional: true}]}"), useBoth, "needs optional: true and an as: name"},
@@ -201,7 +201,7 @@ func TestValidateMessagesRejectsUnresolvedGroup(t *testing.T) {
 
 // TestRenderGroups proves a group renders as a struct, an Item method, and a decode function
 // that each walk the same structure:
-// a leaf, an optional group, a flattened sub-list with an opaque node,
+// an optional leaf, an optional group, a flattened sub-list with an opaque node,
 // a repeat of a group, and a repeat of values.
 // Errors are labeled relative to the decode function's field parameter.
 func TestRenderGroups(t *testing.T) {
@@ -214,11 +214,12 @@ func TestRenderGroups(t *testing.T) {
 	got := string(out)
 
 	for _, want := range []string{
-		"type Holder struct {\n\tTSIP  byte\n\tBAND  *Band\n\tMDLN  string\n\tEXTRA secs2.Item\n\tPAIRS []Pair\n\tTSIPS []byte\n}",
-		"func (g Holder) Item() secs2.Item {\n\treturn secs2.L(secs2.B(g.TSIP), optionalGroupItem(g.BAND), secs2.L(secs2.A(g.MDLN), g.EXTRA), " +
+		"type Holder struct {\n\tTSIP  *byte\n\tBAND  *Band\n\tMDLN  string\n\tEXTRA secs2.Item\n\tPAIRS []Pair\n\tTSIPS []byte\n}",
+		"func (g Holder) Item() secs2.Item {\n\treturn secs2.L(optionalItem(g.TSIP, func(v byte) secs2.Item { return secs2.B(v) }, secs2.B), optionalGroupItem(g.BAND), secs2.L(secs2.A(g.MDLN), g.EXTRA), " +
 			"secs2.L(groupItems(g.PAIRS)...), secs2.L(valueItems(g.TSIPS, func(v byte) secs2.Item { return secs2.B(v) })...))\n}",
 		"func decodeHolder(c secs2.Cursor, field string, cfg *decodeConfig) (Holder, error) {",
 		"if err = requireArity(c, field, 5, cfg); err != nil {\n\t\treturn g, err",
+		`if g.TSIP, err = decodeOptional[*secs2.BinaryItem](c.At(0), field+".TSIP", decodeByteAs[byte]); err != nil {`,
 		`if g.BAND, err = decodeOptionalGroup(c.At(1), field+".BAND", 2, cfg, decodeBand); err != nil {`,
 		`if err = requireArity(c.At(2), field+"[2]", 2, cfg); err != nil {`,
 		// An opaque node reports its parameter name, as at body level.
@@ -226,7 +227,7 @@ func TestRenderGroups(t *testing.T) {
 		`if g.PAIRS, err = decodeEach(c.At(3), field+".PAIRS", withConfig(cfg, decodePair)); err != nil {`,
 		`if g.TSIPS, err = decodeEach(c.At(4), field+".TSIPS", decodeByteAs[byte]); err != nil {`,
 		"// Holder is one holder.\n//\n// Shape: L[5]{ B[tsip] <band> L[2]{ A[mdln] <extra> } L[n]{ <pairs>... } L[n]{ <tsips>... } }.\n" +
-			"// BAND is nil when it is sent as L[0].\n//\n// Used by S1F2.\n",
+			"// BAND is nil when it is sent as L[0].\n// TSIP is nil when it is sent as a zero-length item, as SEMI E5 allows.\n//\n// Used by S1F2.\n",
 		"// Pair is one pair of a model and a status variable.\n",
 		"// Used by S1F2 and [Holder].\n",
 	} {
@@ -272,11 +273,18 @@ func TestGroupRepeatsInMessages(t *testing.T) {
 	decodeTests, err := renderDecodeTests(mf, items)
 	require.NoError(t, err)
 
-	holder := `{TSIP: 0x3a, BAND: &gem.Band{SVID: secs2.A("svid"), SOFTREV: "softrev"}, MDLN: "mdln", EXTRA: secs2.A("extra"), ` +
+	holder := `{TSIP: new(byte(0x3a)), BAND: &gem.Band{SVID: secs2.A("svid"), SOFTREV: "softrev"}, MDLN: "mdln", EXTRA: secs2.A("extra"), ` +
 		`PAIRS: []gem.Pair{{MDLN: "mdln", SVID: secs2.A("svid")}}, TSIPS: []byte{0x39}}`
 	require.Contains(t, string(decodeTests),
 		`gem.S1F2("mdln", []gem.Holder{`+holder+`}, [][]gem.Pair{{{MDLN: "mdln", SVID: secs2.A("svid")}}}, &gem.Band{SVID: secs2.A("svid"), SOFTREV: "softrev"})`)
 	require.Contains(t, string(decodeTests), "HOLDERS: []gem.Holder{"+holder+"},")
+
+	// The group's optional leaf gets a test of its own, sending it nil inside the repeated Holder.
+	absent := testFuncBody(t, string(decodeTests), "TestDecodeS1F2HolderTSIPAbsent")
+	require.Contains(t, absent, `gem.S1F2("mdln", []gem.Holder{{BAND: &gem.Band{`)
+	require.Contains(t, absent, `t.Errorf("tsip: got %x, want the zero-length item %x"`)
+	require.Contains(t, absent, "HOLDERS: []gem.Holder{{BAND: &gem.Band{")
+	require.Contains(t, absent, "assertDecoded(t, got, want)")
 
 	tests, err := renderTests(mf, items)
 	require.NoError(t, err)

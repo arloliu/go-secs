@@ -8,33 +8,26 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Body: L[15]{ <mid> B[idtyp] U2[fnloc] U2[ffrot] B[orloc] U1[rpsel] L[n]{ <refps>... } A[dutms] <xdies> <ydies> <rowct> <colct> <nulbc> <prdct> B[praxi] }.
 //
-// It is filled by [DecodeS12F1] and mirrors the parameters of [S12F1], in order,
-// apart from its FNLOCPresent, FFROTPresent, and ORLOCPresent fields.
+// It is filled by [DecodeS12F1] and mirrors the parameters of [S12F1], in order.
 //
 // SEMI E5 lets FNLOC, FFROT, and ORLOC each be sent as a zero-length item:
-// [DecodeS12F1] decodes that form as a zero field with its presence field false,
-// FNLOCPresent for FNLOC, FFROTPresent for FFROT, and ORLOCPresent for ORLOC.
-// [S12F1] always sends a value,
-// so callers that need the zero-length form build the body with [secs2] directly.
+// [DecodeS12F1] decodes that form as a nil field, and [S12F1] sends it for a nil argument.
 type S12F1Body struct {
-	MID          secs2.Item
-	IDTYP        IDTYP
-	FNLOC        uint16
-	FNLOCPresent bool
-	FFROT        uint16
-	FFROTPresent bool
-	ORLOC        ORLOC
-	ORLOCPresent bool
-	RPSEL        uint8
-	REFPS        []secs2.Item
-	DUTMS        string
-	XDIES        secs2.Item
-	YDIES        secs2.Item
-	ROWCT        secs2.Item
-	COLCT        secs2.Item
-	NULBC        secs2.Item
-	PRDCT        secs2.Item
-	PRAXI        PRAXI
+	MID   secs2.Item
+	IDTYP IDTYP
+	FNLOC *uint16
+	FFROT *uint16
+	ORLOC *ORLOC
+	RPSEL uint8
+	REFPS []secs2.Item
+	DUTMS string
+	XDIES secs2.Item
+	YDIES secs2.Item
+	ROWCT secs2.Item
+	COLCT secs2.Item
+	NULBC secs2.Item
+	PRDCT secs2.Item
+	PRAXI PRAXI
 }
 
 // DecodeS12F1 decodes the body of an S12F1 (Map Set-up Data Send) message into a [S12F1Body].
@@ -63,34 +56,16 @@ func DecodeS12F1(item secs2.Item, opts ...DecodeOption) (S12F1Body, error) {
 		return out, err
 	}
 
-	if out.FNLOCPresent, err = presentAt[*secs2.UintItem](root.At(2), "FNLOC"); err != nil {
+	if out.FNLOC, err = decodeOptional[*secs2.UintItem](root.At(2), "FNLOC", decodeUintAs[uint16]); err != nil {
 		return out, err
 	}
 
-	if out.FNLOCPresent {
-		if out.FNLOC, err = decodeUintAs[uint16](root.At(2), "FNLOC"); err != nil {
-			return out, err
-		}
-	}
-
-	if out.FFROTPresent, err = presentAt[*secs2.UintItem](root.At(3), "FFROT"); err != nil {
+	if out.FFROT, err = decodeOptional[*secs2.UintItem](root.At(3), "FFROT", decodeUintAs[uint16]); err != nil {
 		return out, err
 	}
 
-	if out.FFROTPresent {
-		if out.FFROT, err = decodeUintAs[uint16](root.At(3), "FFROT"); err != nil {
-			return out, err
-		}
-	}
-
-	if out.ORLOCPresent, err = presentAt[*secs2.BinaryItem](root.At(4), "ORLOC"); err != nil {
+	if out.ORLOC, err = decodeOptional[*secs2.BinaryItem](root.At(4), "ORLOC", decodeByteAs[ORLOC]); err != nil {
 		return out, err
-	}
-
-	if out.ORLOCPresent {
-		if out.ORLOC, err = decodeByteAs[ORLOC](root.At(4), "ORLOC"); err != nil {
-			return out, err
-		}
 	}
 
 	if out.RPSEL, err = decodeUintAs[uint8](root.At(5), "RPSEL"); err != nil {
@@ -169,27 +144,20 @@ func DecodeS12F2(item secs2.Item, opts ...DecodeOption) (S12F2Reply, error) {
 //
 // Body: L[9]{ <mid> B[idtyp] B[mapft] U2[fnloc] U2[ffrot] B[orloc] B[praxi] <bcequ> <nulbc> }.
 //
-// It is filled by [DecodeS12F3] and mirrors the parameters of [S12F3], in order,
-// apart from its FNLOCPresent, FFROTPresent, and ORLOCPresent fields.
+// It is filled by [DecodeS12F3] and mirrors the parameters of [S12F3], in order.
 //
 // SEMI E5 lets FNLOC, FFROT, and ORLOC each be sent as a zero-length item:
-// [DecodeS12F3] decodes that form as a zero field with its presence field false,
-// FNLOCPresent for FNLOC, FFROTPresent for FFROT, and ORLOCPresent for ORLOC.
-// [S12F3] always sends a value,
-// so callers that need the zero-length form build the body with [secs2] directly.
+// [DecodeS12F3] decodes that form as a nil field, and [S12F3] sends it for a nil argument.
 type S12F3Body struct {
-	MID          secs2.Item
-	IDTYP        IDTYP
-	MAPFT        MAPFT
-	FNLOC        uint16
-	FNLOCPresent bool
-	FFROT        uint16
-	FFROTPresent bool
-	ORLOC        ORLOC
-	ORLOCPresent bool
-	PRAXI        PRAXI
-	BCEQU        secs2.Item
-	NULBC        secs2.Item
+	MID   secs2.Item
+	IDTYP IDTYP
+	MAPFT MAPFT
+	FNLOC *uint16
+	FFROT *uint16
+	ORLOC *ORLOC
+	PRAXI PRAXI
+	BCEQU secs2.Item
+	NULBC secs2.Item
 }
 
 // DecodeS12F3 decodes the body of an S12F3 (Map Set-up Data Request) message into a [S12F3Body].
@@ -222,34 +190,16 @@ func DecodeS12F3(item secs2.Item, opts ...DecodeOption) (S12F3Body, error) {
 		return out, err
 	}
 
-	if out.FNLOCPresent, err = presentAt[*secs2.UintItem](root.At(3), "FNLOC"); err != nil {
+	if out.FNLOC, err = decodeOptional[*secs2.UintItem](root.At(3), "FNLOC", decodeUintAs[uint16]); err != nil {
 		return out, err
 	}
 
-	if out.FNLOCPresent {
-		if out.FNLOC, err = decodeUintAs[uint16](root.At(3), "FNLOC"); err != nil {
-			return out, err
-		}
-	}
-
-	if out.FFROTPresent, err = presentAt[*secs2.UintItem](root.At(4), "FFROT"); err != nil {
+	if out.FFROT, err = decodeOptional[*secs2.UintItem](root.At(4), "FFROT", decodeUintAs[uint16]); err != nil {
 		return out, err
 	}
 
-	if out.FFROTPresent {
-		if out.FFROT, err = decodeUintAs[uint16](root.At(4), "FFROT"); err != nil {
-			return out, err
-		}
-	}
-
-	if out.ORLOCPresent, err = presentAt[*secs2.BinaryItem](root.At(5), "ORLOC"); err != nil {
+	if out.ORLOC, err = decodeOptional[*secs2.BinaryItem](root.At(5), "ORLOC", decodeByteAs[ORLOC]); err != nil {
 		return out, err
-	}
-
-	if out.ORLOCPresent {
-		if out.ORLOC, err = decodeByteAs[ORLOC](root.At(5), "ORLOC"); err != nil {
-			return out, err
-		}
 	}
 
 	if out.PRAXI, err = decodeByteAs[PRAXI](root.At(6), "PRAXI"); err != nil {
@@ -271,32 +221,26 @@ func DecodeS12F3(item secs2.Item, opts ...DecodeOption) (S12F3Body, error) {
 //
 // Body: L[0,15]{ <mid> B[idtyp] U2[fnloc] B[orloc] U1[rpsel] L[n]{ <refps>... } A[dutms] <xdies> <ydies> <rowct> <colct> <prdct> <bcequ> <nulbc> <mlcl> }.
 //
-// It is filled by [DecodeS12F4] and mirrors the parameters of [S12F4], in order,
-// apart from its FNLOCPresent and ORLOCPresent fields.
+// It is filled by [DecodeS12F4] and mirrors the parameters of [S12F4], in order.
 //
 // SEMI E5 lets FNLOC and ORLOC each be sent as a zero-length item:
-// [DecodeS12F4] decodes that form as a zero field with its presence field false,
-// FNLOCPresent for FNLOC and ORLOCPresent for ORLOC.
-// [S12F4] always sends a value,
-// so callers that need the zero-length form build the body with [secs2] directly.
+// [DecodeS12F4] decodes that form as a nil field, and [S12F4] sends it for a nil argument.
 type S12F4Reply struct {
-	MID          secs2.Item
-	IDTYP        IDTYP
-	FNLOC        uint16
-	FNLOCPresent bool
-	ORLOC        ORLOC
-	ORLOCPresent bool
-	RPSEL        uint8
-	REFPS        []secs2.Item
-	DUTMS        string
-	XDIES        secs2.Item
-	YDIES        secs2.Item
-	ROWCT        secs2.Item
-	COLCT        secs2.Item
-	PRDCT        secs2.Item
-	BCEQU        secs2.Item
-	NULBC        secs2.Item
-	MLCL         secs2.Item
+	MID   secs2.Item
+	IDTYP IDTYP
+	FNLOC *uint16
+	ORLOC *ORLOC
+	RPSEL uint8
+	REFPS []secs2.Item
+	DUTMS string
+	XDIES secs2.Item
+	YDIES secs2.Item
+	ROWCT secs2.Item
+	COLCT secs2.Item
+	PRDCT secs2.Item
+	BCEQU secs2.Item
+	NULBC secs2.Item
+	MLCL  secs2.Item
 }
 
 // DecodeS12F4 decodes the body of an S12F4 (Map Set-up Data) message into a [S12F4Reply].
@@ -327,24 +271,12 @@ func DecodeS12F4(item secs2.Item, opts ...DecodeOption) (S12F4Reply, error) {
 			return out, err
 		}
 
-		if out.FNLOCPresent, err = presentAt[*secs2.UintItem](root.At(2), "FNLOC"); err != nil {
+		if out.FNLOC, err = decodeOptional[*secs2.UintItem](root.At(2), "FNLOC", decodeUintAs[uint16]); err != nil {
 			return out, err
 		}
 
-		if out.FNLOCPresent {
-			if out.FNLOC, err = decodeUintAs[uint16](root.At(2), "FNLOC"); err != nil {
-				return out, err
-			}
-		}
-
-		if out.ORLOCPresent, err = presentAt[*secs2.BinaryItem](root.At(3), "ORLOC"); err != nil {
+		if out.ORLOC, err = decodeOptional[*secs2.BinaryItem](root.At(3), "ORLOC", decodeByteAs[ORLOC]); err != nil {
 			return out, err
-		}
-
-		if out.ORLOCPresent {
-			if out.ORLOC, err = decodeByteAs[ORLOC](root.At(3), "ORLOC"); err != nil {
-				return out, err
-			}
 		}
 
 		if out.RPSEL, err = decodeUintAs[uint8](root.At(4), "RPSEL"); err != nil {

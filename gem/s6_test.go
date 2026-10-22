@@ -853,7 +853,7 @@ func TestS6F24(t *testing.T) {
 }
 
 func TestS6F25(t *testing.T) {
-	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
+	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), new(uint32(78)), "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS6Header(t, msg, 25, true)
 

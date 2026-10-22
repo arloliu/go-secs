@@ -28,7 +28,7 @@ type decodeTestView struct {
 
 // absentTestView is one generated test that sends an optional leaf zero-length.
 type absentTestView struct {
-	Name  string   // "TestDecodeS12F1FNLOCAbsent"
+	Name  string   // "TestDecodeS12F1FNLOCAbsent", or "TestDecodeS5F6AlarmALCDAbsent" for a group's leaf
 	Lines []string // pre-rendered Go statement lines of the test
 }
 
@@ -55,25 +55,29 @@ func renderDecodeTests(mf MessageFile, items map[string]Item) ([]byte, error) {
 
 	var tests []decodeTestView
 
+	usesBytes := false
+
 	for _, m := range mf.Messages {
 		for _, b := range m.Bodies {
 			if b.Structure == nil || b.Variant != "" {
 				continue // header-only or variant: no decoder of its own to round-trip
 			}
 
-			tv, err := newDecodeTestView(mf.Stream, m, b, items)
+			tv, tb, err := newDecodeTestView(mf.Stream, m, b, items)
 			if err != nil {
 				return nil, fmt.Errorf("S%dF%d: %w", mf.Stream, m.Function, err)
 			}
 
 			tests = append(tests, tv)
+			usesBytes = usesBytes || tb
 		}
 	}
 
 	data := struct {
-		Stream int
-		Tests  []decodeTestView
-	}{Stream: mf.Stream, Tests: tests}
+		Stream    int
+		Tests     []decodeTestView
+		UsesBytes bool
+	}{Stream: mf.Stream, Tests: tests, UsesBytes: usesBytes}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
@@ -88,24 +92,25 @@ func renderDecodeTests(mf MessageFile, items map[string]Item) ([]byte, error) {
 	return out, nil
 }
 
-// newDecodeTestView builds the view model for one (message, body) pair's round-trip test.
-func newDecodeTestView(stream int, m Message, b Body, items map[string]Item) (decodeTestView, error) {
+// newDecodeTestView builds the view model for one (message, body) pair's round-trip test,
+// and reports whether its lines need the "bytes" import.
+func newDecodeTestView(stream int, m Message, b Body, items map[string]Item) (decodeTestView, bool, error) {
 	name := callName(stream, m.Function, b.Actor)
 
 	params := BuildParams(b.Structure, items)
 
 	exprs, err := SampleExprs(b.Structure, items)
 	if err != nil {
-		return decodeTestView{}, err
+		return decodeTestView{}, false, err
 	}
 
 	fields, err := BuildFields(b.Structure, items)
 	if err != nil {
-		return decodeTestView{}, err
+		return decodeTestView{}, false, err
 	}
 
-	if n := valueFieldCount(fields); n != len(params) || n != len(exprs) {
-		return decodeTestView{}, fmt.Errorf("%s: %d value fields, %d parameters, %d samples", name, n, len(params), len(exprs))
+	if n := len(fields); n != len(params) || n != len(exprs) {
+		return decodeTestView{}, false, fmt.Errorf("%s: %d fields, %d parameters, %d samples", name, n, len(params), len(exprs))
 	}
 
 	typeName := ResultTypeName(stream, m.Function, b.Actor)
@@ -124,104 +129,100 @@ func newDecodeTestView(stream int, m Message, b Body, items map[string]Item) (de
 		tv.EmptyLines = decodeZeroLines("Decode"+name, "secs2.L()", typeName, fields)
 	}
 
-	optionals, err := optionalLeaves(b.Structure, items)
-	if err != nil {
-		return decodeTestView{}, err
+	usesBytes := false
+
+	for _, opt := range optionalLeaves(b.Structure) {
+		lines, ub, err := absentTestLines(tv, typeName, b.Structure, items, opt.node)
+		if err != nil {
+			return decodeTestView{}, false, fmt.Errorf("%s: %w", opt.name, err)
+		}
+
+		tv.Absent = append(tv.Absent, absentTestView{Name: "TestDecode" + name + opt.name + "Absent", Lines: lines})
+		usesBytes = usesBytes || ub
 	}
 
-	for _, opt := range optionals {
-		tv.Absent = append(tv.Absent, absentTestView{
-			Name:  "TestDecode" + name + opt.Field + "Absent",
-			Lines: absentTestLines(tv, typeName, opt, params, fields, exprs),
-		})
-	}
-
-	return tv, nil
+	return tv, usesBytes, nil
 }
 
-// valueFieldCount returns how many of fields mirror a builder parameter: every field but a presence field.
-func valueFieldCount(fields []decodeField) int {
-	n := 0
+// optionalLeaf is one optional leaf a body reaches: in the body itself, or in a group the body uses.
+type optionalLeaf struct {
+	node *StructureNode
+	name string // its field, prefixed with its group's name for a group's leaf, e.g. AlarmALCD
+}
 
-	for _, f := range fields {
-		if !f.Presence {
-			n++
+// optionalLeaves returns the optional leaves the body n reaches, in body order, each once:
+// its own, and those of the groups it references, at any depth.
+func optionalLeaves(n *StructureNode) []optionalLeaf {
+	var out []optionalLeaf
+
+	seen := map[*StructureNode]bool{}
+
+	var walk func(n *StructureNode, prefix string)
+	walk = func(n *StructureNode, prefix string) {
+		switch {
+		case n == nil || seen[n]:
+			return
+		case n.Kind() == "leaf":
+			if n.Optional {
+				seen[n] = true
+				out = append(out, optionalLeaf{node: n, name: prefix + nodeNames(n).Field})
+			}
+		case n.Kind() == "group":
+			if n.def != nil {
+				walk(n.def.Structure, n.Group)
+			}
+		case n.Kind() == "list" && n.Repeat != "":
+			walk(n.Of, prefix)
+		case n.Kind() == "list" && n.Packed == "":
+			for i := range n.Items {
+				walk(&n.Items[i], prefix)
+			}
+		default:
 		}
 	}
+	walk(n, "")
 
-	return n
+	return out
 }
 
-// absentTestLines renders the statements of a test that sends the optional leaf opt zero-length.
+// absentTestLines renders the statements of a test that sends the optional leaf opt of the body n zero-length,
+// and reports whether they need the "bytes" import.
 //
-// The test builds the full body with the round-trip samples,
-// replaces the leaf with a zero-length item of its format,
-// and decodes the result from wire bytes.
-// The leaf's field must come back at its zero value with its presence field false,
-// and every other field must still equal its sample.
-// tv is the body's round-trip test, which supplies the builder call and the decoder.
-func absentTestLines(tv decodeTestView, typeName string, opt optionalLeaf, params []Param, fields []decodeField, exprs []string) []string {
-	var lines []string
+// The test calls the builder with the round-trip samples, but nil for opt,
+// checks the built body as the builder test does, with opt the zero-length item of its format,
+// and decodes the body from its wire bytes.
+// The decoded field of opt must be nil, and every other field must still equal its sample.
+// tv is the body's round-trip test, which supplies the builder and the decoder.
+func absentTestLines(tv decodeTestView, typeName string, n *StructureNode, items map[string]Item, opt *StructureNode) ([]string, bool, error) {
+	absent := absentSet{opt: true}
 
-	if len(opt.Path) == 0 {
-		// The whole body is the optional leaf.
-		lines = append(lines, fmt.Sprintf("body, err := secs2.Decode(%s.ToBytes())", opt.Empty))
-	} else {
-		lines = append(lines,
-			fmt.Sprintf("msg := gem.%s(%s)", tv.CallName, tv.CallArgs),
-			"",
-			"full, err := secs2.Decode(msg.Item().ToBytes())",
-			"if err != nil {",
-			`t.Fatalf("secs2.Decode: %v", err)`,
-			"}",
-			"",
-		)
+	params := BuildParams(n, items)
 
-		// Unwrap every list on the path, replace the leaf, then rebuild the lists from the inside out.
-		parent := "full"
-		for depth, idx := range opt.Path {
-			list := fmt.Sprintf("list%d", depth)
-			lines = append(lines,
-				fmt.Sprintf("%s, err := %s.ToList()", list, parent),
-				"if err != nil {",
-				fmt.Sprintf("t.Fatalf(%q, err)", list+": %v"),
-				"}",
-				"",
-			)
-			parent = fmt.Sprintf("%s[%d]", list, idx)
-		}
-
-		last := len(opt.Path) - 1
-		lines = append(lines, fmt.Sprintf("list%d[%d] = %s", last, opt.Path[last], opt.Empty))
-
-		for depth := last; depth > 0; depth-- {
-			lines = append(lines, fmt.Sprintf("list%d[%d] = secs2.L(list%d...)", depth-1, opt.Path[depth-1], depth))
-		}
-
-		lines = append(lines, "", "body, err := secs2.Decode(secs2.L(list0...).ToBytes())")
+	exprs, err := sampleExprsWithAbsent(n, items, absent)
+	if err != nil {
+		return nil, false, err
 	}
 
-	lines = append(lines,
-		"if err != nil {",
-		`t.Fatalf("secs2.Decode: %v", err)`,
-		"}",
+	fields, err := BuildFields(n, items)
+	if err != nil {
+		return nil, false, err
+	}
+
+	built, usesBytes, err := renderTestBody(n, items, absent)
+	if err != nil {
+		return nil, false, err
+	}
+
+	lines := slices.Concat([]string{fmt.Sprintf("msg := gem.%s(%s)", tv.CallName, callArgs(params, exprs)), ""}, built, []string{
 		"",
-		fmt.Sprintf("got, err := gem.%s(body)", tv.DecodeName),
+		fmt.Sprintf("got, err := gem.%s(decoded)", tv.DecodeName),
 		"if err != nil {",
 		fmt.Sprintf("t.Fatalf(%q, err)", tv.DecodeName+": %v"),
 		"}",
 		"",
-	)
+	})
 
-	var others []decodeField
-
-	for _, f := range fields {
-		if f.Name != opt.Field && f.Name != opt.Field+"Present" {
-			others = append(others, f)
-		}
-	}
-
-	return slices.Concat(lines, assertDecodedLines(typeName, sampleFields(params, others, exprs)))
+	return slices.Concat(lines, assertDecodedLines(typeName, sampleFields(params, fields, exprs))), usesBytes, nil
 }
 
 // topListMayBeEmpty reports whether a body's outermost node is a list bounded with minItems: 0.
@@ -288,20 +289,18 @@ func assertDecodedLines(typeName string, values []fieldValue) []string {
 //
 // params and exprs are index-aligned by construction: both come from the same structure walk.
 // A field finds its parameter and sample through its Param;
-// a presence field mirrors none and is true, since the builder always sends a value.
 // A repeat's field holds the one sample element its call sent.
+// A field whose sample is nil, an optional leaf sent zero-length, is left out: it decodes as nil.
 func sampleFields(params []Param, fields []decodeField, exprs []string) []fieldValue {
 	values := make([]fieldValue, 0, len(fields))
 
 	for _, f := range fields {
-		if f.Presence {
-			values = append(values, fieldValue{f.Name, "true"})
-
-			continue
-		}
-
 		i := f.Param
 		value := exprs[i]
+
+		if value == "nil" {
+			continue
+		}
 
 		if params[i].Repeat {
 			// A repeat or packed group: one element, the sample its call sent.

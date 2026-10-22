@@ -182,7 +182,7 @@ func TestS17F4(t *testing.T) {
 }
 
 func TestS17F5(t *testing.T) {
-	msg := gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), false, true)
+	msg := gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), new(false), new(true))
 
 	assertS17Header(t, msg, 5, true)
 

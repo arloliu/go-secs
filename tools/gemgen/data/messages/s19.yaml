@@ -245,8 +245,7 @@ messages:
       When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
     source: e5
     # E5 prints TCID and SENDRESULT without angle brackets; they are the same data items.
-    # VERIFYRSPSTAT may be zero-length, but it sits inside the repeat,
-    # whose elements the decoder returns undecoded, so no presence flag is needed.
+    # VERIFYRSPSTAT may be zero-length, so the PDESendResult group marks it optional.
     bodies:
       - actor: both
         replyExpected: true

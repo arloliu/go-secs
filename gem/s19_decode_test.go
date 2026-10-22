@@ -3,6 +3,7 @@
 package gem_test
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -69,7 +70,7 @@ func init() {
 		_, err := gem.DecodeS19F13(item, opts...)
 
 		return err
-	}, gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"}).Item())
+	}, gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: new(gem.VERIFYRSPSTAT(34)), STATUSTXT: "statustxt"}).Item())
 	registerFuzzDecoder("DecodeS19F15", func(item secs2.Item, opts ...gem.DecodeOption) error {
 		_, err := gem.DecodeS19F15(item, opts...)
 
@@ -331,7 +332,7 @@ func TestDecodeS19F11RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS19F13RoundTrip(t *testing.T) {
-	msg := gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"})
+	msg := gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: new(gem.VERIFYRSPSTAT(34)), STATUSTXT: "statustxt"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -346,7 +347,90 @@ func TestDecodeS19F13RoundTrip(t *testing.T) {
 	want := gem.S19F13Body{
 		TCID:       "tcid",
 		SENDRESULT: 69,
-		RESULTS:    []gem.PDESendResult{{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"}},
+		RESULTS:    []gem.PDESendResult{{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: new(gem.VERIFYRSPSTAT(34)), STATUSTXT: "statustxt"}},
+	}
+
+	assertDecoded(t, got, want)
+}
+
+func TestDecodeS19F13PDESendResultVERIFYRSPSTATAbsent(t *testing.T) {
+	msg := gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, STATUSTXT: "statustxt"})
+
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+	list1, err := decoded.ToList()
+	if err != nil {
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list1))
+	}
+	v2, err := list1[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[0].ToASCII: %v", err)
+	}
+	if v2 != "tcid" {
+		t.Errorf("tcid: got %q, want %q", v2, "tcid")
+	}
+	v3, err := list1[1].ToUint()
+	if err != nil {
+		t.Fatalf("list1[1].ToUint: %v", err)
+	}
+	if len(v3) != 1 || v3[0] != 69 {
+		t.Errorf("sendresult: got %v, want %v", v3, 69)
+	}
+	list4, err := list1[2].ToList()
+	if err != nil {
+		t.Fatalf("list1[2].ToList: %v", err)
+	}
+	if len(list4) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list4))
+	}
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 4 {
+		t.Fatalf("list length: got %d, want 4", len(list5))
+	}
+	v6, err := list5[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list5[0].ToASCII: %v", err)
+	}
+	if v6 != "uid" {
+		t.Errorf("uid: got %q, want %q", v6, "uid")
+	}
+	v7, err := list5[1].ToUint()
+	if err != nil {
+		t.Fatalf("list5[1].ToUint: %v", err)
+	}
+	if len(v7) != 1 || v7[0] != 54 {
+		t.Errorf("sendrspstat: got %v, want %v", v7, 54)
+	}
+	got8 := list5[2].ToBytes()
+	want8 := secs2.U1().ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("verifyrspstat: got %x, want the zero-length item %x", got8, want8)
+	}
+	v9, err := list5[3].ToASCII()
+	if err != nil {
+		t.Fatalf("list5[3].ToASCII: %v", err)
+	}
+	if v9 != "statustxt" {
+		t.Errorf("statustxt: got %q, want %q", v9, "statustxt")
+	}
+
+	got, err := gem.DecodeS19F13(decoded)
+	if err != nil {
+		t.Fatalf("DecodeS19F13: %v", err)
+	}
+
+	want := gem.S19F13Body{
+		TCID:       "tcid",
+		SENDRESULT: 69,
+		RESULTS:    []gem.PDESendResult{{UID: "uid", SENDRSPSTAT: 54, STATUSTXT: "statustxt"}},
 	}
 
 	assertDecoded(t, got, want)

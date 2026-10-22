@@ -59,8 +59,9 @@ func TestValidateMessagesRejectsBadVariants(t *testing.T) {
 `, "header-only main body"},
 		{"field the main body lacks", 1, variantMain + `      - {actor: equipment, variant: Short, structure: {type: list, items: [{item: TSIP}]}}
 `, "field TSIP is not a field of the main body"},
-		{"optional leaf over a plain main leaf", 1, variantMain + `      - {actor: equipment, variant: Short, structure: {type: list, items: [{item: MDLN, optional: true}]}}
-`, "field MDLNPresent is not a field of the main body"},
+		{"optional leaf over a plain main leaf", 1, `      - {actor: equipment, structure: {type: list, items: [{item: TSIP}, {item: MDLN}]}}
+      - {actor: equipment, variant: Short, structure: {type: list, items: [{item: TSIP, optional: true}]}}
+`, "field TSIP has type *byte, but the main body's field has type byte"},
 		{"field of another type", 1, variantMain + `      - {actor: equipment, variant: Short, structure: {type: list, items: [{item: TSIP, as: mdln}]}}
 `, "field MDLN has type byte"},
 		{"variant names an even function's result type", 2, variantMain + `      - {actor: equipment, variant: Reply, structure: {type: list, items: [{item: MDLN}]}}

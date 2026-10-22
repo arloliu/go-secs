@@ -62,16 +62,15 @@ func S17F4(acka bool, errors ...ReportError) secs2.SECS2Message {
 //
 // Body: L[6]{ <dataid> <trid> BOOLEAN[ceed] L[n]{ <rptids>... } <trsper> L[0,8]{ <totsmp> <repgsz> A[startevntsrc] <startceid> A[stopevntsrc] <stopceid> BOOLEAN[trautod] BOOLEAN[rptoc] } }.
 //
-// SEMI E5 lets TRAUTOD and RPTOC each be sent as a zero-length item,
-// but this builder always sends a value:
-// callers that need the zero-length form build the body with [secs2] directly.
+// SEMI E5 lets TRAUTOD and RPTOC each be sent as a zero-length item:
+// a nil argument sends that form.
 //
 // Exception: The list m can be zero-length, or it can contain all eight data items.
 // Since specifying values for each item is optional, each of the eight items can be zero-length.
 // If the item is zero-length, the format of the item shall be the same format used in other instances of the S17F5 message
 // where the value is not zero-length.
-func S17F5(dataid secs2.Item, trid secs2.Item, ceed bool, rptids []secs2.Item, trsper secs2.Item, totsmp secs2.Item, repgsz secs2.Item, startevntsrc string, startceid secs2.Item, stopevntsrc string, stopceid secs2.Item, trautod bool, rptoc bool) secs2.SECS2Message {
-	return secs2.NewMessage(17, 5, true, secs2.L(dataid, trid, secs2.BOOLEAN(ceed), secs2.L(rptids...), trsper, secs2.L(totsmp, repgsz, secs2.A(startevntsrc), startceid, secs2.A(stopevntsrc), stopceid, secs2.BOOLEAN(trautod), secs2.BOOLEAN(rptoc))))
+func S17F5(dataid secs2.Item, trid secs2.Item, ceed bool, rptids []secs2.Item, trsper secs2.Item, totsmp secs2.Item, repgsz secs2.Item, startevntsrc string, startceid secs2.Item, stopevntsrc string, stopceid secs2.Item, trautod *bool, rptoc *bool) secs2.SECS2Message {
+	return secs2.NewMessage(17, 5, true, secs2.L(dataid, trid, secs2.BOOLEAN(ceed), secs2.L(rptids...), trsper, secs2.L(totsmp, repgsz, secs2.A(startevntsrc), startceid, secs2.A(stopevntsrc), stopceid, optionalItem(trautod, func(v bool) secs2.Item { return secs2.BOOLEAN(v) }, secs2.BOOLEAN), optionalItem(rptoc, func(v bool) secs2.Item { return secs2.BOOLEAN(v) }, secs2.BOOLEAN))))
 }
 
 // S17F5Untriggered creates the short form of an S17F5 (Trace Create Request) message, direction: host-to-equipment.

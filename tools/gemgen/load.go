@@ -464,7 +464,7 @@ func isFixedList(n *StructureNode) bool {
 }
 
 // checkVariantFields rejects a variant that emits a decoder field its main body lacks,
-// emits it with a different type,
+// emits it with a different type (other than a plain value where the main body's leaf is optional),
 // or sends it at a different position in the body.
 // The main body's decoder reads each field from its own position,
 // so a variant field at another position would decode into a different field;
@@ -492,7 +492,7 @@ func checkVariantFields(variant Body, main Body, items map[string]Item) error {
 		switch {
 		case !ok:
 			return fmt.Errorf("variant %s: field %s is not a field of the main body for actor %s", variant.Variant, f.Name, variant.Actor)
-		case mf.Type != f.Type:
+		case mf.Type != f.Type && mf.Type != "*"+f.Type: // a variant may send a value the main body lets be omitted
 			return fmt.Errorf("variant %s: field %s has type %s, but the main body's field has type %s", variant.Variant, f.Name, f.Type, mf.Type)
 		case !slices.Equal(mf.Path, f.Path):
 			return fmt.Errorf("variant %s: field %s is at body%s, but the main body reads it from body%s", variant.Variant, f.Name, pathIndex(f.Path), pathIndex(mf.Path))
@@ -587,8 +587,7 @@ type nodeCtx struct {
 // rule, and the packed-item binding: fixed requirement.
 // A repeat's of must be a leaf, an opaque node, a group reference, or another repeat:
 // a list element is declared once in groups.yaml and referenced by name (see checkGroupRef).
-// Inside a group, a list is never bounded and never packed,
-// and a leaf is never optional.
+// Inside a group, a list is never bounded and never packed.
 // role says where n sits in its parent.
 func walkNode(n *StructureNode, items map[string]Item, ctx nodeCtx, role nodeRole) error {
 	if n == nil {
@@ -796,13 +795,15 @@ func checkAs(n *StructureNode, where string) error {
 }
 
 // checkOptional rejects optional: true anywhere but on a group reference
-// and on a leaf whose decoder can tell a zero-length item apart.
+// and on a leaf whose zero-length item a nil pointer can stand for.
 //
-// The leaf's item must be binding: fixed with a scalar goType:
+// The leaf's item must be binding: fixed with a scalar goType other than an ASCII string:
 // an open item already decodes as whatever item arrives, zero-length included,
-// and a byte-slice or byte-array goType has its own length rules.
-// It must also sit outside any repeat's or packed group's of and outside any group,
-// whose fields have no presence flag to report it through.
+// a byte-slice or byte-array goType has its own length rules,
+// and an empty string already sends and decodes as the zero-length ASCII item.
+// It must also sit outside any repeat's or packed group's of,
+// whose elements are values of the item;
+// inside a group it is a pointer field like any other optional leaf.
 func checkOptional(n *StructureNode, items map[string]Item, ctx nodeCtx) error {
 	if !n.Optional || n.Kind() == "group" {
 		return nil
@@ -815,11 +816,7 @@ func checkOptional(n *StructureNode, items map[string]Item, ctx nodeCtx) error {
 	}
 
 	if ctx.inOf {
-		return fmt.Errorf("%s: optional item %s is inside a repeat's or packed group's of, which the decoder does not visit", s, n.Item)
-	}
-
-	if ctx.inGroup {
-		return fmt.Errorf("%s: optional item %s is inside a group, which cannot mark it absent", s, n.Item)
+		return fmt.Errorf("%s: optional item %s is inside a repeat's or packed group's of, whose elements are values", s, n.Item)
 	}
 
 	it, ok := items[n.Item]
@@ -827,15 +824,26 @@ func checkOptional(n *StructureNode, items map[string]Item, ctx nodeCtx) error {
 		return fmt.Errorf("%s: unknown item %q", s, n.Item)
 	}
 
-	if it.Binding != BindingFixed {
-		return fmt.Errorf("%s: optional item %s must be binding: fixed (an open item already decodes when sent zero-length)", s, n.Item)
-	}
-
-	if isByteArrayGoType(it.GoType) {
-		return fmt.Errorf("%s: optional item %s must have a scalar goType, not %s", s, n.Item, it.GoType)
+	if err := optionalLeafError(n.Item, it); err != nil {
+		return fmt.Errorf("%s: %w", s, err)
 	}
 
 	return nil
+}
+
+// optionalLeafError reports why a leaf of the item it, named name, cannot be optional, or nil when it can.
+// Validation and the decoder walk share it, so the walk refuses what validation would.
+func optionalLeafError(name string, it Item) error {
+	switch {
+	case it.Binding != BindingFixed:
+		return fmt.Errorf("optional item %s must be binding: fixed (an open item already decodes when sent zero-length)", name)
+	case isByteArrayGoType(it.GoType):
+		return fmt.Errorf("optional item %s must have a scalar goType, not %s", name, it.GoType)
+	case firstFormat(it) == "A":
+		return fmt.Errorf("optional item %s is ASCII: an empty string already sends the zero-length item", name)
+	default:
+		return nil
+	}
 }
 
 // checkNames rejects a body whose emitted names would not compile.
@@ -847,7 +855,7 @@ func checkOptional(n *StructureNode, items map[string]Item, ctx nodeCtx) error {
 // which a repeat:/packed: name, used verbatim, need not be,
 // and none may be the blank identifier, a Go keyword, a predeclared identifier,
 // or secs2, the package the builder body references.
-// The decoder fields (the [BuildFields] walk, presence fields included) must be pairwise distinct ignoring case,
+// The decoder fields (the [BuildFields] walk) must be pairwise distinct ignoring case,
 // and each must be exported, which a name starting with an underscore is not even upper-cased,
 // so the caller's package can read it.
 // Neither set can collide with a generated local:
@@ -889,12 +897,9 @@ func checkNames(n *StructureNode, items map[string]Item) error {
 		return nil //nolint:nilerr // reported by renderDecoders, not by name checking
 	}
 
-	// Distinct parameters already give distinct value fields,
-	// so this check guards against the decoder walk drifting from the builder walk,
-	// and covers the presence fields optional leaves add, which mirror no parameter.
-	// It ignores case, like the parameter check,
-	// so an item named FOOPRESENT beside an optional FOO is rejected too:
-	// the two fields would compile, but would read as the same name.
+	// Distinct parameters already give distinct fields,
+	// so this check guards against the decoder walk drifting from the builder walk.
+	// It ignores case, like the parameter check.
 	seenField := map[string]string{}
 	for _, f := range fields {
 		if !token.IsExported(f.Name) {

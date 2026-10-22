@@ -12,10 +12,9 @@ import (
 func optionalItems() map[string]Item {
 	items := testItems()
 	maps.Copy(items, map[string]Item{
-		"FNLOC":        {Formats: []string{"U2"}, Binding: BindingFixed, GoType: "uint16"},
-		"FNLOCPRESENT": {Formats: []string{"U2"}, Binding: BindingFixed, GoType: "uint16"},
-		"ACKA":         {Formats: []string{"BOOLEAN"}, Binding: BindingFixed, GoType: "bool"},
-		"BLOB":         {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[]byte"},
+		"FNLOC": {Formats: []string{"U2"}, Binding: BindingFixed, GoType: "uint16"},
+		"ACKA":  {Formats: []string{"BOOLEAN"}, Binding: BindingFixed, GoType: "bool"},
+		"BLOB":  {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[]byte"},
 		"COMMACK": {
 			Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte",
 			Values: []ItemValue{{Name: "Accepted", Value: IntValue(0)}},
@@ -34,7 +33,7 @@ func optionalMessage(structure *StructureNode) MessageFile {
 }
 
 // TestValidateMessagesRejectsBadOptional proves optional: is accepted only on a fixed scalar leaf outside any of,
-// and that a presence field may not collide with another field.
+// and not on an ASCII leaf, whose empty string already is the zero-length item.
 func TestValidateMessagesRejectsBadOptional(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -47,6 +46,7 @@ func TestValidateMessagesRejectsBadOptional(t *testing.T) {
 		{"open item", `{type: list, items: [{item: SVID, optional: true}]}`, "binding: fixed"},
 		{"byte slice", `{type: list, items: [{item: BLOB, optional: true}]}`, "scalar goType"},
 		{"byte array", `{type: list, items: [{item: MHEAD, optional: true}]}`, "scalar goType"},
+		{"ASCII", `{type: list, items: [{item: MDLN, optional: true}]}`, "an empty string already sends the zero-length item"},
 		{"inside repeat of", `{type: list, repeat: locs, of: {item: FNLOC, optional: true}}`, "inside a repeat"},
 		{
 			"inside a list in repeat of",
@@ -54,7 +54,6 @@ func TestValidateMessagesRejectsBadOptional(t *testing.T) {
 			"declare it in groups.yaml",
 		},
 		{"inside packed of", `{type: list, packed: tsips, of: {item: TSIP, optional: true}}`, "inside a repeat"},
-		{"presence field collides", `{type: list, items: [{item: FNLOC, optional: true}, {item: FNLOCPRESENT}]}`, "collide"},
 	}
 
 	for _, tt := range tests {
@@ -76,7 +75,7 @@ func TestValidateMessagesAcceptsOptional(t *testing.T) {
 		structure string
 	}{
 		{"numeric", `{type: list, items: [{item: FNLOC, optional: true}, {item: MDLN}]}`},
-		{"ascii, boolean, byte and enum", `{type: list, items: [{item: MDLN, optional: true}, {item: ACKA, optional: true}, {item: TSIP, optional: true}, {item: COMMACK, optional: true}]}`},
+		{"boolean, byte and enum", `{type: list, items: [{item: ACKA, optional: true}, {item: TSIP, optional: true}, {item: COMMACK, optional: true}]}`},
 		{"whole body", `{item: FNLOC, optional: true}`},
 		{"bounded tail", `{type: list, minItems: 1, maxItems: 2, items: [{item: MDLN}, {item: FNLOC, optional: true}]}`},
 		{"before a repeat", `{type: list, items: [{item: FNLOC, optional: true}, {type: list, repeat: svids, of: {item: SVID}}]}`},
@@ -109,54 +108,64 @@ func optionalTailBody() *StructureNode {
 	}}
 }
 
-// TestBuildFieldsOptionalLeaves proves an optional leaf adds a presence field right after its value field,
-// and that value fields keep mirroring builder parameters in order, also past a bounded list's optional tail.
+// TestBuildFieldsOptionalLeaves proves an optional leaf's builder parameter and decoder field are pointers,
+// and that fields keep mirroring builder parameters in order, also past a bounded list's optional tail.
 func TestBuildFieldsOptionalLeaves(t *testing.T) {
 	items := optionalItems()
 	structure := optionalTailBody()
 
+	params := BuildParams(structure, items)
+	require.Equal(t, []Param{
+		{Name: "fnloc", Type: "*uint16"},
+		{Name: "mdln", Type: "string"},
+		{Name: "softrev", Type: "string"},
+		{Name: "commack", Type: "*COMMACK"},
+		{Name: "tsip", Type: "byte"},
+		{Name: "acka", Type: "bool"},
+	}, params)
+
 	fields, err := BuildFields(structure, items)
 	require.NoError(t, err)
 	require.Equal(t, []decodeField{
-		{Name: "FNLOC", Type: "uint16", Param: 0, Path: []int{0}},
-		{Name: "FNLOCPresent", Type: "bool", Param: -1, Presence: true, Path: []int{0}},
+		{Name: "FNLOC", Type: "*uint16", Param: 0, Path: []int{0}},
 		{Name: "MDLN", Type: "string", Param: 1, Path: []int{1}},
 		{Name: "SOFTREV", Type: "string", Param: 2, Path: []int{2, 0}},
-		{Name: "COMMACK", Type: "COMMACK", Param: 3, Path: []int{2, 1}},
-		{Name: "COMMACKPresent", Type: "bool", Param: -1, Presence: true, Path: []int{2, 1}},
+		{Name: "COMMACK", Type: "*COMMACK", Param: 3, Path: []int{2, 1}},
 		{Name: "TSIP", Type: "byte", Param: 4, Path: []int{2, 2}},
 		{Name: "ACKA", Type: "bool", Param: 5, Path: []int{3}},
 	}, fields)
 
-	requireFieldsMirrorParams(t, "optional", BuildParams(structure, items), fields)
+	requireFieldsMirrorParams(t, "optional", params, fields)
 
-	optionals, err := optionalLeaves(structure, items)
-	require.NoError(t, err)
-	require.Equal(t, []optionalLeaf{
-		{Field: "FNLOC", Path: []int{0}, Empty: "secs2.U2()"},
-		{Field: "COMMACK", Path: []int{2, 1}, Empty: "secs2.B()"},
-	}, optionals)
+	require.Equal(t,
+		"secs2.L(optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), secs2.A(mdln), "+
+			"secs2.L(secs2.A(softrev), optionalItem(commack, func(v COMMACK) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.B(tsip)), "+
+			"secs2.BOOLEAN(acka))",
+		BodyExpr(structure, items))
 }
 
 // TestBuildFieldsRejectsUnvalidatedOptional proves the decoder walk refuses an optional leaf validation would have rejected,
 // rather than decoding it as if it were not optional.
 func TestBuildFieldsRejectsUnvalidatedOptional(t *testing.T) {
-	for _, item := range []string{"SVID", "BLOB", "MHEAD"} {
+	for item, want := range map[string]string{
+		"SVID":  "must be binding: fixed",
+		"BLOB":  "must have a scalar goType",
+		"MHEAD": "must have a scalar goType",
+		"MDLN":  "an empty string already sends the zero-length item",
+	} {
 		t.Run(item, func(t *testing.T) {
 			_, err := BuildFields(&StructureNode{Type: "list", Items: []StructureNode{{Item: item, Optional: true}}}, optionalItems())
-			require.ErrorContains(t, err, "optional needs a binding: fixed item with a scalar goType")
+			require.ErrorContains(t, err, want)
 		})
 	}
 }
 
-// TestRenderDecodersOptionalLeaf proves an optional leaf decodes through presentAt,
-// given the item type the leaf's own helper reads,
-// and reads the value only when the item is present.
+// TestRenderDecodersOptionalLeaf proves an optional leaf decodes into a pointer field through decodeOptional,
+// given the item type the leaf's own helper reads, and that helper.
 func TestRenderDecodersOptionalLeaf(t *testing.T) {
 	items := optionalItems()
 	structure := &StructureNode{Type: "list", Items: []StructureNode{
 		{Item: "FNLOC", Optional: true},
-		{Item: "MDLN", Optional: true},
 		{Item: "ACKA", Optional: true},
 		{Item: "COMMACK", Optional: true},
 		{Item: "SOFTREV"},
@@ -166,46 +175,36 @@ func TestRenderDecodersOptionalLeaf(t *testing.T) {
 	require.NoError(t, err)
 
 	got := string(src)
-	require.Regexp(t, `\tFNLOC +uint16\n\tFNLOCPresent +bool\n`, got)
-	require.Contains(t, got, `if out.FNLOCPresent, err = presentAt[*secs2.UintItem](root.At(0), "FNLOC"); err != nil {`)
-	require.Contains(t, got, "if out.FNLOCPresent {\n\t\tif out.FNLOC, err = decodeUintAs[uint16](root.At(0), \"FNLOC\"); err != nil {")
-	require.Contains(t, got, `presentAt[*secs2.ASCIIItem](root.At(1), "MDLN")`)
-	require.Contains(t, got, `presentAt[*secs2.BooleanItem](root.At(2), "ACKA")`)
-	require.Contains(t, got, `presentAt[*secs2.BinaryItem](root.At(3), "COMMACK")`)
-	require.Contains(t, got, `out.COMMACK, err = decodeByteAs[COMMACK](root.At(3), "COMMACK")`)
-	require.Contains(t, got, `if out.SOFTREV, err = decodeASCII(root.At(4), "SOFTREV"); err != nil {`)
-	require.NotContains(t, got, "SOFTREVPresent")
+	require.Regexp(t, `\tFNLOC +\*uint16\n\tACKA +\*bool\n\tCOMMACK +\*COMMACK\n\tSOFTREV +string\n`, got)
+	require.Contains(t, got, `if out.FNLOC, err = decodeOptional[*secs2.UintItem](root.At(0), "FNLOC", decodeUintAs[uint16]); err != nil {`)
+	require.Contains(t, got, `if out.ACKA, err = decodeOptional[*secs2.BooleanItem](root.At(1), "ACKA", decodeBool); err != nil {`)
+	require.Contains(t, got, `if out.COMMACK, err = decodeOptional[*secs2.BinaryItem](root.At(2), "COMMACK", decodeByteAs[COMMACK]); err != nil {`)
+	require.Contains(t, got, `if out.SOFTREV, err = decodeASCII(root.At(3), "SOFTREV"); err != nil {`)
+	require.NotContains(t, got, "Present")
 }
 
-// TestOptionalLeafGodoc proves the godoc of a body with optional leaves says the items may be sent zero-length,
-// on both the builder and the result type,
+// TestOptionalLeafGodoc proves the godoc of a body with optional leaves says the items may be sent zero-length
+// and that nil stands for that form, on both the builder and the result type,
 // and that a body without one says nothing about it.
 func TestOptionalLeafGodoc(t *testing.T) {
 	items := optionalItems()
 
 	builders, err := renderMessages(optionalMessage(optionalTailBody()), items)
 	require.NoError(t, err)
-	require.Contains(t, string(builders), "// SEMI E5 lets FNLOC and COMMACK each be sent as a zero-length item,\n"+
-		"// but this builder always sends a value:\n"+
-		"// callers that need the zero-length form build the body with [secs2] directly.\n")
+	require.Contains(t, string(builders), "// SEMI E5 lets FNLOC and COMMACK each be sent as a zero-length item:\n"+
+		"// a nil argument sends that form.\n")
 
 	decoders, err := renderDecoders(optionalMessage(optionalTailBody()), items)
 	require.NoError(t, err)
-	require.Contains(t, string(decoders), "// It is filled by [DecodeS12F1] and mirrors the parameters of [S12F1], in order,\n"+
-		"// apart from its FNLOCPresent and COMMACKPresent fields.\n"+
+	require.Contains(t, string(decoders), "// It is filled by [DecodeS12F1] and mirrors the parameters of [S12F1], in order.\n"+
 		"//\n"+
 		"// SEMI E5 lets FNLOC and COMMACK each be sent as a zero-length item:\n"+
-		"// [DecodeS12F1] decodes that form as a zero field with its presence field false,\n"+
-		"// FNLOCPresent for FNLOC and COMMACKPresent for COMMACK.\n"+
-		"// [S12F1] always sends a value,\n"+
-		"// so callers that need the zero-length form build the body with [secs2] directly.\n")
+		"// [DecodeS12F1] decodes that form as a nil field, and [S12F1] sends it for a nil argument.\n")
 
 	single := &StructureNode{Type: "list", Items: []StructureNode{{Item: "FNLOC", Optional: true}}}
 	decoders, err = renderDecoders(optionalMessage(single), items)
 	require.NoError(t, err)
-	require.Contains(t, string(decoders), "// It is filled by [DecodeS12F1] and mirrors the parameters of [S12F1], in order,\n"+
-		"// apart from its FNLOCPresent field.\n")
-	require.Contains(t, string(decoders), "// [DecodeS12F1] decodes that form as a zero FNLOC with FNLOCPresent false.\n")
+	require.Contains(t, string(decoders), "// [DecodeS12F1] decodes that form as a nil FNLOC, and [S12F1] sends it for a nil argument.\n")
 
 	plain := &StructureNode{Type: "list", Items: []StructureNode{{Item: "FNLOC"}}}
 	builders, err = renderMessages(optionalMessage(plain), items)
@@ -225,48 +224,54 @@ func TestOptionalSummary(t *testing.T) {
 	require.Equal(t, "SEMI E5 lets A, B, and C each be sent as a zero-length item", optionalSummary([]string{"A", "B", "C"}))
 }
 
-// TestRenderDecodeTestsOptionalLeaf proves the round trip expects every presence field true,
-// and that each optional leaf gets a test sending it zero-length,
-// which rebuilds the lists on the leaf's path and expects that leaf absent and the other fields intact.
+// TestRenderDecodeTestsOptionalLeaf proves the round trip sends and expects a pointer to each optional sample,
+// and that each optional leaf gets a test that passes nil for it,
+// checks the built item is the zero-length item of its format,
+// and expects it nil and the other fields intact.
 func TestRenderDecodeTestsOptionalLeaf(t *testing.T) {
 	src, err := renderDecodeTests(optionalMessage(optionalTailBody()), optionalItems())
 	require.NoError(t, err)
 
 	got := string(src)
+	require.Contains(t, got, "\t\"bytes\"\n")
+
 	round := testFuncBody(t, got, "TestDecodeS12F1RoundTrip")
-	require.Contains(t, round, "\t\tFNLOCPresent:   true,\n")
-	require.Contains(t, round, "\t\tCOMMACKPresent: true,\n")
-	require.Contains(t, round, "\t\tMDLN:           \"mdln\",\n")
-	require.Contains(t, round, "\t\tTSIP:           0x")
+	require.Regexp(t, `msg := gem\.S12F1\(new\(uint16\(\d+\)\), "mdln", "softrev", new\(gem\.COMMACK\(0x[0-9a-f]{2}\)\), 0x[0-9a-f]{2}, true\)`, round)
+	require.Regexp(t, `\t\tFNLOC: +new\(uint16\(\d+\)\),\n`, round)
+	require.Regexp(t, `\t\tCOMMACK: +new\(gem\.COMMACK\(0x[0-9a-f]{2}\)\),\n`, round)
 	require.Contains(t, round, "assertDecoded(t, got, want)")
 
 	nested := testFuncBody(t, got, "TestDecodeS12F1COMMACKAbsent")
-	require.Contains(t, nested, "list0, err := full.ToList()")
-	require.Contains(t, nested, "list1, err := list0[2].ToList()")
-	require.Contains(t, nested, "list1[1] = secs2.B()\n\tlist0[2] = secs2.L(list1...)\n")
-	require.Contains(t, nested, "body, err := secs2.Decode(secs2.L(list0...).ToBytes())")
+	require.Regexp(t, `msg := gem\.S12F1\(new\(uint16\(\d+\)\), "mdln", "softrev", nil, 0x[0-9a-f]{2}, true\)`, nested)
+	require.Contains(t, nested, "decoded, err := secs2.Decode(msg.Item().ToBytes())")
+	require.Contains(t, nested, ":= secs2.B().ToBytes()")
+	require.Contains(t, nested, `t.Errorf("commack: got %x, want the zero-length item %x"`)
+	require.Contains(t, nested, "got, err := gem.DecodeS12F1(decoded)")
 	require.NotContains(t, nested, "COMMACK:")
-	require.NotContains(t, nested, "COMMACKPresent:")
-	require.Contains(t, nested, "\t\tFNLOCPresent: true,\n")
-	require.Contains(t, nested, "\t\tSOFTREV:      \"softrev\",\n")
+	require.Regexp(t, `\t\tFNLOC: +new\(uint16\(\d+\)\),\n`, nested)
+	require.Contains(t, nested, "\t\tSOFTREV: \"softrev\",\n")
 
 	top := testFuncBody(t, got, "TestDecodeS12F1FNLOCAbsent")
-	require.Contains(t, top, "list0[0] = secs2.U2()\n\n\tbody, err := secs2.Decode(secs2.L(list0...).ToBytes())")
+	require.Contains(t, top, `msg := gem.S12F1(nil, "mdln"`)
+	require.Contains(t, top, ":= secs2.U2().ToBytes()")
 	require.NotContains(t, top, "FNLOC:")
-	require.NotContains(t, top, "FNLOCPresent:")
-	require.Contains(t, top, "\t\tCOMMACKPresent: true,\n")
+	require.Regexp(t, `\t\tCOMMACK: +new\(gem\.COMMACK\(0x[0-9a-f]{2}\)\),\n`, top)
 
-	whole, err := renderDecodeTests(optionalMessage(&StructureNode{Item: "MDLN", Optional: true}), optionalItems())
+	whole, err := renderDecodeTests(optionalMessage(&StructureNode{Item: "ACKA", Optional: true}), optionalItems())
 	require.NoError(t, err)
 
-	body := testFuncBody(t, string(whole), "TestDecodeS12F1MDLNAbsent")
-	require.Contains(t, body, `body, err := secs2.Decode(secs2.A("").ToBytes())`)
-	require.NotContains(t, body, "msg :=")
+	body := testFuncBody(t, string(whole), "TestDecodeS12F1ACKAAbsent")
+	require.Contains(t, body, "msg := gem.S12F1(nil)")
+	require.Contains(t, body, ":= secs2.BOOLEAN().ToBytes()")
 	require.Contains(t, body, "assertDecoded(t, got, gem.S12F1Body{})")
+
+	round = testFuncBody(t, string(whole), "TestDecodeS12F1RoundTrip")
+	require.Contains(t, round, "msg := gem.S12F1(new(true))")
 }
 
-// TestRenderVariantTestOptionalLeaf proves a variant's generated test expects the main decoder's presence field true
-// when the variant sends that item and false when it omits it.
+// TestRenderVariantTestOptionalLeaf proves a variant's generated test expects the main decoder's pointer field
+// to point to the variant's sample when the variant sends that item, as a plain or as an optional leaf,
+// and to stay nil when the variant omits it.
 func TestRenderVariantTestOptionalLeaf(t *testing.T) {
 	main := &StructureNode{Type: "list", MinItems: new(1), MaxItems: new(3), Items: []StructureNode{
 		{Item: "MDLN"},
@@ -290,8 +295,9 @@ func TestRenderVariantTestOptionalLeaf(t *testing.T) {
 	require.Contains(t, short, "\twant := gem.S12F1Body{\n\t\tMDLN: \"mdln\",\n\t}\n")
 
 	plain := testFuncBody(t, string(src), "TestS12F1Plain")
-	require.Contains(t, plain, "\t\tFNLOCPresent: true,\n")
-	require.Contains(t, plain, "\t\tACKAPresent:  true,\n")
+	require.Regexp(t, `msg := gem\.S12F1Plain\("mdln", \d+, new\(true\)\)`, plain)
+	require.Regexp(t, `\t\tFNLOC: new\(uint16\(\d+\)\),\n`, plain)
+	require.Contains(t, plain, "\t\tACKA:  new(true),\n")
 }
 
 // testFuncBody returns the source of the generated test function name,

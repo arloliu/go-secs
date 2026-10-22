@@ -49,7 +49,7 @@ func TestAllowTrailingGroupElement(t *testing.T) {
 		t.Fatalf("DecodeS5F6 with AllowTrailing: %v", err)
 	}
 
-	assertDecoded(t, got.ALARMS, []gem.Alarm{{ALCD: 0x86, ALID: secs2.U4(12), ALTX: "Door open"}})
+	assertDecoded(t, got.ALARMS, []gem.Alarm{{ALCD: new(gem.ALCD(0x86)), ALID: secs2.U4(12), ALTX: "Door open"}})
 
 	_, err = gem.DecodeS5F6(wire(t, secs2.L(secs2.L(secs2.B(0x86), secs2.U4(12)))), trailing)
 	requireDecodeError(t, err, "gem: ALARMS[0]: list length 2, want at least 3")

@@ -32,6 +32,7 @@ type emittedName struct {
 // and returns the ordered function parameters a generated builder needs.
 // A repeat node contributes a single caller-supplied slice parameter and does NOT recurse into Of:
 // its element type is [elemType] of Of.
+// An optional leaf contributes a pointer to its value type, nil for the zero-length item.
 // A group reference, which only a group's own structure holds outside a repeat,
 // contributes a parameter of its group's struct type, a pointer when it is optional.
 // After the walk, the final parameter is promoted to variadic
@@ -51,6 +52,9 @@ func BuildParams(n *StructureNode, items map[string]Item) []Param {
 			typ := "secs2.Item"
 			if it.Binding == BindingFixed {
 				typ = fixedGoType(n.Item, it)
+			}
+			if n.Optional {
+				typ = "*" + typ // nil sends the zero-length item
 			}
 			out = append(out, Param{Name: nodeNames(n).Param, Type: typ})
 		case "opaque":
@@ -105,6 +109,11 @@ func nodeExpr(n *StructureNode, items map[string]Item, ref func(*StructureNode) 
 	switch n.Kind() {
 	case "leaf":
 		it := items[n.Item]
+		if n.Optional {
+			// Nil is sent as the zero-length item of the leaf's format, e.g. secs2.U4().
+			return fmt.Sprintf("optionalItem(%s, %s, secs2.%s)", ref(n), valueItemFunc(n.Item, it), it.Formats[0])
+		}
+
 		if it.Binding == BindingFixed {
 			return fixedItemExpr(it, ref(n))
 		}

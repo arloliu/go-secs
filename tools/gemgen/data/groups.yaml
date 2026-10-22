@@ -84,7 +84,8 @@ groups:
     description: One alarm, its code, its ID, and its text.
     structure:
       type: list
-      items: [{item: ALCD}, {item: ALID}, {item: ALTX}]
+      # S5F6: "A zero-length item returned for ALCDi or ALTXi means that value does not exist." S5F8 is the same.
+      items: [{item: ALCD, optional: true}, {item: ALID}, {item: ALTX}]
 
   - name: DataValue
     description: One named data value of a data set.
@@ -483,7 +484,9 @@ groups:
     description: The result of sending one PDE, its UID, the send and verify statuses, and the status text.
     structure:
       type: list
-      items: [{item: UID}, {item: SENDRSPSTAT}, {item: VERIFYRSPSTAT}, {item: STATUSTXT}]
+      # S19F13: "If the service provider is not an equipment, then verification will not occur
+      # and all VERIFYRSPSTAT will be zero length data items."
+      items: [{item: UID}, {item: SENDRSPSTAT}, {item: VERIFYRSPSTAT, optional: true}, {item: STATUSTXT}]
 
   - name: PDEResolveResult
     description: The result of resolving one PDE, its UID, the status, and the status text.

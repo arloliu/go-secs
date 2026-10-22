@@ -12,13 +12,12 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Body: L[15]{ <mid> B[idtyp] U2[fnloc] U2[ffrot] B[orloc] U1[rpsel] L[n]{ <refps>... } A[dutms] <xdies> <ydies> <rowct> <colct> <nulbc> <prdct> B[praxi] }.
 //
-// SEMI E5 lets FNLOC, FFROT, and ORLOC each be sent as a zero-length item,
-// but this builder always sends a value:
-// callers that need the zero-length form build the body with [secs2] directly.
+// SEMI E5 lets FNLOC, FFROT, and ORLOC each be sent as a zero-length item:
+// a nil argument sends that form.
 //
 // Exception: None.
-func S12F1(mid secs2.Item, idtyp IDTYP, fnloc uint16, ffrot uint16, orloc ORLOC, rpsel uint8, refps []secs2.Item, dutms string, xdies secs2.Item, ydies secs2.Item, rowct secs2.Item, colct secs2.Item, nulbc secs2.Item, prdct secs2.Item, praxi PRAXI) secs2.SECS2Message {
-	return secs2.NewMessage(12, 1, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.U2(fnloc), secs2.U2(ffrot), secs2.B(byte(orloc)), secs2.U1(rpsel), secs2.L(refps...), secs2.A(dutms), xdies, ydies, rowct, colct, nulbc, prdct, secs2.B(byte(praxi))))
+func S12F1(mid secs2.Item, idtyp IDTYP, fnloc *uint16, ffrot *uint16, orloc *ORLOC, rpsel uint8, refps []secs2.Item, dutms string, xdies secs2.Item, ydies secs2.Item, rowct secs2.Item, colct secs2.Item, nulbc secs2.Item, prdct secs2.Item, praxi PRAXI) secs2.SECS2Message {
+	return secs2.NewMessage(12, 1, true, secs2.L(mid, secs2.B(byte(idtyp)), optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(ffrot, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(orloc, func(v ORLOC) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.U1(rpsel), secs2.L(refps...), secs2.A(dutms), xdies, ydies, rowct, colct, nulbc, prdct, secs2.B(byte(praxi))))
 }
 
 // S12F2 creates the S12F2 (Map Set-up Data Acknowledge) message, direction: host-to-equipment.
@@ -40,13 +39,12 @@ func S12F2(sdack SDACK) secs2.SECS2Message {
 //
 // Body: L[9]{ <mid> B[idtyp] B[mapft] U2[fnloc] U2[ffrot] B[orloc] B[praxi] <bcequ> <nulbc> }.
 //
-// SEMI E5 lets FNLOC, FFROT, and ORLOC each be sent as a zero-length item,
-// but this builder always sends a value:
-// callers that need the zero-length form build the body with [secs2] directly.
+// SEMI E5 lets FNLOC, FFROT, and ORLOC each be sent as a zero-length item:
+// a nil argument sends that form.
 //
 // Exception: None.
-func S12F3(mid secs2.Item, idtyp IDTYP, mapft MAPFT, fnloc uint16, ffrot uint16, orloc ORLOC, praxi PRAXI, bcequ secs2.Item, nulbc secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 3, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.B(byte(mapft)), secs2.U2(fnloc), secs2.U2(ffrot), secs2.B(byte(orloc)), secs2.B(byte(praxi)), bcequ, nulbc))
+func S12F3(mid secs2.Item, idtyp IDTYP, mapft MAPFT, fnloc *uint16, ffrot *uint16, orloc *ORLOC, praxi PRAXI, bcequ secs2.Item, nulbc secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(12, 3, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.B(byte(mapft)), optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(ffrot, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(orloc, func(v ORLOC) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.B(byte(praxi)), bcequ, nulbc))
 }
 
 // S12F4 creates the S12F4 (Map Set-up Data) message, direction: host-to-equipment.
@@ -55,13 +53,12 @@ func S12F3(mid secs2.Item, idtyp IDTYP, mapft MAPFT, fnloc uint16, ffrot uint16,
 //
 // Body: L[0,15]{ <mid> B[idtyp] U2[fnloc] B[orloc] U1[rpsel] L[n]{ <refps>... } A[dutms] <xdies> <ydies> <rowct> <colct> <prdct> <bcequ> <nulbc> <mlcl> }.
 //
-// SEMI E5 lets FNLOC and ORLOC each be sent as a zero-length item,
-// but this builder always sends a value:
-// callers that need the zero-length form build the body with [secs2] directly.
+// SEMI E5 lets FNLOC and ORLOC each be sent as a zero-length item:
+// a nil argument sends that form.
 //
 // Exception: A zero-length list returned means no such MID.
-func S12F4(mid secs2.Item, idtyp IDTYP, fnloc uint16, orloc ORLOC, rpsel uint8, refps []secs2.Item, dutms string, xdies secs2.Item, ydies secs2.Item, rowct secs2.Item, colct secs2.Item, prdct secs2.Item, bcequ secs2.Item, nulbc secs2.Item, mlcl secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 4, false, secs2.L(mid, secs2.B(byte(idtyp)), secs2.U2(fnloc), secs2.B(byte(orloc)), secs2.U1(rpsel), secs2.L(refps...), secs2.A(dutms), xdies, ydies, rowct, colct, prdct, bcequ, nulbc, mlcl))
+func S12F4(mid secs2.Item, idtyp IDTYP, fnloc *uint16, orloc *ORLOC, rpsel uint8, refps []secs2.Item, dutms string, xdies secs2.Item, ydies secs2.Item, rowct secs2.Item, colct secs2.Item, prdct secs2.Item, bcequ secs2.Item, nulbc secs2.Item, mlcl secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(12, 4, false, secs2.L(mid, secs2.B(byte(idtyp)), optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(orloc, func(v ORLOC) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.U1(rpsel), secs2.L(refps...), secs2.A(dutms), xdies, ydies, rowct, colct, prdct, bcequ, nulbc, mlcl))
 }
 
 // S12F5 creates the S12F5 (Map Transmit Inquire) message, direction: equipment-to-host.
