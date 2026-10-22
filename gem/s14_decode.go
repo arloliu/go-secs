@@ -13,7 +13,7 @@ type S14F1Body struct {
 	OBJSPEC    string
 	OBJTYPE    secs2.Item
 	OBJIDS     []secs2.Item
-	QUALIFIERS []secs2.Item
+	QUALIFIERS []AttributeQualifier
 	ATTRIDS    []secs2.Item
 }
 
@@ -45,7 +45,7 @@ func DecodeS14F1(item secs2.Item) (S14F1Body, error) {
 		return out, err
 	}
 
-	if out.QUALIFIERS, err = decodeItems(root.At(3), "QUALIFIERS"); err != nil {
+	if out.QUALIFIERS, err = decodeEach(root.At(3), "QUALIFIERS", decodeAttributeQualifier); err != nil {
 		return out, err
 	}
 
@@ -62,9 +62,9 @@ func DecodeS14F1(item secs2.Item) (S14F1Body, error) {
 //
 // It is filled by [DecodeS14F2] and mirrors the parameters of [S14F2], in order.
 type S14F2Reply struct {
-	OBJECTS []secs2.Item
+	OBJECTS []ObjectAttributes
 	OBJACK  OBJACK
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS14F2 decodes the body of an S14F2 (GetAttr Data) message into a [S14F2Reply].
@@ -83,7 +83,7 @@ func DecodeS14F2(item secs2.Item) (S14F2Reply, error) {
 		return out, err
 	}
 
-	if out.OBJECTS, err = decodeItems(root.At(0), "OBJECTS"); err != nil {
+	if out.OBJECTS, err = decodeEach(root.At(0), "OBJECTS", decodeObjectAttributes); err != nil {
 		return out, err
 	}
 
@@ -95,7 +95,7 @@ func DecodeS14F2(item secs2.Item) (S14F2Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -111,7 +111,7 @@ type S14F3Body struct {
 	OBJSPEC string
 	OBJTYPE secs2.Item
 	OBJIDS  []secs2.Item
-	ATTRS   []secs2.Item
+	ATTRS   []Attribute
 }
 
 // DecodeS14F3 decodes the body of an S14F3 (SetAttr Request) message into a [S14F3Body].
@@ -142,7 +142,7 @@ func DecodeS14F3(item secs2.Item) (S14F3Body, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(3), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(3), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -155,9 +155,9 @@ func DecodeS14F3(item secs2.Item) (S14F3Body, error) {
 //
 // It is filled by [DecodeS14F4] and mirrors the parameters of [S14F4], in order.
 type S14F4Reply struct {
-	OBJECTS []secs2.Item
+	OBJECTS []ObjectAttributes
 	OBJACK  OBJACK
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS14F4 decodes the body of an S14F4 (SetAttr Data) message into a [S14F4Reply].
@@ -176,7 +176,7 @@ func DecodeS14F4(item secs2.Item) (S14F4Reply, error) {
 		return out, err
 	}
 
-	if out.OBJECTS, err = decodeItems(root.At(0), "OBJECTS"); err != nil {
+	if out.OBJECTS, err = decodeEach(root.At(0), "OBJECTS", decodeObjectAttributes); err != nil {
 		return out, err
 	}
 
@@ -188,7 +188,7 @@ func DecodeS14F4(item secs2.Item) (S14F4Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -231,7 +231,7 @@ func DecodeS14F5(item secs2.Item) (S14F5Body, error) {
 type S14F6Reply struct {
 	OBJTYPES []secs2.Item
 	OBJACK   OBJACK
-	ERRORS   []secs2.Item
+	ERRORS   []ErrorInfo
 }
 
 // DecodeS14F6 decodes the body of an S14F6 (GetType Data) message into a [S14F6Reply].
@@ -262,7 +262,7 @@ func DecodeS14F6(item secs2.Item) (S14F6Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -312,9 +312,9 @@ func DecodeS14F7(item secs2.Item) (S14F7Body, error) {
 //
 // It is filled by [DecodeS14F8] and mirrors the parameters of [S14F8], in order.
 type S14F8Reply struct {
-	OBJTYPES []secs2.Item
+	OBJTYPES []ObjectTypeAttributes
 	OBJACK   OBJACK
-	ERRORS   []secs2.Item
+	ERRORS   []ErrorInfo
 }
 
 // DecodeS14F8 decodes the body of an S14F8 (GetAttrName Data) message into a [S14F8Reply].
@@ -333,7 +333,7 @@ func DecodeS14F8(item secs2.Item) (S14F8Reply, error) {
 		return out, err
 	}
 
-	if out.OBJTYPES, err = decodeItems(root.At(0), "OBJTYPES"); err != nil {
+	if out.OBJTYPES, err = decodeEach(root.At(0), "OBJTYPES", decodeObjectTypeAttributes); err != nil {
 		return out, err
 	}
 
@@ -345,7 +345,7 @@ func DecodeS14F8(item secs2.Item) (S14F8Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -360,7 +360,7 @@ func DecodeS14F8(item secs2.Item) (S14F8Reply, error) {
 type S14F9Body struct {
 	OBJSPEC string
 	OBJTYPE secs2.Item
-	ATTRS   []secs2.Item
+	ATTRS   []Attribute
 }
 
 // DecodeS14F9 decodes the body of an S14F9 (Create Object Request) message into a [S14F9Body].
@@ -387,7 +387,7 @@ func DecodeS14F9(item secs2.Item) (S14F9Body, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(2), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(2), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -401,9 +401,9 @@ func DecodeS14F9(item secs2.Item) (S14F9Body, error) {
 // It is filled by [DecodeS14F10] and mirrors the parameters of [S14F10], in order.
 type S14F10Reply struct {
 	OBJSPEC string
-	ATTRS   []secs2.Item
+	ATTRS   []Attribute
 	OBJACK  OBJACK
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS14F10 decodes the body of an S14F10 (Create Object Acknowledge) message into a [S14F10Reply].
@@ -426,7 +426,7 @@ func DecodeS14F10(item secs2.Item) (S14F10Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(1), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(1), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -438,7 +438,7 @@ func DecodeS14F10(item secs2.Item) (S14F10Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(2, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -452,7 +452,7 @@ func DecodeS14F10(item secs2.Item) (S14F10Reply, error) {
 // It is filled by [DecodeS14F11] and mirrors the parameters of [S14F11], in order.
 type S14F11Body struct {
 	OBJSPEC string
-	ATTRS   []secs2.Item
+	ATTRS   []Attribute
 }
 
 // DecodeS14F11 decodes the body of an S14F11 (Delete Object Request) message into a [S14F11Body].
@@ -475,7 +475,7 @@ func DecodeS14F11(item secs2.Item) (S14F11Body, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(1), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(1), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -488,9 +488,9 @@ func DecodeS14F11(item secs2.Item) (S14F11Body, error) {
 //
 // It is filled by [DecodeS14F12] and mirrors the parameters of [S14F12], in order.
 type S14F12Reply struct {
-	ATTRS  []secs2.Item
+	ATTRS  []Attribute
 	OBJACK OBJACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS14F12 decodes the body of an S14F12 (Delete Object Acknowledge) message into a [S14F12Reply].
@@ -509,7 +509,7 @@ func DecodeS14F12(item secs2.Item) (S14F12Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(0), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(0), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -521,7 +521,7 @@ func DecodeS14F12(item secs2.Item) (S14F12Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -535,7 +535,7 @@ func DecodeS14F12(item secs2.Item) (S14F12Reply, error) {
 // It is filled by [DecodeS14F13] and mirrors the parameters of [S14F13], in order.
 type S14F13Body struct {
 	OBJSPEC string
-	ATTRS   []secs2.Item
+	ATTRS   []Attribute
 }
 
 // DecodeS14F13 decodes the body of an S14F13 (Object Attach Request) message into a [S14F13Body].
@@ -558,7 +558,7 @@ func DecodeS14F13(item secs2.Item) (S14F13Body, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(1), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(1), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -572,9 +572,9 @@ func DecodeS14F13(item secs2.Item) (S14F13Body, error) {
 // It is filled by [DecodeS14F14] and mirrors the parameters of [S14F14], in order.
 type S14F14Reply struct {
 	OBJTOKEN uint32
-	ATTRS    []secs2.Item
+	ATTRS    []Attribute
 	OBJACK   OBJACK
-	ERRORS   []secs2.Item
+	ERRORS   []ErrorInfo
 }
 
 // DecodeS14F14 decodes the body of an S14F14 (Object Attach Acknowledge) message into a [S14F14Reply].
@@ -597,7 +597,7 @@ func DecodeS14F14(item secs2.Item) (S14F14Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(1), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(1), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -609,7 +609,7 @@ func DecodeS14F14(item secs2.Item) (S14F14Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(2, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -625,7 +625,7 @@ type S14F15Body struct {
 	OBJSPEC  string
 	OBJCMD   OBJCMD
 	OBJTOKEN uint32
-	ATTRS    []secs2.Item
+	ATTRS    []Attribute
 }
 
 // DecodeS14F15 decodes the body of an S14F15 (Attached Object Action Request) message into a [S14F15Body].
@@ -656,7 +656,7 @@ func DecodeS14F15(item secs2.Item) (S14F15Body, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(3), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(3), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -669,9 +669,9 @@ func DecodeS14F15(item secs2.Item) (S14F15Body, error) {
 //
 // It is filled by [DecodeS14F16] and mirrors the parameters of [S14F16], in order.
 type S14F16Reply struct {
-	ATTRS  []secs2.Item
+	ATTRS  []Attribute
 	OBJACK OBJACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS14F16 decodes the body of an S14F16 (Attached Object Action Acknowledge) message into a [S14F16Reply].
@@ -690,7 +690,7 @@ func DecodeS14F16(item secs2.Item) (S14F16Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(0), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(0), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -702,7 +702,7 @@ func DecodeS14F16(item secs2.Item) (S14F16Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -718,7 +718,7 @@ type S14F17Body struct {
 	OBJSPEC    string
 	OBJCMD     OBJCMD
 	TARGETSPEC string
-	ATTRS      []secs2.Item
+	ATTRS      []Attribute
 }
 
 // DecodeS14F17 decodes the body of an S14F17 (Supervised Object Action Request) message into a [S14F17Body].
@@ -749,7 +749,7 @@ func DecodeS14F17(item secs2.Item) (S14F17Body, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(3), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(3), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -762,9 +762,9 @@ func DecodeS14F17(item secs2.Item) (S14F17Body, error) {
 //
 // It is filled by [DecodeS14F18] and mirrors the parameters of [S14F18], in order.
 type S14F18Reply struct {
-	ATTRS  []secs2.Item
+	ATTRS  []Attribute
 	OBJACK OBJACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS14F18 decodes the body of an S14F18 (Supervised Object Action Acknowledge) message into a [S14F18Reply].
@@ -783,7 +783,7 @@ func DecodeS14F18(item secs2.Item) (S14F18Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(0), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(0), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -795,7 +795,7 @@ func DecodeS14F18(item secs2.Item) (S14F18Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -812,7 +812,7 @@ type S14F19Body struct {
 	OPID    secs2.Item
 	OBJSPEC string
 	SVCNAME SVCNAME
-	PARAMS  []secs2.Item
+	PARAMS  []ServiceParam
 }
 
 // DecodeS14F19 decodes the body of an S14F19 (Generic Service Request) message into a [S14F19Body].
@@ -850,7 +850,7 @@ func DecodeS14F19(item secs2.Item) (S14F19Body, error) {
 
 	out.SVCNAME = SVCNAME(s1)
 
-	if out.PARAMS, err = decodeItems(root.At(4), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(4), "PARAMS", decodeServiceParam); err != nil {
 		return out, err
 	}
 
@@ -865,9 +865,9 @@ func DecodeS14F19(item secs2.Item) (S14F19Body, error) {
 type S14F20Reply struct {
 	SVCACK    SVCACK
 	LINKID    uint32
-	PARAMS    []secs2.Item
+	PARAMS    []ServiceParam
 	ERRSVCACK SVCACK
-	ERRORS    []secs2.Item
+	ERRORS    []ErrorInfo
 }
 
 // DecodeS14F20 decodes the body of an S14F20 (Generic Service Acknowledge) message into a [S14F20Reply].
@@ -894,7 +894,7 @@ func DecodeS14F20(item secs2.Item) (S14F20Reply, error) {
 		return out, err
 	}
 
-	if out.PARAMS, err = decodeItems(root.At(2), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(2), "PARAMS", decodeServiceParam); err != nil {
 		return out, err
 	}
 
@@ -906,7 +906,7 @@ func DecodeS14F20(item secs2.Item) (S14F20Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(3, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(3, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -922,9 +922,9 @@ type S14F21Body struct {
 	DATAID secs2.Item
 	OPID   secs2.Item
 	LINKID uint32
-	PARAMS []secs2.Item
+	PARAMS []ServiceParam
 	SVCACK SVCACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS14F21 decodes the body of an S14F21 (Generic Service Completion Information) message into a [S14F21Body].
@@ -955,7 +955,7 @@ func DecodeS14F21(item secs2.Item) (S14F21Body, error) {
 		return out, err
 	}
 
-	if out.PARAMS, err = decodeItems(root.At(3), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(3), "PARAMS", decodeServiceParam); err != nil {
 		return out, err
 	}
 
@@ -967,7 +967,7 @@ func DecodeS14F21(item secs2.Item) (S14F21Body, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(4, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(4, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1110,9 +1110,9 @@ func DecodeS14F25(item secs2.Item) (S14F25Body, error) {
 //
 // It is filled by [DecodeS14F26] and mirrors the parameters of [S14F26], in order.
 type S14F26Reply struct {
-	OBJTYPES []secs2.Item
+	OBJTYPES []ObjectTypeServices
 	OBJACK   OBJACK
-	ERRORS   []secs2.Item
+	ERRORS   []ErrorInfo
 }
 
 // DecodeS14F26 decodes the body of an S14F26 (Get Service Name Data) message into a [S14F26Reply].
@@ -1131,7 +1131,7 @@ func DecodeS14F26(item secs2.Item) (S14F26Reply, error) {
 		return out, err
 	}
 
-	if out.OBJTYPES, err = decodeItems(root.At(0), "OBJTYPES"); err != nil {
+	if out.OBJTYPES, err = decodeEach(root.At(0), "OBJTYPES", decodeObjectTypeServices); err != nil {
 		return out, err
 	}
 
@@ -1143,7 +1143,7 @@ func DecodeS14F26(item secs2.Item) (S14F26Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -1198,9 +1198,9 @@ func DecodeS14F27(item secs2.Item) (S14F27Body, error) {
 //
 // It is filled by [DecodeS14F28] and mirrors the parameters of [S14F28], in order.
 type S14F28Reply struct {
-	SERVICES []secs2.Item
+	SERVICES []ServiceParams
 	OBJACK   OBJACK
-	ERRORS   []secs2.Item
+	ERRORS   []ErrorInfo
 }
 
 // DecodeS14F28 decodes the body of an S14F28 (Get Service Parameter Name Data) message into a [S14F28Reply].
@@ -1219,7 +1219,7 @@ func DecodeS14F28(item secs2.Item) (S14F28Reply, error) {
 		return out, err
 	}
 
-	if out.SERVICES, err = decodeItems(root.At(0), "SERVICES"); err != nil {
+	if out.SERVICES, err = decodeEach(root.At(0), "SERVICES", decodeServiceParams); err != nil {
 		return out, err
 	}
 
@@ -1231,7 +1231,7 @@ func DecodeS14F28(item secs2.Item) (S14F28Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 

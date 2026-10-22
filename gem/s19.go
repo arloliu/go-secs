@@ -18,8 +18,8 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Exception: If m = 0, all PDEs stored by the service provider are reported.
 // If n = 0, no additional attributes are requested for each PDE (UID is always returned).
-func S19F1(filters []secs2.Item, attributes ...PDEATTRIBUTE) secs2.SECS2Message {
-	return secs2.NewMessage(19, 1, true, secs2.L(secs2.L(filters...), secs2.L(valueItems(attributes, func(v PDEATTRIBUTE) secs2.Item { return secs2.U1(uint8(v)) })...)))
+func S19F1(filters []PDEFilter, attributes ...PDEATTRIBUTE) secs2.SECS2Message {
+	return secs2.NewMessage(19, 1, true, secs2.L(secs2.L(groupItems(filters)...), secs2.L(valueItems(attributes, func(v PDEATTRIBUTE) secs2.Item { return secs2.U1(uint8(v)) })...)))
 }
 
 // S19F2 creates the S19F2 (PDE Directory Data) message, direction: bidirectional.
@@ -32,8 +32,8 @@ func S19F1(filters []secs2.Item, attributes ...PDEATTRIBUTE) secs2.SECS2Message 
 // Exception: m = 0 indicates that no PDEs matched the filter or none exist on the service provider.
 // n = 0 if no additional attributes were requested in S19F1.
 // When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
-func S19F2(dirrspstat DIRRSPSTAT, statustxt string, pdes ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 2, false, secs2.L(secs2.U1(uint8(dirrspstat)), secs2.A(statustxt), secs2.L(pdes...)))
+func S19F2(dirrspstat DIRRSPSTAT, statustxt string, pdes ...PDEAttributes) secs2.SECS2Message {
+	return secs2.NewMessage(19, 2, false, secs2.L(secs2.U1(uint8(dirrspstat)), secs2.A(statustxt), secs2.L(groupItems(pdes)...)))
 }
 
 // S19F3 creates the S19F3 (Delete PDE) message, direction: host-to-equipment.
@@ -56,8 +56,8 @@ func S19F3(uids ...string) secs2.SECS2Message {
 // Exception: If S19F3 contained a list of zero UIDs, this is an error.
 // A zero-length list (n = 0) is returned as acknowledgement of this error.
 // When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
-func S19F4(results ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 4, false, secs2.L(results...))
+func S19F4(results ...PDEDeleteResult) secs2.SECS2Message {
+	return secs2.NewMessage(19, 4, false, secs2.L(groupItems(results)...))
 }
 
 // S19F5 creates the S19F5 (Get PDE Header) message, direction: bidirectional.
@@ -85,8 +85,8 @@ func S19F5(uids ...string) secs2.SECS2Message {
 // If no requested PDEs have a GETRSPSTAT code of 0, no TransferContainer will be transferred.
 // If no TransferContainer is to be transferred, then the TCID shall be a zero-length item.
 // When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
-func S19F6(tcid string, results ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 6, false, secs2.L(secs2.A(tcid), secs2.L(results...)))
+func S19F6(tcid string, results ...PDEGetResult) secs2.SECS2Message {
+	return secs2.NewMessage(19, 6, false, secs2.L(secs2.A(tcid), secs2.L(groupItems(results)...)))
 }
 
 // S19F7 creates the S19F7 (Get PDE) message, direction: bidirectional.
@@ -114,8 +114,8 @@ func S19F7(uids ...string) secs2.SECS2Message {
 // If no requested PDEs have a GETRSPSTAT code of 0, no TransferContainer will be transferred.
 // If no TransferContainer is to be transferred, then the TCID shall be a zero-length item.
 // When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
-func S19F8(tcid string, results ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 8, false, secs2.L(secs2.A(tcid), secs2.L(results...)))
+func S19F8(tcid string, results ...PDEGetResult) secs2.SECS2Message {
+	return secs2.NewMessage(19, 8, false, secs2.L(secs2.A(tcid), secs2.L(groupItems(results)...)))
 }
 
 // S19F9 creates the S19F9 (Request To Send PDE) message, direction: bidirectional.
@@ -179,8 +179,8 @@ func S19F12() secs2.SECS2Message {
 //
 // Exception: If the service provider is not an equipment, then verification will not occur and all VERIFYRSPSTAT will be zero-length data items.
 // When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
-func S19F13(tcid string, sendresult SENDRESULT, results ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 13, true, secs2.L(secs2.A(tcid), secs2.U1(uint8(sendresult)), secs2.L(results...)))
+func S19F13(tcid string, sendresult SENDRESULT, results ...PDESendResult) secs2.SECS2Message {
+	return secs2.NewMessage(19, 13, true, secs2.L(secs2.A(tcid), secs2.U1(uint8(sendresult)), secs2.L(groupItems(results)...)))
 }
 
 // S19F14 creates the S19F14 (PDE TransferContainer Report Acknowledge) message, direction: bidirectional.
@@ -205,8 +205,8 @@ func S19F14() secs2.SECS2Message {
 //
 // Exception: The PDE InputMap is included at the option of the client.
 // n = 0 if no InputMap is provided.
-func S19F15(targetpde string, inputMap ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 15, true, secs2.L(secs2.A(targetpde), secs2.L(inputMap...)))
+func S19F15(targetpde string, inputMap ...PDEReference) secs2.SECS2Message {
+	return secs2.NewMessage(19, 15, true, secs2.L(secs2.A(targetpde), secs2.L(groupItems(inputMap)...)))
 }
 
 // S19F16 creates the S19F16 (Resolve PDE Data) message, direction: equipment-to-host.
@@ -220,8 +220,8 @@ func S19F15(targetpde string, inputMap ...secs2.Item) secs2.SECS2Message {
 // Exception: n = the number of PDE reference errors found in the recipe structure, or n = 1 if all PDE references were successfully resolved;
 // that single entry represents the TARGETPDE with RESPDESTAT = 0.
 // When there is a positive result, STATUSTXT is allowed to be a zero-length data item.
-func S19F16(outputMap []secs2.Item, results ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 16, false, secs2.L(secs2.L(outputMap...), secs2.L(results...)))
+func S19F16(outputMap []PDEReference, results ...PDEResolveResult) secs2.SECS2Message {
+	return secs2.NewMessage(19, 16, false, secs2.L(secs2.L(groupItems(outputMap)...), secs2.L(groupItems(results)...)))
 }
 
 // S19F17 creates the S19F17 (Verify PDE) message, direction: host-to-equipment.
@@ -234,8 +234,8 @@ func S19F16(outputMap []secs2.Item, results ...secs2.Item) secs2.SECS2Message {
 // Exception: The PDE InputMap is included at the option of the client.
 // n = 0 if no InputMap is provided.
 // If VERIFYDEPTH = 0, then the list L,n (InputMap) is ignored and in this case n should be 0.
-func S19F17(targetpde string, inputMap []secs2.Item, verifytype VERIFYTYPE, verifydepth VERIFYDEPTH) secs2.SECS2Message {
-	return secs2.NewMessage(19, 17, true, secs2.L(secs2.A(targetpde), secs2.L(inputMap...), secs2.U1(uint8(verifytype)), secs2.U1(uint8(verifydepth))))
+func S19F17(targetpde string, inputMap []PDEReference, verifytype VERIFYTYPE, verifydepth VERIFYDEPTH) secs2.SECS2Message {
+	return secs2.NewMessage(19, 17, true, secs2.L(secs2.A(targetpde), secs2.L(groupItems(inputMap)...), secs2.U1(uint8(verifytype)), secs2.U1(uint8(verifydepth))))
 }
 
 // S19F18 creates the S19F18 (Verify PDE Data) message, direction: equipment-to-host.
@@ -246,8 +246,8 @@ func S19F17(targetpde string, inputMap []secs2.Item, verifytype VERIFYTYPE, veri
 //
 // Exception: If VERIFYDEPTH = 0, then n must be 1.
 // When there is a positive result and no error condition is reported, STATUSTXT is allowed to be a zero-length data item.
-func S19F18(verifysuccess bool, results ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 18, false, secs2.L(secs2.BOOLEAN(verifysuccess), secs2.L(results...)))
+func S19F18(verifysuccess bool, results ...PDEVerifyResult) secs2.SECS2Message {
+	return secs2.NewMessage(19, 18, false, secs2.L(secs2.BOOLEAN(verifysuccess), secs2.L(groupItems(results)...)))
 }
 
 // S19F19 creates the S19F19 (RaP Multi-block Inquire) message, direction: bidirectional.

@@ -159,8 +159,8 @@ func S13F12(grant GRANT) secs2.SECS2Message {
 // Exception: If OBJSPEC is a zero-length item, the owner of the table is the receiver of the message.
 // If r = 0, any existing table definition of the given type and id is to be deleted.
 // Otherwise, the element count of a row (E5's c1) may not be zero and shall be less than or equal to the value of c.
-func S13F13(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblcmd TBLCMD, attrs []secs2.Item, colhdrs []string, rows ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 13, true, secs2.L(dataid, secs2.A(objspec), secs2.A(string(tbltyp)), secs2.A(tblid), secs2.U1(uint8(tblcmd)), secs2.L(attrs...), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(rows...)))
+func S13F13(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblcmd TBLCMD, attrs []Attribute, colhdrs []string, rows ...[]secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(13, 13, true, secs2.L(dataid, secs2.A(objspec), secs2.A(string(tbltyp)), secs2.A(tblid), secs2.U1(uint8(tblcmd)), secs2.L(groupItems(attrs)...), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(valueItems(rows, func(v []secs2.Item) secs2.Item { return secs2.L(v...) })...)))
 }
 
 // S13F14 creates the S13F14 (Table Data Acknowledge) message, direction: bidirectional.
@@ -170,8 +170,8 @@ func S13F13(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblc
 // Body: L[2]{ U1[tblack] L[n]{ <errors>... } }.
 //
 // Exception: p = 0 if and only if TBLACK indicates no errors.
-func S13F14(tblack TBLACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 14, false, secs2.L(secs2.U1(uint8(tblack)), secs2.L(errors...)))
+func S13F14(tblack TBLACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(13, 14, false, secs2.L(secs2.U1(uint8(tblack)), secs2.L(groupItems(errors)...)))
 }
 
 // S13F15 creates the S13F15 (Table Data Request) message, direction: bidirectional.
@@ -198,6 +198,6 @@ func S13F15(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblc
 //
 // Exception: p = 0 if, and only if, TBLACK indicates no errors.
 // The length of a table row may not exceed the value of c.
-func S13F16(tbltyp TBLTYP, tblid string, attrs []secs2.Item, colhdrs []string, rows []secs2.Item, tblack TBLACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 16, false, secs2.L(secs2.A(string(tbltyp)), secs2.A(tblid), secs2.L(attrs...), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(rows...), secs2.L(secs2.U1(uint8(tblack)), secs2.L(errors...))))
+func S13F16(tbltyp TBLTYP, tblid string, attrs []Attribute, colhdrs []string, rows [][]secs2.Item, tblack TBLACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(13, 16, false, secs2.L(secs2.A(string(tbltyp)), secs2.A(tblid), secs2.L(groupItems(attrs)...), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(valueItems(rows, func(v []secs2.Item) secs2.Item { return secs2.L(v...) })...), secs2.L(secs2.U1(uint8(tblack)), secs2.L(groupItems(errors)...))))
 }

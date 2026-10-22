@@ -41,7 +41,7 @@ messages:
             - {type: list, repeat: objids, of: {item: OBJID}}
             - type: list
               repeat: qualifiers
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}, {item: ATTRRELN}]}
+              of: {group: AttributeQualifier}
             - {type: list, repeat: attrids, of: {item: ATTRID}}
 
   # E5's exception also says "If OBJSPEC is a zero-length item, no object specifier is provided",
@@ -66,17 +66,11 @@ messages:
           items:
             - type: list
               repeat: objects
-              of:
-                type: list
-                items:
-                  - {item: OBJID}
-                  - type: list
-                    repeat: attrs
-                    of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: ObjectAttributes}
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 3
     name: SetAttr Request
@@ -99,7 +93,7 @@ messages:
             - {type: list, repeat: objids, of: {item: OBJID}}
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
 
   - function: 4
     name: SetAttr Data
@@ -122,17 +116,11 @@ messages:
           items:
             - type: list
               repeat: objects
-              of:
-                type: list
-                items:
-                  - {item: OBJID}
-                  - type: list
-                    repeat: attrs
-                    of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: ObjectAttributes}
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 5
     name: GetType Request
@@ -173,7 +161,7 @@ messages:
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   # The markdown structure stops at "2. L,n";
   # the L,n list of OBJTYPE is recovered from the PDF text of E5.
@@ -216,11 +204,11 @@ messages:
           items:
             - type: list
               repeat: objtypes
-              of: {type: list, items: [{item: OBJTYPE}, {type: list, repeat: attrids, of: {item: ATTRID}}]}
+              of: {group: ObjectTypeAttributes}
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 9
     name: Create Object Request
@@ -243,7 +231,7 @@ messages:
             - {item: OBJTYPE}
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
 
   # E5 prints the mnemonic as CAO; it is kept as printed.
   - function: 10
@@ -268,11 +256,11 @@ messages:
             - {item: OBJSPEC}
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   # E5 prints no mnemonic for S14F11.
   # Its exception names the attribute count n while the structure calls it a.
@@ -294,7 +282,7 @@ messages:
             - {item: OBJSPEC}
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
 
   # E5's exception names the attribute count n while the structure calls it b.
   - function: 12
@@ -316,11 +304,11 @@ messages:
           items:
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 13
     name: Object Attach Request
@@ -340,7 +328,7 @@ messages:
             - {item: OBJSPEC}
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
 
   - function: 14
     name: Object Attach Acknowledge
@@ -364,11 +352,11 @@ messages:
             - {item: OBJTOKEN}
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 15
     name: Attached Object Action Request
@@ -388,7 +376,7 @@ messages:
             - {item: OBJTOKEN}
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
 
   # The markdown places S14F17's exception ("If a = 0, no attribute settings are provided") after this table;
   # the PDF text shows it belongs to S14F17.
@@ -407,11 +395,11 @@ messages:
           items:
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   # The markdown leaves the exception cell empty; the exception comes from the PDF text of E5.
   - function: 17
@@ -434,7 +422,7 @@ messages:
             - {item: TARGETSPEC}
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
 
   - function: 18
     name: Supervised Object Action Acknowledge
@@ -453,11 +441,11 @@ messages:
           items:
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   # Each parameter group is a caller-built L,2 of SPNAME and SPVAL.
   # SPVAL may be a single item, a list of items of one format, or a list of further SPNAME/SPVAL pairs,
@@ -493,7 +481,7 @@ messages:
             - {item: SVCNAME}
             - type: list
               repeat: params
-              of: {type: list, items: [{item: SPNAME}, {item: SPVAL}]}
+              of: {group: ServiceParam}
 
   # E5 also documents a legacy L,3 form (SVCACK, LINKID and the parameter list, without the error block),
   # "included for compatibility with previous implementations".
@@ -529,11 +517,11 @@ messages:
             - {item: LINKID}
             - type: list
               repeat: params
-              of: {type: list, items: [{item: SPNAME}, {item: SPVAL}]}
+              of: {group: ServiceParam}
             - type: list
               items:
                 - {item: SVCACK, as: ERRSVCACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   # E5 draws the error list with a single L,2 child;
   # it is modeled as a list of p error pairs like every other Stream 14 reply.
@@ -564,11 +552,11 @@ messages:
             - {item: LINKID}
             - type: list
               repeat: params
-              of: {type: list, items: [{item: SPNAME}, {item: SPVAL}]}
+              of: {group: ServiceParam}
             - type: list
               items:
                 - {item: SVCACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 22
     name: Generic Service Completion Acknowledge
@@ -646,11 +634,11 @@ messages:
           items:
             - type: list
               repeat: objtypes
-              of: {type: list, items: [{item: OBJTYPE}, {type: list, repeat: svcnames, of: {item: SVCNAME}}]}
+              of: {group: ObjectTypeServices}
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 27
     name: Get Service Parameter Name Request
@@ -688,8 +676,8 @@ messages:
           items:
             - type: list
               repeat: services
-              of: {type: list, items: [{item: SVCNAME}, {type: list, repeat: spnames, of: {item: SPNAME}}]}
+              of: {group: ServiceParams}
             - type: list
               items:
                 - {item: OBJACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}

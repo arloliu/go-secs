@@ -64,7 +64,7 @@ func init() {
 		_, err := gem.DecodeS1F12(item)
 
 		return err
-	}, gem.S1F12(secs2.A("svids")).Item())
+	}, gem.S1F12(gem.StatusVariableName{SVID: secs2.A("svid"), SVNAME: "svname", UNITS: "units"}).Item())
 	registerFuzzDecoder("DecodeS1F13", func(item secs2.Item) error {
 		_, err := gem.DecodeS1F13(item)
 
@@ -104,7 +104,7 @@ func init() {
 		_, err := gem.DecodeS1F20(item)
 
 		return err
-	}, gem.S1F20([]secs2.Item{secs2.A("objects")}, secs2.A("errors")).Item())
+	}, gem.S1F20([][]secs2.Item{{secs2.A("attrs")}}, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS1F21", func(item secs2.Item) error {
 		_, err := gem.DecodeS1F21(item)
 
@@ -114,7 +114,7 @@ func init() {
 		_, err := gem.DecodeS1F22(item)
 
 		return err
-	}, gem.S1F22(secs2.A("vids")).Item())
+	}, gem.S1F22(gem.DataVariableName{VID: secs2.A("vid"), DVVALNAME: "dvvalname", UNITS: "units"}).Item())
 	registerFuzzDecoder("DecodeS1F23", func(item secs2.Item) error {
 		_, err := gem.DecodeS1F23(item)
 
@@ -124,7 +124,7 @@ func init() {
 		_, err := gem.DecodeS1F24(item)
 
 		return err
-	}, gem.S1F24(secs2.A("ceids")).Item())
+	}, gem.S1F24(gem.CollectionEventName{CEID: secs2.A("ceid"), CENAME: "cename", VIDS: []secs2.Item{secs2.A("vids")}}).Item())
 }
 
 func TestDecodeS1F2RoundTrip(t *testing.T) {
@@ -323,7 +323,7 @@ func TestDecodeS1F11RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS1F12RoundTrip(t *testing.T) {
-	msg := gem.S1F12(secs2.A("svids"))
+	msg := gem.S1F12(gem.StatusVariableName{SVID: secs2.A("svid"), SVNAME: "svname", UNITS: "units"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -336,7 +336,7 @@ func TestDecodeS1F12RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S1F12Reply{
-		SVIDS: []secs2.Item{secs2.A("svids")},
+		VARIABLES: []gem.StatusVariableName{{SVID: secs2.A("svid"), SVNAME: "svname", UNITS: "units"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -481,7 +481,7 @@ func TestDecodeS1F19RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS1F20RoundTrip(t *testing.T) {
-	msg := gem.S1F20([]secs2.Item{secs2.A("objects")}, secs2.A("errors"))
+	msg := gem.S1F20([][]secs2.Item{{secs2.A("attrs")}}, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -494,8 +494,8 @@ func TestDecodeS1F20RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S1F20Reply{
-		OBJECTS: []secs2.Item{secs2.A("objects")},
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		OBJECTS: [][]secs2.Item{{secs2.A("attrs")}},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -522,7 +522,7 @@ func TestDecodeS1F21RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS1F22RoundTrip(t *testing.T) {
-	msg := gem.S1F22(secs2.A("vids"))
+	msg := gem.S1F22(gem.DataVariableName{VID: secs2.A("vid"), DVVALNAME: "dvvalname", UNITS: "units"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -535,7 +535,7 @@ func TestDecodeS1F22RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S1F22Reply{
-		VIDS: []secs2.Item{secs2.A("vids")},
+		VARIABLES: []gem.DataVariableName{{VID: secs2.A("vid"), DVVALNAME: "dvvalname", UNITS: "units"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -562,7 +562,7 @@ func TestDecodeS1F23RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS1F24RoundTrip(t *testing.T) {
-	msg := gem.S1F24(secs2.A("ceids"))
+	msg := gem.S1F24(gem.CollectionEventName{CEID: secs2.A("ceid"), CENAME: "cename", VIDS: []secs2.Item{secs2.A("vids")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -575,7 +575,7 @@ func TestDecodeS1F24RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S1F24Reply{
-		CEIDS: []secs2.Item{secs2.A("ceids")},
+		EVENTS: []gem.CollectionEventName{{CEID: secs2.A("ceid"), CENAME: "cename", VIDS: []secs2.Item{secs2.A("vids")}}},
 	}
 
 	assertDecoded(t, got, want)

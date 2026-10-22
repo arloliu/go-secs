@@ -69,27 +69,27 @@ func init() {
 		_, err := gem.DecodeS4F19(item)
 
 		return err
-	}, gem.S4F19(secs2.A("dataid"), "trjobname", secs2.A("transfers")).Item())
+	}, gem.S4F19(secs2.A("dataid"), "trjobname", gem.TransferJob{TRLINK: secs2.A("trlink"), TRPORT: secs2.A("trport"), TROBJNAME: "trobjname", TROBJTYPE: secs2.A("trobjtype"), TRROLE: 80, TRRCP: "trrcp", TRPTNR: "trptnr", TRPTPORT: secs2.A("trptport"), TRDIR: 51, TRTYPE: 6, TRLOCATION: secs2.A("trlocation"), TRAUTOSTART: true}).Item())
 	registerFuzzDecoder("DecodeS4F20", func(item secs2.Item) error {
 		_, err := gem.DecodeS4F20(item)
 
 		return err
-	}, gem.S4F20([]byte{0x9b, 0x00, 0x92, 0x23}, []secs2.Item{secs2.A("atomicids")}, true, secs2.A("errors")).Item())
+	}, gem.S4F20([]byte{0x9b, 0x00, 0x92, 0x23}, []secs2.Item{secs2.A("atomicids")}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS4F21", func(item secs2.Item) error {
 		_, err := gem.DecodeS4F21(item)
 
 		return err
-	}, gem.S4F21([]byte{0x9b, 0x00, 0x92, 0x23}, "trcmdname", secs2.A("params")).Item())
+	}, gem.S4F21([]byte{0x9b, 0x00, 0x92, 0x23}, "trcmdname", gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")}).Item())
 	registerFuzzDecoder("DecodeS4F22", func(item secs2.Item) error {
 		_, err := gem.DecodeS4F22(item)
 
 		return err
-	}, gem.S4F22(true, secs2.A("errors")).Item())
+	}, gem.S4F22(true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS4F23", func(item secs2.Item) error {
 		_, err := gem.DecodeS4F23(item)
 
 		return err
-	}, gem.S4F23([]byte{0x9b, 0x00, 0x92, 0x23}, "trjobname", 43, true, secs2.A("errors")).Item())
+	}, gem.S4F23([]byte{0x9b, 0x00, 0x92, 0x23}, "trjobname", 43, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS4F25", func(item secs2.Item) error {
 		_, err := gem.DecodeS4F25(item)
 
@@ -109,17 +109,17 @@ func init() {
 		_, err := gem.DecodeS4F29(item)
 
 		return err
-	}, gem.S4F29(secs2.A("trlink"), secs2.A("mcindex"), "hocmdname", secs2.A("params")).Item())
+	}, gem.S4F29(secs2.A("trlink"), secs2.A("mcindex"), "hocmdname", gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")}).Item())
 	registerFuzzDecoder("DecodeS4F31", func(item secs2.Item) error {
 		_, err := gem.DecodeS4F31(item)
 
 		return err
-	}, gem.S4F31(secs2.A("trlink"), secs2.A("mcindex"), true, secs2.A("errors")).Item())
+	}, gem.S4F31(secs2.A("trlink"), secs2.A("mcindex"), true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS4F33", func(item secs2.Item) error {
 		_, err := gem.DecodeS4F33(item)
 
 		return err
-	}, gem.S4F33(secs2.A("trlink"), true, secs2.A("errors")).Item())
+	}, gem.S4F33(secs2.A("trlink"), true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS4F35", func(item secs2.Item) error {
 		_, err := gem.DecodeS4F35(item)
 
@@ -372,7 +372,7 @@ func TestDecodeS4F18RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS4F19RoundTrip(t *testing.T) {
-	msg := gem.S4F19(secs2.A("dataid"), "trjobname", secs2.A("transfers"))
+	msg := gem.S4F19(secs2.A("dataid"), "trjobname", gem.TransferJob{TRLINK: secs2.A("trlink"), TRPORT: secs2.A("trport"), TROBJNAME: "trobjname", TROBJTYPE: secs2.A("trobjtype"), TRROLE: 80, TRRCP: "trrcp", TRPTNR: "trptnr", TRPTPORT: secs2.A("trptport"), TRDIR: 51, TRTYPE: 6, TRLOCATION: secs2.A("trlocation"), TRAUTOSTART: true})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -387,14 +387,14 @@ func TestDecodeS4F19RoundTrip(t *testing.T) {
 	want := gem.S4F19Body{
 		DATAID:    secs2.A("dataid"),
 		TRJOBNAME: "trjobname",
-		TRANSFERS: []secs2.Item{secs2.A("transfers")},
+		TRANSFERS: []gem.TransferJob{{TRLINK: secs2.A("trlink"), TRPORT: secs2.A("trport"), TROBJNAME: "trobjname", TROBJTYPE: secs2.A("trobjtype"), TRROLE: 80, TRRCP: "trrcp", TRPTNR: "trptnr", TRPTPORT: secs2.A("trptport"), TRDIR: 51, TRTYPE: 6, TRLOCATION: secs2.A("trlocation"), TRAUTOSTART: true}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS4F20RoundTrip(t *testing.T) {
-	msg := gem.S4F20([]byte{0x9b, 0x00, 0x92, 0x23}, []secs2.Item{secs2.A("atomicids")}, true, secs2.A("errors"))
+	msg := gem.S4F20([]byte{0x9b, 0x00, 0x92, 0x23}, []secs2.Item{secs2.A("atomicids")}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -410,14 +410,14 @@ func TestDecodeS4F20RoundTrip(t *testing.T) {
 		TRJOBID:   []byte{0x9b, 0x00, 0x92, 0x23},
 		ATOMICIDS: []secs2.Item{secs2.A("atomicids")},
 		TRACK:     true,
-		ERRORS:    []secs2.Item{secs2.A("errors")},
+		ERRORS:    []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS4F21RoundTrip(t *testing.T) {
-	msg := gem.S4F21([]byte{0x9b, 0x00, 0x92, 0x23}, "trcmdname", secs2.A("params"))
+	msg := gem.S4F21([]byte{0x9b, 0x00, 0x92, 0x23}, "trcmdname", gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -432,14 +432,14 @@ func TestDecodeS4F21RoundTrip(t *testing.T) {
 	want := gem.S4F21Body{
 		TRJOBID:   []byte{0x9b, 0x00, 0x92, 0x23},
 		TRCMDNAME: "trcmdname",
-		PARAMS:    []secs2.Item{secs2.A("params")},
+		PARAMS:    []gem.CommandParam{{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS4F22RoundTrip(t *testing.T) {
-	msg := gem.S4F22(true, secs2.A("errors"))
+	msg := gem.S4F22(true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -453,14 +453,14 @@ func TestDecodeS4F22RoundTrip(t *testing.T) {
 
 	want := gem.S4F22Reply{
 		TRACK:  true,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS4F23RoundTrip(t *testing.T) {
-	msg := gem.S4F23([]byte{0x9b, 0x00, 0x92, 0x23}, "trjobname", 43, true, secs2.A("errors"))
+	msg := gem.S4F23([]byte{0x9b, 0x00, 0x92, 0x23}, "trjobname", 43, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -477,7 +477,7 @@ func TestDecodeS4F23RoundTrip(t *testing.T) {
 		TRJOBNAME: "trjobname",
 		TRJOBMS:   43,
 		TRACK:     true,
-		ERRORS:    []secs2.Item{secs2.A("errors")},
+		ERRORS:    []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -555,7 +555,7 @@ func TestDecodeS4F27RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS4F29RoundTrip(t *testing.T) {
-	msg := gem.S4F29(secs2.A("trlink"), secs2.A("mcindex"), "hocmdname", secs2.A("params"))
+	msg := gem.S4F29(secs2.A("trlink"), secs2.A("mcindex"), "hocmdname", gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -571,14 +571,14 @@ func TestDecodeS4F29RoundTrip(t *testing.T) {
 		TRLINK:    secs2.A("trlink"),
 		MCINDEX:   secs2.A("mcindex"),
 		HOCMDNAME: "hocmdname",
-		PARAMS:    []secs2.Item{secs2.A("params")},
+		PARAMS:    []gem.CommandParam{{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS4F31RoundTrip(t *testing.T) {
-	msg := gem.S4F31(secs2.A("trlink"), secs2.A("mcindex"), true, secs2.A("errors"))
+	msg := gem.S4F31(secs2.A("trlink"), secs2.A("mcindex"), true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -594,14 +594,14 @@ func TestDecodeS4F31RoundTrip(t *testing.T) {
 		TRLINK:  secs2.A("trlink"),
 		MCINDEX: secs2.A("mcindex"),
 		HOACK:   true,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS4F33RoundTrip(t *testing.T) {
-	msg := gem.S4F33(secs2.A("trlink"), true, secs2.A("errors"))
+	msg := gem.S4F33(secs2.A("trlink"), true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -616,7 +616,7 @@ func TestDecodeS4F33RoundTrip(t *testing.T) {
 	want := gem.S4F33Body{
 		TRLINK: secs2.A("trlink"),
 		HOACK:  true,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)

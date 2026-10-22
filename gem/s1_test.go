@@ -267,7 +267,7 @@ func TestS1F11(t *testing.T) {
 }
 
 func TestS1F12(t *testing.T) {
-	msg := gem.S1F12(secs2.A("svids"))
+	msg := gem.S1F12(gem.StatusVariableName{SVID: secs2.A("svid"), SVNAME: "svname", UNITS: "units"})
 
 	assertS1Header(t, msg, 12, false)
 
@@ -282,10 +282,31 @@ func TestS1F12(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("svids").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("svids: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list2))
+	}
+	got3 := list2[0].ToBytes()
+	want3 := secs2.A("svid").ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("svid: got %x, want %x", got3, want3)
+	}
+	v4, err := list2[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[1].ToASCII: %v", err)
+	}
+	if v4 != "svname" {
+		t.Errorf("svname: got %q, want %q", v4, "svname")
+	}
+	v5, err := list2[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[2].ToASCII: %v", err)
+	}
+	if v5 != "units" {
+		t.Errorf("units: got %q, want %q", v5, "units")
 	}
 }
 
@@ -521,7 +542,7 @@ func TestS1F19(t *testing.T) {
 }
 
 func TestS1F20(t *testing.T) {
-	msg := gem.S1F20([]secs2.Item{secs2.A("objects")}, secs2.A("errors"))
+	msg := gem.S1F20([][]secs2.Item{{secs2.A("attrs")}}, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS1Header(t, msg, 20, false)
 
@@ -543,22 +564,43 @@ func TestS1F20(t *testing.T) {
 	if len(list2) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list2))
 	}
-	got3 := list2[0].ToBytes()
-	want3 := secs2.A("objects").ToBytes()
-	if !bytes.Equal(got3, want3) {
-		t.Errorf("objects: got %x, want %x", got3, want3)
+	list3, err := list2[0].ToList()
+	if err != nil {
+		t.Fatalf("list2[0].ToList: %v", err)
 	}
-	list4, err := list1[1].ToList()
+	if len(list3) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list3))
+	}
+	got4 := list3[0].ToBytes()
+	want4 := secs2.A("attrs").ToBytes()
+	if !bytes.Equal(got4, want4) {
+		t.Errorf("attrs: got %x, want %x", got4, want4)
+	}
+	list5, err := list1[1].ToList()
 	if err != nil {
 		t.Fatalf("list1[1].ToList: %v", err)
 	}
-	if len(list4) != 1 {
-		t.Fatalf("list length: got %d, want 1", len(list4))
+	if len(list5) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("errors: got %x, want %x", got5, want5)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("errcode: got %x, want %x", got7, want7)
+	}
+	v8, err := list6[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list6[1].ToASCII: %v", err)
+	}
+	if v8 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v8, "errtext")
 	}
 }
 
@@ -586,7 +628,7 @@ func TestS1F21(t *testing.T) {
 }
 
 func TestS1F22(t *testing.T) {
-	msg := gem.S1F22(secs2.A("vids"))
+	msg := gem.S1F22(gem.DataVariableName{VID: secs2.A("vid"), DVVALNAME: "dvvalname", UNITS: "units"})
 
 	assertS1Header(t, msg, 22, false)
 
@@ -601,10 +643,31 @@ func TestS1F22(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("vids").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("vids: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list2))
+	}
+	got3 := list2[0].ToBytes()
+	want3 := secs2.A("vid").ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("vid: got %x, want %x", got3, want3)
+	}
+	v4, err := list2[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[1].ToASCII: %v", err)
+	}
+	if v4 != "dvvalname" {
+		t.Errorf("dvvalname: got %q, want %q", v4, "dvvalname")
+	}
+	v5, err := list2[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[2].ToASCII: %v", err)
+	}
+	if v5 != "units" {
+		t.Errorf("units: got %q, want %q", v5, "units")
 	}
 }
 
@@ -632,7 +695,7 @@ func TestS1F23(t *testing.T) {
 }
 
 func TestS1F24(t *testing.T) {
-	msg := gem.S1F24(secs2.A("ceids"))
+	msg := gem.S1F24(gem.CollectionEventName{CEID: secs2.A("ceid"), CENAME: "cename", VIDS: []secs2.Item{secs2.A("vids")}})
 
 	assertS1Header(t, msg, 24, false)
 
@@ -647,9 +710,35 @@ func TestS1F24(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("ceids").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("ceids: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list2))
+	}
+	got3 := list2[0].ToBytes()
+	want3 := secs2.A("ceid").ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("ceid: got %x, want %x", got3, want3)
+	}
+	v4, err := list2[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[1].ToASCII: %v", err)
+	}
+	if v4 != "cename" {
+		t.Errorf("cename: got %q, want %q", v4, "cename")
+	}
+	list5, err := list2[2].ToList()
+	if err != nil {
+		t.Fatalf("list2[2].ToList: %v", err)
+	}
+	if len(list5) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("vids").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("vids: got %x, want %x", got6, want6)
 	}
 }

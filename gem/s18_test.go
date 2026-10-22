@@ -109,7 +109,7 @@ func TestS18F2(t *testing.T) {
 }
 
 func TestS18F3(t *testing.T) {
-	msg := gem.S18F3("targetid", secs2.A("attributes"))
+	msg := gem.S18F3("targetid", gem.Attribute{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")})
 
 	assertS18Header(t, msg, 3, true)
 
@@ -138,10 +138,22 @@ func TestS18F3(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("attributes").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("attributes: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("attrid").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("attrid: got %x, want %x", got5, want5)
+	}
+	got6 := list4[1].ToBytes()
+	want6 := secs2.A("attrdata").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("attrdata: got %x, want %x", got6, want6)
 	}
 }
 

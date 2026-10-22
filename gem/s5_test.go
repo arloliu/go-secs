@@ -147,7 +147,7 @@ func TestS5F5(t *testing.T) {
 }
 
 func TestS5F6(t *testing.T) {
-	msg := gem.S5F6(secs2.A("alarms"))
+	msg := gem.S5F6(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"})
 
 	assertS5Header(t, msg, 6, false)
 
@@ -162,10 +162,31 @@ func TestS5F6(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("alarms").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("alarms: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list2))
+	}
+	v3, err := list2[0].ToBinary()
+	if err != nil {
+		t.Fatalf("list2[0].ToBinary: %v", err)
+	}
+	if len(v3) != 1 || v3[0] != 0x87 {
+		t.Errorf("alcd: got %v, want %v", v3, 0x87)
+	}
+	got4 := list2[1].ToBytes()
+	want4 := secs2.A("alid").ToBytes()
+	if !bytes.Equal(got4, want4) {
+		t.Errorf("alid: got %x, want %x", got4, want4)
+	}
+	v5, err := list2[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[2].ToASCII: %v", err)
+	}
+	if v5 != "altx" {
+		t.Errorf("altx: got %q, want %q", v5, "altx")
 	}
 }
 
@@ -180,7 +201,7 @@ func TestS5F7(t *testing.T) {
 }
 
 func TestS5F8(t *testing.T) {
-	msg := gem.S5F8(secs2.A("alarms"))
+	msg := gem.S5F8(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"})
 
 	assertS5Header(t, msg, 8, false)
 
@@ -195,10 +216,31 @@ func TestS5F8(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("alarms").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("alarms: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list2))
+	}
+	v3, err := list2[0].ToBinary()
+	if err != nil {
+		t.Fatalf("list2[0].ToBinary: %v", err)
+	}
+	if len(v3) != 1 || v3[0] != 0x87 {
+		t.Errorf("alcd: got %v, want %v", v3, 0x87)
+	}
+	got4 := list2[1].ToBytes()
+	want4 := secs2.A("alid").ToBytes()
+	if !bytes.Equal(got4, want4) {
+		t.Errorf("alid: got %x, want %x", got4, want4)
+	}
+	v5, err := list2[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[2].ToASCII: %v", err)
+	}
+	if v5 != "altx" {
+		t.Errorf("altx: got %q, want %q", v5, "altx")
 	}
 }
 

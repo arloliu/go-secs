@@ -401,7 +401,7 @@ func DecodeS4F18(item secs2.Item) (S4F18Reply, error) {
 type S4F19Body struct {
 	DATAID    secs2.Item
 	TRJOBNAME string
-	TRANSFERS []secs2.Item
+	TRANSFERS []TransferJob
 }
 
 // DecodeS4F19 decodes the body of an S4F19 (Transfer Job Create) message into a [S4F19Body].
@@ -432,7 +432,7 @@ func DecodeS4F19(item secs2.Item) (S4F19Body, error) {
 		return out, err
 	}
 
-	if out.TRANSFERS, err = decodeItems(root.At(1, 1), "TRANSFERS"); err != nil {
+	if out.TRANSFERS, err = decodeEach(root.At(1, 1), "TRANSFERS", decodeTransferJob); err != nil {
 		return out, err
 	}
 
@@ -448,7 +448,7 @@ type S4F20Reply struct {
 	TRJOBID   []byte
 	ATOMICIDS []secs2.Item
 	TRACK     bool
-	ERRORS    []secs2.Item
+	ERRORS    []ErrorInfo
 }
 
 // DecodeS4F20 decodes the body of an S4F20 (Transfer Job Acknowledge) message into a [S4F20Reply].
@@ -483,7 +483,7 @@ func DecodeS4F20(item secs2.Item) (S4F20Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(2, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -498,7 +498,7 @@ func DecodeS4F20(item secs2.Item) (S4F20Reply, error) {
 type S4F21Body struct {
 	TRJOBID   []byte
 	TRCMDNAME TRCMDNAME
-	PARAMS    []secs2.Item
+	PARAMS    []CommandParam
 }
 
 // DecodeS4F21 decodes the body of an S4F21 (Transfer Job Command) message into a [S4F21Body].
@@ -528,7 +528,7 @@ func DecodeS4F21(item secs2.Item) (S4F21Body, error) {
 
 	out.TRCMDNAME = TRCMDNAME(s1)
 
-	if out.PARAMS, err = decodeItems(root.At(2), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(2), "PARAMS", decodeCommandParam); err != nil {
 		return out, err
 	}
 
@@ -542,7 +542,7 @@ func DecodeS4F21(item secs2.Item) (S4F21Body, error) {
 // It is filled by [DecodeS4F22] and mirrors the parameters of [S4F22], in order.
 type S4F22Reply struct {
 	TRACK  bool
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS4F22 decodes the body of an S4F22 (Transfer Command Acknowledge) message into a [S4F22Reply].
@@ -565,7 +565,7 @@ func DecodeS4F22(item secs2.Item) (S4F22Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -582,7 +582,7 @@ type S4F23Body struct {
 	TRJOBNAME string
 	TRJOBMS   TRJOBMS
 	TRACK     bool
-	ERRORS    []secs2.Item
+	ERRORS    []ErrorInfo
 }
 
 // DecodeS4F23 decodes the body of an S4F23 (Transfer Job Alert) message into a [S4F23Body].
@@ -621,7 +621,7 @@ func DecodeS4F23(item secs2.Item) (S4F23Body, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(3, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(3, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -788,7 +788,7 @@ type S4F29Body struct {
 	TRLINK    secs2.Item
 	MCINDEX   secs2.Item
 	HOCMDNAME string
-	PARAMS    []secs2.Item
+	PARAMS    []CommandParam
 }
 
 // DecodeS4F29 decodes the body of an S4F29 (Handoff Command) message into a [S4F29Body].
@@ -819,7 +819,7 @@ func DecodeS4F29(item secs2.Item) (S4F29Body, error) {
 		return out, err
 	}
 
-	if out.PARAMS, err = decodeItems(root.At(3), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(3), "PARAMS", decodeCommandParam); err != nil {
 		return out, err
 	}
 
@@ -835,7 +835,7 @@ type S4F31Body struct {
 	TRLINK  secs2.Item
 	MCINDEX secs2.Item
 	HOACK   bool
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS4F31 decodes the body of an S4F31 (Handoff Command Complete) message into a [S4F31Body].
@@ -870,7 +870,7 @@ func DecodeS4F31(item secs2.Item) (S4F31Body, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(2, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(2, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -885,7 +885,7 @@ func DecodeS4F31(item secs2.Item) (S4F31Body, error) {
 type S4F33Body struct {
 	TRLINK secs2.Item
 	HOACK  bool
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS4F33 decodes the body of an S4F33 (Handoff Verified) message into a [S4F33Body].
@@ -916,7 +916,7 @@ func DecodeS4F33(item secs2.Item) (S4F33Body, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 

@@ -405,7 +405,7 @@ func TestS12F6(t *testing.T) {
 }
 
 func TestS12F7(t *testing.T) {
-	msg := gem.S12F7(secs2.A("mid"), 0xff, secs2.A("rows"))
+	msg := gem.S12F7(secs2.A("mid"), 0xff, gem.MapRow{RSINF: secs2.A("rsinf"), BINLT: secs2.A("binlt")})
 
 	assertS12Header(t, msg, 7, true)
 
@@ -439,10 +439,22 @@ func TestS12F7(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("rows").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("rows: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("rsinf").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("rsinf: got %x, want %x", got6, want6)
+	}
+	got7 := list5[1].ToBytes()
+	want7 := secs2.A("binlt").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("binlt: got %x, want %x", got7, want7)
 	}
 }
 
@@ -523,7 +535,7 @@ func TestS12F10(t *testing.T) {
 }
 
 func TestS12F11(t *testing.T) {
-	msg := gem.S12F11(secs2.A("mid"), 0xff, secs2.A("positions"))
+	msg := gem.S12F11(secs2.A("mid"), 0xff, gem.MapPosition{XYPOS: secs2.A("xypos"), BINLT: secs2.A("binlt")})
 
 	assertS12Header(t, msg, 11, true)
 
@@ -557,10 +569,22 @@ func TestS12F11(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("positions").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("positions: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("xypos").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("xypos: got %x, want %x", got6, want6)
+	}
+	got7 := list5[1].ToBytes()
+	want7 := secs2.A("binlt").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("binlt: got %x, want %x", got7, want7)
 	}
 }
 
@@ -613,7 +637,7 @@ func TestS12F13(t *testing.T) {
 }
 
 func TestS12F14(t *testing.T) {
-	msg := gem.S12F14(secs2.A("mid"), 0xff, secs2.A("rows"))
+	msg := gem.S12F14(secs2.A("mid"), 0xff, gem.MapRow{RSINF: secs2.A("rsinf"), BINLT: secs2.A("binlt")})
 
 	assertS12Header(t, msg, 14, false)
 
@@ -647,10 +671,22 @@ func TestS12F14(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("rows").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("rows: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("rsinf").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("rsinf: got %x, want %x", got6, want6)
+	}
+	got7 := list5[1].ToBytes()
+	want7 := secs2.A("binlt").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("binlt: got %x, want %x", got7, want7)
 	}
 }
 
@@ -762,7 +798,7 @@ func TestS12F17(t *testing.T) {
 }
 
 func TestS12F18(t *testing.T) {
-	msg := gem.S12F18(secs2.A("mid"), 0xff, secs2.A("positions"))
+	msg := gem.S12F18(secs2.A("mid"), 0xff, gem.MapPosition{XYPOS: secs2.A("xypos"), BINLT: secs2.A("binlt")})
 
 	assertS12Header(t, msg, 18, false)
 
@@ -796,10 +832,22 @@ func TestS12F18(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("positions").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("positions: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("xypos").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("xypos: got %x, want %x", got6, want6)
+	}
+	got7 := list5[1].ToBytes()
+	want7 := secs2.A("binlt").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("binlt: got %x, want %x", got7, want7)
 	}
 }
 

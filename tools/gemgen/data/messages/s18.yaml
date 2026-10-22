@@ -60,7 +60,7 @@ messages:
             - {item: TARGETID}
             - type: list
               repeat: attributes
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
 
   - function: 4
     name: Write Attribute Acknowledge

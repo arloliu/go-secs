@@ -181,21 +181,7 @@ messages:
                 - {item: TRJOBNAME}
                 - type: list
                   repeat: transfers
-                  of:
-                    type: list
-                    items:
-                      - {item: TRLINK}
-                      - {item: TRPORT}
-                      - {item: TROBJNAME}
-                      - {item: TROBJTYPE}
-                      - {item: TRROLE}
-                      - {item: TRRCP}
-                      - {item: TRPTNR}
-                      - {item: TRPTPORT}
-                      - {item: TRDIR}
-                      - {item: TRTYPE}
-                      - {item: TRLOCATION}
-                      - {item: TRAUTOSTART}
+                  of: {group: TransferJob}
 
   # The markdown conversion of E5 drops the L,3 header of this structure;
   # the structure is taken from the page layout text.
@@ -220,7 +206,7 @@ messages:
             - type: list
               items:
                 - {item: TRACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 21
     name: Transfer Job Command
@@ -239,7 +225,7 @@ messages:
             - {item: TRCMDNAME}
             - type: list
               repeat: params
-              of: {type: list, items: [{item: CPNAME}, {item: CPVAL}]}
+              of: {group: CommandParam}
 
   - function: 22
     name: Transfer Command Acknowledge
@@ -255,7 +241,7 @@ messages:
           type: list
           items:
             - {item: TRACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   # The markdown conversion of E5 drops most of this structure;
   # the structure is taken from the page layout text.
@@ -283,7 +269,7 @@ messages:
             - type: list
               items:
                 - {item: TRACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 24
     name: Transfer Alert Acknowledge
@@ -383,7 +369,7 @@ messages:
             - {item: HOCMDNAME}
             - type: list
               repeat: params
-              of: {type: list, items: [{item: CPNAME}, {item: CPVAL}]}
+              of: {group: CommandParam}
 
   - function: 31
     name: Handoff Command Complete
@@ -407,7 +393,7 @@ messages:
             - type: list
               items:
                 - {item: HOACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 33
     name: Handoff Verified
@@ -432,7 +418,7 @@ messages:
             - type: list
               items:
                 - {item: HOACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 35
     name: Handoff Cancel Ready

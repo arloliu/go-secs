@@ -1,7 +1,7 @@
 package gem
 
 // The tools/gemgen generator writes every stream file in this package from YAML under tools/gemgen/data:
-// items.go from data/items.yaml,
+// items.go from data/items.yaml, groups.go from data/groups.yaml,
 // and for each stream N the four files sN.go, sN_test.go, sN_decode.go and sN_decode_test.go
 // from data/messages/sN.yaml.
 // The generated streams are 1 to 10 and 12 to 19
@@ -10,7 +10,7 @@ package gem
 // It carries no per-message data,
 // but the generator writes it too, so the decoders and the helpers they need never drift apart.
 // Everything else here is hand-written:
-// doc.go, this file, report.go, and the test files outside the per-stream set.
+// doc.go, this file, and the test files outside the per-stream set.
 // Run `go generate ./...` from the repository root (or `go generate .` from this directory)
 // to regenerate the files after editing the YAML.
 //
@@ -22,4 +22,4 @@ package gem
 // running the directive lands items.go, s1.go and s1_test.go in gem/ with no stray gem/data/ tree,
 // confirming -C sets the child process's working directory as expected on this toolchain (go1.26.1).
 //
-//go:generate go run -C ../tools/gemgen . -items data/items.yaml -messages data/messages -out ../../gem
+//go:generate go run -C ../tools/gemgen . -items data/items.yaml -groups data/groups.yaml -messages data/messages -out ../../gem

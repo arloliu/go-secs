@@ -90,7 +90,7 @@ func DecodeS18F2(item secs2.Item) (S18F2Reply, error) {
 // It is filled by [DecodeS18F3] and mirrors the parameters of [S18F3], in order.
 type S18F3Body struct {
 	TARGETID   string
-	ATTRIBUTES []secs2.Item
+	ATTRIBUTES []Attribute
 }
 
 // DecodeS18F3 decodes the body of an S18F3 (Write Attribute Request) message into a [S18F3Body].
@@ -113,7 +113,7 @@ func DecodeS18F3(item secs2.Item) (S18F3Body, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeItems(root.At(1), "ATTRIBUTES"); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(1), "ATTRIBUTES", decodeAttribute); err != nil {
 		return out, err
 	}
 

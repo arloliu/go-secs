@@ -86,7 +86,7 @@ messages:
         structure:
           type: list
           repeat: alarms
-          of: {type: list, items: [{item: ALCD}, {item: ALID}, {item: ALTX}]}
+          of: {group: Alarm}
 
   - function: 7
     name: List Enabled Alarm Request
@@ -113,7 +113,7 @@ messages:
         structure:
           type: list
           repeat: alarms
-          of: {type: list, items: [{item: ALCD}, {item: ALID}, {item: ALTX}]}
+          of: {group: Alarm}
 
   - function: 9
     name: Exception Post Notify

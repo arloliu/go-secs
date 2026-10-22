@@ -11,21 +11,24 @@ import (
 
 func main() {
 	itemsPath := flag.String("items", "", "path to items.yaml (the Data Item Dictionary)")
+	groupsPath := flag.String("groups", "", "path to groups.yaml (the named list shapes messages repeat); optional")
 	msgsDir := flag.String("messages", "", "directory of per-stream messages/*.yaml files")
 	outDir := flag.String("out", "", "output directory for generated gem/*.go files")
 	flag.Parse()
 
-	if err := run(*itemsPath, *msgsDir, *outDir); err != nil {
+	if err := run(*itemsPath, *groupsPath, *msgsDir, *outDir); err != nil {
 		fmt.Fprintln(os.Stderr, "gemgen:", err)
 		os.Exit(1)
 	}
 }
 
-// run loads the items dictionary and every stream's messages file under
-// msgsDir, validates them, renders items.go/sN.go/sN_test.go, and writes the
-// results under outDir. It is the whole CLI's orchestration, split out from
-// main so it is testable without a subprocess.
-func run(itemsPath, msgsDir, outDir string) error {
+// run loads the items dictionary, the groups file, and every stream's messages file under msgsDir,
+// validates them, renders items.go, groups.go, decode.go, and each stream's files,
+// and writes the results under outDir.
+// An empty groupsPath means no groups, and no groups.go is written.
+// It is the whole CLI's orchestration,
+// split out from main so it is testable without a subprocess.
+func run(itemsPath, groupsPath, msgsDir, outDir string) error {
 	itemsData, err := os.ReadFile(itemsPath)
 	if err != nil {
 		return fmt.Errorf("read items file: %w", err)
@@ -42,6 +45,15 @@ func run(itemsPath, msgsDir, outDir string) error {
 
 	msgFiles, err := loadMessageFiles(msgsDir)
 	if err != nil {
+		return err
+	}
+
+	groups, err := loadGroupsFile(groupsPath)
+	if err != nil {
+		return err
+	}
+
+	if err := ResolveGroups(groups, msgFiles, items); err != nil {
 		return err
 	}
 
@@ -62,6 +74,17 @@ func run(itemsPath, msgsDir, outDir string) error {
 		return fmt.Errorf("write items.go: %w", err)
 	}
 
+	if len(groups) > 0 {
+		groupsSrc, err := renderGroups(groups, items)
+		if err != nil {
+			return fmt.Errorf("render groups.go: %w", err)
+		}
+
+		if err := os.WriteFile(filepath.Join(outDir, "groups.go"), groupsSrc, 0o600); err != nil {
+			return fmt.Errorf("write groups.go: %w", err)
+		}
+	}
+
 	supportSrc, err := renderDecodeSupport()
 	if err != nil {
 		return fmt.Errorf("render decode.go: %w", err)
@@ -78,6 +101,21 @@ func run(itemsPath, msgsDir, outDir string) error {
 	}
 
 	return nil
+}
+
+// loadGroupsFile reads and parses the groups file at path,
+// or returns no groups for an empty path.
+func loadGroupsFile(path string) ([]Group, error) {
+	if path == "" {
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read groups file: %w", err)
+	}
+
+	return LoadGroups(data)
 }
 
 // loadMessageFiles globs and loads every *.yaml file under msgsDir into a

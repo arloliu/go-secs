@@ -303,26 +303,15 @@ func sampleFields(params []Param, fields []decodeField, exprs []string) []fieldV
 		i := f.Param
 		value := exprs[i]
 
-		switch {
-		case f.Elem != "":
-			// Value repeat: one element, the bare literal its call sent.
-			value = fmt.Sprintf("%s{%s}", qualifiedSliceType(f.Type), exprs[i])
-		case f.Type == "[]secs2.Item":
-			value = fmt.Sprintf("[]secs2.Item{%s}", exprs[i])
-		case f.Type == "[]byte" && params[i].Repeat:
-			value = fmt.Sprintf("[]byte{%s}", exprs[i]) // packed group: the sample is one bare element
-		default:
-			// A leaf, opaque node, or byte slice or array: the sample is the field's own value,
-			// and an untyped constant converts to a named enum type as well as to a plain one.
+		if params[i].Repeat {
+			// A repeat or packed group: one element, the sample its call sent.
+			value = sliceLiteral(strings.TrimPrefix(f.Type, "[]"), exprs[i])
 		}
 
+		// Any other field's sample is the field's own value,
+		// and an untyped constant converts to a named enum type as well as to a plain one.
 		values = append(values, fieldValue{f.Name, value})
 	}
 
 	return values
-}
-
-// qualifiedSliceType spells the slice type typ, e.g. []STATUS, as the generated tests must: see [qualifiedType].
-func qualifiedSliceType(typ string) string {
-	return "[]" + qualifiedType(strings.TrimPrefix(typ, "[]"))
 }

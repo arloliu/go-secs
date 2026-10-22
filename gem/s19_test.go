@@ -28,7 +28,7 @@ func assertS19Header(t *testing.T, msg secs2.SECS2Message, function uint8, wantW
 }
 
 func TestS19F1(t *testing.T) {
-	msg := gem.S19F1([]secs2.Item{secs2.A("filters")}, 81)
+	msg := gem.S19F1([]gem.PDEFilter{{PDEATTRIBUTENAME: 50, COMPARISONOPERATOR: 31, PDEATTRIBUTEVALUE: secs2.A("pdeattributevalue")}}, 81)
 
 	assertS19Header(t, msg, 1, true)
 
@@ -50,29 +50,50 @@ func TestS19F1(t *testing.T) {
 	if len(list2) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list2))
 	}
-	got3 := list2[0].ToBytes()
-	want3 := secs2.A("filters").ToBytes()
-	if !bytes.Equal(got3, want3) {
-		t.Errorf("filters: got %x, want %x", got3, want3)
+	list3, err := list2[0].ToList()
+	if err != nil {
+		t.Fatalf("list2[0].ToList: %v", err)
 	}
-	list4, err := list1[1].ToList()
+	if len(list3) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list3))
+	}
+	v4, err := list3[0].ToUint()
+	if err != nil {
+		t.Fatalf("list3[0].ToUint: %v", err)
+	}
+	if len(v4) != 1 || v4[0] != 50 {
+		t.Errorf("pdeattributename: got %v, want %v", v4, 50)
+	}
+	v5, err := list3[1].ToUint()
+	if err != nil {
+		t.Fatalf("list3[1].ToUint: %v", err)
+	}
+	if len(v5) != 1 || v5[0] != 31 {
+		t.Errorf("comparisonoperator: got %v, want %v", v5, 31)
+	}
+	got6 := list3[2].ToBytes()
+	want6 := secs2.A("pdeattributevalue").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("pdeattributevalue: got %x, want %x", got6, want6)
+	}
+	list7, err := list1[1].ToList()
 	if err != nil {
 		t.Fatalf("list1[1].ToList: %v", err)
 	}
-	if len(list4) != 1 {
-		t.Fatalf("list length: got %d, want 1", len(list4))
+	if len(list7) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list7))
 	}
-	v5, err := list4[0].ToUint()
+	v8, err := list7[0].ToUint()
 	if err != nil {
-		t.Fatalf("list4[0].ToUint: %v", err)
+		t.Fatalf("list7[0].ToUint: %v", err)
 	}
-	if len(v5) != 1 || v5[0] != 81 {
-		t.Errorf("attributes: got %v, want %v", v5, 81)
+	if len(v8) != 1 || v8[0] != 81 {
+		t.Errorf("attributes: got %v, want %v", v8, 81)
 	}
 }
 
 func TestS19F2(t *testing.T) {
-	msg := gem.S19F2(62, "statustxt", secs2.A("pdes"))
+	msg := gem.S19F2(62, "statustxt", gem.PDEAttributes{UID: "uid", ATTRIBUTES: []gem.PDEAttributeValue{{PDEATTRIBUTE: 6, PDEATTRIBUTEVALUE: secs2.A("pdeattributevalue")}}})
 
 	assertS19Header(t, msg, 2, false)
 
@@ -108,10 +129,45 @@ func TestS19F2(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("pdes").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("pdes: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	v6, err := list5[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list5[0].ToASCII: %v", err)
+	}
+	if v6 != "uid" {
+		t.Errorf("uid: got %q, want %q", v6, "uid")
+	}
+	list7, err := list5[1].ToList()
+	if err != nil {
+		t.Fatalf("list5[1].ToList: %v", err)
+	}
+	if len(list7) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list7))
+	}
+	list8, err := list7[0].ToList()
+	if err != nil {
+		t.Fatalf("list7[0].ToList: %v", err)
+	}
+	if len(list8) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list8))
+	}
+	v9, err := list8[0].ToUint()
+	if err != nil {
+		t.Fatalf("list8[0].ToUint: %v", err)
+	}
+	if len(v9) != 1 || v9[0] != 6 {
+		t.Errorf("pdeattribute: got %v, want %v", v9, 6)
+	}
+	got10 := list8[1].ToBytes()
+	want10 := secs2.A("pdeattributevalue").ToBytes()
+	if !bytes.Equal(got10, want10) {
+		t.Errorf("pdeattributevalue: got %x, want %x", got10, want10)
 	}
 }
 
@@ -141,7 +197,7 @@ func TestS19F3(t *testing.T) {
 }
 
 func TestS19F4(t *testing.T) {
-	msg := gem.S19F4(secs2.A("results"))
+	msg := gem.S19F4(gem.PDEDeleteResult{UID: "uid", DELRSPSTAT: 43, STATUSTXT: "statustxt"})
 
 	assertS19Header(t, msg, 4, false)
 
@@ -156,10 +212,33 @@ func TestS19F4(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("results").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("results: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list2))
+	}
+	v3, err := list2[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[0].ToASCII: %v", err)
+	}
+	if v3 != "uid" {
+		t.Errorf("uid: got %q, want %q", v3, "uid")
+	}
+	v4, err := list2[1].ToUint()
+	if err != nil {
+		t.Fatalf("list2[1].ToUint: %v", err)
+	}
+	if len(v4) != 1 || v4[0] != 43 {
+		t.Errorf("delrspstat: got %v, want %v", v4, 43)
+	}
+	v5, err := list2[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[2].ToASCII: %v", err)
+	}
+	if v5 != "statustxt" {
+		t.Errorf("statustxt: got %q, want %q", v5, "statustxt")
 	}
 }
 
@@ -189,7 +268,7 @@ func TestS19F5(t *testing.T) {
 }
 
 func TestS19F6(t *testing.T) {
-	msg := gem.S19F6("tcid", secs2.A("results"))
+	msg := gem.S19F6("tcid", gem.PDEGetResult{UID: "uid", GETRSPSTAT: 99, STATUSTXT: "statustxt"})
 
 	assertS19Header(t, msg, 6, false)
 
@@ -218,10 +297,33 @@ func TestS19F6(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("results").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("results: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list4))
+	}
+	v5, err := list4[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[0].ToASCII: %v", err)
+	}
+	if v5 != "uid" {
+		t.Errorf("uid: got %q, want %q", v5, "uid")
+	}
+	v6, err := list4[1].ToUint()
+	if err != nil {
+		t.Fatalf("list4[1].ToUint: %v", err)
+	}
+	if len(v6) != 1 || v6[0] != 99 {
+		t.Errorf("getrspstat: got %v, want %v", v6, 99)
+	}
+	v7, err := list4[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[2].ToASCII: %v", err)
+	}
+	if v7 != "statustxt" {
+		t.Errorf("statustxt: got %q, want %q", v7, "statustxt")
 	}
 }
 
@@ -251,7 +353,7 @@ func TestS19F7(t *testing.T) {
 }
 
 func TestS19F8(t *testing.T) {
-	msg := gem.S19F8("tcid", secs2.A("results"))
+	msg := gem.S19F8("tcid", gem.PDEGetResult{UID: "uid", GETRSPSTAT: 99, STATUSTXT: "statustxt"})
 
 	assertS19Header(t, msg, 8, false)
 
@@ -280,10 +382,33 @@ func TestS19F8(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("results").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("results: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list4))
+	}
+	v5, err := list4[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[0].ToASCII: %v", err)
+	}
+	if v5 != "uid" {
+		t.Errorf("uid: got %q, want %q", v5, "uid")
+	}
+	v6, err := list4[1].ToUint()
+	if err != nil {
+		t.Fatalf("list4[1].ToUint: %v", err)
+	}
+	if len(v6) != 1 || v6[0] != 99 {
+		t.Errorf("getrspstat: got %v, want %v", v6, 99)
+	}
+	v7, err := list4[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[2].ToASCII: %v", err)
+	}
+	if v7 != "statustxt" {
+		t.Errorf("statustxt: got %q, want %q", v7, "statustxt")
 	}
 }
 
@@ -387,7 +512,7 @@ func TestS19F12(t *testing.T) {
 }
 
 func TestS19F13(t *testing.T) {
-	msg := gem.S19F13("tcid", 69, secs2.A("results"))
+	msg := gem.S19F13("tcid", 69, gem.PDESendResult{UID: "uid", SENDRSPSTAT: 54, VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"})
 
 	assertS19Header(t, msg, 13, true)
 
@@ -423,10 +548,40 @@ func TestS19F13(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("results").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("results: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 4 {
+		t.Fatalf("list length: got %d, want 4", len(list5))
+	}
+	v6, err := list5[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list5[0].ToASCII: %v", err)
+	}
+	if v6 != "uid" {
+		t.Errorf("uid: got %q, want %q", v6, "uid")
+	}
+	v7, err := list5[1].ToUint()
+	if err != nil {
+		t.Fatalf("list5[1].ToUint: %v", err)
+	}
+	if len(v7) != 1 || v7[0] != 54 {
+		t.Errorf("sendrspstat: got %v, want %v", v7, 54)
+	}
+	v8, err := list5[2].ToUint()
+	if err != nil {
+		t.Fatalf("list5[2].ToUint: %v", err)
+	}
+	if len(v8) != 1 || v8[0] != 34 {
+		t.Errorf("verifyrspstat: got %v, want %v", v8, 34)
+	}
+	v9, err := list5[3].ToASCII()
+	if err != nil {
+		t.Fatalf("list5[3].ToASCII: %v", err)
+	}
+	if v9 != "statustxt" {
+		t.Errorf("statustxt: got %q, want %q", v9, "statustxt")
 	}
 }
 
@@ -441,7 +596,7 @@ func TestS19F14(t *testing.T) {
 }
 
 func TestS19F15(t *testing.T) {
-	msg := gem.S19F15("targetpde", secs2.A("inputMap"))
+	msg := gem.S19F15("targetpde", gem.PDEReference{PDEREF: "pderef", RESOLUTION: "resolution"})
 
 	assertS19Header(t, msg, 15, true)
 
@@ -470,15 +625,31 @@ func TestS19F15(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("inputMap").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("inputMap: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	v5, err := list4[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[0].ToASCII: %v", err)
+	}
+	if v5 != "pderef" {
+		t.Errorf("pderef: got %q, want %q", v5, "pderef")
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "resolution" {
+		t.Errorf("resolution: got %q, want %q", v6, "resolution")
 	}
 }
 
 func TestS19F16(t *testing.T) {
-	msg := gem.S19F16([]secs2.Item{secs2.A("outputMap")}, secs2.A("results"))
+	msg := gem.S19F16([]gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}}, gem.PDEResolveResult{UID: "uid", RESPDESTAT: 45, STATUSTXT: "statustxt"})
 
 	assertS19Header(t, msg, 16, false)
 
@@ -500,27 +671,66 @@ func TestS19F16(t *testing.T) {
 	if len(list2) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list2))
 	}
-	got3 := list2[0].ToBytes()
-	want3 := secs2.A("outputMap").ToBytes()
-	if !bytes.Equal(got3, want3) {
-		t.Errorf("outputMap: got %x, want %x", got3, want3)
+	list3, err := list2[0].ToList()
+	if err != nil {
+		t.Fatalf("list2[0].ToList: %v", err)
 	}
-	list4, err := list1[1].ToList()
+	if len(list3) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list3))
+	}
+	v4, err := list3[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list3[0].ToASCII: %v", err)
+	}
+	if v4 != "pderef" {
+		t.Errorf("pderef: got %q, want %q", v4, "pderef")
+	}
+	v5, err := list3[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list3[1].ToASCII: %v", err)
+	}
+	if v5 != "resolution" {
+		t.Errorf("resolution: got %q, want %q", v5, "resolution")
+	}
+	list6, err := list1[1].ToList()
 	if err != nil {
 		t.Fatalf("list1[1].ToList: %v", err)
 	}
-	if len(list4) != 1 {
-		t.Fatalf("list length: got %d, want 1", len(list4))
+	if len(list6) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("results").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("results: got %x, want %x", got5, want5)
+	list7, err := list6[0].ToList()
+	if err != nil {
+		t.Fatalf("list6[0].ToList: %v", err)
+	}
+	if len(list7) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list7))
+	}
+	v8, err := list7[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list7[0].ToASCII: %v", err)
+	}
+	if v8 != "uid" {
+		t.Errorf("uid: got %q, want %q", v8, "uid")
+	}
+	v9, err := list7[1].ToUint()
+	if err != nil {
+		t.Fatalf("list7[1].ToUint: %v", err)
+	}
+	if len(v9) != 1 || v9[0] != 45 {
+		t.Errorf("respdestat: got %v, want %v", v9, 45)
+	}
+	v10, err := list7[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list7[2].ToASCII: %v", err)
+	}
+	if v10 != "statustxt" {
+		t.Errorf("statustxt: got %q, want %q", v10, "statustxt")
 	}
 }
 
 func TestS19F17(t *testing.T) {
-	msg := gem.S19F17("targetpde", []secs2.Item{secs2.A("inputMap")}, 93, 61)
+	msg := gem.S19F17("targetpde", []gem.PDEReference{{PDEREF: "pderef", RESOLUTION: "resolution"}}, 93, 61)
 
 	assertS19Header(t, msg, 17, true)
 
@@ -549,29 +759,45 @@ func TestS19F17(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("inputMap").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("inputMap: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
 	}
-	v5, err := list1[2].ToUint()
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	v5, err := list4[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[0].ToASCII: %v", err)
+	}
+	if v5 != "pderef" {
+		t.Errorf("pderef: got %q, want %q", v5, "pderef")
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "resolution" {
+		t.Errorf("resolution: got %q, want %q", v6, "resolution")
+	}
+	v7, err := list1[2].ToUint()
 	if err != nil {
 		t.Fatalf("list1[2].ToUint: %v", err)
 	}
-	if len(v5) != 1 || v5[0] != 93 {
-		t.Errorf("verifytype: got %v, want %v", v5, 93)
+	if len(v7) != 1 || v7[0] != 93 {
+		t.Errorf("verifytype: got %v, want %v", v7, 93)
 	}
-	v6, err := list1[3].ToUint()
+	v8, err := list1[3].ToUint()
 	if err != nil {
 		t.Fatalf("list1[3].ToUint: %v", err)
 	}
-	if len(v6) != 1 || v6[0] != 61 {
-		t.Errorf("verifydepth: got %v, want %v", v6, 61)
+	if len(v8) != 1 || v8[0] != 61 {
+		t.Errorf("verifydepth: got %v, want %v", v8, 61)
 	}
 }
 
 func TestS19F18(t *testing.T) {
-	msg := gem.S19F18(true, secs2.A("results"))
+	msg := gem.S19F18(true, gem.PDEVerifyResult{UID: "uid", VERIFYRSPSTAT: 34, STATUSTXT: "statustxt"})
 
 	assertS19Header(t, msg, 18, false)
 
@@ -600,10 +826,33 @@ func TestS19F18(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("results").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("results: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list4))
+	}
+	v5, err := list4[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[0].ToASCII: %v", err)
+	}
+	if v5 != "uid" {
+		t.Errorf("uid: got %q, want %q", v5, "uid")
+	}
+	v6, err := list4[1].ToUint()
+	if err != nil {
+		t.Fatalf("list4[1].ToUint: %v", err)
+	}
+	if len(v6) != 1 || v6[0] != 34 {
+		t.Errorf("verifyrspstat: got %v, want %v", v6, 34)
+	}
+	v7, err := list4[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[2].ToASCII: %v", err)
+	}
+	if v7 != "statustxt" {
+		t.Errorf("statustxt: got %q, want %q", v7, "statustxt")
 	}
 }
 

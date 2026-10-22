@@ -149,11 +149,7 @@ messages:
         structure:
           type: list
           repeat: programs
-          of:
-            type: list
-            items:
-              - {item: PPID}
-              - {type: list, repeat: mids, of: {item: MID}}
+          of: {group: ProgramMaterials}
 
   - function: 11
     name: M/P M Update Send
@@ -172,11 +168,7 @@ messages:
         structure:
           type: list
           repeat: programs
-          of:
-            type: list
-            items:
-              - {item: PPID}
-              - {type: list, repeat: mids, of: {item: MID}}
+          of: {group: ProgramMaterials}
 
   - function: 12
     name: M/P M Update Acknowledge
@@ -209,11 +201,7 @@ messages:
         structure:
           type: list
           repeat: programs
-          of:
-            type: list
-            items:
-              - {item: PPID}
-              - {type: list, repeat: mids, of: {item: MID}}
+          of: {group: ProgramMaterials}
 
   - function: 14
     name: Delete M/P M Entry Acknowledge
@@ -345,24 +333,7 @@ messages:
             - {item: BYTMAX}
             - type: list
               repeat: commands
-              of:
-                type: list
-                items:
-                  - {item: CCODE}
-                  - {item: CNAME}
-                  - {item: RQCMD}
-                  - {item: BLKDEF}
-                  - {item: BCDS}
-                  - {item: IBCDS}
-                  - {item: NBCDS}
-                  - {item: ACDS}
-                  - {item: IACDS}
-                  - {item: NACDS}
-                  # A parameter specification is L,9, L,5 or L,4 depending on the parameter's data type,
-                  # so each one is opaque.
-                  # This nesting documents the command shape only:
-                  # commands is a []secs2.Item, so callers build each whole L,11 command.
-                  - {type: list, repeat: parameters, of: {type: opaque}}
+              of: {group: ProcessCommandDefinition}
 
   - function: 23
     name: Formatted Process Program Send
@@ -385,11 +356,7 @@ messages:
             - {item: SOFTREV}
             - type: list
               repeat: commands
-              of:
-                type: list
-                items:
-                  - {item: CCODE}
-                  - {type: list, repeat: parameters, of: {item: PPARM}}
+              of: {group: ProcessCommand}
 
   - function: 24
     name: Formatted Process Program Acknowledge
@@ -443,11 +410,7 @@ messages:
             - {item: SOFTREV}
             - type: list
               repeat: commands
-              of:
-                type: list
-                items:
-                  - {item: CCODE}
-                  - {type: list, repeat: parameters, of: {item: PPARM}}
+              of: {group: ProcessCommand}
 
   # E5 leaves the S7F27 exception cell empty.
   # Its Direction column marks the message single-block (S),
@@ -481,7 +444,7 @@ messages:
             - {item: PPID}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: ACKC7A}, {item: SEQNUM}, {item: ERRW7}]}
+              of: {group: ProgramError}
 
   - function: 28
     name: Process Program Verification Acknowledge
@@ -543,11 +506,7 @@ messages:
             - {item: SOFTREV}
             - type: list
               repeat: commands
-              of:
-                type: list
-                items:
-                  - {item: CCODE}
-                  - {type: list, repeat: parameters, of: {item: PPARM}}
+              of: {group: ProcessCommand}
 
   - function: 32
     name: Verification Request Acknowledge

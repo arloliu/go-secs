@@ -167,7 +167,7 @@ func TestEnumsCompileAndRunAgainstRealSecs2(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(checkDir)
 
-	require.NoError(t, run(itemsPath, msgsDir, checkDir))
+	require.NoError(t, run(itemsPath, "", msgsDir, checkDir))
 
 	enums, err := os.ReadFile(filepath.Join(checkDir, "items.go"))
 	require.NoError(t, err)

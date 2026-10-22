@@ -177,7 +177,7 @@ func optionalLeaves(n *StructureNode, items map[string]Item) ([]optionalLeaf, er
 // walkDecoder walks a validated body structure with a fresh emitter.
 // code labels the shape errors the emitted statements report.
 func walkDecoder(code string, n *StructureNode, items map[string]Item) (*decodeEmitter, error) {
-	e := &decodeEmitter{code: code, items: items}
+	e := &decodeEmitter{code: code, items: items, recv: "out", root: "root"}
 	if err := e.emitNode(n, nil); err != nil {
 		return nil, err
 	}
@@ -185,16 +185,64 @@ func walkDecoder(code string, n *StructureNode, items map[string]Item) (*decodeE
 	return e, nil
 }
 
+// walkGroupDecoder walks a validated group structure with a fresh emitter,
+// for the body of the group's decode function:
+// it fills g from the cursor c and labels its errors relative to the function's field parameter.
+func walkGroupDecoder(g *Group, items map[string]Item) (*decodeEmitter, error) {
+	e := &decodeEmitter{items: items, recv: "g", root: "c", group: true}
+	if err := e.emitNode(g.Structure, nil); err != nil {
+		return nil, fmt.Errorf("group %s: %w", g.Name, err)
+	}
+
+	return e, nil
+}
+
 // decodeEmitter accumulates the fields and the Go statement lines of one generated decoder as it
 // walks a validated structure node.
+//
+// The statements fill the struct named recv from the cursor named root.
+// A message decoder fills out from root, and labels each error with a constant:
+// a field name, or a body position such as "S1F14 body[1]".
+// A group's decode function fills g from c,
+// and labels each error by appending to its field parameter, which names the group's own position,
+// e.g. field+".VIDS" for a field and field+"[1]" for a sub-list.
 type decodeEmitter struct {
 	code      string
 	items     map[string]Item
+	recv      string
+	root      string
+	group     bool
 	fields    []decodeField
 	optionals []optionalLeaf
 	lines     []string
 	counter   int
 	params    int // builder parameters mirrored so far: the next value field's Param
+}
+
+// label renders the Go expression of the label the errors of the field name report.
+func (e *decodeEmitter) label(name string) string {
+	if e.group {
+		return fmt.Sprintf("field+%q", "."+name)
+	}
+
+	return strconv.Quote(name)
+}
+
+// listLabel renders the Go expression of the label the shape errors of the list at path report.
+func (e *decodeEmitter) listLabel(path []int) string {
+	switch {
+	case !e.group:
+		return strconv.Quote(e.pathLabel(path))
+	case len(path) == 0:
+		return "field"
+	default:
+		return fmt.Sprintf("field+%q", pathIndex(path))
+	}
+}
+
+// fail renders the statement that returns err from the generated function.
+func (e *decodeEmitter) fail() string {
+	return fmt.Sprintf("return %s, err", e.recv)
 }
 
 // nextID returns a fresh, monotonically increasing suffix for a generated variable name.
@@ -232,17 +280,17 @@ func (e *decodeEmitter) presenceField(name string, path []int) string {
 // scalar and item-valued field shares.
 func (e *decodeEmitter) assign(name string, call string) {
 	e.emit(
-		fmt.Sprintf("if out.%s, err = %s; err != nil {", name, call),
-		"return out, err",
+		fmt.Sprintf("if %s.%s, err = %s; err != nil {", e.recv, name, call),
+		e.fail(),
 		"}",
 		"",
 	)
 }
 
-// pathExpr renders the cursor expression addressing a body position.
-func pathExpr(path []int) string {
+// pathExpr renders the cursor expression addressing a position below the emitter's root.
+func (e *decodeEmitter) pathExpr(path []int) string {
 	if len(path) == 0 {
-		return "root"
+		return e.root
 	}
 
 	parts := make([]string, len(path))
@@ -250,7 +298,7 @@ func pathExpr(path []int) string {
 		parts[i] = strconv.Itoa(idx)
 	}
 
-	return "root.At(" + strings.Join(parts, ", ") + ")"
+	return e.root + ".At(" + strings.Join(parts, ", ") + ")"
 }
 
 // pathLabel renders the human-readable label a shape error names for a body position, e.g.
@@ -278,7 +326,14 @@ func (e *decodeEmitter) emitNode(n *StructureNode, path []int) error {
 		return e.emitLeaf(n, path)
 	case "opaque":
 		name := nodeNames(n)
-		e.assign(e.field(name.Field, "secs2.Item", path), fmt.Sprintf("decodeItem(%s, %q)", pathExpr(path), name.Label))
+		e.assign(e.field(name.Field, "secs2.Item", path), fmt.Sprintf("decodeItem(%s, %s)", e.pathExpr(path), e.label(name.Label)))
+
+		return nil
+	case "group":
+		// Only an optional reference sits outside a repeat, as a child of a group's fixed list.
+		name := nodeNames(n)
+		e.assign(e.field(name.Field, elemType(n, e.items), path),
+			fmt.Sprintf("decodeOptionalGroup(%s, %s, %d, decode%s)", e.pathExpr(path), e.label(name.Label), len(n.def.Structure.Items), n.Group))
 
 		return nil
 	default: // list
@@ -288,16 +343,9 @@ func (e *decodeEmitter) emitNode(n *StructureNode, path []int) error {
 
 // emitList walks a list node: a repeated group, a packed group, or a fixed group of children.
 func (e *decodeEmitter) emitList(n *StructureNode, path []int) error {
-	if it, ok := valueRepeatItem(n, e.items); ok {
-		return e.emitValueRepeat(n, it, path)
-	}
-
 	switch {
 	case n.Repeat != "":
-		name := nodeNames(n)
-		e.assign(e.field(name.Field, "[]secs2.Item", path), fmt.Sprintf("decodeItems(%s, %q)", pathExpr(path), name.Label))
-
-		return nil
+		return e.emitRepeat(n, path)
 	case n.Packed != "":
 		return e.emitPacked(n, path)
 	default:
@@ -305,38 +353,105 @@ func (e *decodeEmitter) emitList(n *StructureNode, path []int) error {
 	}
 }
 
-// emitValueRepeat walks a repeat of the fixed scalar item it:
-// a list whose every element is one item of the of leaf's format,
-// decoded element by element with the helper a leaf of that item uses.
-// An element's decode error names the field and the element's index.
-func (e *decodeEmitter) emitValueRepeat(n *StructureNode, it Item, path []int) error {
+// emitRepeat walks a repeat: a list of any number of elements of the shape its of declares.
+//
+// A repeat of secs2 items returns the list's children as they are.
+// Any other repeat decodes each element with the function [elemDecodeFunc] gives,
+// so an element's decode error names the field and the element's index, e.g. REPORTS[1].
+func (e *decodeEmitter) emitRepeat(n *StructureNode, path []int) error {
+	name := nodeNames(n)
+	typ := "[]" + elemType(n.Of, e.items)
+
+	call, err := e.repeatCall(n, e.pathExpr(path), e.label(name.Label))
+	if err != nil {
+		return err
+	}
+
+	field := decodeField{Name: name.Field, Type: typ, Param: e.params, Path: slices.Clone(path)}
+	if it, ok := valueRepeatItem(n, e.items); ok {
+		field.Elem = it.GoType
+	}
+
+	e.fields = append(e.fields, field)
+	e.params++
+
+	e.assign(field.Name, call)
+
+	return nil
+}
+
+// repeatCall renders the call that decodes the repeat n from the cursor expression cursor,
+// labeling its errors with the Go expression label.
+func (e *decodeEmitter) repeatCall(n *StructureNode, cursor string, label string) (string, error) {
+	if elemType(n.Of, e.items) == "secs2.Item" {
+		return fmt.Sprintf("decodeItems(%s, %s)", cursor, label), nil
+	}
+
+	fn, err := e.elemDecodeFunc(n)
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("decodeEach(%s, %s, %s)", cursor, label, fn), nil
+}
+
+// elemDecodeFunc renders the function that decodes one element of the repeat n
+// from a cursor and a label, as decodeEach calls it:
+// the decode helper a leaf of a fixed scalar element item uses,
+// a group's decode function, wrapped by optionalGroup when the element is optional,
+// or, for a repeat element, the decoding of that inner repeat.
+func (e *decodeEmitter) elemDecodeFunc(n *StructureNode) (string, error) {
+	of := n.Of
+
+	switch of.Kind() {
+	case "group":
+		if of.Optional {
+			return fmt.Sprintf("optionalGroup(%d, decode%s)", len(of.def.Structure.Items), of.Group), nil
+		}
+
+		return "decode" + of.Group, nil
+	case "list":
+		if elemType(of.Of, e.items) == "secs2.Item" {
+			return "decodeItems", nil
+		}
+
+		fn, err := e.elemDecodeFunc(of)
+		if err != nil {
+			return "", err
+		}
+
+		return fmt.Sprintf("eachOf(%s)", fn), nil
+	default: // a fixed scalar leaf: elemType sent every other element to decodeItems
+		return e.valueDecodeFunc(n)
+	}
+}
+
+// valueDecodeFunc renders the decode helper that reads one element of the value repeat n.
+func (e *decodeEmitter) valueDecodeFunc(n *StructureNode) (string, error) {
+	it, ok := valueRepeatItem(n, e.items)
+	if !ok {
+		return "", fmt.Errorf("repeat %s: no decoder for its element", n.Repeat)
+	}
+
 	goType := fixedGoType(n.Of.Item, it)
 
 	sf, err := scalarDecodeFunc(firstFormat(it), goType)
 	if err != nil {
-		return fmt.Errorf("repeat %s: item %s: %w", n.Repeat, n.Of.Item, err)
+		return "", fmt.Errorf("repeat %s: item %s: %w", n.Repeat, n.Of.Item, err)
 	}
 
-	fn := sf.fn
-	if sf.result != goType {
-		// decodeEach cannot convert a helper's plain result to a named type.
-		// decodeASCIIAs reads a named string enum directly;
-		// no other format has such a helper.
-		if firstFormat(it) != "A" {
-			return fmt.Errorf("repeat %s: item %s: no decoder for a named %s type of format %s", n.Repeat, n.Of.Item, sf.result, firstFormat(it))
-		}
-
-		fn = fmt.Sprintf("decodeASCIIAs[%s]", goType)
+	if sf.result == goType {
+		return sf.fn, nil
 	}
 
-	name := nodeNames(n)
-	field := decodeField{Name: name.Field, Type: "[]" + goType, Param: e.params, Elem: it.GoType, Path: slices.Clone(path)}
-	e.fields = append(e.fields, field)
-	e.params++
+	// decodeEach cannot convert a helper's plain result to a named type.
+	// decodeASCIIAs reads a named string enum directly;
+	// no other format has such a helper.
+	if firstFormat(it) != "A" {
+		return "", fmt.Errorf("repeat %s: item %s: no decoder for a named %s type of format %s", n.Repeat, n.Of.Item, sf.result, firstFormat(it))
+	}
 
-	e.assign(field.Name, fmt.Sprintf("decodeEach(%s, %q, %s)", pathExpr(path), name.Label, fn))
-
-	return nil
+	return fmt.Sprintf("decodeASCIIAs[%s]", goType), nil
 }
 
 // emitPacked walks a packed multi-value group, which is a single primitive item on the wire, not
@@ -348,7 +463,7 @@ func (e *decodeEmitter) emitPacked(n *StructureNode, path []int) error {
 	}
 
 	name := nodeNames(n)
-	e.assign(e.field(name.Field, "[]byte", path), fmt.Sprintf("decodeBinary(%s, %q)", pathExpr(path), name.Label))
+	e.assign(e.field(name.Field, "[]byte", path), fmt.Sprintf("decodeBinary(%s, %s)", e.pathExpr(path), e.label(name.Label)))
 
 	return nil
 }
@@ -360,6 +475,10 @@ func (e *decodeEmitter) emitPacked(n *StructureNode, path []int) error {
 // short form omits keep their zero value.
 func (e *decodeEmitter) emitFixedList(n *StructureNode, path []int) error {
 	label := e.pathLabel(path)
+	if e.group {
+		label = "group list" + pathIndex(path)
+	}
+
 	full := len(n.Items)
 
 	if n.MaxItems != nil && *n.MaxItems != full {
@@ -377,8 +496,8 @@ func (e *decodeEmitter) emitFixedList(n *StructureNode, path []int) error {
 
 	if short == full {
 		e.emit(
-			fmt.Sprintf("if err = requireArity(%s, %q, %d); err != nil {", pathExpr(path), label, full),
-			"return out, err",
+			fmt.Sprintf("if err = requireArity(%s, %s, %d); err != nil {", e.pathExpr(path), e.listLabel(path), full),
+			e.fail(),
 			"}",
 			"",
 		)
@@ -388,9 +507,9 @@ func (e *decodeEmitter) emitFixedList(n *StructureNode, path []int) error {
 
 	count := fmt.Sprintf("n%d", e.nextID())
 	e.emit(
-		fmt.Sprintf("%s, err := optionalArity(%s, %q, %d, %d)", count, pathExpr(path), label, short, full),
+		fmt.Sprintf("%s, err := optionalArity(%s, %s, %d, %d)", count, e.pathExpr(path), e.listLabel(path), short, full),
 		"if err != nil {",
-		"return out, err",
+		e.fail(),
 		"}",
 		"",
 	)
@@ -401,7 +520,7 @@ func (e *decodeEmitter) emitFixedList(n *StructureNode, path []int) error {
 
 	// Fence the optional tail: the short form stops at `short` children, so the fields beyond it
 	// are read only when the full form arrived.
-	tail := &decodeEmitter{code: e.code, items: e.items, counter: e.counter, params: e.params}
+	tail := &decodeEmitter{code: e.code, items: e.items, recv: e.recv, root: e.root, group: e.group, counter: e.counter, params: e.params}
 	if err := tail.emitChildren(n, path, short, full); err != nil {
 		return err
 	}
@@ -436,7 +555,7 @@ func (e *decodeEmitter) emitChildren(n *StructureNode, path []int, from int, to 
 func (e *decodeEmitter) emitLeaf(n *StructureNode, path []int) error {
 	it := e.items[n.Item]
 	name := nodeNames(n)
-	expr := pathExpr(path)
+	expr := e.pathExpr(path)
 
 	// Validation rejects this case first;
 	// the check keeps an unvalidated node from being decoded as if it were not optional.
@@ -445,7 +564,7 @@ func (e *decodeEmitter) emitLeaf(n *StructureNode, path []int) error {
 	}
 
 	if it.Binding != BindingFixed {
-		e.assign(e.field(name.Field, "secs2.Item", path), fmt.Sprintf("decodeItem(%s, %q)", expr, name.Label))
+		e.assign(e.field(name.Field, "secs2.Item", path), fmt.Sprintf("decodeItem(%s, %s)", expr, e.label(name.Label)))
 
 		return nil
 	}
@@ -457,7 +576,7 @@ func (e *decodeEmitter) emitLeaf(n *StructureNode, path []int) error {
 		return e.emitBinaryLeaf(n, name, goType, path)
 	}
 
-	sc, err := scalarDecodeCall(itemFormat, goType, expr, name.Label)
+	sc, err := scalarDecodeCall(itemFormat, goType, expr, e.label(name.Label))
 	if err != nil {
 		return fmt.Errorf("item %s: %w", n.Item, err)
 	}
@@ -513,14 +632,14 @@ func scalarDecodeFunc(itemFormat string, goType string) (scalarFunc, error) {
 
 // scalarDecodeCall returns the decode helper call
 // that reads a single-value leaf of format itemFormat at expr as goType.
-// label is the name the call's errors report.
+// label is the Go expression of the name the call's errors report.
 func scalarDecodeCall(itemFormat string, goType string, expr string, label string) (scalarCall, error) {
 	sf, err := scalarDecodeFunc(itemFormat, goType)
 	if err != nil {
 		return scalarCall{}, err
 	}
 
-	return scalarCall{fmt.Sprintf("%s(%s, %q)", sf.fn, expr, label), sf.family, sf.result}, nil
+	return scalarCall{fmt.Sprintf("%s(%s, %s)", sf.fn, expr, label), sf.family, sf.result}, nil
 }
 
 // decodeInto renders the statements that decode sc into the field name of type goType, or return the error.
@@ -531,8 +650,8 @@ func scalarDecodeCall(itemFormat string, goType string, expr string, label strin
 func (e *decodeEmitter) decodeInto(name string, goType string, sc scalarCall) []string {
 	if sc.result == goType {
 		return []string{
-			fmt.Sprintf("if out.%s, err = %s; err != nil {", name, sc.call),
-			"return out, err",
+			fmt.Sprintf("if %s.%s, err = %s; err != nil {", e.recv, name, sc.call),
+			e.fail(),
 			"}",
 			"",
 		}
@@ -543,10 +662,10 @@ func (e *decodeEmitter) decodeInto(name string, goType string, sc scalarCall) []
 	return []string{
 		fmt.Sprintf("var %s %s", v, sc.result),
 		fmt.Sprintf("if %s, err = %s; err != nil {", v, sc.call),
-		"return out, err",
+		e.fail(),
 		"}",
 		"",
-		fmt.Sprintf("out.%s = %s(%s)", name, goType, v),
+		fmt.Sprintf("%s.%s = %s(%s)", e.recv, name, goType, v),
 		"",
 	}
 }
@@ -568,11 +687,11 @@ func (e *decodeEmitter) emitOptionalLeaf(name emittedName, goType string, itemFo
 	e.optionals = append(e.optionals, optionalLeaf{Field: value, Path: slices.Clone(path), Empty: empty})
 
 	e.emit(
-		fmt.Sprintf("if out.%s, err = presentAt[%s](%s, %q); err != nil {", presence, sc.family, pathExpr(path), name.Label),
-		"return out, err",
+		fmt.Sprintf("if %s.%s, err = presentAt[%s](%s, %s); err != nil {", e.recv, presence, sc.family, e.pathExpr(path), e.label(name.Label)),
+		e.fail(),
 		"}",
 		"",
-		fmt.Sprintf("if out.%s {", presence),
+		fmt.Sprintf("if %s.%s {", e.recv, presence),
 	)
 	e.emit(trimTrailingBlank(e.decodeInto(value, goType, sc))...)
 	e.emit("}", "")
@@ -582,11 +701,12 @@ func (e *decodeEmitter) emitOptionalLeaf(name emittedName, goType string, itemFo
 // and so reads the whole item or a fixed-width part of it rather than one byte.
 func (e *decodeEmitter) emitBinaryLeaf(n *StructureNode, name emittedName, goType string, path []int) error {
 	rawType := e.items[n.Item].GoType
-	expr := pathExpr(path)
+	expr := e.pathExpr(path)
+	label := e.label(name.Label)
 
 	switch {
 	case rawType == "[]byte":
-		e.assign(e.field(name.Field, goType, path), fmt.Sprintf("decodeBinary(%s, %q)", expr, name.Label))
+		e.assign(e.field(name.Field, goType, path), fmt.Sprintf("decodeBinary(%s, %s)", expr, label))
 	case byteArrayGoTypeRE.MatchString(rawType):
 		width, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(rawType, "["), "]byte"))
 		if err != nil {
@@ -596,15 +716,15 @@ func (e *decodeEmitter) emitBinaryLeaf(n *StructureNode, name emittedName, goTyp
 		blob := fmt.Sprintf("b%d", e.nextID())
 		e.emit(
 			fmt.Sprintf("var %s []byte", blob),
-			fmt.Sprintf("if %s, err = decodeBinary(%s, %q); err != nil {", blob, expr, name.Label),
-			"return out, err",
+			fmt.Sprintf("if %s, err = decodeBinary(%s, %s); err != nil {", blob, expr, label),
+			e.fail(),
 			"}",
 			"",
 			fmt.Sprintf("if len(%s) != %d {", blob, width),
-			fmt.Sprintf("return out, errSize(%q, len(%s), %d)", name.Label, blob, width),
+			fmt.Sprintf("return %s, errSize(%s, len(%s), %d)", e.recv, label, blob, width),
 			"}",
 			"",
-			fmt.Sprintf("out.%s = %s(%s)", e.field(name.Field, goType, path), goType, blob),
+			fmt.Sprintf("%s.%s = %s(%s)", e.recv, e.field(name.Field, goType, path), goType, blob),
 			"",
 		)
 	default:

@@ -209,7 +209,7 @@ messages:
             - {item: TBLCMD}
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
             - {type: list, repeat: colhdrs, of: {item: COLHDR}}
             - {type: list, repeat: rows, of: {type: list, repeat: tblelts, of: {item: TBLELT}}}
 
@@ -227,7 +227,7 @@ messages:
           type: list
           items:
             - {item: TBLACK}
-            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+            - {type: list, repeat: errors, of: {group: ErrorInfo}}
 
   - function: 15
     name: Table Data Request
@@ -279,10 +279,10 @@ messages:
             - {item: TBLID}
             - type: list
               repeat: attrs
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
             - {type: list, repeat: colhdrs, of: {item: COLHDR}}
             - {type: list, repeat: rows, of: {type: list, repeat: tblelts, of: {item: TBLELT}}}
             - type: list
               items:
                 - {item: TBLACK}
-                - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+                - {type: list, repeat: errors, of: {group: ErrorInfo}}

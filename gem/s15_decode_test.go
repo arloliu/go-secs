@@ -29,7 +29,7 @@ func init() {
 		_, err := gem.DecodeS15F4(item)
 
 		return err
-	}, gem.S15F4(29, secs2.A("errors")).Item())
+	}, gem.S15F4(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F5", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F5(item)
 
@@ -39,7 +39,7 @@ func init() {
 		_, err := gem.DecodeS15F6(item)
 
 		return err
-	}, gem.S15F6(29, secs2.A("errors")).Item())
+	}, gem.S15F6(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F7", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F7(item)
 
@@ -49,7 +49,7 @@ func init() {
 		_, err := gem.DecodeS15F8(item)
 
 		return err
-	}, gem.S15F8(secs2.A("rmspace"), 29, secs2.A("errors")).Item())
+	}, gem.S15F8(secs2.A("rmspace"), 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F9", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F9(item)
 
@@ -59,7 +59,7 @@ func init() {
 		_, err := gem.DecodeS15F10(item)
 
 		return err
-	}, gem.S15F10(96, "rcpvers", 29, secs2.A("errors")).Item())
+	}, gem.S15F10(96, "rcpvers", 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F11", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F11(item)
 
@@ -69,17 +69,17 @@ func init() {
 		_, err := gem.DecodeS15F12(item)
 
 		return err
-	}, gem.S15F12("agent", "rcpvers", 29, secs2.A("errors")).Item())
+	}, gem.S15F12("agent", "rcpvers", 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F13", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F13(item)
 
 		return err
-	}, gem.S15F13(secs2.A("dataid"), true, "rcpspec", []secs2.Item{secs2.A("attributes")}, secs2.A("rcpbody")).Item())
+	}, gem.S15F13(secs2.A("dataid"), true, "rcpspec", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, secs2.A("rcpbody")).Item())
 	registerFuzzDecoder("DecodeS15F14", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F14(item)
 
 		return err
-	}, gem.S15F14(29, secs2.A("errors")).Item())
+	}, gem.S15F14(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F15", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F15(item)
 
@@ -89,7 +89,7 @@ func init() {
 		_, err := gem.DecodeS15F16(item)
 
 		return err
-	}, gem.S15F16(0x12, 29, secs2.A("errors")).Item())
+	}, gem.S15F16(0x12, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F17", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F17(item)
 
@@ -99,7 +99,7 @@ func init() {
 		_, err := gem.DecodeS15F18(item)
 
 		return err
-	}, gem.S15F18(secs2.A("sections"), 29, secs2.A("errors")).Item())
+	}, gem.S15F18(secs2.A("sections"), 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F19", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F19(item)
 
@@ -109,7 +109,7 @@ func init() {
 		_, err := gem.DecodeS15F20(item)
 
 		return err
-	}, gem.S15F20(29, secs2.A("errors")).Item())
+	}, gem.S15F20(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F21", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F21(item)
 
@@ -119,7 +119,7 @@ func init() {
 		_, err := gem.DecodeS15F22(item)
 
 		return err
-	}, gem.S15F22("agent", 78, 58, 29, secs2.A("errors")).Item())
+	}, gem.S15F22("agent", 78, 58, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F23", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F23(item)
 
@@ -129,27 +129,27 @@ func init() {
 		_, err := gem.DecodeS15F24(item)
 
 		return err
-	}, gem.S15F24([]secs2.Item{secs2.A("recipes")}, 29, secs2.A("errors")).Item())
+	}, gem.S15F24([][]*gem.RecipeDescriptor{{{RCPDESCNM: "rcpdescnm", RCPDESCTIME: "rcpdesctime", RCPDESCLTH: secs2.A("rcpdesclth")}}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F25", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F25(item)
 
 		return err
-	}, gem.S15F25(secs2.A("dataid"), "rmnsspec", "agent", secs2.A("parameters")).Item())
+	}, gem.S15F25(secs2.A("dataid"), "rmnsspec", "agent", gem.RecipeParamRule{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval"), RCPPARRULE: "rcpparrule"}).Item())
 	registerFuzzDecoder("DecodeS15F26", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F26(item)
 
 		return err
-	}, gem.S15F26(29, secs2.A("errors")).Item())
+	}, gem.S15F26(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F27", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F27(item)
 
 		return err
-	}, gem.S15F27(secs2.A("dataid"), true, "rcpspec", []secs2.Item{secs2.A("attributes")}, secs2.A("rcpbody")).Item())
+	}, gem.S15F27(secs2.A("dataid"), true, "rcpspec", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, secs2.A("rcpbody")).Item())
 	registerFuzzDecoder("DecodeS15F28", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F28(item)
 
 		return err
-	}, gem.S15F28("rcpid", []secs2.Item{secs2.A("attributes")}, 29, secs2.A("errors")).Item())
+	}, gem.S15F28("rcpid", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F29", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F29(item)
 
@@ -159,7 +159,7 @@ func init() {
 		_, err := gem.DecodeS15F30(item)
 
 		return err
-	}, gem.S15F30(secs2.A("opid"), 78, "rcpid", []secs2.Item{secs2.A("attributes")}, 29, secs2.A("errors")).Item())
+	}, gem.S15F30(secs2.A("opid"), 78, "rcpid", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F31", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F31(item)
 
@@ -169,17 +169,17 @@ func init() {
 		_, err := gem.DecodeS15F32(item)
 
 		return err
-	}, gem.S15F32("rcpspec", []secs2.Item{secs2.A("attributes")}, secs2.A("rcpbody"), 29, secs2.A("errors")).Item())
+	}, gem.S15F32("rcpspec", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, secs2.A("rcpbody"), 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F33", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F33(item)
 
 		return err
-	}, gem.S15F33(secs2.A("dataid"), "respec", secs2.A("selections")).Item())
+	}, gem.S15F33(secs2.A("dataid"), "respec", gem.RecipeSelection{RCPID: "rcpid", PARAMETERS: []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}}).Item())
 	registerFuzzDecoder("DecodeS15F34", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F34(item)
 
 		return err
-	}, gem.S15F34(29, secs2.A("errors")).Item())
+	}, gem.S15F34(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F35", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F35(item)
 
@@ -189,7 +189,7 @@ func init() {
 		_, err := gem.DecodeS15F36(item)
 
 		return err
-	}, gem.S15F36(29, secs2.A("errors")).Item())
+	}, gem.S15F36(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F37", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F37(item)
 
@@ -199,7 +199,7 @@ func init() {
 		_, err := gem.DecodeS15F38(item)
 
 		return err
-	}, gem.S15F38(29, secs2.A("errors")).Item())
+	}, gem.S15F38(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F39", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F39(item)
 
@@ -209,7 +209,7 @@ func init() {
 		_, err := gem.DecodeS15F40(item)
 
 		return err
-	}, gem.S15F40(29, secs2.A("errors")).Item())
+	}, gem.S15F40(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F41", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F41(item)
 
@@ -219,7 +219,7 @@ func init() {
 		_, err := gem.DecodeS15F42(item)
 
 		return err
-	}, gem.S15F42(29, secs2.A("errors")).Item())
+	}, gem.S15F42(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F43", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F43(item)
 
@@ -229,7 +229,7 @@ func init() {
 		_, err := gem.DecodeS15F44(item)
 
 		return err
-	}, gem.S15F44([]secs2.Item{secs2.A("changes")}, 29, secs2.A("errors")).Item())
+	}, gem.S15F44([]gem.RecipeChange{{RCPID: "rcpid", RCPNEWID: "rcpnewid", RMSEGSPEC: "rmsegspec", RMCHGTYPE: secs2.A("rmchgtype"), OPID: secs2.A("opid"), TIMESTAMP: "timestamp", RMREQUESTOR: true}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F45", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F45(item)
 
@@ -249,7 +249,7 @@ func init() {
 		_, err := gem.DecodeS15F48(item)
 
 		return err
-	}, gem.S15F48(29, secs2.A("errors")).Item())
+	}, gem.S15F48(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS15F49", func(item secs2.Item) error {
 		_, err := gem.DecodeS15F49(item)
 
@@ -274,7 +274,7 @@ func init() {
 		_, err := gem.DecodeS15F53(item)
 
 		return err
-	}, gem.S15F53("rcpspec", "rcpid", 29, secs2.A("errors")).Item())
+	}, gem.S15F53("rcpspec", "rcpid", 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 }
 
 func TestDecodeS15F1RoundTrip(t *testing.T) {
@@ -341,7 +341,7 @@ func TestDecodeS15F3RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F4RoundTrip(t *testing.T) {
-	msg := gem.S15F4(29, secs2.A("errors"))
+	msg := gem.S15F4(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -355,7 +355,7 @@ func TestDecodeS15F4RoundTrip(t *testing.T) {
 
 	want := gem.S15F4Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -383,7 +383,7 @@ func TestDecodeS15F5RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F6RoundTrip(t *testing.T) {
-	msg := gem.S15F6(29, secs2.A("errors"))
+	msg := gem.S15F6(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -397,7 +397,7 @@ func TestDecodeS15F6RoundTrip(t *testing.T) {
 
 	want := gem.S15F6Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -424,7 +424,7 @@ func TestDecodeS15F7RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F8RoundTrip(t *testing.T) {
-	msg := gem.S15F8(secs2.A("rmspace"), 29, secs2.A("errors"))
+	msg := gem.S15F8(secs2.A("rmspace"), 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -439,7 +439,7 @@ func TestDecodeS15F8RoundTrip(t *testing.T) {
 	want := gem.S15F8Reply{
 		RMSPACE: secs2.A("rmspace"),
 		RMACK:   29,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -466,7 +466,7 @@ func TestDecodeS15F9RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F10RoundTrip(t *testing.T) {
-	msg := gem.S15F10(96, "rcpvers", 29, secs2.A("errors"))
+	msg := gem.S15F10(96, "rcpvers", 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -482,7 +482,7 @@ func TestDecodeS15F10RoundTrip(t *testing.T) {
 		RCPSTAT: 96,
 		RCPVERS: "rcpvers",
 		RMACK:   29,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -512,7 +512,7 @@ func TestDecodeS15F11RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F12RoundTrip(t *testing.T) {
-	msg := gem.S15F12("agent", "rcpvers", 29, secs2.A("errors"))
+	msg := gem.S15F12("agent", "rcpvers", 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -528,14 +528,14 @@ func TestDecodeS15F12RoundTrip(t *testing.T) {
 		AGENT:   "agent",
 		RCPVERS: "rcpvers",
 		RMACK:   29,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS15F13RoundTrip(t *testing.T) {
-	msg := gem.S15F13(secs2.A("dataid"), true, "rcpspec", []secs2.Item{secs2.A("attributes")}, secs2.A("rcpbody"))
+	msg := gem.S15F13(secs2.A("dataid"), true, "rcpspec", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, secs2.A("rcpbody"))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -551,7 +551,7 @@ func TestDecodeS15F13RoundTrip(t *testing.T) {
 		DATAID:     secs2.A("dataid"),
 		RCPUPDT:    true,
 		RCPSPEC:    "rcpspec",
-		ATTRIBUTES: []secs2.Item{secs2.A("attributes")},
+		ATTRIBUTES: []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}},
 		RCPBODY:    secs2.A("rcpbody"),
 	}
 
@@ -559,7 +559,7 @@ func TestDecodeS15F13RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F14RoundTrip(t *testing.T) {
-	msg := gem.S15F14(29, secs2.A("errors"))
+	msg := gem.S15F14(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -573,7 +573,7 @@ func TestDecodeS15F14RoundTrip(t *testing.T) {
 
 	want := gem.S15F14Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -603,7 +603,7 @@ func TestDecodeS15F15RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F16RoundTrip(t *testing.T) {
-	msg := gem.S15F16(0x12, 29, secs2.A("errors"))
+	msg := gem.S15F16(0x12, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -618,7 +618,7 @@ func TestDecodeS15F16RoundTrip(t *testing.T) {
 	want := gem.S15F16Reply{
 		RCPSECCODE: 0x12,
 		RMACK:      29,
-		ERRORS:     []secs2.Item{secs2.A("errors")},
+		ERRORS:     []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -646,7 +646,7 @@ func TestDecodeS15F17RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F18RoundTrip(t *testing.T) {
-	msg := gem.S15F18(secs2.A("sections"), 29, secs2.A("errors"))
+	msg := gem.S15F18(secs2.A("sections"), 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -661,7 +661,7 @@ func TestDecodeS15F18RoundTrip(t *testing.T) {
 	want := gem.S15F18Reply{
 		SECTIONS: secs2.A("sections"),
 		RMACK:    29,
-		ERRORS:   []secs2.Item{secs2.A("errors")},
+		ERRORS:   []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -690,7 +690,7 @@ func TestDecodeS15F19RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F20RoundTrip(t *testing.T) {
-	msg := gem.S15F20(29, secs2.A("errors"))
+	msg := gem.S15F20(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -704,7 +704,7 @@ func TestDecodeS15F20RoundTrip(t *testing.T) {
 
 	want := gem.S15F20Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -736,7 +736,7 @@ func TestDecodeS15F21RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F22RoundTrip(t *testing.T) {
-	msg := gem.S15F22("agent", 78, 58, 29, secs2.A("errors"))
+	msg := gem.S15F22("agent", 78, 58, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -753,7 +753,7 @@ func TestDecodeS15F22RoundTrip(t *testing.T) {
 		LINKID: 78,
 		RCPCMD: 58,
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -782,7 +782,7 @@ func TestDecodeS15F23RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F24RoundTrip(t *testing.T) {
-	msg := gem.S15F24([]secs2.Item{secs2.A("recipes")}, 29, secs2.A("errors"))
+	msg := gem.S15F24([][]*gem.RecipeDescriptor{{{RCPDESCNM: "rcpdescnm", RCPDESCTIME: "rcpdesctime", RCPDESCLTH: secs2.A("rcpdesclth")}}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -795,16 +795,16 @@ func TestDecodeS15F24RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S15F24Reply{
-		RECIPES: []secs2.Item{secs2.A("recipes")},
+		RECIPES: [][]*gem.RecipeDescriptor{{{RCPDESCNM: "rcpdescnm", RCPDESCTIME: "rcpdesctime", RCPDESCLTH: secs2.A("rcpdesclth")}}},
 		RMACK:   29,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS15F25RoundTrip(t *testing.T) {
-	msg := gem.S15F25(secs2.A("dataid"), "rmnsspec", "agent", secs2.A("parameters"))
+	msg := gem.S15F25(secs2.A("dataid"), "rmnsspec", "agent", gem.RecipeParamRule{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval"), RCPPARRULE: "rcpparrule"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -820,14 +820,14 @@ func TestDecodeS15F25RoundTrip(t *testing.T) {
 		DATAID:     secs2.A("dataid"),
 		RMNSSPEC:   "rmnsspec",
 		AGENT:      "agent",
-		PARAMETERS: []secs2.Item{secs2.A("parameters")},
+		PARAMETERS: []gem.RecipeParamRule{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval"), RCPPARRULE: "rcpparrule"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS15F26RoundTrip(t *testing.T) {
-	msg := gem.S15F26(29, secs2.A("errors"))
+	msg := gem.S15F26(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -841,14 +841,14 @@ func TestDecodeS15F26RoundTrip(t *testing.T) {
 
 	want := gem.S15F26Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS15F27RoundTrip(t *testing.T) {
-	msg := gem.S15F27(secs2.A("dataid"), true, "rcpspec", []secs2.Item{secs2.A("attributes")}, secs2.A("rcpbody"))
+	msg := gem.S15F27(secs2.A("dataid"), true, "rcpspec", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, secs2.A("rcpbody"))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -864,7 +864,7 @@ func TestDecodeS15F27RoundTrip(t *testing.T) {
 		DATAID:     secs2.A("dataid"),
 		RCPOWCODE:  true,
 		RCPSPEC:    "rcpspec",
-		ATTRIBUTES: []secs2.Item{secs2.A("attributes")},
+		ATTRIBUTES: []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}},
 		RCPBODY:    secs2.A("rcpbody"),
 	}
 
@@ -872,7 +872,7 @@ func TestDecodeS15F27RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F28RoundTrip(t *testing.T) {
-	msg := gem.S15F28("rcpid", []secs2.Item{secs2.A("attributes")}, 29, secs2.A("errors"))
+	msg := gem.S15F28("rcpid", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -886,9 +886,9 @@ func TestDecodeS15F28RoundTrip(t *testing.T) {
 
 	want := gem.S15F28Reply{
 		RCPID:      "rcpid",
-		ATTRIBUTES: []secs2.Item{secs2.A("attributes")},
+		ATTRIBUTES: []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}},
 		RMACK:      29,
-		ERRORS:     []secs2.Item{secs2.A("errors")},
+		ERRORS:     []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -918,7 +918,7 @@ func TestDecodeS15F29RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F30RoundTrip(t *testing.T) {
-	msg := gem.S15F30(secs2.A("opid"), 78, "rcpid", []secs2.Item{secs2.A("attributes")}, 29, secs2.A("errors"))
+	msg := gem.S15F30(secs2.A("opid"), 78, "rcpid", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -934,9 +934,9 @@ func TestDecodeS15F30RoundTrip(t *testing.T) {
 		OPID:       secs2.A("opid"),
 		LINKID:     78,
 		RCPID:      "rcpid",
-		ATTRIBUTES: []secs2.Item{secs2.A("attributes")},
+		ATTRIBUTES: []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}},
 		RMACK:      29,
-		ERRORS:     []secs2.Item{secs2.A("errors")},
+		ERRORS:     []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -963,7 +963,7 @@ func TestDecodeS15F31RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F32RoundTrip(t *testing.T) {
-	msg := gem.S15F32("rcpspec", []secs2.Item{secs2.A("attributes")}, secs2.A("rcpbody"), 29, secs2.A("errors"))
+	msg := gem.S15F32("rcpspec", []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, secs2.A("rcpbody"), 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -977,17 +977,17 @@ func TestDecodeS15F32RoundTrip(t *testing.T) {
 
 	want := gem.S15F32Reply{
 		RCPSPEC:    "rcpspec",
-		ATTRIBUTES: []secs2.Item{secs2.A("attributes")},
+		ATTRIBUTES: []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}},
 		RCPBODY:    secs2.A("rcpbody"),
 		RMACK:      29,
-		ERRORS:     []secs2.Item{secs2.A("errors")},
+		ERRORS:     []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS15F33RoundTrip(t *testing.T) {
-	msg := gem.S15F33(secs2.A("dataid"), "respec", secs2.A("selections"))
+	msg := gem.S15F33(secs2.A("dataid"), "respec", gem.RecipeSelection{RCPID: "rcpid", PARAMETERS: []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1002,14 +1002,14 @@ func TestDecodeS15F33RoundTrip(t *testing.T) {
 	want := gem.S15F33Body{
 		DATAID:     secs2.A("dataid"),
 		RESPEC:     "respec",
-		SELECTIONS: []secs2.Item{secs2.A("selections")},
+		SELECTIONS: []gem.RecipeSelection{{RCPID: "rcpid", PARAMETERS: []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS15F34RoundTrip(t *testing.T) {
-	msg := gem.S15F34(29, secs2.A("errors"))
+	msg := gem.S15F34(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1023,7 +1023,7 @@ func TestDecodeS15F34RoundTrip(t *testing.T) {
 
 	want := gem.S15F34Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -1053,7 +1053,7 @@ func TestDecodeS15F35RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F36RoundTrip(t *testing.T) {
-	msg := gem.S15F36(29, secs2.A("errors"))
+	msg := gem.S15F36(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1067,7 +1067,7 @@ func TestDecodeS15F36RoundTrip(t *testing.T) {
 
 	want := gem.S15F36Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -1099,7 +1099,7 @@ func TestDecodeS15F37RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F38RoundTrip(t *testing.T) {
-	msg := gem.S15F38(29, secs2.A("errors"))
+	msg := gem.S15F38(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1113,7 +1113,7 @@ func TestDecodeS15F38RoundTrip(t *testing.T) {
 
 	want := gem.S15F38Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -1144,7 +1144,7 @@ func TestDecodeS15F39RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F40RoundTrip(t *testing.T) {
-	msg := gem.S15F40(29, secs2.A("errors"))
+	msg := gem.S15F40(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1158,7 +1158,7 @@ func TestDecodeS15F40RoundTrip(t *testing.T) {
 
 	want := gem.S15F40Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -1195,7 +1195,7 @@ func TestDecodeS15F41RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F42RoundTrip(t *testing.T) {
-	msg := gem.S15F42(29, secs2.A("errors"))
+	msg := gem.S15F42(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1209,7 +1209,7 @@ func TestDecodeS15F42RoundTrip(t *testing.T) {
 
 	want := gem.S15F42Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -1238,7 +1238,7 @@ func TestDecodeS15F43RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F44RoundTrip(t *testing.T) {
-	msg := gem.S15F44([]secs2.Item{secs2.A("changes")}, 29, secs2.A("errors"))
+	msg := gem.S15F44([]gem.RecipeChange{{RCPID: "rcpid", RCPNEWID: "rcpnewid", RMSEGSPEC: "rmsegspec", RMCHGTYPE: secs2.A("rmchgtype"), OPID: secs2.A("opid"), TIMESTAMP: "timestamp", RMREQUESTOR: true}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1251,9 +1251,9 @@ func TestDecodeS15F44RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S15F44Reply{
-		CHANGES: []secs2.Item{secs2.A("changes")},
+		CHANGES: []gem.RecipeChange{{RCPID: "rcpid", RCPNEWID: "rcpnewid", RMSEGSPEC: "rmsegspec", RMCHGTYPE: secs2.A("rmchgtype"), OPID: secs2.A("opid"), TIMESTAMP: "timestamp", RMREQUESTOR: true}},
 		RMACK:   29,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -1329,7 +1329,7 @@ func TestDecodeS15F47RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F48RoundTrip(t *testing.T) {
-	msg := gem.S15F48(29, secs2.A("errors"))
+	msg := gem.S15F48(29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1343,7 +1343,7 @@ func TestDecodeS15F48RoundTrip(t *testing.T) {
 
 	want := gem.S15F48Reply{
 		RMACK:  29,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -1431,7 +1431,7 @@ func TestDecodeS15F52RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS15F53RoundTrip(t *testing.T) {
-	msg := gem.S15F53("rcpspec", "rcpid", 29, secs2.A("errors"))
+	msg := gem.S15F53("rcpspec", "rcpid", 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -1447,7 +1447,7 @@ func TestDecodeS15F53RoundTrip(t *testing.T) {
 		RCPSPEC: "rcpspec",
 		RCPID:   "rcpid",
 		RMACK:   29,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)

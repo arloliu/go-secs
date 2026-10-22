@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the E5 tables and from the GEM300 standards that define value vocabularies for E5 items.
 - Builders for the short forms E5 names, presence fields for items E5 lets be sent zero-length,
   and values in and out for repeated groups of one fixed-format item.
+- A named struct for each list shape a message repeats, such as `Report` and `ErrorInfo`,
+  which builders take and decoders return, checked element by element.
 - A fuzz target runs every generated decoder over arbitrary bytes.
 
 Several shipped `gem` signatures change; see Upgrade notes.
@@ -35,6 +37,29 @@ Several shipped `gem` signatures change; see Upgrade notes.
   `S2F12` takes `spids ...string` and `S2F12Reply.SPIDS` is `[]string`,
   and `S5F9` takes `recoveryActions ...string` and `S5F9Body.RECOVERYACTIONS` is `[]string`.
   Call `S2F12("SP1", "SP2")` rather than `S2F12(secs2.A("SP1"), secs2.A("SP2"))`.
+- `gem`: a repeated list element is a struct both ways, one named type per list shape (see Added),
+  instead of a `secs2.Item` the caller built and the decoder returned unexamined.
+  The builder takes the structs, and the result field holding them changes type the same way.
+  `gem.Report` is now that struct for an event report's reports, not a helper function:
+  call `S6F11(dataid, ceid, gem.Report{RPTID: rptid, VALUES: []secs2.Item{v1, v2}})`
+  rather than `S6F11(dataid, ceid, gem.Report(rptid, v1, v2))`.
+  The builders of the shipped streams that change, with their element types:
+  - reports: `S2F33` takes `ReportDefinition`, `S2F35` `EventLink`, `S6F11` and `S6F16` `Report`,
+    `S6F13` and `S6F18` `AnnotatedReport`, and `S6F30` takes `reports []Report`;
+  - namelists, whose parameters and fields are renamed for what they now hold:
+    `S1F12(variables ...StatusVariableName)` and `S1F12Reply.VARIABLES` replace `svids` and `SVIDS`,
+    `S1F22(variables ...DataVariableName)` and `S1F22Reply.VARIABLES` replace `vids` and `VIDS`,
+    and `S1F24(events ...CollectionEventName)` and `S1F24Reply.EVENTS` replace `ceids` and `CEIDS`;
+  - constants and commands: `S2F15` takes `ConstantValue`, `S2F30` `ConstantName`,
+    `S2F41` `CommandParam`, and `S2F42` `CommandParamAck`;
+  - spooling and limits: `S2F43` takes `SpoolStream`, `S2F44` `SpoolStreamAck`,
+    `S2F45` `VariableLimits`, `S2F46` `VariableLimitAck`, and `S2F48` `VariableLimitAttributes`;
+  - alarms and data: `S5F6` and `S5F8` take `Alarm`, `S6F3` and `S6F8` `DataSet`, `S6F9` `DataSetValues`,
+    and `S6F22` `VariableValue`;
+  - errors: `S1F20` and `S6F25` take their errors as `ErrorInfo`, and `S6F25` its attributes as `[]RecipeAttribute`.
+- `gem`: a repeat whose elements are themselves lists of one shape is a slice of slices:
+  `S1F20` takes `objects [][]secs2.Item`, and `S6F27` takes `samples ...[]Report`,
+  one `[]Report` per trace sample; their result fields change the same way.
 
 ### Added
 
@@ -59,6 +84,13 @@ Several shipped `gem` signatures change; see Upgrade notes.
   as a named type where the item has one (`S19F1` takes `attributes ...PDEATTRIBUTE`).
   It applies across streams 2, 5, 13 to 16, 18, and 19,
   for example to `S16F17(prjobids ...string)` and the STATUS lists of stream 18.
+- `gem`: a named struct for each list shape a message repeats, 67 in all, in the new `groups.go`,
+  such as `Report`, `ErrorInfo`, `Alarm`, `CommandParam`, and `Attribute`.
+  Each struct serves both directions: builders take it as a repeated element, decoders return it,
+  and its `Item` method builds its list for a body assembled with `secs2.NewMessage`.
+  Its fields follow the result-struct rules: E5 item names, values for fixed-format items, `secs2.Item` otherwise.
+  A list inside an element that E5 lets be sent as `L,0`, such as a limit's deadband, is a pointer, nil for `L,0`.
+  Every message that repeats a structured list uses them.
 - `gem`: `PRCMDNAMEStartProcess`, the SEMI E40 spelling of the process job start command, `STARTPROCESS`,
   which equipment following E40 expects instead of E5's `START`.
 - `gem`: `FuzzDecoders` runs every generated decoder over arbitrary wire bytes, and `make fuzz-test` covers `gem`.
@@ -71,6 +103,11 @@ Several shipped `gem` signatures change; see Upgrade notes.
 - `gem`: `DecodeS6F25` accepts a zero-length LINKID and reports it through `LINKIDPresent` (see Upgrade notes).
 - `gem`: `S2F12` and `S5F9` take their SPIDs and recovery actions as strings,
   and their decoders return them so (see Upgrade notes).
+- `gem`: the builders and decoders of the messages that repeat a list take and return its struct,
+  and those of S1F20 and S6F27 a slice of slices (see Upgrade notes).
+  A decoder checks every element at full depth,
+  and a malformed one is an error naming its path from the body, such as `REPORTS[1].VIDS`;
+  the elements used to be returned unexamined.
 - `gem`: `DecodeS6F8`, `DecodeS6F16`, and `DecodeS6F18` accept an empty body list, `L,0`,
   which E5 allows when there is no data or no report for the CEID.
   They previously rejected it as a list of the wrong length.

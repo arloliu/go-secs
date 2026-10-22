@@ -146,8 +146,8 @@ func S4F18(rrack RRACK) secs2.SECS2Message {
 // Body: L[2]{ <dataid> L[2]{ A[trjobname] L[n]{ <transfers>... } } }.
 //
 // Exception: None.
-func S4F19(dataid secs2.Item, trjobname string, transfers ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 19, true, secs2.L(dataid, secs2.L(secs2.A(trjobname), secs2.L(transfers...))))
+func S4F19(dataid secs2.Item, trjobname string, transfers ...TransferJob) secs2.SECS2Message {
+	return secs2.NewMessage(4, 19, true, secs2.L(dataid, secs2.L(secs2.A(trjobname), secs2.L(groupItems(transfers)...))))
 }
 
 // S4F20 creates the S4F20 (Transfer Job Acknowledge) message, direction: equipment-to-host.
@@ -158,8 +158,8 @@ func S4F19(dataid secs2.Item, trjobname string, transfers ...secs2.Item) secs2.S
 //
 // Exception: A zero-length list (m = 0) is sent if the transfer job is rejected.
 // A zero-length list (n = 0) is sent if the transfer job is accepted.
-func S4F20(trjobid []byte, atomicids []secs2.Item, track bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 20, false, secs2.L(secs2.B(trjobid), secs2.L(atomicids...), secs2.L(secs2.BOOLEAN(track), secs2.L(errors...))))
+func S4F20(trjobid []byte, atomicids []secs2.Item, track bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(4, 20, false, secs2.L(secs2.B(trjobid), secs2.L(atomicids...), secs2.L(secs2.BOOLEAN(track), secs2.L(groupItems(errors)...))))
 }
 
 // S4F21 creates the S4F21 (Transfer Job Command) message, direction: host-to-equipment.
@@ -169,8 +169,8 @@ func S4F20(trjobid []byte, atomicids []secs2.Item, track bool, errors ...secs2.I
 // Body: L[3]{ B[trjobid] A[trcmdname] L[n]{ <params>... } }.
 //
 // Exception: None.
-func S4F21(trjobid []byte, trcmdname TRCMDNAME, params ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 21, true, secs2.L(secs2.B(trjobid), secs2.A(string(trcmdname)), secs2.L(params...)))
+func S4F21(trjobid []byte, trcmdname TRCMDNAME, params ...CommandParam) secs2.SECS2Message {
+	return secs2.NewMessage(4, 21, true, secs2.L(secs2.B(trjobid), secs2.A(string(trcmdname)), secs2.L(groupItems(params)...)))
 }
 
 // S4F22 creates the S4F22 (Transfer Command Acknowledge) message, direction: equipment-to-host.
@@ -180,8 +180,8 @@ func S4F21(trjobid []byte, trcmdname TRCMDNAME, params ...secs2.Item) secs2.SECS
 // Body: L[2]{ BOOLEAN[track] L[n]{ <errors>... } }.
 //
 // Exception: If the command is accepted, n = 0.
-func S4F22(track bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 22, false, secs2.L(secs2.BOOLEAN(track), secs2.L(errors...)))
+func S4F22(track bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(4, 22, false, secs2.L(secs2.BOOLEAN(track), secs2.L(groupItems(errors)...)))
 }
 
 // S4F23 creates the S4F23 (Transfer Job Alert) message, direction: equipment-to-host.
@@ -193,8 +193,8 @@ func S4F22(track bool, errors ...secs2.Item) secs2.SECS2Message {
 // Body: L[4]{ B[trjobid] A[trjobname] U1[trjobms] L[2]{ BOOLEAN[track] L[n]{ <errors>... } } }.
 //
 // Exception: If the transfer job is completed successfully, n = 0.
-func S4F23(trjobid []byte, trjobname string, trjobms TRJOBMS, track bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 23, true, secs2.L(secs2.B(trjobid), secs2.A(trjobname), secs2.U1(uint8(trjobms)), secs2.L(secs2.BOOLEAN(track), secs2.L(errors...))))
+func S4F23(trjobid []byte, trjobname string, trjobms TRJOBMS, track bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(4, 23, true, secs2.L(secs2.B(trjobid), secs2.A(trjobname), secs2.U1(uint8(trjobms)), secs2.L(secs2.BOOLEAN(track), secs2.L(groupItems(errors)...))))
 }
 
 // S4F24 creates the S4F24 (Transfer Alert Acknowledge) message, direction: host-to-equipment.
@@ -255,8 +255,8 @@ func S4F27(eqname string, trlink secs2.Item, trport secs2.Item, trobjname string
 // Body: L[4]{ <trlink> <mcindex> A[hocmdname] L[n]{ <params>... } }.
 //
 // Exception: N = 0 if no parameters are used.
-func S4F29(trlink secs2.Item, mcindex secs2.Item, hocmdname string, params ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 29, false, secs2.L(trlink, mcindex, secs2.A(hocmdname), secs2.L(params...)))
+func S4F29(trlink secs2.Item, mcindex secs2.Item, hocmdname string, params ...CommandParam) secs2.SECS2Message {
+	return secs2.NewMessage(4, 29, false, secs2.L(trlink, mcindex, secs2.A(hocmdname), secs2.L(groupItems(params)...)))
 }
 
 // S4F31 creates the S4F31 (Handoff Command Complete) message, direction: bidirectional.
@@ -269,8 +269,8 @@ func S4F29(trlink secs2.Item, mcindex secs2.Item, hocmdname string, params ...se
 // Body: L[3]{ <trlink> <mcindex> L[2]{ BOOLEAN[hoack] L[n]{ <errors>... } } }.
 //
 // Exception: None.
-func S4F31(trlink secs2.Item, mcindex secs2.Item, hoack bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 31, false, secs2.L(trlink, mcindex, secs2.L(secs2.BOOLEAN(hoack), secs2.L(errors...))))
+func S4F31(trlink secs2.Item, mcindex secs2.Item, hoack bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(4, 31, false, secs2.L(trlink, mcindex, secs2.L(secs2.BOOLEAN(hoack), secs2.L(groupItems(errors)...))))
 }
 
 // S4F33 creates the S4F33 (Handoff Verified) message, direction: bidirectional.
@@ -285,8 +285,8 @@ func S4F31(trlink secs2.Item, mcindex secs2.Item, hoack bool, errors ...secs2.It
 // Body: L[2]{ <trlink> L[2]{ BOOLEAN[hoack] L[n]{ <errors>... } } }.
 //
 // Exception: None.
-func S4F33(trlink secs2.Item, hoack bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 33, false, secs2.L(trlink, secs2.L(secs2.BOOLEAN(hoack), secs2.L(errors...))))
+func S4F33(trlink secs2.Item, hoack bool, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(4, 33, false, secs2.L(trlink, secs2.L(secs2.BOOLEAN(hoack), secs2.L(groupItems(errors)...))))
 }
 
 // S4F35 creates the S4F35 (Handoff Cancel Ready) message, direction: bidirectional.

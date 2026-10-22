@@ -403,19 +403,17 @@ func mainBody(m Message, actor string) (Body, bool) {
 	return Body{}, false
 }
 
-// callArgs renders the generated call's argument list from the parameters
-// BuildParams derived and the matching sample expressions SampleExprs
-// derived from the same structure node (so params[i] and exprs[i] always
-// describe the same parameter). A non-final slice parameter (a repeat's
-// []secs2.Item or a packed group's concrete []byte/[]string/...) needs its
-// single sample element wrapped in a slice literal of that parameter's own
-// element type; every other parameter (fixed/open leaf, opaque body, or the
-// final variadic repeat/packed group) is passed as-is.
+// callArgs renders the generated call's argument list from the parameters BuildParams derived
+// and the matching sample expressions SampleExprs derived from the same structure node,
+// so params[i] and exprs[i] always describe the same parameter.
+// A non-final slice parameter, a repeat's or a packed group's,
+// needs its single sample element wrapped in a slice literal of its own element type (see [sliceLiteral]);
+// every other parameter (fixed/open leaf, opaque body, or the final variadic repeat/packed group) is passed as-is.
 func callArgs(params []Param, exprs []string) string {
 	parts := make([]string, len(params))
 	for i, p := range params {
 		if p.Repeat && !p.Variadic {
-			parts[i] = fmt.Sprintf("[]%s{%s}", qualifiedType(p.Type), exprs[i])
+			parts[i] = sliceLiteral(p.Type, exprs[i])
 			continue
 		}
 
@@ -426,14 +424,39 @@ func callArgs(params []Param, exprs []string) string {
 }
 
 // qualifiedType spells the Go type typ as the generated tests, in package gem_test, must:
-// a named type gem declares, such as an enum item's COMMACK, takes the gem qualifier,
+// a named type gem declares, such as an enum item's COMMACK or a group's Report, takes the gem qualifier,
+// also as the element of a slice or pointer type, as in []Report or *Deadband,
 // while a predeclared type or one already qualified, such as secs2.Item, stays as it is.
 func qualifiedType(typ string) string {
+	for _, prefix := range []string{"[]", "*"} {
+		if rest, ok := strings.CutPrefix(typ, prefix); ok {
+			return prefix + qualifiedType(rest)
+		}
+	}
+
 	if typ == "" || strings.Contains(typ, ".") || !unicode.IsUpper(rune(typ[0])) {
 		return typ
 	}
 
 	return "gem." + typ
+}
+
+// sliceLiteral renders the slice literal of type []elem holding the one element expr,
+// eliding the element's own type from a composite literal as gofmt -s would:
+// []gem.Report{{...}} rather than []gem.Report{gem.Report{...}},
+// and []*gem.Deadband{{...}} rather than []*gem.Deadband{&gem.Deadband{...}}.
+func sliceLiteral(elem string, expr string) string {
+	qualified := qualifiedType(elem)
+
+	if rest, ok := strings.CutPrefix(expr, qualified+"{"); ok {
+		expr = "{" + rest
+	} else if base, ok := strings.CutPrefix(qualified, "*"); ok {
+		if rest, ok := strings.CutPrefix(expr, "&"+base+"{"); ok {
+			expr = "{" + rest
+		}
+	}
+
+	return "[]" + qualified + "{" + expr + "}"
 }
 
 // SampleExprs walks a validated structure node in the same order and with the same stopping rules as BuildParams
@@ -442,9 +465,9 @@ func qualifiedType(typ string) string {
 // a fixed leaf's (or a packed group's of.item's) underlying-GoType literal
 // (an enum-typed parameter like COMMACK still gets a bare, cast-free literal,
 // since an untyped constant is assignable to a named defined type),
-// the same bare literal as the one element of a value repeat,
+// the one element [elemSample] builds for a repeat,
 // or a secs2.A("<name>") sample labeled by the parameter's own name
-// for an open leaf, an opaque body, or any other repeat's element.
+// for an open leaf or an opaque body.
 // Labeling every non-fixed sample by its own parameter name (rather than a single shared value)
 // means a bug that swaps two sibling parameters changes the expected values at their positions,
 // and the generated assertion catches it.
@@ -487,23 +510,24 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 			out = append(out, fs.literalFor(name, bools))
 		case "opaque":
 			out = append(out, fmt.Sprintf("secs2.A(%q)", nodeNames(n).Param))
-		default: // list
-			if it, ok := valueRepeatItem(n, items); ok {
-				// Value repeat: the parameter takes values of the element item's Go type,
-				// so its one sample element is a bare literal, as for a packed group.
-				fs, ok := fixedSamples[it.GoType]
-				if !ok {
-					walkErr = fmt.Errorf("repeat %s: no deterministic sample for goType %q", n.Repeat, it.GoType)
-					return
-				}
-
-				out = append(out, fs.literal(nodeNames(n).Param))
-
+		case "group":
+			expr, err := elemSample(n, items, nodeNames(n).Param)
+			if err != nil {
+				walkErr = err
 				return
 			}
 
+			out = append(out, expr)
+		default: // list
 			if n.Repeat != "" {
-				out = append(out, fmt.Sprintf("secs2.A(%q)", nodeNames(n).Param))
+				expr, err := elemSample(n.Of, items, nodeNames(n).Param)
+				if err != nil {
+					walkErr = fmt.Errorf("repeat %s: %w", n.Repeat, err)
+					return
+				}
+
+				out = append(out, expr)
+
 				return
 			}
 
@@ -538,6 +562,82 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 	}
 
 	return out, nil
+}
+
+// elemSample returns the sample of one element of a repeat whose of is n,
+// labeled label, the repeat's parameter name;
+// for a group reference n outside a repeat, it is the sample of the reference itself.
+//
+// A value element is a bare literal of the element item's Go type, as for a packed group;
+// a group element is a literal of the group's struct, with every field set from the group's own samples,
+// taken by address when the element is optional;
+// a repeat element is a slice of the one inner element its own name labels;
+// and any other element is a secs2.A(label) item.
+func elemSample(n *StructureNode, items map[string]Item, label string) (string, error) {
+	switch n.Kind() {
+	case "leaf":
+		it, ok := valueLeafItem(n, items)
+		if !ok {
+			return fmt.Sprintf("secs2.A(%q)", label), nil
+		}
+
+		fs, ok := fixedSamples[it.GoType]
+		if !ok {
+			return "", fmt.Errorf("no deterministic sample for goType %q", it.GoType)
+		}
+
+		return fs.literal(label), nil
+	case "group":
+		lit, err := groupSample(n.def, items)
+		if err != nil {
+			return "", err
+		}
+
+		if n.Optional {
+			return "&" + lit, nil
+		}
+
+		return lit, nil
+	case "list":
+		if n.Repeat == "" {
+			return fmt.Sprintf("secs2.A(%q)", label), nil // elemType makes any other list a secs2.Item
+		}
+
+		inner, err := elemSample(n.Of, items, nodeNames(n).Param)
+		if err != nil {
+			return "", err
+		}
+
+		return sliceLiteral(elemType(n.Of, items), inner), nil
+	default: // opaque
+		return fmt.Sprintf("secs2.A(%q)", label), nil
+	}
+}
+
+// groupSample returns the literal of the group g's struct that the generated tests send and expect back:
+// every field set from the samples of g's own structure,
+// as a message body's result is set from its builder's samples.
+func groupSample(g *Group, items map[string]Item) (string, error) {
+	params := BuildParams(g.Structure, items)
+
+	exprs, err := SampleExprs(g.Structure, items)
+	if err != nil {
+		return "", fmt.Errorf("group %s: %w", g.Name, err)
+	}
+
+	fields, err := BuildFields(g.Structure, items)
+	if err != nil {
+		return "", fmt.Errorf("group %s: %w", g.Name, err)
+	}
+
+	values := sampleFields(params, fields, exprs)
+
+	parts := make([]string, len(values))
+	for i, v := range values {
+		parts[i] = v.Name + ": " + v.Value
+	}
+
+	return qualifiedType(g.Name) + "{" + strings.Join(parts, ", ") + "}", nil
 }
 
 // testCtx accumulates the Go statement lines that assert a decoded body
@@ -686,19 +786,13 @@ func (c *testCtx) assertNode(n *StructureNode, items map[string]Item, expr strin
 		c.assertSample(expr, nodeNames(n).Param)
 
 		return nil
+	case "group":
+		return c.assertElem(n, items, expr, nodeNames(n).Param)
 	default: // list
-		if it, ok := valueRepeatItem(n, items); ok {
-			// The one element is built from the bare sample value: check it like a fixed leaf of the element item.
-			v := c.assertList(expr, 1)
-
-			return c.assertFixed(v+"[0]", nodeNames(n).Param, it)
-		}
-
 		if n.Repeat != "" {
 			v := c.assertList(expr, 1)
-			c.assertSample(v+"[0]", nodeNames(n).Param)
 
-			return nil
+			return c.assertElem(n.Of, items, v+"[0]", nodeNames(n).Param)
 		}
 
 		if n.Packed != "" {
@@ -716,6 +810,47 @@ func (c *testCtx) assertNode(n *StructureNode, items map[string]Item, expr strin
 				return err
 			}
 		}
+
+		return nil
+	}
+}
+
+// assertElem asserts that the item found at expr is the one sample element
+// that [elemSample] built for a repeat whose of is n, labeled label:
+// a value checked like a fixed leaf of the element item,
+// a group's list checked field by field against the group's own samples,
+// a repeat element's list holding its one inner element,
+// or any other element compared with its secs2.A(label) sample.
+func (c *testCtx) assertElem(n *StructureNode, items map[string]Item, expr string, label string) error {
+	switch n.Kind() {
+	case "leaf":
+		if it, ok := valueLeafItem(n, items); ok {
+			return c.assertFixed(expr, label, it)
+		}
+
+		c.assertSample(expr, label)
+
+		return nil
+	case "group":
+		// The group's bool leaves take their samples in the group's own parameter order.
+		outer := c.bools
+		c.bools = boolSamples(n.def.Structure, items)
+		err := c.assertNode(n.def.Structure, items, expr)
+		c.bools = outer
+
+		return err
+	case "list":
+		if n.Repeat == "" {
+			c.assertSample(expr, label) // elemType makes any other list a secs2.Item
+
+			return nil
+		}
+
+		v := c.assertList(expr, 1)
+
+		return c.assertElem(n.Of, items, v+"[0]", nodeNames(n).Param)
+	default: // opaque
+		c.assertSample(expr, label)
 
 		return nil
 	}

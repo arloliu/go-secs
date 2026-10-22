@@ -52,8 +52,8 @@ func S17F3(rptids ...secs2.Item) secs2.SECS2Message {
 // Exception: If ACKA is TRUE, then no errors were encountered, meaning all report requests were completed successfully
 // and a zero-length list (m = 0) shall be sent.
 // If some reports could not be deleted, then their RPTIDs shall be given in a space separated list in ERRTEXT.
-func S17F4(acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 4, false, secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...)))
+func S17F4(acka bool, errors ...ReportError) secs2.SECS2Message {
+	return secs2.NewMessage(17, 4, false, secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...)))
 }
 
 // S17F5 creates the S17F5 (Trace Create Request) message, direction: host-to-equipment.
@@ -117,8 +117,8 @@ func S17F7(trids ...secs2.Item) secs2.SECS2Message {
 // Exception: If ACKA is TRUE, then no errors were encountered, meaning all report requests were completed successfully
 // and a zero-length list (m = 0) shall be sent.
 // If some reports could not be deleted, then their TRIDs shall be provided in a space separated list in ERRTEXT.
-func S17F8(acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 8, false, secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...)))
+func S17F8(acka bool, errors ...TraceError) secs2.SECS2Message {
+	return secs2.NewMessage(17, 8, false, secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...)))
 }
 
 // S17F9 creates the S17F9 (Collection Event Link Request) message, direction: host-to-equipment.
@@ -188,6 +188,6 @@ func S17F13(trids ...secs2.Item) secs2.SECS2Message {
 // Exception: If ACKA is TRUE, then no errors were encountered, meaning all report requests were completed successfully
 // and a zero-length list (m = 0) shall be sent.
 // If some reports could not be reset, then their TRIDs shall be given in a space separated list in ERRTEXT.
-func S17F14(acka bool, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 14, false, secs2.L(secs2.BOOLEAN(acka), secs2.L(errors...)))
+func S17F14(acka bool, errors ...TraceError) secs2.SECS2Message {
+	return secs2.NewMessage(17, 14, false, secs2.L(secs2.BOOLEAN(acka), secs2.L(groupItems(errors)...)))
 }

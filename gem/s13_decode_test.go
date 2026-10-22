@@ -64,12 +64,12 @@ func init() {
 		_, err := gem.DecodeS13F13(item)
 
 		return err
-	}, gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("attrs")}, []string{"colhdrs"}, secs2.A("rows")).Item())
+	}, gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}, []string{"colhdrs"}, []secs2.Item{secs2.A("tblelts")}).Item())
 	registerFuzzDecoder("DecodeS13F14", func(item secs2.Item) error {
 		_, err := gem.DecodeS13F14(item)
 
 		return err
-	}, gem.S13F14(82, secs2.A("errors")).Item())
+	}, gem.S13F14(82, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS13F15", func(item secs2.Item) error {
 		_, err := gem.DecodeS13F15(item)
 
@@ -79,7 +79,7 @@ func init() {
 		_, err := gem.DecodeS13F16(item)
 
 		return err
-	}, gem.S13F16("tbltyp", "tblid", []secs2.Item{secs2.A("attrs")}, []string{"colhdrs"}, []secs2.Item{secs2.A("rows")}, 82, secs2.A("errors")).Item())
+	}, gem.S13F16("tbltyp", "tblid", []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}, []string{"colhdrs"}, [][]secs2.Item{{secs2.A("tblelts")}}, 82, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 }
 
 func TestDecodeS13F1RoundTrip(t *testing.T) {
@@ -297,7 +297,7 @@ func TestDecodeS13F12RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS13F13RoundTrip(t *testing.T) {
-	msg := gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []secs2.Item{secs2.A("attrs")}, []string{"colhdrs"}, secs2.A("rows"))
+	msg := gem.S13F13(secs2.A("dataid"), "objspec", "tbltyp", "tblid", 36, []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}, []string{"colhdrs"}, []secs2.Item{secs2.A("tblelts")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -315,16 +315,16 @@ func TestDecodeS13F13RoundTrip(t *testing.T) {
 		TBLTYP:  "tbltyp",
 		TBLID:   "tblid",
 		TBLCMD:  36,
-		ATTRS:   []secs2.Item{secs2.A("attrs")},
+		ATTRS:   []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}},
 		COLHDRS: []string{"colhdrs"},
-		ROWS:    []secs2.Item{secs2.A("rows")},
+		ROWS:    [][]secs2.Item{{secs2.A("tblelts")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS13F14RoundTrip(t *testing.T) {
-	msg := gem.S13F14(82, secs2.A("errors"))
+	msg := gem.S13F14(82, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -338,7 +338,7 @@ func TestDecodeS13F14RoundTrip(t *testing.T) {
 
 	want := gem.S13F14Reply{
 		TBLACK: 82,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -371,7 +371,7 @@ func TestDecodeS13F15RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS13F16RoundTrip(t *testing.T) {
-	msg := gem.S13F16("tbltyp", "tblid", []secs2.Item{secs2.A("attrs")}, []string{"colhdrs"}, []secs2.Item{secs2.A("rows")}, 82, secs2.A("errors"))
+	msg := gem.S13F16("tbltyp", "tblid", []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}, []string{"colhdrs"}, [][]secs2.Item{{secs2.A("tblelts")}}, 82, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -386,11 +386,11 @@ func TestDecodeS13F16RoundTrip(t *testing.T) {
 	want := gem.S13F16Reply{
 		TBLTYP:  "tbltyp",
 		TBLID:   "tblid",
-		ATTRS:   []secs2.Item{secs2.A("attrs")},
+		ATTRS:   []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}},
 		COLHDRS: []string{"colhdrs"},
-		ROWS:    []secs2.Item{secs2.A("rows")},
+		ROWS:    [][]secs2.Item{{secs2.A("tblelts")}},
 		TBLACK:  82,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)

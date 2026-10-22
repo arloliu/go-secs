@@ -26,8 +26,8 @@ import "github.com/arloliu/go-secs/v2/secs2"
 // If q = 0, no filter is specified.
 // If both i and q = 0, information for all instances of the objects are requested.
 // If a = 0, all attributes are requested.
-func S14F1(objspec string, objtype secs2.Item, objids []secs2.Item, qualifiers []secs2.Item, attrids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 1, true, secs2.L(secs2.A(objspec), objtype, secs2.L(objids...), secs2.L(qualifiers...), secs2.L(attrids...)))
+func S14F1(objspec string, objtype secs2.Item, objids []secs2.Item, qualifiers []AttributeQualifier, attrids ...secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(14, 1, true, secs2.L(secs2.A(objspec), objtype, secs2.L(objids...), secs2.L(groupItems(qualifiers)...), secs2.L(attrids...)))
 }
 
 // S14F2 creates the S14F2 (GetAttr Data) message, direction: bidirectional.
@@ -40,8 +40,8 @@ func S14F1(objspec string, objtype secs2.Item, objids []secs2.Item, qualifiers [
 //
 // Exception: If n = 0, no objects matched the specified filter.
 // If p = 0, no errors were detected.
-func S14F2(objects []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 2, false, secs2.L(secs2.L(objects...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F2(objects []ObjectAttributes, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 2, false, secs2.L(secs2.L(groupItems(objects)...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F3 creates the S14F3 (SetAttr Request) message, direction: bidirectional.
@@ -53,8 +53,8 @@ func S14F2(objects []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS
 // Body: L[4]{ A[objspec] <objtype> L[n]{ <objids>... } L[n]{ <attrs>... } }.
 //
 // Exception: If OBJSPEC is a zero-length item, no object specifier is provided.
-func S14F3(objspec string, objtype secs2.Item, objids []secs2.Item, attrs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 3, true, secs2.L(secs2.A(objspec), objtype, secs2.L(objids...), secs2.L(attrs...)))
+func S14F3(objspec string, objtype secs2.Item, objids []secs2.Item, attrs ...Attribute) secs2.SECS2Message {
+	return secs2.NewMessage(14, 3, true, secs2.L(secs2.A(objspec), objtype, secs2.L(objids...), secs2.L(groupItems(attrs)...)))
 }
 
 // S14F4 creates the S14F4 (SetAttr Data) message, direction: bidirectional.
@@ -68,8 +68,8 @@ func S14F3(objspec string, objtype secs2.Item, objids []secs2.Item, attrs ...sec
 //
 // Exception: If n = 0 for any object, the object was not found.
 // If p = 0, no errors were detected.
-func S14F4(objects []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 4, false, secs2.L(secs2.L(objects...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F4(objects []ObjectAttributes, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 4, false, secs2.L(secs2.L(groupItems(objects)...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F5 creates the S14F5 (GetType Request) message, direction: bidirectional.
@@ -93,8 +93,8 @@ func S14F5(objspec string) secs2.SECS2Message {
 //
 // Exception: If n = 0, there are no owned object types.
 // If p = 0, no errors were detected.
-func S14F6(objtypes []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 6, false, secs2.L(secs2.L(objtypes...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F6(objtypes []secs2.Item, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 6, false, secs2.L(secs2.L(objtypes...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F7 creates the S14F7 (GetAttrName Request) message, direction: bidirectional.
@@ -118,8 +118,8 @@ func S14F7(objspec string, objtypes ...secs2.Item) secs2.SECS2Message {
 // Body: L[2]{ L[n]{ <objtypes>... } L[2]{ U1[objack] L[n]{ <errors>... } } }.
 //
 // Exception: If p = 0, no errors were detected.
-func S14F8(objtypes []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 8, false, secs2.L(secs2.L(objtypes...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F8(objtypes []ObjectTypeAttributes, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 8, false, secs2.L(secs2.L(groupItems(objtypes)...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F9 creates the S14F9 (Create Object Request) message, direction: bidirectional.
@@ -131,8 +131,8 @@ func S14F8(objtypes []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SEC
 //
 // Exception: If OBJSPEC is a null-length item, no object specifier is provided.
 // If a = 0, no specific attribute settings are requested for the new object.
-func S14F9(objspec string, objtype secs2.Item, attrs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 9, true, secs2.L(secs2.A(objspec), objtype, secs2.L(attrs...)))
+func S14F9(objspec string, objtype secs2.Item, attrs ...Attribute) secs2.SECS2Message {
+	return secs2.NewMessage(14, 9, true, secs2.L(secs2.A(objspec), objtype, secs2.L(groupItems(attrs)...)))
 }
 
 // S14F10 creates the S14F10 (Create Object Acknowledge) message, direction: bidirectional.
@@ -146,8 +146,8 @@ func S14F9(objspec string, objtype secs2.Item, attrs ...secs2.Item) secs2.SECS2M
 // Exception: If OBJSPEC is a null-length item, no object was created.
 // If b = 0, no attributes of the new object are returned.
 // If p = 0, no errors were detected.
-func S14F10(objspec string, attrs []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 10, false, secs2.L(secs2.A(objspec), secs2.L(attrs...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F10(objspec string, attrs []Attribute, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 10, false, secs2.L(secs2.A(objspec), secs2.L(groupItems(attrs)...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F11 creates the S14F11 (Delete Object Request) message, direction: bidirectional.
@@ -158,8 +158,8 @@ func S14F10(objspec string, attrs []secs2.Item, objack OBJACK, errors ...secs2.I
 // Body: L[2]{ A[objspec] L[n]{ <attrs>... } }.
 //
 // Exception: If a = 0, no attribute settings are provided.
-func S14F11(objspec string, attrs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 11, true, secs2.L(secs2.A(objspec), secs2.L(attrs...)))
+func S14F11(objspec string, attrs ...Attribute) secs2.SECS2Message {
+	return secs2.NewMessage(14, 11, true, secs2.L(secs2.A(objspec), secs2.L(groupItems(attrs)...)))
 }
 
 // S14F12 creates the S14F12 (Delete Object Acknowledge) message, direction: bidirectional.
@@ -171,8 +171,8 @@ func S14F11(objspec string, attrs ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: If b = 0, no attribute values are returned.
 // If p = 0, no errors were detected.
-func S14F12(attrs []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 12, false, secs2.L(secs2.L(attrs...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F12(attrs []Attribute, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 12, false, secs2.L(secs2.L(groupItems(attrs)...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F13 creates the S14F13 (Object Attach Request) message, direction: bidirectional.
@@ -182,8 +182,8 @@ func S14F12(attrs []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2
 // Body: L[2]{ A[objspec] L[n]{ <attrs>... } }.
 //
 // Exception: If a = 0, no attribute settings are provided.
-func S14F13(objspec string, attrs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 13, true, secs2.L(secs2.A(objspec), secs2.L(attrs...)))
+func S14F13(objspec string, attrs ...Attribute) secs2.SECS2Message {
+	return secs2.NewMessage(14, 13, true, secs2.L(secs2.A(objspec), secs2.L(groupItems(attrs)...)))
 }
 
 // S14F14 creates the S14F14 (Object Attach Acknowledge) message, direction: bidirectional.
@@ -196,8 +196,8 @@ func S14F13(objspec string, attrs ...secs2.Item) secs2.SECS2Message {
 // Exception: OBJTOKEN is zero if and only if p is non-zero.
 // If b = 0, no attribute values are returned.
 // If p = 0, no errors were detected.
-func S14F14(objtoken uint32, attrs []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 14, false, secs2.L(secs2.U4(objtoken), secs2.L(attrs...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F14(objtoken uint32, attrs []Attribute, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 14, false, secs2.L(secs2.U4(objtoken), secs2.L(groupItems(attrs)...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F15 creates the S14F15 (Attached Object Action Request) message, direction: bidirectional.
@@ -207,8 +207,8 @@ func S14F14(objtoken uint32, attrs []secs2.Item, objack OBJACK, errors ...secs2.
 // Body: L[4]{ A[objspec] U1[objcmd] U4[objtoken] L[n]{ <attrs>... } }.
 //
 // Exception: If a = 0, no attribute settings are provided.
-func S14F15(objspec string, objcmd OBJCMD, objtoken uint32, attrs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 15, true, secs2.L(secs2.A(objspec), secs2.U1(uint8(objcmd)), secs2.U4(objtoken), secs2.L(attrs...)))
+func S14F15(objspec string, objcmd OBJCMD, objtoken uint32, attrs ...Attribute) secs2.SECS2Message {
+	return secs2.NewMessage(14, 15, true, secs2.L(secs2.A(objspec), secs2.U1(uint8(objcmd)), secs2.U4(objtoken), secs2.L(groupItems(attrs)...)))
 }
 
 // S14F16 creates the S14F16 (Attached Object Action Acknowledge) message, direction: bidirectional.
@@ -218,8 +218,8 @@ func S14F15(objspec string, objcmd OBJCMD, objtoken uint32, attrs ...secs2.Item)
 // Body: L[2]{ L[n]{ <attrs>... } L[2]{ U1[objack] L[n]{ <errors>... } } }.
 //
 // Exception: If p = 0, no errors were detected.
-func S14F16(attrs []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 16, false, secs2.L(secs2.L(attrs...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F16(attrs []Attribute, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 16, false, secs2.L(secs2.L(groupItems(attrs)...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F17 creates the S14F17 (Supervised Object Action Request) message, direction: bidirectional.
@@ -230,8 +230,8 @@ func S14F16(attrs []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2
 // Body: L[4]{ A[objspec] U1[objcmd] A[targetspec] L[n]{ <attrs>... } }.
 //
 // Exception: If a = 0, no attribute settings are provided.
-func S14F17(objspec string, objcmd OBJCMD, targetspec string, attrs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 17, true, secs2.L(secs2.A(objspec), secs2.U1(uint8(objcmd)), secs2.A(targetspec), secs2.L(attrs...)))
+func S14F17(objspec string, objcmd OBJCMD, targetspec string, attrs ...Attribute) secs2.SECS2Message {
+	return secs2.NewMessage(14, 17, true, secs2.L(secs2.A(objspec), secs2.U1(uint8(objcmd)), secs2.A(targetspec), secs2.L(groupItems(attrs)...)))
 }
 
 // S14F18 creates the S14F18 (Supervised Object Action Acknowledge) message, direction: bidirectional.
@@ -242,8 +242,8 @@ func S14F17(objspec string, objcmd OBJCMD, targetspec string, attrs ...secs2.Ite
 //
 // Exception: If b = 0, no attributes are returned.
 // If p = 0, no errors were detected.
-func S14F18(attrs []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 18, false, secs2.L(secs2.L(attrs...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F18(attrs []Attribute, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 18, false, secs2.L(secs2.L(groupItems(attrs)...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F19 creates the S14F19 (Generic Service Request) message, direction: bidirectional.
@@ -262,8 +262,8 @@ func S14F18(attrs []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2
 // Exception: A zero length list, m = 0, indicates that no parameter groups are sent with the service request.
 // OBJSPEC can be a null length item if no object providing the service is defined in the referring standards;
 // the "Service Provider" is then handled as if it is an object.
-func S14F19(dataid secs2.Item, opid secs2.Item, objspec string, svcname SVCNAME, params ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 19, true, secs2.L(dataid, opid, secs2.A(objspec), secs2.A(string(svcname)), secs2.L(params...)))
+func S14F19(dataid secs2.Item, opid secs2.Item, objspec string, svcname SVCNAME, params ...ServiceParam) secs2.SECS2Message {
+	return secs2.NewMessage(14, 19, true, secs2.L(dataid, opid, secs2.A(objspec), secs2.A(string(svcname)), secs2.L(groupItems(params)...)))
 }
 
 // S14F20 creates the S14F20 (Generic Service Acknowledge) message, direction: bidirectional.
@@ -281,8 +281,8 @@ func S14F19(dataid secs2.Item, opid secs2.Item, objspec string, svcname SVCNAME,
 //
 // Exception: If p = 0, no errors were detected.
 // If n = 0, no parameters are returned.
-func S14F20(svcack SVCACK, linkid uint32, params []secs2.Item, errsvcack SVCACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 20, false, secs2.L(secs2.B(byte(svcack)), secs2.U4(linkid), secs2.L(params...), secs2.L(secs2.B(byte(errsvcack)), secs2.L(errors...))))
+func S14F20(svcack SVCACK, linkid uint32, params []ServiceParam, errsvcack SVCACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 20, false, secs2.L(secs2.B(byte(svcack)), secs2.U4(linkid), secs2.L(groupItems(params)...), secs2.L(secs2.B(byte(errsvcack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F21 creates the S14F21 (Generic Service Completion Information) message, direction: bidirectional.
@@ -299,8 +299,8 @@ func S14F20(svcack SVCACK, linkid uint32, params []secs2.Item, errsvcack SVCACK,
 //
 // Exception: If p = 0, no errors were detected.
 // If n = 0, no parameters are returned.
-func S14F21(dataid secs2.Item, opid secs2.Item, linkid uint32, params []secs2.Item, svcack SVCACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 21, true, secs2.L(dataid, opid, secs2.U4(linkid), secs2.L(params...), secs2.L(secs2.B(byte(svcack)), secs2.L(errors...))))
+func S14F21(dataid secs2.Item, opid secs2.Item, linkid uint32, params []ServiceParam, svcack SVCACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 21, true, secs2.L(dataid, opid, secs2.U4(linkid), secs2.L(groupItems(params)...), secs2.L(secs2.B(byte(svcack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F22 creates the S14F22 (Generic Service Completion Acknowledge) message, direction: bidirectional.
@@ -357,8 +357,8 @@ func S14F25(objspec string, objtypes ...secs2.Item) secs2.SECS2Message {
 // Body: L[2]{ L[n]{ <objtypes>... } L[2]{ U1[objack] L[n]{ <errors>... } } }.
 //
 // Exception: If p = 0, no errors were detected.
-func S14F26(objtypes []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 26, false, secs2.L(secs2.L(objtypes...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F26(objtypes []ObjectTypeServices, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 26, false, secs2.L(secs2.L(groupItems(objtypes)...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F27 creates the S14F27 (Get Service Parameter Name Request) message, direction: bidirectional.
@@ -381,6 +381,6 @@ func S14F27(objspec string, objtype secs2.Item, svcnames ...SVCNAME) secs2.SECS2
 // Body: L[2]{ L[n]{ <services>... } L[2]{ U1[objack] L[n]{ <errors>... } } }.
 //
 // Exception: If p = 0, no errors were detected.
-func S14F28(services []secs2.Item, objack OBJACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 28, false, secs2.L(secs2.L(services...), secs2.L(secs2.U1(uint8(objack)), secs2.L(errors...))))
+func S14F28(services []ServiceParams, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(14, 28, false, secs2.L(secs2.L(groupItems(services)...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }

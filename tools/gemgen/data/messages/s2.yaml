@@ -190,7 +190,7 @@ messages:
         structure:
           type: list
           repeat: constants
-          of: {type: list, items: [{item: ECID}, {item: ECV}]}
+          of: {group: ConstantValue}
 
   - function: 16
     name: New Equipment Constant Acknowledge
@@ -412,15 +412,7 @@ messages:
         structure:
           type: list
           repeat: constants
-          of:
-            type: list
-            items:
-              - {item: ECID}
-              - {item: ECNAME}
-              - {item: ECMIN}
-              - {item: ECMAX}
-              - {item: ECDEF}
-              - {item: UNITS}
+          of: {group: ConstantName}
 
   - function: 31
     name: Date and Time Set Request
@@ -469,11 +461,7 @@ messages:
             - {item: DATAID}
             - type: list
               repeat: reports
-              of:
-                type: list
-                items:
-                  - {item: RPTID}
-                  - {type: list, repeat: vids, of: {item: VID}}
+              of: {group: ReportDefinition}
 
   - function: 34
     name: Define Report Acknowledge
@@ -509,11 +497,7 @@ messages:
             - {item: DATAID}
             - type: list
               repeat: events
-              of:
-                type: list
-                items:
-                  - {item: CEID}
-                  - {type: list, repeat: rptids, of: {item: RPTID}}
+              of: {group: EventLink}
 
   - function: 36
     name: Link Event Report Acknowledge
@@ -606,7 +590,7 @@ messages:
             - {item: RCMD}
             - type: list
               repeat: params
-              of: {type: list, items: [{item: CPNAME}, {item: CPVAL}]}
+              of: {group: CommandParam}
 
   - function: 42
     name: Host Command Acknowledge
@@ -627,7 +611,7 @@ messages:
             - {item: HCACK}
             - type: list
               repeat: params
-              of: {type: list, items: [{item: CPNAME}, {item: CPACK}]}
+              of: {group: CommandParamAck}
 
   - function: 43
     name: Reset Spooling Streams and Functions
@@ -647,11 +631,7 @@ messages:
         structure:
           type: list
           repeat: streams
-          of:
-            type: list
-            items:
-              - {item: STRID}
-              - {type: list, repeat: fcnids, of: {item: FCNID}}
+          of: {group: SpoolStream}
 
   - function: 44
     name: Reset Spooling Acknowledge
@@ -671,12 +651,7 @@ messages:
             - {item: RSPACK}
             - type: list
               repeat: streams
-              of:
-                type: list
-                items:
-                  - {item: STRID}
-                  - {item: STRACK}
-                  - {type: list, repeat: fcnids, of: {item: FCNID}}
+              of: {group: SpoolStreamAck}
 
   - function: 45
     name: Define Variable Limit Attributes
@@ -700,20 +675,7 @@ messages:
             - {item: DATAID}
             - type: list
               repeat: variables
-              of:
-                type: list
-                items:
-                  - {item: VID}
-                  - type: list
-                    repeat: limits
-                    of:
-                      type: list
-                      items:
-                        - {item: LIMITID}
-                        - type: list
-                          minItems: 0
-                          maxItems: 2
-                          items: [{item: UPPERDB}, {item: LOWERDB}]
+              of: {group: VariableLimits}
 
   - function: 46
     name: Variable Limit Attribute Acknowledge
@@ -737,15 +699,7 @@ messages:
             - {item: VLAACK}
             - type: list
               repeat: variables
-              of:
-                type: list
-                items:
-                  - {item: VID}
-                  - {item: LVACK}
-                  - type: list
-                    minItems: 0
-                    maxItems: 2
-                    items: [{item: LIMITID}, {item: LIMITACK}]
+              of: {group: VariableLimitAck}
 
   - function: 47
     name: Variable Limit Attribute Request
@@ -778,22 +732,7 @@ messages:
         structure:
           type: list
           repeat: variables
-          of:
-            type: list
-            items:
-              - {item: VID}
-              - type: list
-                minItems: 0
-                maxItems: 4
-                items:
-                  - {item: UNITS}
-                  - {item: LIMITMIN}
-                  - {item: LIMITMAX}
-                  - type: list
-                    repeat: limits
-                    of:
-                      type: list
-                      items: [{item: LIMITID}, {item: UPPERDB}, {item: LOWERDB}]
+          of: {group: VariableLimitAttributes}
 
   - function: 49
     name: Enhanced Remote Command

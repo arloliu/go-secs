@@ -401,9 +401,9 @@ type S13F13Body struct {
 	TBLTYP  TBLTYP
 	TBLID   string
 	TBLCMD  TBLCMD
-	ATTRS   []secs2.Item
+	ATTRS   []Attribute
 	COLHDRS []string
-	ROWS    []secs2.Item
+	ROWS    [][]secs2.Item
 }
 
 // DecodeS13F13 decodes the body of an S13F13 (Table Data Send) message into a [S13F13Body].
@@ -445,7 +445,7 @@ func DecodeS13F13(item secs2.Item) (S13F13Body, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(5), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(5), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -453,7 +453,7 @@ func DecodeS13F13(item secs2.Item) (S13F13Body, error) {
 		return out, err
 	}
 
-	if out.ROWS, err = decodeItems(root.At(7), "ROWS"); err != nil {
+	if out.ROWS, err = decodeEach(root.At(7), "ROWS", decodeItems); err != nil {
 		return out, err
 	}
 
@@ -467,7 +467,7 @@ func DecodeS13F13(item secs2.Item) (S13F13Body, error) {
 // It is filled by [DecodeS13F14] and mirrors the parameters of [S13F14], in order.
 type S13F14Reply struct {
 	TBLACK TBLACK
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS13F14 decodes the body of an S13F14 (Table Data Acknowledge) message into a [S13F14Reply].
@@ -490,7 +490,7 @@ func DecodeS13F14(item secs2.Item) (S13F14Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -570,11 +570,11 @@ func DecodeS13F15(item secs2.Item) (S13F15Body, error) {
 type S13F16Reply struct {
 	TBLTYP  TBLTYP
 	TBLID   string
-	ATTRS   []secs2.Item
+	ATTRS   []Attribute
 	COLHDRS []string
-	ROWS    []secs2.Item
+	ROWS    [][]secs2.Item
 	TBLACK  TBLACK
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS13F16 decodes the body of an S13F16 (Table Data) message into a [S13F16Reply].
@@ -604,7 +604,7 @@ func DecodeS13F16(item secs2.Item) (S13F16Reply, error) {
 		return out, err
 	}
 
-	if out.ATTRS, err = decodeItems(root.At(2), "ATTRS"); err != nil {
+	if out.ATTRS, err = decodeEach(root.At(2), "ATTRS", decodeAttribute); err != nil {
 		return out, err
 	}
 
@@ -612,7 +612,7 @@ func DecodeS13F16(item secs2.Item) (S13F16Reply, error) {
 		return out, err
 	}
 
-	if out.ROWS, err = decodeItems(root.At(4), "ROWS"); err != nil {
+	if out.ROWS, err = decodeEach(root.At(4), "ROWS", decodeItems); err != nil {
 		return out, err
 	}
 
@@ -624,7 +624,7 @@ func DecodeS13F16(item secs2.Item) (S13F16Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(5, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(5, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 

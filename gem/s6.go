@@ -40,8 +40,8 @@ func S6F2(ackc6 ACKC6) secs2.SECS2Message {
 // Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // Exception: None.
-func S6F3(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 3, true, secs2.L(dataid, ceid, secs2.L(reports...)))
+func S6F3(dataid secs2.Item, ceid secs2.Item, reports ...DataSet) secs2.SECS2Message {
+	return secs2.NewMessage(6, 3, true, secs2.L(dataid, ceid, secs2.L(groupItems(reports)...)))
 }
 
 // S6F4 creates the S6F4 (Discrete Variable Data Acknowledge) message, direction: host-to-equipment.
@@ -96,8 +96,8 @@ func S6F7(dataid secs2.Item) secs2.SECS2Message {
 // Body: L[0,3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // Exception: A zero-length item returned means the requested data cannot be sent.
-func S6F8(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 8, false, secs2.L(dataid, ceid, secs2.L(reports...)))
+func S6F8(dataid secs2.Item, ceid secs2.Item, reports ...DataSet) secs2.SECS2Message {
+	return secs2.NewMessage(6, 8, false, secs2.L(dataid, ceid, secs2.L(groupItems(reports)...)))
 }
 
 // S6F9 creates the S6F9 (Formatted Variable Send) message, direction: equipment-to-host.
@@ -110,8 +110,8 @@ func S6F8(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2
 // Body: L[4]{ B[pfcd] <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // Exception: None.
-func S6F9(pfcd byte, dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 9, true, secs2.L(secs2.B(pfcd), dataid, ceid, secs2.L(reports...)))
+func S6F9(pfcd byte, dataid secs2.Item, ceid secs2.Item, reports ...DataSetValues) secs2.SECS2Message {
+	return secs2.NewMessage(6, 9, true, secs2.L(secs2.B(pfcd), dataid, ceid, secs2.L(groupItems(reports)...)))
 }
 
 // S6F10 creates the S6F10 (Formatted Variable Acknowledge) message, direction: host-to-equipment.
@@ -134,8 +134,8 @@ func S6F10(ackc6 ACKC6) secs2.SECS2Message {
 //
 // Exception: If there are no reports linked to the event a 'null' report is assumed.
 // A zero-length list for the report count means there are no reports linked to the given CEID.
-func S6F11(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 11, true, secs2.L(dataid, ceid, secs2.L(reports...)))
+func S6F11(dataid secs2.Item, ceid secs2.Item, reports ...Report) secs2.SECS2Message {
+	return secs2.NewMessage(6, 11, true, secs2.L(dataid, ceid, secs2.L(groupItems(reports)...)))
 }
 
 // S6F12 creates the S6F12 (Event Report Acknowledge) message, direction: host-to-equipment.
@@ -160,8 +160,8 @@ func S6F12(ackc6 ACKC6) secs2.SECS2Message {
 // A zero-length list for the report count means there are no reports linked to the given CEID.
 //
 // Source: reconstructed from an external reference, not verified against the purchased SEMI standard.
-func S6F13(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 13, true, secs2.L(dataid, ceid, secs2.L(reports...)))
+func S6F13(dataid secs2.Item, ceid secs2.Item, reports ...AnnotatedReport) secs2.SECS2Message {
+	return secs2.NewMessage(6, 13, true, secs2.L(dataid, ceid, secs2.L(groupItems(reports)...)))
 }
 
 // S6F14 creates the S6F14 (Annotated Event Report Acknowledge) message, direction: host-to-equipment.
@@ -194,8 +194,8 @@ func S6F15(ceid secs2.Item) secs2.SECS2Message {
 // Body: L[0,3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // Exception: A zero-length item means there are no reports linked to the given CEID.
-func S6F16(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 16, false, secs2.L(dataid, ceid, secs2.L(reports...)))
+func S6F16(dataid secs2.Item, ceid secs2.Item, reports ...Report) secs2.SECS2Message {
+	return secs2.NewMessage(6, 16, false, secs2.L(dataid, ceid, secs2.L(groupItems(reports)...)))
 }
 
 // S6F17 creates the S6F17 (Annotated Event Report Request) message, direction: host-to-equipment.
@@ -217,8 +217,8 @@ func S6F17(ceid secs2.Item) secs2.SECS2Message {
 // Body: L[0,3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
 // Exception: A zero-length item means there are no reports linked to the given CEID.
-func S6F18(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 18, false, secs2.L(dataid, ceid, secs2.L(reports...)))
+func S6F18(dataid secs2.Item, ceid secs2.Item, reports ...AnnotatedReport) secs2.SECS2Message {
+	return secs2.NewMessage(6, 18, false, secs2.L(dataid, ceid, secs2.L(groupItems(reports)...)))
 }
 
 // S6F19 creates the S6F19 (Individual Report Request) message, direction: host-to-equipment.
@@ -261,8 +261,8 @@ func S6F21(rptid secs2.Item) secs2.SECS2Message {
 // Body: L[n]{ <values>... }.
 //
 // Exception: A zero-length list for the variable-data-item count means the RPTID is not defined.
-func S6F22(values ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 22, false, secs2.L(values...))
+func S6F22(values ...VariableValue) secs2.SECS2Message {
+	return secs2.NewMessage(6, 22, false, secs2.L(groupItems(values)...))
 }
 
 // S6F23 creates the S6F23 (Request Spooled Data) message, direction: host-to-equipment.
@@ -306,8 +306,8 @@ func S6F24(rsda RSDA) secs2.SECS2Message {
 //
 // Exception: OPID and LINKID are zero-length items when and only when S6F25 is sent as a change notification rather than as a confirmation report.
 // p = 0 if and only if RMACK indicates no errors.
-func S6F25(dataid secs2.Item, opid secs2.Item, linkid uint32, rcpspec string, rmchgstat secs2.Item, attributes []secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 25, true, secs2.L(dataid, opid, secs2.U4(linkid), secs2.A(rcpspec), rmchgstat, secs2.L(attributes...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
+func S6F25(dataid secs2.Item, opid secs2.Item, linkid uint32, rcpspec string, rmchgstat secs2.Item, attributes []RecipeAttribute, rmack RMACK, errors ...ErrorInfo) secs2.SECS2Message {
+	return secs2.NewMessage(6, 25, true, secs2.L(dataid, opid, secs2.U4(linkid), secs2.A(rcpspec), rmchgstat, secs2.L(groupItems(attributes)...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(groupItems(errors)...))))
 }
 
 // S6F26 creates the S6F26 (Notification Report Send Acknowledge) message, direction: bidirectional.
@@ -333,8 +333,8 @@ func S6F26(ackc6 ACKC6) secs2.SECS2Message {
 //
 // Exception: The list of variables associated with each unique RPTID is itself unique; this structure illustrates the form of the message only,
 // so in general V1 for one RPTID and V1 for another do not reference the same variable.
-func S6F27(dataid secs2.Item, trid secs2.Item, samples ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 27, true, secs2.L(dataid, trid, secs2.L(samples...)))
+func S6F27(dataid secs2.Item, trid secs2.Item, samples ...[]Report) secs2.SECS2Message {
+	return secs2.NewMessage(6, 27, true, secs2.L(dataid, trid, secs2.L(valueItems(samples, func(v []Report) secs2.Item { return secs2.L(groupItems(v)...) })...)))
 }
 
 // S6F28 creates the S6F28 (Trace Report Send Acknowledge) message, direction: host-to-equipment.
@@ -367,6 +367,6 @@ func S6F29(trid secs2.Item) secs2.SECS2Message {
 //
 // Exception: If TRID is unknown, a zero-length list (n = 0) is sent.
 // ERRCODE is set to zero length when there is no error.
-func S6F30(trid secs2.Item, reports []secs2.Item, errcode secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(6, 30, false, secs2.L(trid, secs2.L(reports...), errcode))
+func S6F30(trid secs2.Item, reports []Report, errcode secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(6, 30, false, secs2.L(trid, secs2.L(groupItems(reports)...), errcode))
 }

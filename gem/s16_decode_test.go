@@ -24,52 +24,52 @@ func init() {
 		_, err := gem.DecodeS16F3(item)
 
 		return err
-	}, gem.S16F3(secs2.A("dataid"), secs2.A("mf"), []secs2.Item{secs2.A("mids")}, 41, "rcpspec", []secs2.Item{secs2.A("recipeParams")}, true).Item())
+	}, gem.S16F3(secs2.A("dataid"), secs2.A("mf"), []secs2.Item{secs2.A("mids")}, 41, "rcpspec", []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}, true).Item())
 	registerFuzzDecoder("DecodeS16F4", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F4(item)
 
 		return err
-	}, gem.S16F4("prjobid", true, secs2.A("errors")).Item())
+	}, gem.S16F4("prjobid", true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS16F5", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F5(item)
 
 		return err
-	}, gem.S16F5(secs2.A("dataid"), "prjobid", "prcmdname", secs2.A("params")).Item())
+	}, gem.S16F5(secs2.A("dataid"), "prjobid", "prcmdname", gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")}).Item())
 	registerFuzzDecoder("DecodeS16F6", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F6(item)
 
 		return err
-	}, gem.S16F6("prjobid", true, secs2.A("errors")).Item())
+	}, gem.S16F6("prjobid", true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS16F7", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F7(item)
 
 		return err
-	}, gem.S16F7("timestamp", "prjobid", secs2.A("prjobmilestone"), true, secs2.A("errors")).Item())
+	}, gem.S16F7("timestamp", "prjobid", secs2.A("prjobmilestone"), true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS16F9", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F9(item)
 
 		return err
-	}, gem.S16F9(secs2.A("preventid"), "timestamp", "prjobid", secs2.A("variables")).Item())
+	}, gem.S16F9(secs2.A("preventid"), "timestamp", "prjobid", gem.VariableValue{VID: secs2.A("vid"), V: secs2.A("v")}).Item())
 	registerFuzzDecoder("DecodeS16F11", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F11(item)
 
 		return err
-	}, gem.S16F11(secs2.A("dataid"), "prjobid", secs2.A("mf"), secs2.A("material"), 41, "rcpspec", []secs2.Item{secs2.A("recipeParams")}, true, secs2.A("prpauseevent")).Item())
+	}, gem.S16F11(secs2.A("dataid"), "prjobid", secs2.A("mf"), secs2.A("material"), 41, "rcpspec", []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}, true, secs2.A("prpauseevent")).Item())
 	registerFuzzDecoder("DecodeS16F12", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F12(item)
 
 		return err
-	}, gem.S16F12("prjobid", true, secs2.A("errors")).Item())
+	}, gem.S16F12("prjobid", true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS16F15", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F15(item)
 
 		return err
-	}, gem.S16F15(secs2.A("dataid"), secs2.A("jobs")).Item())
+	}, gem.S16F15(secs2.A("dataid"), gem.ProcessJob{PRJOBID: "prjobid", MF: secs2.A("mf"), MATERIAL: secs2.A("material"), PRRECIPEMETHOD: 41, RCPSPEC: "rcpspec", RECIPEPARAMS: []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}, PRPROCESSSTART: true, PRPAUSEEVENT: secs2.A("prpauseevent")}).Item())
 	registerFuzzDecoder("DecodeS16F16", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F16(item)
 
 		return err
-	}, gem.S16F16([]string{"prjobids"}, true, secs2.A("errors")).Item())
+	}, gem.S16F16([]string{"prjobids"}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS16F17", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F17(item)
 
@@ -79,12 +79,12 @@ func init() {
 		_, err := gem.DecodeS16F18(item)
 
 		return err
-	}, gem.S16F18([]string{"prjobids"}, true, secs2.A("errors")).Item())
+	}, gem.S16F18([]string{"prjobids"}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS16F20", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F20(item)
 
 		return err
-	}, gem.S16F20(secs2.A("jobs")).Item())
+	}, gem.S16F20(gem.ProcessJobState{PRJOBID: "prjobid", PRSTATE: 79}).Item())
 	registerFuzzDecoder("DecodeS16F22", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F22(item)
 
@@ -94,12 +94,12 @@ func init() {
 		_, err := gem.DecodeS16F23(item)
 
 		return err
-	}, gem.S16F23("prjobid", secs2.A("recipeParams")).Item())
+	}, gem.S16F23("prjobid", gem.RecipeParam{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}).Item())
 	registerFuzzDecoder("DecodeS16F24", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F24(item)
 
 		return err
-	}, gem.S16F24(true, secs2.A("errors")).Item())
+	}, gem.S16F24(true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS16F25", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F25(item)
 
@@ -109,7 +109,7 @@ func init() {
 		_, err := gem.DecodeS16F26(item)
 
 		return err
-	}, gem.S16F26([]string{"prjobids"}, true, secs2.A("errors")).Item())
+	}, gem.S16F26([]string{"prjobids"}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS16F27", func(item secs2.Item) error {
 		_, err := gem.DecodeS16F27(item)
 
@@ -174,7 +174,7 @@ func TestDecodeS16F2RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS16F3RoundTrip(t *testing.T) {
-	msg := gem.S16F3(secs2.A("dataid"), secs2.A("mf"), []secs2.Item{secs2.A("mids")}, 41, "rcpspec", []secs2.Item{secs2.A("recipeParams")}, true)
+	msg := gem.S16F3(secs2.A("dataid"), secs2.A("mf"), []secs2.Item{secs2.A("mids")}, 41, "rcpspec", []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}, true)
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -192,7 +192,7 @@ func TestDecodeS16F3RoundTrip(t *testing.T) {
 		MIDS:           []secs2.Item{secs2.A("mids")},
 		PRRECIPEMETHOD: 41,
 		RCPSPEC:        "rcpspec",
-		RECIPEPARAMS:   []secs2.Item{secs2.A("recipeParams")},
+		RECIPEPARAMS:   []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}},
 		PRPROCESSSTART: true,
 	}
 
@@ -200,7 +200,7 @@ func TestDecodeS16F3RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS16F4RoundTrip(t *testing.T) {
-	msg := gem.S16F4("prjobid", true, secs2.A("errors"))
+	msg := gem.S16F4("prjobid", true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -215,14 +215,14 @@ func TestDecodeS16F4RoundTrip(t *testing.T) {
 	want := gem.S16F4Reply{
 		PRJOBID: "prjobid",
 		ACKA:    true,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F5RoundTrip(t *testing.T) {
-	msg := gem.S16F5(secs2.A("dataid"), "prjobid", "prcmdname", secs2.A("params"))
+	msg := gem.S16F5(secs2.A("dataid"), "prjobid", "prcmdname", gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -238,14 +238,14 @@ func TestDecodeS16F5RoundTrip(t *testing.T) {
 		DATAID:    secs2.A("dataid"),
 		PRJOBID:   "prjobid",
 		PRCMDNAME: "prcmdname",
-		PARAMS:    []secs2.Item{secs2.A("params")},
+		PARAMS:    []gem.CommandParam{{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F6RoundTrip(t *testing.T) {
-	msg := gem.S16F6("prjobid", true, secs2.A("errors"))
+	msg := gem.S16F6("prjobid", true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -260,14 +260,14 @@ func TestDecodeS16F6RoundTrip(t *testing.T) {
 	want := gem.S16F6Reply{
 		PRJOBID: "prjobid",
 		ACKA:    true,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F7RoundTrip(t *testing.T) {
-	msg := gem.S16F7("timestamp", "prjobid", secs2.A("prjobmilestone"), true, secs2.A("errors"))
+	msg := gem.S16F7("timestamp", "prjobid", secs2.A("prjobmilestone"), true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -284,14 +284,14 @@ func TestDecodeS16F7RoundTrip(t *testing.T) {
 		PRJOBID:        "prjobid",
 		PRJOBMILESTONE: secs2.A("prjobmilestone"),
 		ACKA:           true,
-		ERRORS:         []secs2.Item{secs2.A("errors")},
+		ERRORS:         []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F9RoundTrip(t *testing.T) {
-	msg := gem.S16F9(secs2.A("preventid"), "timestamp", "prjobid", secs2.A("variables"))
+	msg := gem.S16F9(secs2.A("preventid"), "timestamp", "prjobid", gem.VariableValue{VID: secs2.A("vid"), V: secs2.A("v")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -307,14 +307,14 @@ func TestDecodeS16F9RoundTrip(t *testing.T) {
 		PREVENTID: secs2.A("preventid"),
 		TIMESTAMP: "timestamp",
 		PRJOBID:   "prjobid",
-		VARIABLES: []secs2.Item{secs2.A("variables")},
+		VARIABLES: []gem.VariableValue{{VID: secs2.A("vid"), V: secs2.A("v")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F11RoundTrip(t *testing.T) {
-	msg := gem.S16F11(secs2.A("dataid"), "prjobid", secs2.A("mf"), secs2.A("material"), 41, "rcpspec", []secs2.Item{secs2.A("recipeParams")}, true, secs2.A("prpauseevent"))
+	msg := gem.S16F11(secs2.A("dataid"), "prjobid", secs2.A("mf"), secs2.A("material"), 41, "rcpspec", []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}, true, secs2.A("prpauseevent"))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -333,7 +333,7 @@ func TestDecodeS16F11RoundTrip(t *testing.T) {
 		MATERIAL:       secs2.A("material"),
 		PRRECIPEMETHOD: 41,
 		RCPSPEC:        "rcpspec",
-		RECIPEPARAMS:   []secs2.Item{secs2.A("recipeParams")},
+		RECIPEPARAMS:   []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}},
 		PRPROCESSSTART: true,
 		PRPAUSEEVENT:   secs2.A("prpauseevent"),
 	}
@@ -342,7 +342,7 @@ func TestDecodeS16F11RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS16F12RoundTrip(t *testing.T) {
-	msg := gem.S16F12("prjobid", true, secs2.A("errors"))
+	msg := gem.S16F12("prjobid", true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -357,14 +357,14 @@ func TestDecodeS16F12RoundTrip(t *testing.T) {
 	want := gem.S16F12Reply{
 		PRJOBID: "prjobid",
 		ACKA:    true,
-		ERRORS:  []secs2.Item{secs2.A("errors")},
+		ERRORS:  []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F15RoundTrip(t *testing.T) {
-	msg := gem.S16F15(secs2.A("dataid"), secs2.A("jobs"))
+	msg := gem.S16F15(secs2.A("dataid"), gem.ProcessJob{PRJOBID: "prjobid", MF: secs2.A("mf"), MATERIAL: secs2.A("material"), PRRECIPEMETHOD: 41, RCPSPEC: "rcpspec", RECIPEPARAMS: []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}, PRPROCESSSTART: true, PRPAUSEEVENT: secs2.A("prpauseevent")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -378,14 +378,14 @@ func TestDecodeS16F15RoundTrip(t *testing.T) {
 
 	want := gem.S16F15Body{
 		DATAID: secs2.A("dataid"),
-		JOBS:   []secs2.Item{secs2.A("jobs")},
+		JOBS:   []gem.ProcessJob{{PRJOBID: "prjobid", MF: secs2.A("mf"), MATERIAL: secs2.A("material"), PRRECIPEMETHOD: 41, RCPSPEC: "rcpspec", RECIPEPARAMS: []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}, PRPROCESSSTART: true, PRPAUSEEVENT: secs2.A("prpauseevent")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F16RoundTrip(t *testing.T) {
-	msg := gem.S16F16([]string{"prjobids"}, true, secs2.A("errors"))
+	msg := gem.S16F16([]string{"prjobids"}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -400,7 +400,7 @@ func TestDecodeS16F16RoundTrip(t *testing.T) {
 	want := gem.S16F16Reply{
 		PRJOBIDS: []string{"prjobids"},
 		ACKA:     true,
-		ERRORS:   []secs2.Item{secs2.A("errors")},
+		ERRORS:   []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -427,7 +427,7 @@ func TestDecodeS16F17RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS16F18RoundTrip(t *testing.T) {
-	msg := gem.S16F18([]string{"prjobids"}, true, secs2.A("errors"))
+	msg := gem.S16F18([]string{"prjobids"}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -442,14 +442,14 @@ func TestDecodeS16F18RoundTrip(t *testing.T) {
 	want := gem.S16F18Reply{
 		PRJOBIDS: []string{"prjobids"},
 		ACKA:     true,
-		ERRORS:   []secs2.Item{secs2.A("errors")},
+		ERRORS:   []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F20RoundTrip(t *testing.T) {
-	msg := gem.S16F20(secs2.A("jobs"))
+	msg := gem.S16F20(gem.ProcessJobState{PRJOBID: "prjobid", PRSTATE: 79})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -462,7 +462,7 @@ func TestDecodeS16F20RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S16F20Reply{
-		JOBS: []secs2.Item{secs2.A("jobs")},
+		JOBS: []gem.ProcessJobState{{PRJOBID: "prjobid", PRSTATE: 79}},
 	}
 
 	assertDecoded(t, got, want)
@@ -489,7 +489,7 @@ func TestDecodeS16F22RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS16F23RoundTrip(t *testing.T) {
-	msg := gem.S16F23("prjobid", secs2.A("recipeParams"))
+	msg := gem.S16F23("prjobid", gem.RecipeParam{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -503,14 +503,14 @@ func TestDecodeS16F23RoundTrip(t *testing.T) {
 
 	want := gem.S16F23Body{
 		PRJOBID:      "prjobid",
-		RECIPEPARAMS: []secs2.Item{secs2.A("recipeParams")},
+		RECIPEPARAMS: []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS16F24RoundTrip(t *testing.T) {
-	msg := gem.S16F24(true, secs2.A("errors"))
+	msg := gem.S16F24(true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -524,7 +524,7 @@ func TestDecodeS16F24RoundTrip(t *testing.T) {
 
 	want := gem.S16F24Reply{
 		ACKA:   true,
-		ERRORS: []secs2.Item{secs2.A("errors")},
+		ERRORS: []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -552,7 +552,7 @@ func TestDecodeS16F25RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS16F26RoundTrip(t *testing.T) {
-	msg := gem.S16F26([]string{"prjobids"}, true, secs2.A("errors"))
+	msg := gem.S16F26([]string{"prjobids"}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -567,7 +567,7 @@ func TestDecodeS16F26RoundTrip(t *testing.T) {
 	want := gem.S16F26Reply{
 		PRJOBIDS: []string{"prjobids"},
 		ACKA:     true,
-		ERRORS:   []secs2.Item{secs2.A("errors")},
+		ERRORS:   []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)

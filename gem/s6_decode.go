@@ -87,7 +87,7 @@ func DecodeS6F2(item secs2.Item) (S6F2Reply, error) {
 type S6F3Body struct {
 	DATAID  secs2.Item
 	CEID    secs2.Item
-	REPORTS []secs2.Item
+	REPORTS []DataSet
 }
 
 // DecodeS6F3 decodes the body of an S6F3 (Discrete Variable Data Send) message into a [S6F3Body].
@@ -114,7 +114,7 @@ func DecodeS6F3(item secs2.Item) (S6F3Body, error) {
 		return out, err
 	}
 
-	if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
+	if out.REPORTS, err = decodeEach(root.At(2), "REPORTS", decodeDataSet); err != nil {
 		return out, err
 	}
 
@@ -250,7 +250,7 @@ func DecodeS6F7(item secs2.Item) (S6F7Body, error) {
 type S6F8Reply struct {
 	DATAID  secs2.Item
 	CEID    secs2.Item
-	REPORTS []secs2.Item
+	REPORTS []DataSet
 }
 
 // DecodeS6F8 decodes the body of an S6F8 (Data Transfer Data) message into a [S6F8Reply].
@@ -279,7 +279,7 @@ func DecodeS6F8(item secs2.Item) (S6F8Reply, error) {
 			return out, err
 		}
 
-		if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
+		if out.REPORTS, err = decodeEach(root.At(2), "REPORTS", decodeDataSet); err != nil {
 			return out, err
 		}
 	}
@@ -296,7 +296,7 @@ type S6F9Body struct {
 	PFCD    byte
 	DATAID  secs2.Item
 	CEID    secs2.Item
-	REPORTS []secs2.Item
+	REPORTS []DataSetValues
 }
 
 // DecodeS6F9 decodes the body of an S6F9 (Formatted Variable Send) message into a [S6F9Body].
@@ -327,7 +327,7 @@ func DecodeS6F9(item secs2.Item) (S6F9Body, error) {
 		return out, err
 	}
 
-	if out.REPORTS, err = decodeItems(root.At(3), "REPORTS"); err != nil {
+	if out.REPORTS, err = decodeEach(root.At(3), "REPORTS", decodeDataSetValues); err != nil {
 		return out, err
 	}
 
@@ -370,7 +370,7 @@ func DecodeS6F10(item secs2.Item) (S6F10Reply, error) {
 type S6F11Body struct {
 	DATAID  secs2.Item
 	CEID    secs2.Item
-	REPORTS []secs2.Item
+	REPORTS []Report
 }
 
 // DecodeS6F11 decodes the body of an S6F11 (Event Report Send) message into a [S6F11Body].
@@ -397,7 +397,7 @@ func DecodeS6F11(item secs2.Item) (S6F11Body, error) {
 		return out, err
 	}
 
-	if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
+	if out.REPORTS, err = decodeEach(root.At(2), "REPORTS", decodeReport); err != nil {
 		return out, err
 	}
 
@@ -442,7 +442,7 @@ func DecodeS6F12(item secs2.Item) (S6F12Reply, error) {
 type S6F13Body struct {
 	DATAID  secs2.Item
 	CEID    secs2.Item
-	REPORTS []secs2.Item
+	REPORTS []AnnotatedReport
 }
 
 // DecodeS6F13 decodes the body of an S6F13 (Annotated Event Report Send) message into a [S6F13Body].
@@ -471,7 +471,7 @@ func DecodeS6F13(item secs2.Item) (S6F13Body, error) {
 		return out, err
 	}
 
-	if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
+	if out.REPORTS, err = decodeEach(root.At(2), "REPORTS", decodeAnnotatedReport); err != nil {
 		return out, err
 	}
 
@@ -542,7 +542,7 @@ func DecodeS6F15(item secs2.Item) (S6F15Body, error) {
 type S6F16Reply struct {
 	DATAID  secs2.Item
 	CEID    secs2.Item
-	REPORTS []secs2.Item
+	REPORTS []Report
 }
 
 // DecodeS6F16 decodes the body of an S6F16 (Event Report Data) message into a [S6F16Reply].
@@ -571,7 +571,7 @@ func DecodeS6F16(item secs2.Item) (S6F16Reply, error) {
 			return out, err
 		}
 
-		if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
+		if out.REPORTS, err = decodeEach(root.At(2), "REPORTS", decodeReport); err != nil {
 			return out, err
 		}
 	}
@@ -615,7 +615,7 @@ func DecodeS6F17(item secs2.Item) (S6F17Body, error) {
 type S6F18Reply struct {
 	DATAID  secs2.Item
 	CEID    secs2.Item
-	REPORTS []secs2.Item
+	REPORTS []AnnotatedReport
 }
 
 // DecodeS6F18 decodes the body of an S6F18 (Annotated Event Report Data) message into a [S6F18Reply].
@@ -644,7 +644,7 @@ func DecodeS6F18(item secs2.Item) (S6F18Reply, error) {
 			return out, err
 		}
 
-		if out.REPORTS, err = decodeItems(root.At(2), "REPORTS"); err != nil {
+		if out.REPORTS, err = decodeEach(root.At(2), "REPORTS", decodeAnnotatedReport); err != nil {
 			return out, err
 		}
 	}
@@ -742,7 +742,7 @@ func DecodeS6F21(item secs2.Item) (S6F21Body, error) {
 //
 // It is filled by [DecodeS6F22] and mirrors the parameters of [S6F22], in order.
 type S6F22Reply struct {
-	VALUES []secs2.Item
+	VALUES []VariableValue
 }
 
 // DecodeS6F22 decodes the body of an S6F22 (Annotated Individual Report Data) message into a [S6F22Reply].
@@ -757,7 +757,7 @@ func DecodeS6F22(item secs2.Item) (S6F22Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.VALUES, err = decodeItems(root, "VALUES"); err != nil {
+	if out.VALUES, err = decodeEach(root, "VALUES", decodeVariableValue); err != nil {
 		return out, err
 	}
 
@@ -838,9 +838,9 @@ type S6F25Body struct {
 	LINKIDPresent bool
 	RCPSPEC       string
 	RMCHGSTAT     secs2.Item
-	ATTRIBUTES    []secs2.Item
+	ATTRIBUTES    []RecipeAttribute
 	RMACK         RMACK
-	ERRORS        []secs2.Item
+	ERRORS        []ErrorInfo
 }
 
 // DecodeS6F25 decodes the body of an S6F25 (Notification Report Send) message into a [S6F25Body].
@@ -885,7 +885,7 @@ func DecodeS6F25(item secs2.Item) (S6F25Body, error) {
 		return out, err
 	}
 
-	if out.ATTRIBUTES, err = decodeItems(root.At(5), "ATTRIBUTES"); err != nil {
+	if out.ATTRIBUTES, err = decodeEach(root.At(5), "ATTRIBUTES", decodeRecipeAttribute); err != nil {
 		return out, err
 	}
 
@@ -897,7 +897,7 @@ func DecodeS6F25(item secs2.Item) (S6F25Body, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(6, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(6, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -940,7 +940,7 @@ func DecodeS6F26(item secs2.Item) (S6F26Reply, error) {
 type S6F27Body struct {
 	DATAID  secs2.Item
 	TRID    secs2.Item
-	SAMPLES []secs2.Item
+	SAMPLES [][]Report
 }
 
 // DecodeS6F27 decodes the body of an S6F27 (Trace Report Send) message into a [S6F27Body].
@@ -967,7 +967,7 @@ func DecodeS6F27(item secs2.Item) (S6F27Body, error) {
 		return out, err
 	}
 
-	if out.SAMPLES, err = decodeItems(root.At(2), "SAMPLES"); err != nil {
+	if out.SAMPLES, err = decodeEach(root.At(2), "SAMPLES", eachOf(decodeReport)); err != nil {
 		return out, err
 	}
 
@@ -1037,7 +1037,7 @@ func DecodeS6F29(item secs2.Item) (S6F29Body, error) {
 // It is filled by [DecodeS6F30] and mirrors the parameters of [S6F30], in order.
 type S6F30Reply struct {
 	TRID    secs2.Item
-	REPORTS []secs2.Item
+	REPORTS []Report
 	ERRCODE secs2.Item
 }
 
@@ -1061,7 +1061,7 @@ func DecodeS6F30(item secs2.Item) (S6F30Reply, error) {
 		return out, err
 	}
 
-	if out.REPORTS, err = decodeItems(root.At(1), "REPORTS"); err != nil {
+	if out.REPORTS, err = decodeEach(root.At(1), "REPORTS", decodeReport); err != nil {
 		return out, err
 	}
 

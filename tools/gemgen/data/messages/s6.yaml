@@ -58,13 +58,7 @@ messages:
             - {item: CEID}
             - type: list
               repeat: reports
-              of:
-                type: list
-                items:
-                  - {item: DSID}
-                  - type: list
-                    repeat: values
-                    of: {type: list, items: [{item: DVNAME}, {item: DVVAL}]}
+              of: {group: DataSet}
 
   - function: 4
     name: Discrete Variable Data Acknowledge
@@ -137,13 +131,7 @@ messages:
             - {item: CEID}
             - type: list
               repeat: reports
-              of:
-                type: list
-                items:
-                  - {item: DSID}
-                  - type: list
-                    repeat: values
-                    of: {type: list, items: [{item: DVNAME}, {item: DVVAL}]}
+              of: {group: DataSet}
 
   - function: 9
     name: Formatted Variable Send
@@ -167,11 +155,7 @@ messages:
             - {item: CEID}
             - type: list
               repeat: reports
-              of:
-                type: list
-                items:
-                  - {item: DSID}
-                  - {type: list, repeat: values, of: {item: DVVAL}}
+              of: {group: DataSetValues}
 
   - function: 10
     name: Formatted Variable Acknowledge
@@ -207,11 +191,7 @@ messages:
             - {item: CEID}
             - type: list
               repeat: reports
-              of:
-                type: list
-                items:
-                  - {item: RPTID}
-                  - {type: list, repeat: values, of: {item: V}}
+              of: {group: Report}
 
   - function: 12
     name: Event Report Acknowledge
@@ -258,13 +238,7 @@ messages:
             - {item: CEID}
             - type: list
               repeat: reports
-              of:
-                type: list
-                items:
-                  - {item: RPTID}
-                  - type: list
-                    repeat: values
-                    of: {type: list, items: [{item: VID}, {item: V}]}
+              of: {group: AnnotatedReport}
 
   - function: 14
     name: Annotated Event Report Acknowledge
@@ -311,11 +285,7 @@ messages:
             - {item: CEID}
             - type: list
               repeat: reports
-              of:
-                type: list
-                items:
-                  - {item: RPTID}
-                  - {type: list, repeat: values, of: {item: V}}
+              of: {group: Report}
 
   - function: 17
     name: Annotated Event Report Request
@@ -350,13 +320,7 @@ messages:
             - {item: CEID}
             - type: list
               repeat: reports
-              of:
-                type: list
-                items:
-                  - {item: RPTID}
-                  - type: list
-                    repeat: values
-                    of: {type: list, items: [{item: VID}, {item: V}]}
+              of: {group: AnnotatedReport}
 
   - function: 19
     name: Individual Report Request
@@ -407,7 +371,7 @@ messages:
         structure:
           type: list
           repeat: values
-          of: {type: list, items: [{item: VID}, {item: V}]}
+          of: {group: VariableValue}
 
   - function: 23
     name: Request Spooled Data
@@ -467,13 +431,13 @@ messages:
             - {item: RMCHGSTAT}
             - type: list
               repeat: attributes
-              of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}
+              of: {group: RecipeAttribute}
             - type: list
               items:
                 - {item: RMACK}
                 - type: list
                   repeat: errors
-                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                  of: {group: ErrorInfo}
 
   - function: 26
     name: Notification Report Send Acknowledge
@@ -516,11 +480,7 @@ messages:
               of:
                 type: list
                 repeat: reports
-                of:
-                  type: list
-                  items:
-                    - {item: RPTID}
-                    - {type: list, repeat: values, of: {item: V}}
+                of: {group: Report}
 
   - function: 28
     name: Trace Report Send Acknowledge
@@ -568,9 +528,5 @@ messages:
             - {item: TRID}
             - type: list
               repeat: reports
-              of:
-                type: list
-                items:
-                  - {item: RPTID}
-                  - {type: list, repeat: values, of: {item: V}}
+              of: {group: Report}
             - {item: ERRCODE}

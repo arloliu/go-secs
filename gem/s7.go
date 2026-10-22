@@ -120,8 +120,8 @@ func S7F9() secs2.SECS2Message {
 // Exception: a = 0 indicates that this PPID will be used for all material processed.
 // The last default transmitted will be the one used; all other entries will be deleted from the active matrix.
 // A zero-length list returned means no such matrix.
-func S7F10(programs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 10, false, secs2.L(programs...))
+func S7F10(programs ...ProgramMaterials) secs2.SECS2Message {
+	return secs2.NewMessage(7, 10, false, secs2.L(groupItems(programs)...))
 }
 
 // S7F11 creates the S7F11 (M/P M Update Send) message, direction: host-to-equipment.
@@ -133,8 +133,8 @@ func S7F10(programs ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: If a = 0, then the preceding PPID is to be used for all material processed.
 // All other entries will be deleted from the active matrix.
-func S7F11(programs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 11, true, secs2.L(programs...))
+func S7F11(programs ...ProgramMaterials) secs2.SECS2Message {
+	return secs2.NewMessage(7, 11, true, secs2.L(groupItems(programs)...))
 }
 
 // S7F12 creates the S7F12 (M/P M Update Acknowledge) message, direction: equipment-to-host.
@@ -156,8 +156,8 @@ func S7F12(ackc7 ACKC7) secs2.SECS2Message {
 // Body: L[n]{ <programs>... }.
 //
 // Exception: A delete consisting of a zero-length list means delete all entries and generate an S7F9 request to initialize the matrix.
-func S7F13(programs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 13, true, secs2.L(programs...))
+func S7F13(programs ...ProgramMaterials) secs2.SECS2Message {
+	return secs2.NewMessage(7, 13, true, secs2.L(groupItems(programs)...))
 }
 
 // S7F14 creates the S7F14 (Delete M/P M Entry Acknowledge) message, direction: equipment-to-host.
@@ -261,8 +261,8 @@ func S7F21() secs2.SECS2Message {
 // Body: L[5]{ A[mdln] A[softrev] <cmdmax> <bytmax> L[n]{ <commands>... } }.
 //
 // Exception: None.
-func S7F22(mdln string, softrev string, cmdmax secs2.Item, bytmax secs2.Item, commands ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 22, false, secs2.L(secs2.A(mdln), secs2.A(softrev), cmdmax, bytmax, secs2.L(commands...)))
+func S7F22(mdln string, softrev string, cmdmax secs2.Item, bytmax secs2.Item, commands ...ProcessCommandDefinition) secs2.SECS2Message {
+	return secs2.NewMessage(7, 22, false, secs2.L(secs2.A(mdln), secs2.A(softrev), cmdmax, bytmax, secs2.L(groupItems(commands)...)))
 }
 
 // S7F23 creates the S7F23 (Formatted Process Program Send) message, direction: bidirectional.
@@ -274,8 +274,8 @@ func S7F22(mdln string, softrev string, cmdmax secs2.Item, bytmax secs2.Item, co
 // Body: L[4]{ <ppid> A[mdln] A[softrev] L[n]{ <commands>... } }.
 //
 // Exception: None.
-func S7F23(ppid secs2.Item, mdln string, softrev string, commands ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 23, true, secs2.L(ppid, secs2.A(mdln), secs2.A(softrev), secs2.L(commands...)))
+func S7F23(ppid secs2.Item, mdln string, softrev string, commands ...ProcessCommand) secs2.SECS2Message {
+	return secs2.NewMessage(7, 23, true, secs2.L(ppid, secs2.A(mdln), secs2.A(softrev), secs2.L(groupItems(commands)...)))
 }
 
 // S7F24 creates the S7F24 (Formatted Process Program Acknowledge) message, direction: bidirectional.
@@ -310,8 +310,8 @@ func S7F25(ppid secs2.Item) secs2.SECS2Message {
 // Body: L[0,4]{ <ppid> A[mdln] A[softrev] L[n]{ <commands>... } }.
 //
 // Exception: A zero length list indicates the request was denied.
-func S7F26(ppid secs2.Item, mdln string, softrev string, commands ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 26, false, secs2.L(ppid, secs2.A(mdln), secs2.A(softrev), secs2.L(commands...)))
+func S7F26(ppid secs2.Item, mdln string, softrev string, commands ...ProcessCommand) secs2.SECS2Message {
+	return secs2.NewMessage(7, 26, false, secs2.L(ppid, secs2.A(mdln), secs2.A(softrev), secs2.L(groupItems(commands)...)))
 }
 
 // S7F27 creates the S7F27 (Process Program Verification Send) message, direction: equipment-to-host.
@@ -329,8 +329,8 @@ func S7F26(ppid secs2.Item, mdln string, softrev string, commands ...secs2.Item)
 // Body: L[2]{ <ppid> L[n]{ <errors>... } }.
 //
 // Exception: None.
-func S7F27(ppid secs2.Item, errors ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 27, true, secs2.L(ppid, secs2.L(errors...)))
+func S7F27(ppid secs2.Item, errors ...ProgramError) secs2.SECS2Message {
+	return secs2.NewMessage(7, 27, true, secs2.L(ppid, secs2.L(groupItems(errors)...)))
 }
 
 // S7F28 creates the S7F28 (Process Program Verification Acknowledge) message, direction: host-to-equipment.
@@ -376,8 +376,8 @@ func S7F30(ppgnt PPGNT) secs2.SECS2Message {
 // Body: L[4]{ <ppid> A[mdln] A[softrev] L[n]{ <commands>... } }.
 //
 // Exception: None.
-func S7F31(ppid secs2.Item, mdln string, softrev string, commands ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 31, true, secs2.L(ppid, secs2.A(mdln), secs2.A(softrev), secs2.L(commands...)))
+func S7F31(ppid secs2.Item, mdln string, softrev string, commands ...ProcessCommand) secs2.SECS2Message {
+	return secs2.NewMessage(7, 31, true, secs2.L(ppid, secs2.A(mdln), secs2.A(softrev), secs2.L(groupItems(commands)...)))
 }
 
 // S7F32 creates the S7F32 (Verification Request Acknowledge) message, direction: equipment-to-host.

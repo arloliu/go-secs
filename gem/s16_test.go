@@ -74,7 +74,7 @@ func TestS16F2(t *testing.T) {
 }
 
 func TestS16F3(t *testing.T) {
-	msg := gem.S16F3(secs2.A("dataid"), secs2.A("mf"), []secs2.Item{secs2.A("mids")}, 41, "rcpspec", []secs2.Item{secs2.A("recipeParams")}, true)
+	msg := gem.S16F3(secs2.A("dataid"), secs2.A("mf"), []secs2.Item{secs2.A("mids")}, 41, "rcpspec", []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}, true)
 
 	assertS16Header(t, msg, 3, true)
 
@@ -139,22 +139,36 @@ func TestS16F3(t *testing.T) {
 	if len(list9) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list9))
 	}
-	got10 := list9[0].ToBytes()
-	want10 := secs2.A("recipeParams").ToBytes()
-	if !bytes.Equal(got10, want10) {
-		t.Errorf("recipeParams: got %x, want %x", got10, want10)
+	list10, err := list9[0].ToList()
+	if err != nil {
+		t.Fatalf("list9[0].ToList: %v", err)
 	}
-	v11, err := list1[4].ToBoolean()
+	if len(list10) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list10))
+	}
+	v11, err := list10[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list10[0].ToASCII: %v", err)
+	}
+	if v11 != "rcpparnm" {
+		t.Errorf("rcpparnm: got %q, want %q", v11, "rcpparnm")
+	}
+	got12 := list10[1].ToBytes()
+	want12 := secs2.A("rcpparval").ToBytes()
+	if !bytes.Equal(got12, want12) {
+		t.Errorf("rcpparval: got %x, want %x", got12, want12)
+	}
+	v13, err := list1[4].ToBoolean()
 	if err != nil {
 		t.Fatalf("list1[4].ToBoolean: %v", err)
 	}
-	if len(v11) != 1 || v11[0] != true {
-		t.Errorf("prprocessstart: got %v, want %v", v11, true)
+	if len(v13) != 1 || v13[0] != true {
+		t.Errorf("prprocessstart: got %v, want %v", v13, true)
 	}
 }
 
 func TestS16F4(t *testing.T) {
-	msg := gem.S16F4("prjobid", true, secs2.A("errors"))
+	msg := gem.S16F4("prjobid", true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS16Header(t, msg, 4, false)
 
@@ -197,15 +211,29 @@ func TestS16F4(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("errors: got %x, want %x", got6, want6)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("errcode: got %x, want %x", got7, want7)
+	}
+	v8, err := list6[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list6[1].ToASCII: %v", err)
+	}
+	if v8 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v8, "errtext")
 	}
 }
 
 func TestS16F5(t *testing.T) {
-	msg := gem.S16F5(secs2.A("dataid"), "prjobid", "prcmdname", secs2.A("params"))
+	msg := gem.S16F5(secs2.A("dataid"), "prjobid", "prcmdname", gem.CommandParam{CPNAME: secs2.A("cpname"), CPVAL: secs2.A("cpval")})
 
 	assertS16Header(t, msg, 5, true)
 
@@ -246,15 +274,27 @@ func TestS16F5(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("params").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("params: got %x, want %x", got6, want6)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("cpname").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("cpname: got %x, want %x", got7, want7)
+	}
+	got8 := list6[1].ToBytes()
+	want8 := secs2.A("cpval").ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("cpval: got %x, want %x", got8, want8)
 	}
 }
 
 func TestS16F6(t *testing.T) {
-	msg := gem.S16F6("prjobid", true, secs2.A("errors"))
+	msg := gem.S16F6("prjobid", true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS16Header(t, msg, 6, false)
 
@@ -297,15 +337,29 @@ func TestS16F6(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("errors: got %x, want %x", got6, want6)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("errcode: got %x, want %x", got7, want7)
+	}
+	v8, err := list6[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list6[1].ToASCII: %v", err)
+	}
+	if v8 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v8, "errtext")
 	}
 }
 
 func TestS16F7(t *testing.T) {
-	msg := gem.S16F7("timestamp", "prjobid", secs2.A("prjobmilestone"), true, secs2.A("errors"))
+	msg := gem.S16F7("timestamp", "prjobid", secs2.A("prjobmilestone"), true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS16Header(t, msg, 7, true)
 
@@ -360,10 +414,24 @@ func TestS16F7(t *testing.T) {
 	if len(list7) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list7))
 	}
-	got8 := list7[0].ToBytes()
-	want8 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got8, want8) {
-		t.Errorf("errors: got %x, want %x", got8, want8)
+	list8, err := list7[0].ToList()
+	if err != nil {
+		t.Fatalf("list7[0].ToList: %v", err)
+	}
+	if len(list8) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("errcode: got %x, want %x", got9, want9)
+	}
+	v10, err := list8[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list8[1].ToASCII: %v", err)
+	}
+	if v10 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v10, "errtext")
 	}
 }
 
@@ -378,7 +446,7 @@ func TestS16F8(t *testing.T) {
 }
 
 func TestS16F9(t *testing.T) {
-	msg := gem.S16F9(secs2.A("preventid"), "timestamp", "prjobid", secs2.A("variables"))
+	msg := gem.S16F9(secs2.A("preventid"), "timestamp", "prjobid", gem.VariableValue{VID: secs2.A("vid"), V: secs2.A("v")})
 
 	assertS16Header(t, msg, 9, true)
 
@@ -419,10 +487,22 @@ func TestS16F9(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("variables").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("variables: got %x, want %x", got6, want6)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("vid").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("vid: got %x, want %x", got7, want7)
+	}
+	got8 := list6[1].ToBytes()
+	want8 := secs2.A("v").ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("v: got %x, want %x", got8, want8)
 	}
 }
 
@@ -437,7 +517,7 @@ func TestS16F10(t *testing.T) {
 }
 
 func TestS16F11(t *testing.T) {
-	msg := gem.S16F11(secs2.A("dataid"), "prjobid", secs2.A("mf"), secs2.A("material"), 41, "rcpspec", []secs2.Item{secs2.A("recipeParams")}, true, secs2.A("prpauseevent"))
+	msg := gem.S16F11(secs2.A("dataid"), "prjobid", secs2.A("mf"), secs2.A("material"), 41, "rcpspec", []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}, true, secs2.A("prpauseevent"))
 
 	assertS16Header(t, msg, 11, true)
 
@@ -502,27 +582,41 @@ func TestS16F11(t *testing.T) {
 	if len(list9) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list9))
 	}
-	got10 := list9[0].ToBytes()
-	want10 := secs2.A("recipeParams").ToBytes()
-	if !bytes.Equal(got10, want10) {
-		t.Errorf("recipeParams: got %x, want %x", got10, want10)
+	list10, err := list9[0].ToList()
+	if err != nil {
+		t.Fatalf("list9[0].ToList: %v", err)
 	}
-	v11, err := list1[5].ToBoolean()
+	if len(list10) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list10))
+	}
+	v11, err := list10[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list10[0].ToASCII: %v", err)
+	}
+	if v11 != "rcpparnm" {
+		t.Errorf("rcpparnm: got %q, want %q", v11, "rcpparnm")
+	}
+	got12 := list10[1].ToBytes()
+	want12 := secs2.A("rcpparval").ToBytes()
+	if !bytes.Equal(got12, want12) {
+		t.Errorf("rcpparval: got %x, want %x", got12, want12)
+	}
+	v13, err := list1[5].ToBoolean()
 	if err != nil {
 		t.Fatalf("list1[5].ToBoolean: %v", err)
 	}
-	if len(v11) != 1 || v11[0] != true {
-		t.Errorf("prprocessstart: got %v, want %v", v11, true)
+	if len(v13) != 1 || v13[0] != true {
+		t.Errorf("prprocessstart: got %v, want %v", v13, true)
 	}
-	got12 := list1[6].ToBytes()
-	want12 := secs2.A("prpauseevent").ToBytes()
-	if !bytes.Equal(got12, want12) {
-		t.Errorf("prpauseevent: got %x, want %x", got12, want12)
+	got14 := list1[6].ToBytes()
+	want14 := secs2.A("prpauseevent").ToBytes()
+	if !bytes.Equal(got14, want14) {
+		t.Errorf("prpauseevent: got %x, want %x", got14, want14)
 	}
 }
 
 func TestS16F12(t *testing.T) {
-	msg := gem.S16F12("prjobid", true, secs2.A("errors"))
+	msg := gem.S16F12("prjobid", true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS16Header(t, msg, 12, false)
 
@@ -565,15 +659,29 @@ func TestS16F12(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("errors: got %x, want %x", got6, want6)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("errcode: got %x, want %x", got7, want7)
+	}
+	v8, err := list6[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list6[1].ToASCII: %v", err)
+	}
+	if v8 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v8, "errtext")
 	}
 }
 
 func TestS16F15(t *testing.T) {
-	msg := gem.S16F15(secs2.A("dataid"), secs2.A("jobs"))
+	msg := gem.S16F15(secs2.A("dataid"), gem.ProcessJob{PRJOBID: "prjobid", MF: secs2.A("mf"), MATERIAL: secs2.A("material"), PRRECIPEMETHOD: 41, RCPSPEC: "rcpspec", RECIPEPARAMS: []gem.RecipeParam{{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")}}, PRPROCESSSTART: true, PRPAUSEEVENT: secs2.A("prpauseevent")})
 
 	assertS16Header(t, msg, 15, true)
 
@@ -600,15 +708,93 @@ func TestS16F15(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("jobs").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("jobs: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 6 {
+		t.Fatalf("list length: got %d, want 6", len(list4))
+	}
+	v5, err := list4[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[0].ToASCII: %v", err)
+	}
+	if v5 != "prjobid" {
+		t.Errorf("prjobid: got %q, want %q", v5, "prjobid")
+	}
+	got6 := list4[1].ToBytes()
+	want6 := secs2.A("mf").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("mf: got %x, want %x", got6, want6)
+	}
+	got7 := list4[2].ToBytes()
+	want7 := secs2.A("material").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("material: got %x, want %x", got7, want7)
+	}
+	list8, err := list4[3].ToList()
+	if err != nil {
+		t.Fatalf("list4[3].ToList: %v", err)
+	}
+	if len(list8) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list8))
+	}
+	v9, err := list8[0].ToUint()
+	if err != nil {
+		t.Fatalf("list8[0].ToUint: %v", err)
+	}
+	if len(v9) != 1 || v9[0] != 41 {
+		t.Errorf("prrecipemethod: got %v, want %v", v9, 41)
+	}
+	v10, err := list8[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list8[1].ToASCII: %v", err)
+	}
+	if v10 != "rcpspec" {
+		t.Errorf("rcpspec: got %q, want %q", v10, "rcpspec")
+	}
+	list11, err := list8[2].ToList()
+	if err != nil {
+		t.Fatalf("list8[2].ToList: %v", err)
+	}
+	if len(list11) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list11))
+	}
+	list12, err := list11[0].ToList()
+	if err != nil {
+		t.Fatalf("list11[0].ToList: %v", err)
+	}
+	if len(list12) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list12))
+	}
+	v13, err := list12[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list12[0].ToASCII: %v", err)
+	}
+	if v13 != "rcpparnm" {
+		t.Errorf("rcpparnm: got %q, want %q", v13, "rcpparnm")
+	}
+	got14 := list12[1].ToBytes()
+	want14 := secs2.A("rcpparval").ToBytes()
+	if !bytes.Equal(got14, want14) {
+		t.Errorf("rcpparval: got %x, want %x", got14, want14)
+	}
+	v15, err := list4[4].ToBoolean()
+	if err != nil {
+		t.Fatalf("list4[4].ToBoolean: %v", err)
+	}
+	if len(v15) != 1 || v15[0] != true {
+		t.Errorf("prprocessstart: got %v, want %v", v15, true)
+	}
+	got16 := list4[5].ToBytes()
+	want16 := secs2.A("prpauseevent").ToBytes()
+	if !bytes.Equal(got16, want16) {
+		t.Errorf("prpauseevent: got %x, want %x", got16, want16)
 	}
 }
 
 func TestS16F16(t *testing.T) {
-	msg := gem.S16F16([]string{"prjobids"}, true, secs2.A("errors"))
+	msg := gem.S16F16([]string{"prjobids"}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS16Header(t, msg, 16, false)
 
@@ -658,10 +844,24 @@ func TestS16F16(t *testing.T) {
 	if len(list6) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
-	got7 := list6[0].ToBytes()
-	want7 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got7, want7) {
-		t.Errorf("errors: got %x, want %x", got7, want7)
+	list7, err := list6[0].ToList()
+	if err != nil {
+		t.Fatalf("list6[0].ToList: %v", err)
+	}
+	if len(list7) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list7))
+	}
+	got8 := list7[0].ToBytes()
+	want8 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("errcode: got %x, want %x", got8, want8)
+	}
+	v9, err := list7[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list7[1].ToASCII: %v", err)
+	}
+	if v9 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v9, "errtext")
 	}
 }
 
@@ -691,7 +891,7 @@ func TestS16F17(t *testing.T) {
 }
 
 func TestS16F18(t *testing.T) {
-	msg := gem.S16F18([]string{"prjobids"}, true, secs2.A("errors"))
+	msg := gem.S16F18([]string{"prjobids"}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS16Header(t, msg, 18, false)
 
@@ -741,10 +941,24 @@ func TestS16F18(t *testing.T) {
 	if len(list6) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
-	got7 := list6[0].ToBytes()
-	want7 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got7, want7) {
-		t.Errorf("errors: got %x, want %x", got7, want7)
+	list7, err := list6[0].ToList()
+	if err != nil {
+		t.Fatalf("list6[0].ToList: %v", err)
+	}
+	if len(list7) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list7))
+	}
+	got8 := list7[0].ToBytes()
+	want8 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("errcode: got %x, want %x", got8, want8)
+	}
+	v9, err := list7[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list7[1].ToASCII: %v", err)
+	}
+	if v9 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v9, "errtext")
 	}
 }
 
@@ -759,7 +973,7 @@ func TestS16F19(t *testing.T) {
 }
 
 func TestS16F20(t *testing.T) {
-	msg := gem.S16F20(secs2.A("jobs"))
+	msg := gem.S16F20(gem.ProcessJobState{PRJOBID: "prjobid", PRSTATE: 79})
 
 	assertS16Header(t, msg, 20, false)
 
@@ -774,10 +988,26 @@ func TestS16F20(t *testing.T) {
 	if len(list1) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list1))
 	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("jobs").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("jobs: got %x, want %x", got2, want2)
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list2))
+	}
+	v3, err := list2[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[0].ToASCII: %v", err)
+	}
+	if v3 != "prjobid" {
+		t.Errorf("prjobid: got %q, want %q", v3, "prjobid")
+	}
+	v4, err := list2[1].ToUint()
+	if err != nil {
+		t.Fatalf("list2[1].ToUint: %v", err)
+	}
+	if len(v4) != 1 || v4[0] != 79 {
+		t.Errorf("prstate: got %v, want %v", v4, 79)
 	}
 }
 
@@ -810,7 +1040,7 @@ func TestS16F22(t *testing.T) {
 }
 
 func TestS16F23(t *testing.T) {
-	msg := gem.S16F23("prjobid", secs2.A("recipeParams"))
+	msg := gem.S16F23("prjobid", gem.RecipeParam{RCPPARNM: "rcpparnm", RCPPARVAL: secs2.A("rcpparval")})
 
 	assertS16Header(t, msg, 23, true)
 
@@ -839,15 +1069,29 @@ func TestS16F23(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("recipeParams").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("recipeParams: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	v5, err := list4[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[0].ToASCII: %v", err)
+	}
+	if v5 != "rcpparnm" {
+		t.Errorf("rcpparnm: got %q, want %q", v5, "rcpparnm")
+	}
+	got6 := list4[1].ToBytes()
+	want6 := secs2.A("rcpparval").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("rcpparval: got %x, want %x", got6, want6)
 	}
 }
 
 func TestS16F24(t *testing.T) {
-	msg := gem.S16F24(true, secs2.A("errors"))
+	msg := gem.S16F24(true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS16Header(t, msg, 24, false)
 
@@ -876,10 +1120,24 @@ func TestS16F24(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("errcode: got %x, want %x", got5, want5)
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v6, "errtext")
 	}
 }
 
@@ -923,7 +1181,7 @@ func TestS16F25(t *testing.T) {
 }
 
 func TestS16F26(t *testing.T) {
-	msg := gem.S16F26([]string{"prjobids"}, true, secs2.A("errors"))
+	msg := gem.S16F26([]string{"prjobids"}, true, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS16Header(t, msg, 26, false)
 
@@ -973,10 +1231,24 @@ func TestS16F26(t *testing.T) {
 	if len(list6) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
-	got7 := list6[0].ToBytes()
-	want7 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got7, want7) {
-		t.Errorf("errors: got %x, want %x", got7, want7)
+	list7, err := list6[0].ToList()
+	if err != nil {
+		t.Fatalf("list6[0].ToList: %v", err)
+	}
+	if len(list7) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list7))
+	}
+	got8 := list7[0].ToBytes()
+	want8 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("errcode: got %x, want %x", got8, want8)
+	}
+	v9, err := list7[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list7[1].ToASCII: %v", err)
+	}
+	if v9 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v9, "errtext")
 	}
 }
 

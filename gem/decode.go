@@ -95,7 +95,7 @@ func optionalArity(c secs2.Cursor, field string, short int, full int) (int, erro
 	return got, nil
 }
 
-// decodeItems returns the children of the list at c, one per element of a repeated group.
+// decodeItems returns the children of the list at c, for a repeat whose elements are secs2 items.
 //
 // A zero-length list yields an empty slice;
 // whether it is nil is not part of the contract, so callers test it with len.
@@ -113,8 +113,8 @@ func decodeItems(c secs2.Cursor, field string) ([]secs2.Item, error) {
 	return values, nil
 }
 
-// decodeEach decodes every child of the list at c with decode, one value per child,
-// for a repeat whose elements decode to values.
+// decodeEach decodes every child of the list at c with decode, one result per child,
+// for a repeat whose elements decode to values, groups, or the lists of an inner repeat.
 //
 // An element's error names field and the element's index, e.g. PRJOBIDS[2],
 // so a caller can tell which element of the list failed.
@@ -133,6 +133,50 @@ func decodeEach[T any](c secs2.Cursor, field string, decode func(secs2.Cursor, s
 	}
 
 	return values, nil
+}
+
+// eachOf returns the function that decodes, with [decodeEach], a list whose every child decode decodes:
+// the element decoder of a repeat whose elements are themselves repeats.
+func eachOf[T any](decode func(secs2.Cursor, string) (T, error)) func(secs2.Cursor, string) ([]T, error) {
+	return func(c secs2.Cursor, field string) ([]T, error) {
+		return decodeEach(c, field, decode)
+	}
+}
+
+// decodeOptionalGroup decodes the list at c with decode, a group's decode function,
+// or returns nil when the list is the zero-length L[0],
+// which SEMI E5 lets stand for an omitted list.
+//
+// Any other length but full, the group's own, is an error,
+// since a partly filled group names no field.
+func decodeOptionalGroup[T any](c secs2.Cursor, field string, full int, decode func(secs2.Cursor, string) (T, error)) (*T, error) {
+	item, err := listAt(c, field)
+	if err != nil {
+		return nil, err
+	}
+
+	switch got := item.Size(); got {
+	case 0:
+		return nil, nil //nolint:nilnil // nil is the omitted group, which a zero-length list stands for
+	case full:
+	default:
+		return nil, errArityRange(field, got, 0, full)
+	}
+
+	g, err := decode(c, field)
+	if err != nil {
+		return nil, err
+	}
+
+	return &g, nil
+}
+
+// optionalGroup returns the function that decodes, with [decodeOptionalGroup], a group of length full:
+// the element decoder of a repeat whose elements are optional groups.
+func optionalGroup[T any](full int, decode func(secs2.Cursor, string) (T, error)) func(secs2.Cursor, string) (*T, error) {
+	return func(c secs2.Cursor, field string) (*T, error) {
+		return decodeOptionalGroup(c, field, full, decode)
+	}
 }
 
 // decodeItem returns the item at c unchanged, for a field whose SECS-II type is equipment-defined.
@@ -279,8 +323,9 @@ func decodeFloatAs[T ~float32 | ~float64](c secs2.Cursor, field string) (T, erro
 	return out, nil
 }
 
-// valueItems builds one item per value with item, for a builder's repeated group of one fixed data item:
-// the caller passes the values, and the builder sends each as an item of the data item's format.
+// valueItems builds one item per value with item, for a builder's repeat:
+// the caller passes the values, such as the values of one fixed data item, optional groups, or inner lists,
+// and the builder sends each as the item that item builds.
 func valueItems[T any](values []T, item func(T) secs2.Item) []secs2.Item {
 	items := make([]secs2.Item, len(values))
 	for i, v := range values {
@@ -288,4 +333,25 @@ func valueItems[T any](values []T, item func(T) secs2.Item) []secs2.Item {
 	}
 
 	return items
+}
+
+// groupItems returns the list item of each group, for a builder's repeat of a group.
+func groupItems[T interface{ Item() secs2.Item }](groups []T) []secs2.Item {
+	items := make([]secs2.Item, len(groups))
+	for i, g := range groups {
+		items[i] = g.Item()
+	}
+
+	return items
+}
+
+// optionalGroupItem returns the list item of the group g points to,
+// or the zero-length list L[0] when g is nil,
+// which SEMI E5 lets stand for an omitted list.
+func optionalGroupItem[T interface{ Item() secs2.Item }](g *T) secs2.Item {
+	if g == nil {
+		return secs2.L()
+	}
+
+	return (*g).Item()
 }

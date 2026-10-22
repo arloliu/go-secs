@@ -44,7 +44,7 @@ func TestRunSmokeS1F1(t *testing.T) {
 
 	outDir := filepath.Join(tmp, "out")
 
-	require.NoError(t, run(itemsPath, msgsDir, outDir))
+	require.NoError(t, run(itemsPath, "", msgsDir, outDir))
 
 	s1Path := filepath.Join(outDir, "s1.go")
 	src, err := os.ReadFile(s1Path)

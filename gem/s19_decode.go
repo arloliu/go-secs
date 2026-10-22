@@ -10,7 +10,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // It is filled by [DecodeS19F1] and mirrors the parameters of [S19F1], in order.
 type S19F1Body struct {
-	FILTERS    []secs2.Item
+	FILTERS    []PDEFilter
 	ATTRIBUTES []PDEATTRIBUTE
 }
 
@@ -30,7 +30,7 @@ func DecodeS19F1(item secs2.Item) (S19F1Body, error) {
 		return out, err
 	}
 
-	if out.FILTERS, err = decodeItems(root.At(0), "FILTERS"); err != nil {
+	if out.FILTERS, err = decodeEach(root.At(0), "FILTERS", decodePDEFilter); err != nil {
 		return out, err
 	}
 
@@ -49,7 +49,7 @@ func DecodeS19F1(item secs2.Item) (S19F1Body, error) {
 type S19F2Reply struct {
 	DIRRSPSTAT DIRRSPSTAT
 	STATUSTXT  string
-	PDES       []secs2.Item
+	PDES       []PDEAttributes
 }
 
 // DecodeS19F2 decodes the body of an S19F2 (PDE Directory Data) message into a [S19F2Reply].
@@ -76,7 +76,7 @@ func DecodeS19F2(item secs2.Item) (S19F2Reply, error) {
 		return out, err
 	}
 
-	if out.PDES, err = decodeItems(root.At(2), "PDES"); err != nil {
+	if out.PDES, err = decodeEach(root.At(2), "PDES", decodePDEAttributes); err != nil {
 		return out, err
 	}
 
@@ -117,7 +117,7 @@ func DecodeS19F3(item secs2.Item) (S19F3Body, error) {
 //
 // It is filled by [DecodeS19F4] and mirrors the parameters of [S19F4], in order.
 type S19F4Reply struct {
-	RESULTS []secs2.Item
+	RESULTS []PDEDeleteResult
 }
 
 // DecodeS19F4 decodes the body of an S19F4 (Delete PDE Acknowledge) message into a [S19F4Reply].
@@ -132,7 +132,7 @@ func DecodeS19F4(item secs2.Item) (S19F4Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.RESULTS, err = decodeItems(root, "RESULTS"); err != nil {
+	if out.RESULTS, err = decodeEach(root, "RESULTS", decodePDEDeleteResult); err != nil {
 		return out, err
 	}
 
@@ -174,7 +174,7 @@ func DecodeS19F5(item secs2.Item) (S19F5Body, error) {
 // It is filled by [DecodeS19F6] and mirrors the parameters of [S19F6], in order.
 type S19F6Reply struct {
 	TCID    string
-	RESULTS []secs2.Item
+	RESULTS []PDEGetResult
 }
 
 // DecodeS19F6 decodes the body of an S19F6 (PDE Header Data) message into a [S19F6Reply].
@@ -197,7 +197,7 @@ func DecodeS19F6(item secs2.Item) (S19F6Reply, error) {
 		return out, err
 	}
 
-	if out.RESULTS, err = decodeItems(root.At(1), "RESULTS"); err != nil {
+	if out.RESULTS, err = decodeEach(root.At(1), "RESULTS", decodePDEGetResult); err != nil {
 		return out, err
 	}
 
@@ -239,7 +239,7 @@ func DecodeS19F7(item secs2.Item) (S19F7Body, error) {
 // It is filled by [DecodeS19F8] and mirrors the parameters of [S19F8], in order.
 type S19F8Reply struct {
 	TCID    string
-	RESULTS []secs2.Item
+	RESULTS []PDEGetResult
 }
 
 // DecodeS19F8 decodes the body of an S19F8 (PDE Data) message into a [S19F8Reply].
@@ -262,7 +262,7 @@ func DecodeS19F8(item secs2.Item) (S19F8Reply, error) {
 		return out, err
 	}
 
-	if out.RESULTS, err = decodeItems(root.At(1), "RESULTS"); err != nil {
+	if out.RESULTS, err = decodeEach(root.At(1), "RESULTS", decodePDEGetResult); err != nil {
 		return out, err
 	}
 
@@ -384,7 +384,7 @@ func DecodeS19F11(item secs2.Item) (S19F11Body, error) {
 type S19F13Body struct {
 	TCID       string
 	SENDRESULT SENDRESULT
-	RESULTS    []secs2.Item
+	RESULTS    []PDESendResult
 }
 
 // DecodeS19F13 decodes the body of an S19F13 (TransferContainer Report) message into a [S19F13Body].
@@ -411,7 +411,7 @@ func DecodeS19F13(item secs2.Item) (S19F13Body, error) {
 		return out, err
 	}
 
-	if out.RESULTS, err = decodeItems(root.At(2), "RESULTS"); err != nil {
+	if out.RESULTS, err = decodeEach(root.At(2), "RESULTS", decodePDESendResult); err != nil {
 		return out, err
 	}
 
@@ -425,7 +425,7 @@ func DecodeS19F13(item secs2.Item) (S19F13Body, error) {
 // It is filled by [DecodeS19F15] and mirrors the parameters of [S19F15], in order.
 type S19F15Body struct {
 	TARGETPDE string
-	INPUTMAP  []secs2.Item
+	INPUTMAP  []PDEReference
 }
 
 // DecodeS19F15 decodes the body of an S19F15 (Resolve PDE Request) message into a [S19F15Body].
@@ -448,7 +448,7 @@ func DecodeS19F15(item secs2.Item) (S19F15Body, error) {
 		return out, err
 	}
 
-	if out.INPUTMAP, err = decodeItems(root.At(1), "INPUTMAP"); err != nil {
+	if out.INPUTMAP, err = decodeEach(root.At(1), "INPUTMAP", decodePDEReference); err != nil {
 		return out, err
 	}
 
@@ -461,8 +461,8 @@ func DecodeS19F15(item secs2.Item) (S19F15Body, error) {
 //
 // It is filled by [DecodeS19F16] and mirrors the parameters of [S19F16], in order.
 type S19F16Reply struct {
-	OUTPUTMAP []secs2.Item
-	RESULTS   []secs2.Item
+	OUTPUTMAP []PDEReference
+	RESULTS   []PDEResolveResult
 }
 
 // DecodeS19F16 decodes the body of an S19F16 (Resolve PDE Data) message into a [S19F16Reply].
@@ -481,11 +481,11 @@ func DecodeS19F16(item secs2.Item) (S19F16Reply, error) {
 		return out, err
 	}
 
-	if out.OUTPUTMAP, err = decodeItems(root.At(0), "OUTPUTMAP"); err != nil {
+	if out.OUTPUTMAP, err = decodeEach(root.At(0), "OUTPUTMAP", decodePDEReference); err != nil {
 		return out, err
 	}
 
-	if out.RESULTS, err = decodeItems(root.At(1), "RESULTS"); err != nil {
+	if out.RESULTS, err = decodeEach(root.At(1), "RESULTS", decodePDEResolveResult); err != nil {
 		return out, err
 	}
 
@@ -499,7 +499,7 @@ func DecodeS19F16(item secs2.Item) (S19F16Reply, error) {
 // It is filled by [DecodeS19F17] and mirrors the parameters of [S19F17], in order.
 type S19F17Body struct {
 	TARGETPDE   string
-	INPUTMAP    []secs2.Item
+	INPUTMAP    []PDEReference
 	VERIFYTYPE  VERIFYTYPE
 	VERIFYDEPTH VERIFYDEPTH
 }
@@ -524,7 +524,7 @@ func DecodeS19F17(item secs2.Item) (S19F17Body, error) {
 		return out, err
 	}
 
-	if out.INPUTMAP, err = decodeItems(root.At(1), "INPUTMAP"); err != nil {
+	if out.INPUTMAP, err = decodeEach(root.At(1), "INPUTMAP", decodePDEReference); err != nil {
 		return out, err
 	}
 
@@ -546,7 +546,7 @@ func DecodeS19F17(item secs2.Item) (S19F17Body, error) {
 // It is filled by [DecodeS19F18] and mirrors the parameters of [S19F18], in order.
 type S19F18Reply struct {
 	VERIFYSUCCESS bool
-	RESULTS       []secs2.Item
+	RESULTS       []PDEVerifyResult
 }
 
 // DecodeS19F18 decodes the body of an S19F18 (Verify PDE Data) message into a [S19F18Reply].
@@ -569,7 +569,7 @@ func DecodeS19F18(item secs2.Item) (S19F18Reply, error) {
 		return out, err
 	}
 
-	if out.RESULTS, err = decodeItems(root.At(1), "RESULTS"); err != nil {
+	if out.RESULTS, err = decodeEach(root.At(1), "RESULTS", decodePDEVerifyResult); err != nil {
 		return out, err
 	}
 

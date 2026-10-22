@@ -24,7 +24,7 @@ func init() {
 		_, err := gem.DecodeS6F3(item)
 
 		return err
-	}, gem.S6F3(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports")).Item())
+	}, gem.S6F3(secs2.A("dataid"), secs2.A("ceid"), gem.DataSet{DSID: secs2.A("dsid"), VALUES: []gem.DataValue{{DVNAME: secs2.A("dvname"), DVVAL: secs2.A("dvval")}}}).Item())
 	registerFuzzDecoder("DecodeS6F4", func(item secs2.Item) error {
 		_, err := gem.DecodeS6F4(item)
 
@@ -49,12 +49,12 @@ func init() {
 		_, err := gem.DecodeS6F8(item)
 
 		return err
-	}, gem.S6F8(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports")).Item())
+	}, gem.S6F8(secs2.A("dataid"), secs2.A("ceid"), gem.DataSet{DSID: secs2.A("dsid"), VALUES: []gem.DataValue{{DVNAME: secs2.A("dvname"), DVVAL: secs2.A("dvval")}}}).Item())
 	registerFuzzDecoder("DecodeS6F9", func(item secs2.Item) error {
 		_, err := gem.DecodeS6F9(item)
 
 		return err
-	}, gem.S6F9(0xf4, secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports")).Item())
+	}, gem.S6F9(0xf4, secs2.A("dataid"), secs2.A("ceid"), gem.DataSetValues{DSID: secs2.A("dsid"), VALUES: []secs2.Item{secs2.A("values")}}).Item())
 	registerFuzzDecoder("DecodeS6F10", func(item secs2.Item) error {
 		_, err := gem.DecodeS6F10(item)
 
@@ -64,7 +64,7 @@ func init() {
 		_, err := gem.DecodeS6F11(item)
 
 		return err
-	}, gem.S6F11(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports")).Item())
+	}, gem.S6F11(secs2.A("dataid"), secs2.A("ceid"), gem.Report{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}).Item())
 	registerFuzzDecoder("DecodeS6F12", func(item secs2.Item) error {
 		_, err := gem.DecodeS6F12(item)
 
@@ -74,7 +74,7 @@ func init() {
 		_, err := gem.DecodeS6F13(item)
 
 		return err
-	}, gem.S6F13(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports")).Item())
+	}, gem.S6F13(secs2.A("dataid"), secs2.A("ceid"), gem.AnnotatedReport{RPTID: secs2.A("rptid"), VALUES: []gem.VariableValue{{VID: secs2.A("vid"), V: secs2.A("v")}}}).Item())
 	registerFuzzDecoder("DecodeS6F14", func(item secs2.Item) error {
 		_, err := gem.DecodeS6F14(item)
 
@@ -89,7 +89,7 @@ func init() {
 		_, err := gem.DecodeS6F16(item)
 
 		return err
-	}, gem.S6F16(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports")).Item())
+	}, gem.S6F16(secs2.A("dataid"), secs2.A("ceid"), gem.Report{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}).Item())
 	registerFuzzDecoder("DecodeS6F17", func(item secs2.Item) error {
 		_, err := gem.DecodeS6F17(item)
 
@@ -99,7 +99,7 @@ func init() {
 		_, err := gem.DecodeS6F18(item)
 
 		return err
-	}, gem.S6F18(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports")).Item())
+	}, gem.S6F18(secs2.A("dataid"), secs2.A("ceid"), gem.AnnotatedReport{RPTID: secs2.A("rptid"), VALUES: []gem.VariableValue{{VID: secs2.A("vid"), V: secs2.A("v")}}}).Item())
 	registerFuzzDecoder("DecodeS6F19", func(item secs2.Item) error {
 		_, err := gem.DecodeS6F19(item)
 
@@ -119,7 +119,7 @@ func init() {
 		_, err := gem.DecodeS6F22(item)
 
 		return err
-	}, gem.S6F22(secs2.A("values")).Item())
+	}, gem.S6F22(gem.VariableValue{VID: secs2.A("vid"), V: secs2.A("v")}).Item())
 	registerFuzzDecoder("DecodeS6F23", func(item secs2.Item) error {
 		_, err := gem.DecodeS6F23(item)
 
@@ -134,7 +134,7 @@ func init() {
 		_, err := gem.DecodeS6F25(item)
 
 		return err
-	}, gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []secs2.Item{secs2.A("attributes")}, 29, secs2.A("errors")).Item())
+	}, gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS6F26", func(item secs2.Item) error {
 		_, err := gem.DecodeS6F26(item)
 
@@ -144,7 +144,7 @@ func init() {
 		_, err := gem.DecodeS6F27(item)
 
 		return err
-	}, gem.S6F27(secs2.A("dataid"), secs2.A("trid"), secs2.A("samples")).Item())
+	}, gem.S6F27(secs2.A("dataid"), secs2.A("trid"), []gem.Report{{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}}).Item())
 	registerFuzzDecoder("DecodeS6F28", func(item secs2.Item) error {
 		_, err := gem.DecodeS6F28(item)
 
@@ -159,7 +159,7 @@ func init() {
 		_, err := gem.DecodeS6F30(item)
 
 		return err
-	}, gem.S6F30(secs2.A("trid"), []secs2.Item{secs2.A("reports")}, secs2.A("errcode")).Item())
+	}, gem.S6F30(secs2.A("trid"), []gem.Report{{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}}, secs2.A("errcode")).Item())
 }
 
 func TestDecodeS6F1RoundTrip(t *testing.T) {
@@ -206,7 +206,7 @@ func TestDecodeS6F2RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F3RoundTrip(t *testing.T) {
-	msg := gem.S6F3(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F3(secs2.A("dataid"), secs2.A("ceid"), gem.DataSet{DSID: secs2.A("dsid"), VALUES: []gem.DataValue{{DVNAME: secs2.A("dvname"), DVVAL: secs2.A("dvval")}}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -221,7 +221,7 @@ func TestDecodeS6F3RoundTrip(t *testing.T) {
 	want := gem.S6F3Body{
 		DATAID:  secs2.A("dataid"),
 		CEID:    secs2.A("ceid"),
-		REPORTS: []secs2.Item{secs2.A("reports")},
+		REPORTS: []gem.DataSet{{DSID: secs2.A("dsid"), VALUES: []gem.DataValue{{DVNAME: secs2.A("dvname"), DVVAL: secs2.A("dvval")}}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -309,7 +309,7 @@ func TestDecodeS6F7RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F8RoundTrip(t *testing.T) {
-	msg := gem.S6F8(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F8(secs2.A("dataid"), secs2.A("ceid"), gem.DataSet{DSID: secs2.A("dsid"), VALUES: []gem.DataValue{{DVNAME: secs2.A("dvname"), DVVAL: secs2.A("dvval")}}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -324,7 +324,7 @@ func TestDecodeS6F8RoundTrip(t *testing.T) {
 	want := gem.S6F8Reply{
 		DATAID:  secs2.A("dataid"),
 		CEID:    secs2.A("ceid"),
-		REPORTS: []secs2.Item{secs2.A("reports")},
+		REPORTS: []gem.DataSet{{DSID: secs2.A("dsid"), VALUES: []gem.DataValue{{DVNAME: secs2.A("dvname"), DVVAL: secs2.A("dvval")}}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -340,7 +340,7 @@ func TestDecodeS6F8EmptyList(t *testing.T) {
 }
 
 func TestDecodeS6F9RoundTrip(t *testing.T) {
-	msg := gem.S6F9(0xf4, secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F9(0xf4, secs2.A("dataid"), secs2.A("ceid"), gem.DataSetValues{DSID: secs2.A("dsid"), VALUES: []secs2.Item{secs2.A("values")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -356,7 +356,7 @@ func TestDecodeS6F9RoundTrip(t *testing.T) {
 		PFCD:    0xf4,
 		DATAID:  secs2.A("dataid"),
 		CEID:    secs2.A("ceid"),
-		REPORTS: []secs2.Item{secs2.A("reports")},
+		REPORTS: []gem.DataSetValues{{DSID: secs2.A("dsid"), VALUES: []secs2.Item{secs2.A("values")}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -383,7 +383,7 @@ func TestDecodeS6F10RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F11RoundTrip(t *testing.T) {
-	msg := gem.S6F11(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F11(secs2.A("dataid"), secs2.A("ceid"), gem.Report{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -398,7 +398,7 @@ func TestDecodeS6F11RoundTrip(t *testing.T) {
 	want := gem.S6F11Body{
 		DATAID:  secs2.A("dataid"),
 		CEID:    secs2.A("ceid"),
-		REPORTS: []secs2.Item{secs2.A("reports")},
+		REPORTS: []gem.Report{{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -425,7 +425,7 @@ func TestDecodeS6F12RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F13RoundTrip(t *testing.T) {
-	msg := gem.S6F13(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F13(secs2.A("dataid"), secs2.A("ceid"), gem.AnnotatedReport{RPTID: secs2.A("rptid"), VALUES: []gem.VariableValue{{VID: secs2.A("vid"), V: secs2.A("v")}}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -440,7 +440,7 @@ func TestDecodeS6F13RoundTrip(t *testing.T) {
 	want := gem.S6F13Body{
 		DATAID:  secs2.A("dataid"),
 		CEID:    secs2.A("ceid"),
-		REPORTS: []secs2.Item{secs2.A("reports")},
+		REPORTS: []gem.AnnotatedReport{{RPTID: secs2.A("rptid"), VALUES: []gem.VariableValue{{VID: secs2.A("vid"), V: secs2.A("v")}}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -487,7 +487,7 @@ func TestDecodeS6F15RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F16RoundTrip(t *testing.T) {
-	msg := gem.S6F16(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F16(secs2.A("dataid"), secs2.A("ceid"), gem.Report{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -502,7 +502,7 @@ func TestDecodeS6F16RoundTrip(t *testing.T) {
 	want := gem.S6F16Reply{
 		DATAID:  secs2.A("dataid"),
 		CEID:    secs2.A("ceid"),
-		REPORTS: []secs2.Item{secs2.A("reports")},
+		REPORTS: []gem.Report{{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -538,7 +538,7 @@ func TestDecodeS6F17RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F18RoundTrip(t *testing.T) {
-	msg := gem.S6F18(secs2.A("dataid"), secs2.A("ceid"), secs2.A("reports"))
+	msg := gem.S6F18(secs2.A("dataid"), secs2.A("ceid"), gem.AnnotatedReport{RPTID: secs2.A("rptid"), VALUES: []gem.VariableValue{{VID: secs2.A("vid"), V: secs2.A("v")}}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -553,7 +553,7 @@ func TestDecodeS6F18RoundTrip(t *testing.T) {
 	want := gem.S6F18Reply{
 		DATAID:  secs2.A("dataid"),
 		CEID:    secs2.A("ceid"),
-		REPORTS: []secs2.Item{secs2.A("reports")},
+		REPORTS: []gem.AnnotatedReport{{RPTID: secs2.A("rptid"), VALUES: []gem.VariableValue{{VID: secs2.A("vid"), V: secs2.A("v")}}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -629,7 +629,7 @@ func TestDecodeS6F21RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F22RoundTrip(t *testing.T) {
-	msg := gem.S6F22(secs2.A("values"))
+	msg := gem.S6F22(gem.VariableValue{VID: secs2.A("vid"), V: secs2.A("v")})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -642,7 +642,7 @@ func TestDecodeS6F22RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S6F22Reply{
-		VALUES: []secs2.Item{secs2.A("values")},
+		VALUES: []gem.VariableValue{{VID: secs2.A("vid"), V: secs2.A("v")}},
 	}
 
 	assertDecoded(t, got, want)
@@ -689,7 +689,7 @@ func TestDecodeS6F24RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F25RoundTrip(t *testing.T) {
-	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []secs2.Item{secs2.A("attributes")}, 29, secs2.A("errors"))
+	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -708,16 +708,16 @@ func TestDecodeS6F25RoundTrip(t *testing.T) {
 		LINKIDPresent: true,
 		RCPSPEC:       "rcpspec",
 		RMCHGSTAT:     secs2.A("rmchgstat"),
-		ATTRIBUTES:    []secs2.Item{secs2.A("attributes")},
+		ATTRIBUTES:    []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}},
 		RMACK:         29,
-		ERRORS:        []secs2.Item{secs2.A("errors")},
+		ERRORS:        []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS6F25LINKIDAbsent(t *testing.T) {
-	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []secs2.Item{secs2.A("attributes")}, 29, secs2.A("errors"))
+	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	full, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -746,9 +746,9 @@ func TestDecodeS6F25LINKIDAbsent(t *testing.T) {
 		OPID:       secs2.A("opid"),
 		RCPSPEC:    "rcpspec",
 		RMCHGSTAT:  secs2.A("rmchgstat"),
-		ATTRIBUTES: []secs2.Item{secs2.A("attributes")},
+		ATTRIBUTES: []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}},
 		RMACK:      29,
-		ERRORS:     []secs2.Item{secs2.A("errors")},
+		ERRORS:     []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
@@ -775,7 +775,7 @@ func TestDecodeS6F26RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F27RoundTrip(t *testing.T) {
-	msg := gem.S6F27(secs2.A("dataid"), secs2.A("trid"), secs2.A("samples"))
+	msg := gem.S6F27(secs2.A("dataid"), secs2.A("trid"), []gem.Report{{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -790,7 +790,7 @@ func TestDecodeS6F27RoundTrip(t *testing.T) {
 	want := gem.S6F27Body{
 		DATAID:  secs2.A("dataid"),
 		TRID:    secs2.A("trid"),
-		SAMPLES: []secs2.Item{secs2.A("samples")},
+		SAMPLES: [][]gem.Report{{{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}}},
 	}
 
 	assertDecoded(t, got, want)
@@ -837,7 +837,7 @@ func TestDecodeS6F29RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F30RoundTrip(t *testing.T) {
-	msg := gem.S6F30(secs2.A("trid"), []secs2.Item{secs2.A("reports")}, secs2.A("errcode"))
+	msg := gem.S6F30(secs2.A("trid"), []gem.Report{{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}}, secs2.A("errcode"))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -851,7 +851,7 @@ func TestDecodeS6F30RoundTrip(t *testing.T) {
 
 	want := gem.S6F30Reply{
 		TRID:    secs2.A("trid"),
-		REPORTS: []secs2.Item{secs2.A("reports")},
+		REPORTS: []gem.Report{{RPTID: secs2.A("rptid"), VALUES: []secs2.Item{secs2.A("values")}}},
 		ERRCODE: secs2.A("errcode"),
 	}
 

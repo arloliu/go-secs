@@ -34,8 +34,8 @@ func S18F2(targetid string, ssack string, values ...secs2.Item) secs2.SECS2Messa
 // Body: L[2]{ A[targetid] L[n]{ <attributes>... } }.
 //
 // Exception: None.
-func S18F3(targetid string, attributes ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 3, true, secs2.L(secs2.A(targetid), secs2.L(attributes...)))
+func S18F3(targetid string, attributes ...Attribute) secs2.SECS2Message {
+	return secs2.NewMessage(18, 3, true, secs2.L(secs2.A(targetid), secs2.L(groupItems(attributes)...)))
 }
 
 // S18F4 creates the S18F4 (Write Attribute Acknowledge) message, direction: equipment-to-host.

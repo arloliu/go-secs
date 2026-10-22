@@ -80,7 +80,7 @@ type S16F3Body struct {
 	MIDS           []secs2.Item
 	PRRECIPEMETHOD PRRECIPEMETHOD
 	RCPSPEC        string
-	RECIPEPARAMS   []secs2.Item
+	RECIPEPARAMS   []RecipeParam
 	PRPROCESSSTART bool
 }
 
@@ -124,7 +124,7 @@ func DecodeS16F3(item secs2.Item) (S16F3Body, error) {
 		return out, err
 	}
 
-	if out.RECIPEPARAMS, err = decodeItems(root.At(3, 2), "RECIPEPARAMS"); err != nil {
+	if out.RECIPEPARAMS, err = decodeEach(root.At(3, 2), "RECIPEPARAMS", decodeRecipeParam); err != nil {
 		return out, err
 	}
 
@@ -143,7 +143,7 @@ func DecodeS16F3(item secs2.Item) (S16F3Body, error) {
 type S16F4Reply struct {
 	PRJOBID string
 	ACKA    bool
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS16F4 decodes the body of an S16F4 (Process Job Create Acknowledge) message into a [S16F4Reply].
@@ -174,7 +174,7 @@ func DecodeS16F4(item secs2.Item) (S16F4Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -190,7 +190,7 @@ type S16F5Body struct {
 	DATAID    secs2.Item
 	PRJOBID   string
 	PRCMDNAME PRCMDNAME
-	PARAMS    []secs2.Item
+	PARAMS    []CommandParam
 }
 
 // DecodeS16F5 decodes the body of an S16F5 (Process Job Command Request) message into a [S16F5Body].
@@ -224,7 +224,7 @@ func DecodeS16F5(item secs2.Item) (S16F5Body, error) {
 
 	out.PRCMDNAME = PRCMDNAME(s1)
 
-	if out.PARAMS, err = decodeItems(root.At(3), "PARAMS"); err != nil {
+	if out.PARAMS, err = decodeEach(root.At(3), "PARAMS", decodeCommandParam); err != nil {
 		return out, err
 	}
 
@@ -239,7 +239,7 @@ func DecodeS16F5(item secs2.Item) (S16F5Body, error) {
 type S16F6Reply struct {
 	PRJOBID string
 	ACKA    bool
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS16F6 decodes the body of an S16F6 (Process Job Command Acknowledge) message into a [S16F6Reply].
@@ -270,7 +270,7 @@ func DecodeS16F6(item secs2.Item) (S16F6Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -287,7 +287,7 @@ type S16F7Body struct {
 	PRJOBID        string
 	PRJOBMILESTONE secs2.Item
 	ACKA           bool
-	ERRORS         []secs2.Item
+	ERRORS         []ErrorInfo
 }
 
 // DecodeS16F7 decodes the body of an S16F7 (Process Job Alert Notify) message into a [S16F7Body].
@@ -326,7 +326,7 @@ func DecodeS16F7(item secs2.Item) (S16F7Body, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(3, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(3, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -342,7 +342,7 @@ type S16F9Body struct {
 	PREVENTID secs2.Item
 	TIMESTAMP string
 	PRJOBID   string
-	VARIABLES []secs2.Item
+	VARIABLES []VariableValue
 }
 
 // DecodeS16F9 decodes the body of an S16F9 (Process Job Event Notify) message into a [S16F9Body].
@@ -373,7 +373,7 @@ func DecodeS16F9(item secs2.Item) (S16F9Body, error) {
 		return out, err
 	}
 
-	if out.VARIABLES, err = decodeItems(root.At(3), "VARIABLES"); err != nil {
+	if out.VARIABLES, err = decodeEach(root.At(3), "VARIABLES", decodeVariableValue); err != nil {
 		return out, err
 	}
 
@@ -392,7 +392,7 @@ type S16F11Body struct {
 	MATERIAL       secs2.Item
 	PRRECIPEMETHOD PRRECIPEMETHOD
 	RCPSPEC        string
-	RECIPEPARAMS   []secs2.Item
+	RECIPEPARAMS   []RecipeParam
 	PRPROCESSSTART bool
 	PRPAUSEEVENT   secs2.Item
 }
@@ -441,7 +441,7 @@ func DecodeS16F11(item secs2.Item) (S16F11Body, error) {
 		return out, err
 	}
 
-	if out.RECIPEPARAMS, err = decodeItems(root.At(4, 2), "RECIPEPARAMS"); err != nil {
+	if out.RECIPEPARAMS, err = decodeEach(root.At(4, 2), "RECIPEPARAMS", decodeRecipeParam); err != nil {
 		return out, err
 	}
 
@@ -464,7 +464,7 @@ func DecodeS16F11(item secs2.Item) (S16F11Body, error) {
 type S16F12Reply struct {
 	PRJOBID string
 	ACKA    bool
-	ERRORS  []secs2.Item
+	ERRORS  []ErrorInfo
 }
 
 // DecodeS16F12 decodes the body of an S16F12 (PRJobCreateEnh Acknowledge) message into a [S16F12Reply].
@@ -495,7 +495,7 @@ func DecodeS16F12(item secs2.Item) (S16F12Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -509,7 +509,7 @@ func DecodeS16F12(item secs2.Item) (S16F12Reply, error) {
 // It is filled by [DecodeS16F15] and mirrors the parameters of [S16F15], in order.
 type S16F15Body struct {
 	DATAID secs2.Item
-	JOBS   []secs2.Item
+	JOBS   []ProcessJob
 }
 
 // DecodeS16F15 decodes the body of an S16F15 (PRJobMultiCreate) message into a [S16F15Body].
@@ -532,7 +532,7 @@ func DecodeS16F15(item secs2.Item) (S16F15Body, error) {
 		return out, err
 	}
 
-	if out.JOBS, err = decodeItems(root.At(1), "JOBS"); err != nil {
+	if out.JOBS, err = decodeEach(root.At(1), "JOBS", decodeProcessJob); err != nil {
 		return out, err
 	}
 
@@ -547,7 +547,7 @@ func DecodeS16F15(item secs2.Item) (S16F15Body, error) {
 type S16F16Reply struct {
 	PRJOBIDS []string
 	ACKA     bool
-	ERRORS   []secs2.Item
+	ERRORS   []ErrorInfo
 }
 
 // DecodeS16F16 decodes the body of an S16F16 (PRJobMultiCreate Acknowledge) message into a [S16F16Reply].
@@ -578,7 +578,7 @@ func DecodeS16F16(item secs2.Item) (S16F16Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -621,7 +621,7 @@ func DecodeS16F17(item secs2.Item) (S16F17Body, error) {
 type S16F18Reply struct {
 	PRJOBIDS []string
 	ACKA     bool
-	ERRORS   []secs2.Item
+	ERRORS   []ErrorInfo
 }
 
 // DecodeS16F18 decodes the body of an S16F18 (PRJobDequeue Acknowledge) message into a [S16F18Reply].
@@ -652,7 +652,7 @@ func DecodeS16F18(item secs2.Item) (S16F18Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -665,7 +665,7 @@ func DecodeS16F18(item secs2.Item) (S16F18Reply, error) {
 //
 // It is filled by [DecodeS16F20] and mirrors the parameters of [S16F20], in order.
 type S16F20Reply struct {
-	JOBS []secs2.Item
+	JOBS []ProcessJobState
 }
 
 // DecodeS16F20 decodes the body of an S16F20 (PRGetAllJobs Send) message into a [S16F20Reply].
@@ -680,7 +680,7 @@ func DecodeS16F20(item secs2.Item) (S16F20Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.JOBS, err = decodeItems(root, "JOBS"); err != nil {
+	if out.JOBS, err = decodeEach(root, "JOBS", decodeProcessJobState); err != nil {
 		return out, err
 	}
 
@@ -722,7 +722,7 @@ func DecodeS16F22(item secs2.Item) (S16F22Reply, error) {
 // It is filled by [DecodeS16F23] and mirrors the parameters of [S16F23], in order.
 type S16F23Body struct {
 	PRJOBID      string
-	RECIPEPARAMS []secs2.Item
+	RECIPEPARAMS []RecipeParam
 }
 
 // DecodeS16F23 decodes the body of an S16F23 (PRJobSetRecipeVariable) message into a [S16F23Body].
@@ -745,7 +745,7 @@ func DecodeS16F23(item secs2.Item) (S16F23Body, error) {
 		return out, err
 	}
 
-	if out.RECIPEPARAMS, err = decodeItems(root.At(1), "RECIPEPARAMS"); err != nil {
+	if out.RECIPEPARAMS, err = decodeEach(root.At(1), "RECIPEPARAMS", decodeRecipeParam); err != nil {
 		return out, err
 	}
 
@@ -759,7 +759,7 @@ func DecodeS16F23(item secs2.Item) (S16F23Body, error) {
 // It is filled by [DecodeS16F24] and mirrors the parameters of [S16F24], in order.
 type S16F24Reply struct {
 	ACKA   bool
-	ERRORS []secs2.Item
+	ERRORS []ErrorInfo
 }
 
 // DecodeS16F24 decodes the body of an S16F24 (PRJobSetRecipeVariable Acknowledge) message into a [S16F24Reply].
@@ -782,7 +782,7 @@ func DecodeS16F24(item secs2.Item) (S16F24Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 
@@ -834,7 +834,7 @@ func DecodeS16F25(item secs2.Item) (S16F25Body, error) {
 type S16F26Reply struct {
 	PRJOBIDS []string
 	ACKA     bool
-	ERRORS   []secs2.Item
+	ERRORS   []ErrorInfo
 }
 
 // DecodeS16F26 decodes the body of an S16F26 (PRJobSetStartMethod Acknowledge) message into a [S16F26Reply].
@@ -865,7 +865,7 @@ func DecodeS16F26(item secs2.Item) (S16F26Reply, error) {
 		return out, err
 	}
 
-	if out.ERRORS, err = decodeItems(root.At(1, 1), "ERRORS"); err != nil {
+	if out.ERRORS, err = decodeEach(root.At(1, 1), "ERRORS", decodeErrorInfo); err != nil {
 		return out, err
 	}
 

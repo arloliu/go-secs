@@ -38,7 +38,7 @@ func TestS3F1(t *testing.T) {
 }
 
 func TestS3F2(t *testing.T) {
-	msg := gem.S3F2(secs2.A("mf"), secs2.A("locations"))
+	msg := gem.S3F2(secs2.A("mf"), gem.MaterialLocation{LOC: 0xd8, QUA: 0x14, MID: secs2.A("mid")})
 
 	assertS3Header(t, msg, 2, false)
 
@@ -65,10 +65,31 @@ func TestS3F2(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("locations").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("locations: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list4))
+	}
+	v5, err := list4[0].ToBinary()
+	if err != nil {
+		t.Fatalf("list4[0].ToBinary: %v", err)
+	}
+	if len(v5) != 1 || v5[0] != 0xd8 {
+		t.Errorf("loc: got %v, want %v", v5, 0xd8)
+	}
+	v6, err := list4[1].ToBinary()
+	if err != nil {
+		t.Fatalf("list4[1].ToBinary: %v", err)
+	}
+	if len(v6) != 1 || v6[0] != 0x14 {
+		t.Errorf("qua: got %v, want %v", v6, 0x14)
+	}
+	got7 := list4[2].ToBytes()
+	want7 := secs2.A("mid").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("mid: got %x, want %x", got7, want7)
 	}
 }
 
@@ -83,7 +104,7 @@ func TestS3F3(t *testing.T) {
 }
 
 func TestS3F4(t *testing.T) {
-	msg := gem.S3F4(secs2.A("mf"), secs2.A("materials"))
+	msg := gem.S3F4(secs2.A("mf"), gem.MaterialTimeToCompletion{TTC: secs2.A("ttc"), QUA: 0x14, MID: secs2.A("mid")})
 
 	assertS3Header(t, msg, 4, false)
 
@@ -110,10 +131,29 @@ func TestS3F4(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("materials").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("materials: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("ttc").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("ttc: got %x, want %x", got5, want5)
+	}
+	v6, err := list4[1].ToBinary()
+	if err != nil {
+		t.Fatalf("list4[1].ToBinary: %v", err)
+	}
+	if len(v6) != 1 || v6[0] != 0x14 {
+		t.Errorf("qua: got %v, want %v", v6, 0x14)
+	}
+	got7 := list4[2].ToBytes()
+	want7 := secs2.A("mid").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("mid: got %x, want %x", got7, want7)
 	}
 }
 
@@ -408,7 +448,7 @@ func TestS3F16(t *testing.T) {
 }
 
 func TestS3F17(t *testing.T) {
-	msg := gem.S3F17(secs2.A("dataid"), "carrieraction", "carrierid", secs2.A("ptn"), secs2.A("attributes"))
+	msg := gem.S3F17(secs2.A("dataid"), "carrieraction", "carrierid", secs2.A("ptn"), gem.CarrierAttribute{CATTRID: "cattrid", CATTRDATA: secs2.A("cattrdata")})
 
 	assertS3Header(t, msg, 17, true)
 
@@ -454,15 +494,29 @@ func TestS3F17(t *testing.T) {
 	if len(list6) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
-	got7 := list6[0].ToBytes()
-	want7 := secs2.A("attributes").ToBytes()
-	if !bytes.Equal(got7, want7) {
-		t.Errorf("attributes: got %x, want %x", got7, want7)
+	list7, err := list6[0].ToList()
+	if err != nil {
+		t.Fatalf("list6[0].ToList: %v", err)
+	}
+	if len(list7) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list7))
+	}
+	v8, err := list7[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list7[0].ToASCII: %v", err)
+	}
+	if v8 != "cattrid" {
+		t.Errorf("cattrid: got %q, want %q", v8, "cattrid")
+	}
+	got9 := list7[1].ToBytes()
+	want9 := secs2.A("cattrdata").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("cattrdata: got %x, want %x", got9, want9)
 	}
 }
 
 func TestS3F18(t *testing.T) {
-	msg := gem.S3F18(6, secs2.A("errors"))
+	msg := gem.S3F18(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS3Header(t, msg, 18, false)
 
@@ -491,10 +545,24 @@ func TestS3F18(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("errcode: got %x, want %x", got5, want5)
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v6, "errtext")
 	}
 }
 
@@ -509,7 +577,7 @@ func TestS3F19(t *testing.T) {
 }
 
 func TestS3F20(t *testing.T) {
-	msg := gem.S3F20(6, secs2.A("errors"))
+	msg := gem.S3F20(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS3Header(t, msg, 20, false)
 
@@ -538,10 +606,24 @@ func TestS3F20(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("errcode: got %x, want %x", got5, want5)
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v6, "errtext")
 	}
 }
 
@@ -590,7 +672,7 @@ func TestS3F21(t *testing.T) {
 }
 
 func TestS3F22(t *testing.T) {
-	msg := gem.S3F22(6, secs2.A("errors"))
+	msg := gem.S3F22(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS3Header(t, msg, 22, false)
 
@@ -619,15 +701,29 @@ func TestS3F22(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("errcode: got %x, want %x", got5, want5)
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v6, "errtext")
 	}
 }
 
 func TestS3F23(t *testing.T) {
-	msg := gem.S3F23("pgrpaction", "portgrpname", secs2.A("params"))
+	msg := gem.S3F23("pgrpaction", "portgrpname", gem.PortActionParam{PARAMNAME: "paramname", PARAMVAL: secs2.A("paramval")})
 
 	assertS3Header(t, msg, 23, true)
 
@@ -663,15 +759,29 @@ func TestS3F23(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("params").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("params: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	v6, err := list5[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list5[0].ToASCII: %v", err)
+	}
+	if v6 != "paramname" {
+		t.Errorf("paramname: got %q, want %q", v6, "paramname")
+	}
+	got7 := list5[1].ToBytes()
+	want7 := secs2.A("paramval").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("paramval: got %x, want %x", got7, want7)
 	}
 }
 
 func TestS3F24(t *testing.T) {
-	msg := gem.S3F24(6, secs2.A("errors"))
+	msg := gem.S3F24(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS3Header(t, msg, 24, false)
 
@@ -700,15 +810,29 @@ func TestS3F24(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("errcode: got %x, want %x", got5, want5)
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v6, "errtext")
 	}
 }
 
 func TestS3F25(t *testing.T) {
-	msg := gem.S3F25("portaction", secs2.A("ptn"), secs2.A("params"))
+	msg := gem.S3F25("portaction", secs2.A("ptn"), gem.PortActionParam{PARAMNAME: "paramname", PARAMVAL: secs2.A("paramval")})
 
 	assertS3Header(t, msg, 25, true)
 
@@ -742,15 +866,29 @@ func TestS3F25(t *testing.T) {
 	if len(list4) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list4))
 	}
-	got5 := list4[0].ToBytes()
-	want5 := secs2.A("params").ToBytes()
-	if !bytes.Equal(got5, want5) {
-		t.Errorf("params: got %x, want %x", got5, want5)
+	list5, err := list4[0].ToList()
+	if err != nil {
+		t.Fatalf("list4[0].ToList: %v", err)
+	}
+	if len(list5) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list5))
+	}
+	v6, err := list5[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list5[0].ToASCII: %v", err)
+	}
+	if v6 != "paramname" {
+		t.Errorf("paramname: got %q, want %q", v6, "paramname")
+	}
+	got7 := list5[1].ToBytes()
+	want7 := secs2.A("paramval").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("paramval: got %x, want %x", got7, want7)
 	}
 }
 
 func TestS3F26(t *testing.T) {
-	msg := gem.S3F26(6, secs2.A("errors"))
+	msg := gem.S3F26(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS3Header(t, msg, 26, false)
 
@@ -779,10 +917,24 @@ func TestS3F26(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("errcode: got %x, want %x", got5, want5)
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v6, "errtext")
 	}
 }
 
@@ -824,7 +976,7 @@ func TestS3F27(t *testing.T) {
 }
 
 func TestS3F28(t *testing.T) {
-	msg := gem.S3F28(6, secs2.A("errors"))
+	msg := gem.S3F28(6, gem.PortError{PTN: secs2.A("ptn"), ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS3Header(t, msg, 28, false)
 
@@ -853,10 +1005,29 @@ func TestS3F28(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("ptn").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("ptn: got %x, want %x", got5, want5)
+	}
+	got6 := list4[1].ToBytes()
+	want6 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("errcode: got %x, want %x", got6, want6)
+	}
+	v7, err := list4[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[2].ToASCII: %v", err)
+	}
+	if v7 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v7, "errtext")
 	}
 }
 
@@ -905,7 +1076,7 @@ func TestS3F29(t *testing.T) {
 }
 
 func TestS3F30(t *testing.T) {
-	msg := gem.S3F30("data", 6, secs2.A("errors"))
+	msg := gem.S3F30("data", 6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS3Header(t, msg, 30, false)
 
@@ -948,10 +1119,24 @@ func TestS3F30(t *testing.T) {
 	if len(list5) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list5))
 	}
-	got6 := list5[0].ToBytes()
-	want6 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got6, want6) {
-		t.Errorf("errors: got %x, want %x", got6, want6)
+	list6, err := list5[0].ToList()
+	if err != nil {
+		t.Fatalf("list5[0].ToList: %v", err)
+	}
+	if len(list6) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list6))
+	}
+	got7 := list6[0].ToBytes()
+	want7 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("errcode: got %x, want %x", got7, want7)
+	}
+	v8, err := list6[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list6[1].ToASCII: %v", err)
+	}
+	if v8 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v8, "errtext")
 	}
 }
 
@@ -1007,7 +1192,7 @@ func TestS3F31(t *testing.T) {
 }
 
 func TestS3F32(t *testing.T) {
-	msg := gem.S3F32(6, secs2.A("errors"))
+	msg := gem.S3F32(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS3Header(t, msg, 32, false)
 
@@ -1036,10 +1221,24 @@ func TestS3F32(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("errcode: got %x, want %x", got5, want5)
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v6, "errtext")
 	}
 }
 
@@ -1054,7 +1253,7 @@ func TestS3F33(t *testing.T) {
 }
 
 func TestS3F34(t *testing.T) {
-	msg := gem.S3F34(6, secs2.A("errors"))
+	msg := gem.S3F34(6, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS3Header(t, msg, 34, false)
 
@@ -1083,15 +1282,29 @@ func TestS3F34(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("errcode: got %x, want %x", got5, want5)
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v6, "errtext")
 	}
 }
 
 func TestS3F35(t *testing.T) {
-	msg := gem.S3F35("jobaction", "podid", secs2.A("inptn"), secs2.A("outptn"), []secs2.Item{secs2.A("attributes")}, []secs2.Item{secs2.A("removals")}, secs2.A("placements"))
+	msg := gem.S3F35("jobaction", "podid", secs2.A("inptn"), secs2.A("outptn"), []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}, []gem.ReticleRemoval{{RETICLEID: "reticleid", RETREMOVEINSTR: 39, RETICLEATTRIBUTES: []gem.Attribute{{ATTRID: secs2.A("attrid"), ATTRDATA: secs2.A("attrdata")}}}}, gem.ReticlePlacement{RETICLEID: "reticleid", RETPLACEINSTR: 67})
 
 	assertS3Header(t, msg, 35, true)
 
@@ -1137,39 +1350,107 @@ func TestS3F35(t *testing.T) {
 	if len(list6) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
-	got7 := list6[0].ToBytes()
-	want7 := secs2.A("attributes").ToBytes()
-	if !bytes.Equal(got7, want7) {
-		t.Errorf("attributes: got %x, want %x", got7, want7)
+	list7, err := list6[0].ToList()
+	if err != nil {
+		t.Fatalf("list6[0].ToList: %v", err)
 	}
-	list8, err := list1[5].ToList()
+	if len(list7) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list7))
+	}
+	got8 := list7[0].ToBytes()
+	want8 := secs2.A("attrid").ToBytes()
+	if !bytes.Equal(got8, want8) {
+		t.Errorf("attrid: got %x, want %x", got8, want8)
+	}
+	got9 := list7[1].ToBytes()
+	want9 := secs2.A("attrdata").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("attrdata: got %x, want %x", got9, want9)
+	}
+	list10, err := list1[5].ToList()
 	if err != nil {
 		t.Fatalf("list1[5].ToList: %v", err)
-	}
-	if len(list8) != 1 {
-		t.Fatalf("list length: got %d, want 1", len(list8))
-	}
-	got9 := list8[0].ToBytes()
-	want9 := secs2.A("removals").ToBytes()
-	if !bytes.Equal(got9, want9) {
-		t.Errorf("removals: got %x, want %x", got9, want9)
-	}
-	list10, err := list1[6].ToList()
-	if err != nil {
-		t.Fatalf("list1[6].ToList: %v", err)
 	}
 	if len(list10) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list10))
 	}
-	got11 := list10[0].ToBytes()
-	want11 := secs2.A("placements").ToBytes()
-	if !bytes.Equal(got11, want11) {
-		t.Errorf("placements: got %x, want %x", got11, want11)
+	list11, err := list10[0].ToList()
+	if err != nil {
+		t.Fatalf("list10[0].ToList: %v", err)
+	}
+	if len(list11) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list11))
+	}
+	v12, err := list11[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list11[0].ToASCII: %v", err)
+	}
+	if v12 != "reticleid" {
+		t.Errorf("reticleid: got %q, want %q", v12, "reticleid")
+	}
+	v13, err := list11[1].ToUint()
+	if err != nil {
+		t.Fatalf("list11[1].ToUint: %v", err)
+	}
+	if len(v13) != 1 || v13[0] != 39 {
+		t.Errorf("retremoveinstr: got %v, want %v", v13, 39)
+	}
+	list14, err := list11[2].ToList()
+	if err != nil {
+		t.Fatalf("list11[2].ToList: %v", err)
+	}
+	if len(list14) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list14))
+	}
+	list15, err := list14[0].ToList()
+	if err != nil {
+		t.Fatalf("list14[0].ToList: %v", err)
+	}
+	if len(list15) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list15))
+	}
+	got16 := list15[0].ToBytes()
+	want16 := secs2.A("attrid").ToBytes()
+	if !bytes.Equal(got16, want16) {
+		t.Errorf("attrid: got %x, want %x", got16, want16)
+	}
+	got17 := list15[1].ToBytes()
+	want17 := secs2.A("attrdata").ToBytes()
+	if !bytes.Equal(got17, want17) {
+		t.Errorf("attrdata: got %x, want %x", got17, want17)
+	}
+	list18, err := list1[6].ToList()
+	if err != nil {
+		t.Fatalf("list1[6].ToList: %v", err)
+	}
+	if len(list18) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list18))
+	}
+	list19, err := list18[0].ToList()
+	if err != nil {
+		t.Fatalf("list18[0].ToList: %v", err)
+	}
+	if len(list19) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list19))
+	}
+	v20, err := list19[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list19[0].ToASCII: %v", err)
+	}
+	if v20 != "reticleid" {
+		t.Errorf("reticleid: got %q, want %q", v20, "reticleid")
+	}
+	v21, err := list19[1].ToUint()
+	if err != nil {
+		t.Fatalf("list19[1].ToUint: %v", err)
+	}
+	if len(v21) != 1 || v21[0] != 67 {
+		t.Errorf("retplaceinstr: got %v, want %v", v21, 67)
 	}
 }
 
 func TestS3F36(t *testing.T) {
-	msg := gem.S3F36(0, secs2.A("errors"))
+	msg := gem.S3F36(0, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	assertS3Header(t, msg, 36, false)
 
@@ -1198,9 +1479,23 @@ func TestS3F36(t *testing.T) {
 	if len(list3) != 1 {
 		t.Fatalf("list length: got %d, want 1", len(list3))
 	}
-	got4 := list3[0].ToBytes()
-	want4 := secs2.A("errors").ToBytes()
-	if !bytes.Equal(got4, want4) {
-		t.Errorf("errors: got %x, want %x", got4, want4)
+	list4, err := list3[0].ToList()
+	if err != nil {
+		t.Fatalf("list3[0].ToList: %v", err)
+	}
+	if len(list4) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list4))
+	}
+	got5 := list4[0].ToBytes()
+	want5 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got5, want5) {
+		t.Errorf("errcode: got %x, want %x", got5, want5)
+	}
+	v6, err := list4[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list4[1].ToASCII: %v", err)
+	}
+	if v6 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v6, "errtext")
 	}
 }

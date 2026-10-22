@@ -32,7 +32,7 @@ messages:
             - {item: MF}
             - type: list
               repeat: locations
-              of: {type: list, items: [{item: LOC}, {item: QUA}, {item: MID}]}
+              of: {group: MaterialLocation}
 
   - function: 3
     name: Time to Completion Request
@@ -67,7 +67,7 @@ messages:
             - {item: MF}
             - type: list
               repeat: materials
-              of: {type: list, items: [{item: TTC}, {item: QUA}, {item: MID}]}
+              of: {group: MaterialTimeToCompletion}
 
   - function: 5
     name: Material Found Send
@@ -256,7 +256,7 @@ messages:
             # the pairs are caller-built items, so either form builds and decodes.
             - type: list
               repeat: attributes
-              of: {type: list, items: [{item: CATTRID}, {item: CATTRDATA}]}
+              of: {group: CarrierAttribute}
 
   - function: 18
     name: Carrier Action Acknowledge
@@ -274,7 +274,7 @@ messages:
             - {item: CAACK}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: ErrorInfo}
 
   - function: 19
     name: Cancel All Carrier Out Request
@@ -304,7 +304,7 @@ messages:
             - {item: CAACK}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: ErrorInfo}
 
   - function: 21
     name: Port Group Definition
@@ -339,7 +339,7 @@ messages:
             - {item: CAACK}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: ErrorInfo}
 
   - function: 23
     name: Port Group Action Request
@@ -360,7 +360,7 @@ messages:
             - {item: PORTGRPNAME}
             - type: list
               repeat: params
-              of: {type: list, items: [{item: PARAMNAME}, {item: PARAMVAL}]}
+              of: {group: PortActionParam}
 
   - function: 24
     name: Port Group Action Acknowledge
@@ -378,7 +378,7 @@ messages:
             - {item: CAACK}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: ErrorInfo}
 
   - function: 25
     name: Port Action Request
@@ -397,7 +397,7 @@ messages:
             - {item: PTN}
             - type: list
               repeat: params
-              of: {type: list, items: [{item: PARAMNAME}, {item: PARAMVAL}]}
+              of: {group: PortActionParam}
 
   # E5 numbers the error sub-items 3 to 6 here; the shape is the same as S3F18.
   - function: 26
@@ -416,7 +416,7 @@ messages:
             - {item: CAACK}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: ErrorInfo}
 
   - function: 27
     name: Change Access
@@ -463,7 +463,7 @@ messages:
             - {item: CAACK}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: PTN}, {item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: PortError}
 
   - function: 29
     name: Carrier Tag Read Request
@@ -510,7 +510,7 @@ messages:
                 - {item: CAACK}
                 - type: list
                   repeat: errors
-                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                  of: {group: ErrorInfo}
 
   - function: 31
     name: Carrier Tag Write Data Request
@@ -551,7 +551,7 @@ messages:
             - {item: CAACK}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: ErrorInfo}
 
   # E5 leaves the Direction column blank for S3F33 to S3F36.
   # The direction and reply bit are inferred from the request/acknowledge pairing,
@@ -584,7 +584,7 @@ messages:
             - {item: CAACK}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: ErrorInfo}
 
   # E5 heads this structure L,6 but lists seven elements (two are numbered 5),
   # and Table 3 cross-references both RETREMOVEINSTR and RETPLACEINSTR to S3F35,
@@ -610,20 +610,13 @@ messages:
             - {item: OUTPTN}
             - type: list
               repeat: attributes
-              of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: Attribute}
             - type: list
               repeat: removals
-              of:
-                type: list
-                items:
-                  - {item: RETICLEID}
-                  - {item: RETREMOVEINSTR}
-                  - type: list
-                    repeat: reticleAttributes
-                    of: {type: list, items: [{item: ATTRID}, {item: ATTRDATA}]}
+              of: {group: ReticleRemoval}
             - type: list
               repeat: placements
-              of: {type: list, items: [{item: RETICLEID}, {item: RETPLACEINSTR}]}
+              of: {group: ReticlePlacement}
 
   - function: 36
     name: Reticle Transfer Job Request Acknowledgement
@@ -641,4 +634,4 @@ messages:
             - {item: RPMACK}
             - type: list
               repeat: errors
-              of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+              of: {group: ErrorInfo}
