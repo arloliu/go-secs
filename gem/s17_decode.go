@@ -164,30 +164,24 @@ func DecodeS17F4(item secs2.Item, opts ...DecodeOption) (S17F4Reply, error) {
 //
 // Body: L[6]{ <dataid> <trid> BOOLEAN[ceed] L[n]{ <rptids>... } <trsper> L[0,8]{ <totsmp> <repgsz> A[startevntsrc] <startceid> A[stopevntsrc] <stopceid> BOOLEAN[trautod] BOOLEAN[rptoc] } }.
 //
-// It is filled by [DecodeS17F5] and mirrors the parameters of [S17F5], in order,
-// apart from its TRAUTODPresent and RPTOCPresent fields.
+// It is filled by [DecodeS17F5] and mirrors the parameters of [S17F5], in order.
 //
 // SEMI E5 lets TRAUTOD and RPTOC each be sent as a zero-length item:
-// [DecodeS17F5] decodes that form as a zero field with its presence field false,
-// TRAUTODPresent for TRAUTOD and RPTOCPresent for RPTOC.
-// [S17F5] always sends a value,
-// so callers that need the zero-length form build the body with [secs2] directly.
+// [DecodeS17F5] decodes that form as a nil field, and [S17F5] sends it for a nil argument.
 type S17F5Body struct {
-	DATAID         secs2.Item
-	TRID           secs2.Item
-	CEED           bool
-	RPTIDS         []secs2.Item
-	TRSPER         secs2.Item
-	TOTSMP         secs2.Item
-	REPGSZ         secs2.Item
-	STARTEVNTSRC   string
-	STARTCEID      secs2.Item
-	STOPEVNTSRC    string
-	STOPCEID       secs2.Item
-	TRAUTOD        bool
-	TRAUTODPresent bool
-	RPTOC          bool
-	RPTOCPresent   bool
+	DATAID       secs2.Item
+	TRID         secs2.Item
+	CEED         bool
+	RPTIDS       []secs2.Item
+	TRSPER       secs2.Item
+	TOTSMP       secs2.Item
+	REPGSZ       secs2.Item
+	STARTEVNTSRC string
+	STARTCEID    secs2.Item
+	STOPEVNTSRC  string
+	STOPCEID     secs2.Item
+	TRAUTOD      *bool
+	RPTOC        *bool
 }
 
 // DecodeS17F5 decodes the body of an S17F5 (Trace Create Request) message into a [S17F5Body].
@@ -258,24 +252,12 @@ func DecodeS17F5(item secs2.Item, opts ...DecodeOption) (S17F5Body, error) {
 			return out, err
 		}
 
-		if out.TRAUTODPresent, err = presentAt[*secs2.BooleanItem](root.At(5, 6), "TRAUTOD"); err != nil {
+		if out.TRAUTOD, err = decodeOptional[*secs2.BooleanItem](root.At(5, 6), "TRAUTOD", decodeBool); err != nil {
 			return out, err
 		}
 
-		if out.TRAUTODPresent {
-			if out.TRAUTOD, err = decodeBool(root.At(5, 6), "TRAUTOD"); err != nil {
-				return out, err
-			}
-		}
-
-		if out.RPTOCPresent, err = presentAt[*secs2.BooleanItem](root.At(5, 7), "RPTOC"); err != nil {
+		if out.RPTOC, err = decodeOptional[*secs2.BooleanItem](root.At(5, 7), "RPTOC", decodeBool); err != nil {
 			return out, err
-		}
-
-		if out.RPTOCPresent {
-			if out.RPTOC, err = decodeBool(root.At(5, 7), "RPTOC"); err != nil {
-				return out, err
-			}
 		}
 	}
 

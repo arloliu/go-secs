@@ -28,7 +28,7 @@ func assertS12Header(t *testing.T, msg secs2.SECS2Message, function uint8, wantW
 }
 
 func TestS12F1(t *testing.T) {
-	msg := gem.S12F1(secs2.A("mid"), 0xff, 12, 9, 0x16, 45, []secs2.Item{secs2.A("refps")}, "dutms", secs2.A("xdies"), secs2.A("ydies"), secs2.A("rowct"), secs2.A("colct"), secs2.A("nulbc"), secs2.A("prdct"), 0xc1)
+	msg := gem.S12F1(secs2.A("mid"), 0xff, new(uint16(12)), new(uint16(9)), new(gem.ORLOC(0x16)), 45, []secs2.Item{secs2.A("refps")}, "dutms", secs2.A("xdies"), secs2.A("ydies"), secs2.A("rowct"), secs2.A("colct"), secs2.A("nulbc"), secs2.A("prdct"), 0xc1)
 
 	assertS12Header(t, msg, 1, true)
 
@@ -160,7 +160,7 @@ func TestS12F2(t *testing.T) {
 }
 
 func TestS12F3(t *testing.T) {
-	msg := gem.S12F3(secs2.A("mid"), 0xff, 0xf6, 12, 9, 0x16, 0xc1, secs2.A("bcequ"), secs2.A("nulbc"))
+	msg := gem.S12F3(secs2.A("mid"), 0xff, 0xf6, new(uint16(12)), new(uint16(9)), new(gem.ORLOC(0x16)), 0xc1, secs2.A("bcequ"), secs2.A("nulbc"))
 
 	assertS12Header(t, msg, 3, true)
 
@@ -235,7 +235,7 @@ func TestS12F3(t *testing.T) {
 }
 
 func TestS12F4(t *testing.T) {
-	msg := gem.S12F4(secs2.A("mid"), 0xff, 12, 0x16, 45, []secs2.Item{secs2.A("refps")}, "dutms", secs2.A("xdies"), secs2.A("ydies"), secs2.A("rowct"), secs2.A("colct"), secs2.A("prdct"), secs2.A("bcequ"), secs2.A("nulbc"), secs2.A("mlcl"))
+	msg := gem.S12F4(secs2.A("mid"), 0xff, new(uint16(12)), new(gem.ORLOC(0x16)), 45, []secs2.Item{secs2.A("refps")}, "dutms", secs2.A("xdies"), secs2.A("ydies"), secs2.A("rowct"), secs2.A("colct"), secs2.A("prdct"), secs2.A("bcequ"), secs2.A("nulbc"), secs2.A("mlcl"))
 
 	assertS12Header(t, msg, 4, false)
 

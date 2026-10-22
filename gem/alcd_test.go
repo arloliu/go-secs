@@ -65,7 +65,13 @@ func TestDecodeALCDUnknownCategory(t *testing.T) {
 		t.Fatalf("DecodeS5F6: %v", err)
 	}
 
-	if alcd := reply.ALARMS[0].ALCD; alcd.Set() || alcd.Category() != 125 {
-		t.Errorf("ALARMS[0].ALCD %#x: Set() = %v, Category() = %d, want false, 125", byte(alcd), alcd.Set(), alcd.Category())
+	// An Alarm's ALCD may arrive zero-length, so it is a pointer: check for nil before reading it.
+	alcd := reply.ALARMS[0].ALCD
+	if alcd == nil {
+		t.Fatal("ALARMS[0].ALCD: got nil, want 0x7D")
+	}
+
+	if alcd.Set() || alcd.Category() != 125 {
+		t.Errorf("ALARMS[0].ALCD %#x: Set() = %v, Category() = %d, want false, 125", byte(*alcd), alcd.Set(), alcd.Category())
 	}
 }

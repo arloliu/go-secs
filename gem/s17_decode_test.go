@@ -3,6 +3,7 @@
 package gem_test
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -34,7 +35,7 @@ func init() {
 		_, err := gem.DecodeS17F5(item, opts...)
 
 		return err
-	}, gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), false, true).Item())
+	}, gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), new(false), new(true)).Item())
 	registerFuzzDecoder("DecodeS17F6", func(item secs2.Item, opts ...gem.DecodeOption) error {
 		_, err := gem.DecodeS17F6(item, opts...)
 
@@ -168,61 +169,9 @@ func TestDecodeS17F4RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS17F5RoundTrip(t *testing.T) {
-	msg := gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), false, true)
+	msg := gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), new(false), new(true))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
-	if err != nil {
-		t.Fatalf("secs2.Decode: %v", err)
-	}
-
-	got, err := gem.DecodeS17F5(body)
-	if err != nil {
-		t.Fatalf("DecodeS17F5: %v", err)
-	}
-
-	want := gem.S17F5Body{
-		DATAID:         secs2.A("dataid"),
-		TRID:           secs2.A("trid"),
-		CEED:           true,
-		RPTIDS:         []secs2.Item{secs2.A("rptids")},
-		TRSPER:         secs2.A("trsper"),
-		TOTSMP:         secs2.A("totsmp"),
-		REPGSZ:         secs2.A("repgsz"),
-		STARTEVNTSRC:   "startevntsrc",
-		STARTCEID:      secs2.A("startceid"),
-		STOPEVNTSRC:    "stopevntsrc",
-		STOPCEID:       secs2.A("stopceid"),
-		TRAUTOD:        false,
-		TRAUTODPresent: true,
-		RPTOC:          true,
-		RPTOCPresent:   true,
-	}
-
-	assertDecoded(t, got, want)
-}
-
-func TestDecodeS17F5TRAUTODAbsent(t *testing.T) {
-	msg := gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), false, true)
-
-	full, err := secs2.Decode(msg.Item().ToBytes())
-	if err != nil {
-		t.Fatalf("secs2.Decode: %v", err)
-	}
-
-	list0, err := full.ToList()
-	if err != nil {
-		t.Fatalf("list0: %v", err)
-	}
-
-	list1, err := list0[5].ToList()
-	if err != nil {
-		t.Fatalf("list1: %v", err)
-	}
-
-	list1[6] = secs2.BOOLEAN()
-	list0[5] = secs2.L(list1...)
-
-	body, err := secs2.Decode(secs2.L(list0...).ToBytes())
 	if err != nil {
 		t.Fatalf("secs2.Decode: %v", err)
 	}
@@ -244,58 +193,258 @@ func TestDecodeS17F5TRAUTODAbsent(t *testing.T) {
 		STARTCEID:    secs2.A("startceid"),
 		STOPEVNTSRC:  "stopevntsrc",
 		STOPCEID:     secs2.A("stopceid"),
-		RPTOC:        true,
-		RPTOCPresent: true,
+		TRAUTOD:      new(false),
+		RPTOC:        new(true),
+	}
+
+	assertDecoded(t, got, want)
+}
+
+func TestDecodeS17F5TRAUTODAbsent(t *testing.T) {
+	msg := gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), nil, new(true))
+
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+	list1, err := decoded.ToList()
+	if err != nil {
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 6 {
+		t.Fatalf("list length: got %d, want 6", len(list1))
+	}
+	got2 := list1[0].ToBytes()
+	want2 := secs2.A("dataid").ToBytes()
+	if !bytes.Equal(got2, want2) {
+		t.Errorf("dataid: got %x, want %x", got2, want2)
+	}
+	got3 := list1[1].ToBytes()
+	want3 := secs2.A("trid").ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("trid: got %x, want %x", got3, want3)
+	}
+	v4, err := list1[2].ToBoolean()
+	if err != nil {
+		t.Fatalf("list1[2].ToBoolean: %v", err)
+	}
+	if len(v4) != 1 || v4[0] != true {
+		t.Errorf("ceed: got %v, want %v", v4, true)
+	}
+	list5, err := list1[3].ToList()
+	if err != nil {
+		t.Fatalf("list1[3].ToList: %v", err)
+	}
+	if len(list5) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("rptids").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("rptids: got %x, want %x", got6, want6)
+	}
+	got7 := list1[4].ToBytes()
+	want7 := secs2.A("trsper").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("trsper: got %x, want %x", got7, want7)
+	}
+	list8, err := list1[5].ToList()
+	if err != nil {
+		t.Fatalf("list1[5].ToList: %v", err)
+	}
+	if len(list8) != 8 {
+		t.Fatalf("list length: got %d, want 8", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("totsmp").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("totsmp: got %x, want %x", got9, want9)
+	}
+	got10 := list8[1].ToBytes()
+	want10 := secs2.A("repgsz").ToBytes()
+	if !bytes.Equal(got10, want10) {
+		t.Errorf("repgsz: got %x, want %x", got10, want10)
+	}
+	v11, err := list8[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list8[2].ToASCII: %v", err)
+	}
+	if v11 != "startevntsrc" {
+		t.Errorf("startevntsrc: got %q, want %q", v11, "startevntsrc")
+	}
+	got12 := list8[3].ToBytes()
+	want12 := secs2.A("startceid").ToBytes()
+	if !bytes.Equal(got12, want12) {
+		t.Errorf("startceid: got %x, want %x", got12, want12)
+	}
+	v13, err := list8[4].ToASCII()
+	if err != nil {
+		t.Fatalf("list8[4].ToASCII: %v", err)
+	}
+	if v13 != "stopevntsrc" {
+		t.Errorf("stopevntsrc: got %q, want %q", v13, "stopevntsrc")
+	}
+	got14 := list8[5].ToBytes()
+	want14 := secs2.A("stopceid").ToBytes()
+	if !bytes.Equal(got14, want14) {
+		t.Errorf("stopceid: got %x, want %x", got14, want14)
+	}
+	got15 := list8[6].ToBytes()
+	want15 := secs2.BOOLEAN().ToBytes()
+	if !bytes.Equal(got15, want15) {
+		t.Errorf("trautod: got %x, want the zero-length item %x", got15, want15)
+	}
+	v16, err := list8[7].ToBoolean()
+	if err != nil {
+		t.Fatalf("list8[7].ToBoolean: %v", err)
+	}
+	if len(v16) != 1 || v16[0] != true {
+		t.Errorf("rptoc: got %v, want %v", v16, true)
+	}
+
+	got, err := gem.DecodeS17F5(decoded)
+	if err != nil {
+		t.Fatalf("DecodeS17F5: %v", err)
+	}
+
+	want := gem.S17F5Body{
+		DATAID:       secs2.A("dataid"),
+		TRID:         secs2.A("trid"),
+		CEED:         true,
+		RPTIDS:       []secs2.Item{secs2.A("rptids")},
+		TRSPER:       secs2.A("trsper"),
+		TOTSMP:       secs2.A("totsmp"),
+		REPGSZ:       secs2.A("repgsz"),
+		STARTEVNTSRC: "startevntsrc",
+		STARTCEID:    secs2.A("startceid"),
+		STOPEVNTSRC:  "stopevntsrc",
+		STOPCEID:     secs2.A("stopceid"),
+		RPTOC:        new(true),
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS17F5RPTOCAbsent(t *testing.T) {
-	msg := gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), false, true)
+	msg := gem.S17F5(secs2.A("dataid"), secs2.A("trid"), true, []secs2.Item{secs2.A("rptids")}, secs2.A("trsper"), secs2.A("totsmp"), secs2.A("repgsz"), "startevntsrc", secs2.A("startceid"), "stopevntsrc", secs2.A("stopceid"), new(false), nil)
 
-	full, err := secs2.Decode(msg.Item().ToBytes())
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
 		t.Fatalf("secs2.Decode: %v", err)
 	}
-
-	list0, err := full.ToList()
+	list1, err := decoded.ToList()
 	if err != nil {
-		t.Fatalf("list0: %v", err)
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 6 {
+		t.Fatalf("list length: got %d, want 6", len(list1))
+	}
+	got2 := list1[0].ToBytes()
+	want2 := secs2.A("dataid").ToBytes()
+	if !bytes.Equal(got2, want2) {
+		t.Errorf("dataid: got %x, want %x", got2, want2)
+	}
+	got3 := list1[1].ToBytes()
+	want3 := secs2.A("trid").ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("trid: got %x, want %x", got3, want3)
+	}
+	v4, err := list1[2].ToBoolean()
+	if err != nil {
+		t.Fatalf("list1[2].ToBoolean: %v", err)
+	}
+	if len(v4) != 1 || v4[0] != true {
+		t.Errorf("ceed: got %v, want %v", v4, true)
+	}
+	list5, err := list1[3].ToList()
+	if err != nil {
+		t.Fatalf("list1[3].ToList: %v", err)
+	}
+	if len(list5) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list5))
+	}
+	got6 := list5[0].ToBytes()
+	want6 := secs2.A("rptids").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("rptids: got %x, want %x", got6, want6)
+	}
+	got7 := list1[4].ToBytes()
+	want7 := secs2.A("trsper").ToBytes()
+	if !bytes.Equal(got7, want7) {
+		t.Errorf("trsper: got %x, want %x", got7, want7)
+	}
+	list8, err := list1[5].ToList()
+	if err != nil {
+		t.Fatalf("list1[5].ToList: %v", err)
+	}
+	if len(list8) != 8 {
+		t.Fatalf("list length: got %d, want 8", len(list8))
+	}
+	got9 := list8[0].ToBytes()
+	want9 := secs2.A("totsmp").ToBytes()
+	if !bytes.Equal(got9, want9) {
+		t.Errorf("totsmp: got %x, want %x", got9, want9)
+	}
+	got10 := list8[1].ToBytes()
+	want10 := secs2.A("repgsz").ToBytes()
+	if !bytes.Equal(got10, want10) {
+		t.Errorf("repgsz: got %x, want %x", got10, want10)
+	}
+	v11, err := list8[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list8[2].ToASCII: %v", err)
+	}
+	if v11 != "startevntsrc" {
+		t.Errorf("startevntsrc: got %q, want %q", v11, "startevntsrc")
+	}
+	got12 := list8[3].ToBytes()
+	want12 := secs2.A("startceid").ToBytes()
+	if !bytes.Equal(got12, want12) {
+		t.Errorf("startceid: got %x, want %x", got12, want12)
+	}
+	v13, err := list8[4].ToASCII()
+	if err != nil {
+		t.Fatalf("list8[4].ToASCII: %v", err)
+	}
+	if v13 != "stopevntsrc" {
+		t.Errorf("stopevntsrc: got %q, want %q", v13, "stopevntsrc")
+	}
+	got14 := list8[5].ToBytes()
+	want14 := secs2.A("stopceid").ToBytes()
+	if !bytes.Equal(got14, want14) {
+		t.Errorf("stopceid: got %x, want %x", got14, want14)
+	}
+	v15, err := list8[6].ToBoolean()
+	if err != nil {
+		t.Fatalf("list8[6].ToBoolean: %v", err)
+	}
+	if len(v15) != 1 || v15[0] != false {
+		t.Errorf("trautod: got %v, want %v", v15, false)
+	}
+	got16 := list8[7].ToBytes()
+	want16 := secs2.BOOLEAN().ToBytes()
+	if !bytes.Equal(got16, want16) {
+		t.Errorf("rptoc: got %x, want the zero-length item %x", got16, want16)
 	}
 
-	list1, err := list0[5].ToList()
-	if err != nil {
-		t.Fatalf("list1: %v", err)
-	}
-
-	list1[7] = secs2.BOOLEAN()
-	list0[5] = secs2.L(list1...)
-
-	body, err := secs2.Decode(secs2.L(list0...).ToBytes())
-	if err != nil {
-		t.Fatalf("secs2.Decode: %v", err)
-	}
-
-	got, err := gem.DecodeS17F5(body)
+	got, err := gem.DecodeS17F5(decoded)
 	if err != nil {
 		t.Fatalf("DecodeS17F5: %v", err)
 	}
 
 	want := gem.S17F5Body{
-		DATAID:         secs2.A("dataid"),
-		TRID:           secs2.A("trid"),
-		CEED:           true,
-		RPTIDS:         []secs2.Item{secs2.A("rptids")},
-		TRSPER:         secs2.A("trsper"),
-		TOTSMP:         secs2.A("totsmp"),
-		REPGSZ:         secs2.A("repgsz"),
-		STARTEVNTSRC:   "startevntsrc",
-		STARTCEID:      secs2.A("startceid"),
-		STOPEVNTSRC:    "stopevntsrc",
-		STOPCEID:       secs2.A("stopceid"),
-		TRAUTOD:        false,
-		TRAUTODPresent: true,
+		DATAID:       secs2.A("dataid"),
+		TRID:         secs2.A("trid"),
+		CEED:         true,
+		RPTIDS:       []secs2.Item{secs2.A("rptids")},
+		TRSPER:       secs2.A("trsper"),
+		TOTSMP:       secs2.A("totsmp"),
+		REPGSZ:       secs2.A("repgsz"),
+		STARTEVNTSRC: "startevntsrc",
+		STARTCEID:    secs2.A("startceid"),
+		STOPEVNTSRC:  "stopevntsrc",
+		STOPCEID:     secs2.A("stopceid"),
+		TRAUTOD:      new(false),
 	}
 
 	assertDecoded(t, got, want)

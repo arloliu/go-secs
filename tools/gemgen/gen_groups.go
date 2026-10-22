@@ -72,7 +72,7 @@ func renderGroups(groups []Group, items map[string]Item) ([]byte, error) {
 
 // groupDoc renders the godoc lines of a group's struct:
 // a name-first summary made of its description, its wire shape in the Body: shorthand of a builder's godoc,
-// what its optional fields hold for the zero-length list,
+// what its optional fields hold for the zero-length list or item,
 // and, when few enough use it, the messages and groups that do.
 func groupDoc(g *Group, items map[string]Item) []string {
 	doc := wrapParagraph(ensurePeriod(g.Name + " is " + lowerFirst(g.Description)))
@@ -92,6 +92,14 @@ func groupDoc(g *Group, items map[string]Item) []string {
 		doc = append(doc, optional[0]+" is nil when it is sent as L[0].")
 	default:
 		doc = append(doc, joinAnd(optional)+" are each nil when sent as L[0].")
+	}
+
+	switch leaves := optionalFieldNames(g.Structure); len(leaves) {
+	case 0:
+	case 1:
+		doc = append(doc, leaves[0]+" is nil when it is sent as a zero-length item, as SEMI E5 allows.")
+	default:
+		doc = append(doc, joinAnd(leaves)+" are each nil when sent as a zero-length item, as SEMI E5 allows.")
 	}
 
 	if len(g.users) <= maxUsersInDoc {

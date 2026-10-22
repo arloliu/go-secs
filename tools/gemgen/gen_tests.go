@@ -302,7 +302,7 @@ func newFuncTestView(stream int, m Message, b Body, items map[string]Item) (func
 		return funcTestView{}, false, err
 	}
 
-	lines, usesBytes, err := renderTestBody(b.Structure, items)
+	lines, usesBytes, err := renderTestBody(b.Structure, items, nil)
 	if err != nil {
 		return funcTestView{}, false, err
 	}
@@ -333,9 +333,7 @@ func newFuncTestView(stream int, m Message, b Body, items map[string]Item) (func
 // The fields the variant supplies must equal the samples it was built from,
 // and every field it omits must decode to its zero value,
 // which is what a caller of the main decoder sees when a short form arrives.
-// A presence field of the main body follows its value field:
-// true when the variant supplies that value, since a builder always sends one,
-// and false when the variant omits it.
+// A field optional in the main body but plain in the variant is expected as a pointer to the variant's sample.
 // params and exprs are the variant's own builder parameters and samples.
 func variantDecodeLines(stream int, m Message, b Body, params []Param, exprs []string, items map[string]Item) ([]string, error) {
 	main, ok := mainBody(m, b.Actor)
@@ -353,8 +351,8 @@ func variantDecodeLines(stream int, m Message, b Body, params []Param, exprs []s
 		return nil, err
 	}
 
-	if n := valueFieldCount(fields); n != len(params) || n != len(exprs) {
-		return nil, fmt.Errorf("%d value fields, %d parameters, %d samples", n, len(params), len(exprs))
+	if n := len(fields); n != len(params) || n != len(exprs) {
+		return nil, fmt.Errorf("%d fields, %d parameters, %d samples", n, len(params), len(exprs))
 	}
 
 	decoder := "Decode" + callName(stream, m.Function, b.Actor)
@@ -368,15 +366,21 @@ func variantDecodeLines(stream int, m Message, b Body, params []Param, exprs []s
 		}, nil
 	}
 
-	supplied := map[string]bool{}
-	for _, f := range fields {
-		supplied[f.Name] = true
+	mainTypes := map[string]string{}
+	for _, f := range mainFields {
+		mainTypes[f.Name] = f.Type
 	}
 
-	for i, f := range mainFields {
-		if f.Presence && !supplied[f.Name] && supplied[mainFields[i-1].Name] {
+	types := map[string]string{}
+	for _, f := range fields {
+		types[f.Name] = f.Type
+	}
+
+	values := sampleFields(params, fields, exprs)
+	for i, v := range values {
+		if goType, ok := strings.CutPrefix(mainTypes[v.Name], "*"); ok && !strings.HasPrefix(types[v.Name], "*") {
 			// The variant sends the value as a plain leaf, so the main decoder finds it present.
-			fields = append(fields, f)
+			values[i].Value = pointerLiteral(goType, v.Value)
 		}
 	}
 
@@ -389,7 +393,7 @@ func variantDecodeLines(stream int, m Message, b Body, params []Param, exprs []s
 		"",
 	}
 
-	return slices.Concat(decode, assertDecodedLines(ResultTypeName(stream, m.Function, b.Actor), sampleFields(params, fields, exprs))), nil
+	return slices.Concat(decode, assertDecodedLines(ResultTypeName(stream, m.Function, b.Actor), values)), nil
 }
 
 // mainBody returns the message's main body for actor: its one body that is not a variant.
@@ -472,6 +476,17 @@ func sliceLiteral(elem string, expr string) string {
 // means a bug that swaps two sibling parameters changes the expected values at their positions,
 // and the generated assertion catches it.
 func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
+	return sampleExprsWithAbsent(n, items, nil)
+}
+
+// absentSet is the set of optional leaves a generated test sends zero-length:
+// their samples are nil, and the built item must be the zero-length item of their format.
+// A group's leaves are shared by every reference to the group, so one entry covers each use of it.
+type absentSet map[*StructureNode]bool
+
+// sampleExprsWithAbsent is [SampleExprs] with the optional leaves in absent sampled as nil.
+// Every other optional leaf is sampled as a pointer to the value it would have if it were not optional.
+func sampleExprsWithAbsent(n *StructureNode, items map[string]Item, absent absentSet) ([]string, error) {
 	var out []string
 
 	bools := boolSamples(n, items)
@@ -507,11 +522,20 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 				return
 			}
 
-			out = append(out, fs.literalFor(name, bools))
+			literal := fs.literalFor(name, bools)
+
+			switch {
+			case n.Optional && absent[n]:
+				out = append(out, "nil")
+			case n.Optional:
+				out = append(out, pointerLiteral(fixedGoType(n.Item, it), literal))
+			default:
+				out = append(out, literal)
+			}
 		case "opaque":
 			out = append(out, fmt.Sprintf("secs2.A(%q)", nodeNames(n).Param))
 		case "group":
-			expr, err := elemSample(n, items, nodeNames(n).Param)
+			expr, err := elemSample(n, items, nodeNames(n).Param, absent)
 			if err != nil {
 				walkErr = err
 				return
@@ -520,7 +544,7 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 			out = append(out, expr)
 		default: // list
 			if n.Repeat != "" {
-				expr, err := elemSample(n.Of, items, nodeNames(n).Param)
+				expr, err := elemSample(n.Of, items, nodeNames(n).Param, absent)
 				if err != nil {
 					walkErr = fmt.Errorf("repeat %s: %w", n.Repeat, err)
 					return
@@ -564,8 +588,20 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 	return out, nil
 }
 
+// pointerLiteral renders the expression of a pointer to the sample literal of goType,
+// the sample of an optional leaf that is sent with a value:
+// new(uint16(42)), or new(gem.ORLOC(0x5a)) for a named type,
+// but new(true) for a bool, which needs no conversion.
+func pointerLiteral(goType string, literal string) string {
+	if goType == "bool" {
+		return "new(" + literal + ")"
+	}
+
+	return fmt.Sprintf("new(%s(%s))", qualifiedType(goType), literal)
+}
+
 // elemSample returns the sample of one element of a repeat whose of is n,
-// labeled label, the repeat's parameter name;
+// labeled label, the repeat's parameter name, with the optional leaves in absent sampled as nil;
 // for a group reference n outside a repeat, it is the sample of the reference itself.
 //
 // A value element is a bare literal of the element item's Go type, as for a packed group;
@@ -573,7 +609,7 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 // taken by address when the element is optional;
 // a repeat element is a slice of the one inner element its own name labels;
 // and any other element is a secs2.A(label) item.
-func elemSample(n *StructureNode, items map[string]Item, label string) (string, error) {
+func elemSample(n *StructureNode, items map[string]Item, label string, absent absentSet) (string, error) {
 	switch n.Kind() {
 	case "leaf":
 		it, ok := valueLeafItem(n, items)
@@ -588,7 +624,7 @@ func elemSample(n *StructureNode, items map[string]Item, label string) (string, 
 
 		return fs.literal(label), nil
 	case "group":
-		lit, err := groupSample(n.def, items)
+		lit, err := groupSample(n.def, items, absent)
 		if err != nil {
 			return "", err
 		}
@@ -603,7 +639,7 @@ func elemSample(n *StructureNode, items map[string]Item, label string) (string, 
 			return fmt.Sprintf("secs2.A(%q)", label), nil // elemType makes any other list a secs2.Item
 		}
 
-		inner, err := elemSample(n.Of, items, nodeNames(n).Param)
+		inner, err := elemSample(n.Of, items, nodeNames(n).Param, absent)
 		if err != nil {
 			return "", err
 		}
@@ -616,11 +652,12 @@ func elemSample(n *StructureNode, items map[string]Item, label string) (string, 
 
 // groupSample returns the literal of the group g's struct that the generated tests send and expect back:
 // every field set from the samples of g's own structure,
-// as a message body's result is set from its builder's samples.
-func groupSample(g *Group, items map[string]Item) (string, error) {
+// as a message body's result is set from its builder's samples,
+// and the optional leaves in absent left nil.
+func groupSample(g *Group, items map[string]Item, absent absentSet) (string, error) {
 	params := BuildParams(g.Structure, items)
 
-	exprs, err := SampleExprs(g.Structure, items)
+	exprs, err := sampleExprsWithAbsent(g.Structure, items, absent)
 	if err != nil {
 		return "", fmt.Errorf("group %s: %w", g.Name, err)
 	}
@@ -649,6 +686,7 @@ type testCtx struct {
 	counter   int
 	usesBytes bool
 	bools     map[string]string // the body's boolSamples
+	absent    absentSet         // the optional leaves the test sends zero-length
 }
 
 // nextID returns a fresh, monotonically increasing suffix for a generated
@@ -765,6 +803,23 @@ func (c *testCtx) assertSample(expr, name string) {
 	c.usesBytes = true
 }
 
+// assertZeroLength emits the check that the item found at expr is the zero-length item of itemFormat,
+// as an optional leaf sent as nil must be: secs2.U4() for a U4 item.
+func (c *testCtx) assertZeroLength(expr, name, itemFormat string) {
+	id := c.nextID()
+	got := fmt.Sprintf("got%d", id)
+	want := fmt.Sprintf("want%d", id)
+
+	c.emit(
+		fmt.Sprintf("%s := %s.ToBytes()", got, expr),
+		fmt.Sprintf("%s := secs2.%s().ToBytes()", want, itemFormat),
+		fmt.Sprintf("if !bytes.Equal(%s, %s) {", got, want),
+		fmt.Sprintf("t.Errorf(%q, %s, %s)", name+": got %x, want the zero-length item %x", got, want),
+		"}",
+	)
+	c.usesBytes = true
+}
+
 // assertNode recursively asserts that the Item found at expr matches n's
 // shape, mirroring BuildParams/BodyExpr's traversal exactly: a repeat node
 // contributes one wrapping list (asserted to hold exactly the one sample
@@ -774,6 +829,12 @@ func (c *testCtx) assertNode(n *StructureNode, items map[string]Item, expr strin
 	case "leaf":
 		it := items[n.Item]
 		name := nodeNames(n).Param
+
+		if n.Optional && c.absent[n] {
+			c.assertZeroLength(expr, name, it.Formats[0])
+
+			return nil
+		}
 
 		if it.Binding == BindingFixed {
 			return c.assertFixed(expr, name, it)
@@ -862,7 +923,8 @@ func (c *testCtx) assertElem(n *StructureNode, items map[string]Item, expr strin
 // walk. It also reports whether any emitted line needs the "bytes" import,
 // so renderTests can omit it from bodies that never compare a caller-
 // supplied secs2.Item.
-func renderTestBody(n *StructureNode, items map[string]Item) ([]string, bool, error) {
+// The optional leaves in absent must be zero-length items.
+func renderTestBody(n *StructureNode, items map[string]Item, absent absentSet) ([]string, bool, error) {
 	if n == nil {
 		return []string{
 			"if !msg.Item().IsEmpty() {",
@@ -871,7 +933,7 @@ func renderTestBody(n *StructureNode, items map[string]Item) ([]string, bool, er
 		}, false, nil
 	}
 
-	c := &testCtx{bools: boolSamples(n, items)}
+	c := &testCtx{bools: boolSamples(n, items), absent: absent}
 	c.emit(
 		"decoded, err := secs2.Decode(msg.Item().ToBytes())",
 		"if err != nil {",

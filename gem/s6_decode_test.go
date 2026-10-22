@@ -3,6 +3,7 @@
 package gem_test
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -134,7 +135,7 @@ func init() {
 		_, err := gem.DecodeS6F25(item, opts...)
 
 		return err
-	}, gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
+	}, gem.S6F25(secs2.A("dataid"), secs2.A("opid"), new(uint32(78)), "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}).Item())
 	registerFuzzDecoder("DecodeS6F26", func(item secs2.Item, opts ...gem.DecodeOption) error {
 		_, err := gem.DecodeS6F26(item, opts...)
 
@@ -689,7 +690,7 @@ func TestDecodeS6F24RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS6F25RoundTrip(t *testing.T) {
-	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
+	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), new(uint32(78)), "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -702,41 +703,128 @@ func TestDecodeS6F25RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S6F25Body{
-		DATAID:        secs2.A("dataid"),
-		OPID:          secs2.A("opid"),
-		LINKID:        78,
-		LINKIDPresent: true,
-		RCPSPEC:       "rcpspec",
-		RMCHGSTAT:     secs2.A("rmchgstat"),
-		ATTRIBUTES:    []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}},
-		RMACK:         29,
-		ERRORS:        []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
+		DATAID:     secs2.A("dataid"),
+		OPID:       secs2.A("opid"),
+		LINKID:     new(uint32(78)),
+		RCPSPEC:    "rcpspec",
+		RMCHGSTAT:  secs2.A("rmchgstat"),
+		ATTRIBUTES: []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}},
+		RMACK:      29,
+		ERRORS:     []gem.ErrorInfo{{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS6F25LINKIDAbsent(t *testing.T) {
-	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), 78, "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
+	msg := gem.S6F25(secs2.A("dataid"), secs2.A("opid"), nil, "rcpspec", secs2.A("rmchgstat"), []gem.RecipeAttribute{{RCPATTRID: "rcpattrid", RCPATTRDATA: secs2.A("rcpattrdata")}}, 29, gem.ErrorInfo{ERRCODE: secs2.A("errcode"), ERRTEXT: "errtext"})
 
-	full, err := secs2.Decode(msg.Item().ToBytes())
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
 		t.Fatalf("secs2.Decode: %v", err)
 	}
-
-	list0, err := full.ToList()
+	list1, err := decoded.ToList()
 	if err != nil {
-		t.Fatalf("list0: %v", err)
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 7 {
+		t.Fatalf("list length: got %d, want 7", len(list1))
+	}
+	got2 := list1[0].ToBytes()
+	want2 := secs2.A("dataid").ToBytes()
+	if !bytes.Equal(got2, want2) {
+		t.Errorf("dataid: got %x, want %x", got2, want2)
+	}
+	got3 := list1[1].ToBytes()
+	want3 := secs2.A("opid").ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("opid: got %x, want %x", got3, want3)
+	}
+	got4 := list1[2].ToBytes()
+	want4 := secs2.U4().ToBytes()
+	if !bytes.Equal(got4, want4) {
+		t.Errorf("linkid: got %x, want the zero-length item %x", got4, want4)
+	}
+	v5, err := list1[3].ToASCII()
+	if err != nil {
+		t.Fatalf("list1[3].ToASCII: %v", err)
+	}
+	if v5 != "rcpspec" {
+		t.Errorf("rcpspec: got %q, want %q", v5, "rcpspec")
+	}
+	got6 := list1[4].ToBytes()
+	want6 := secs2.A("rmchgstat").ToBytes()
+	if !bytes.Equal(got6, want6) {
+		t.Errorf("rmchgstat: got %x, want %x", got6, want6)
+	}
+	list7, err := list1[5].ToList()
+	if err != nil {
+		t.Fatalf("list1[5].ToList: %v", err)
+	}
+	if len(list7) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list7))
+	}
+	list8, err := list7[0].ToList()
+	if err != nil {
+		t.Fatalf("list7[0].ToList: %v", err)
+	}
+	if len(list8) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list8))
+	}
+	v9, err := list8[0].ToASCII()
+	if err != nil {
+		t.Fatalf("list8[0].ToASCII: %v", err)
+	}
+	if v9 != "rcpattrid" {
+		t.Errorf("rcpattrid: got %q, want %q", v9, "rcpattrid")
+	}
+	got10 := list8[1].ToBytes()
+	want10 := secs2.A("rcpattrdata").ToBytes()
+	if !bytes.Equal(got10, want10) {
+		t.Errorf("rcpattrdata: got %x, want %x", got10, want10)
+	}
+	list11, err := list1[6].ToList()
+	if err != nil {
+		t.Fatalf("list1[6].ToList: %v", err)
+	}
+	if len(list11) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list11))
+	}
+	v12, err := list11[0].ToUint()
+	if err != nil {
+		t.Fatalf("list11[0].ToUint: %v", err)
+	}
+	if len(v12) != 1 || v12[0] != 29 {
+		t.Errorf("rmack: got %v, want %v", v12, 29)
+	}
+	list13, err := list11[1].ToList()
+	if err != nil {
+		t.Fatalf("list11[1].ToList: %v", err)
+	}
+	if len(list13) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list13))
+	}
+	list14, err := list13[0].ToList()
+	if err != nil {
+		t.Fatalf("list13[0].ToList: %v", err)
+	}
+	if len(list14) != 2 {
+		t.Fatalf("list length: got %d, want 2", len(list14))
+	}
+	got15 := list14[0].ToBytes()
+	want15 := secs2.A("errcode").ToBytes()
+	if !bytes.Equal(got15, want15) {
+		t.Errorf("errcode: got %x, want %x", got15, want15)
+	}
+	v16, err := list14[1].ToASCII()
+	if err != nil {
+		t.Fatalf("list14[1].ToASCII: %v", err)
+	}
+	if v16 != "errtext" {
+		t.Errorf("errtext: got %q, want %q", v16, "errtext")
 	}
 
-	list0[2] = secs2.U4()
-
-	body, err := secs2.Decode(secs2.L(list0...).ToBytes())
-	if err != nil {
-		t.Fatalf("secs2.Decode: %v", err)
-	}
-
-	got, err := gem.DecodeS6F25(body)
+	got, err := gem.DecodeS6F25(decoded)
 	if err != nil {
 		t.Fatalf("DecodeS6F25: %v", err)
 	}

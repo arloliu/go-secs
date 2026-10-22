@@ -261,8 +261,8 @@ func TestDecodeNumericWidthIsChecked(t *testing.T) {
 		t.Fatalf("DecodeS6F25: %v", err)
 	}
 
-	if got.LINKID != 1<<31 {
-		t.Errorf("LINKID: got %d, want %d", got.LINKID, uint32(1)<<31)
+	if got.LINKID == nil || *got.LINKID != 1<<31 {
+		t.Errorf("LINKID: got %v, want a pointer to %d", got.LINKID, uint32(1)<<31)
 	}
 
 	_, err = gem.DecodeS6F25(body(secs2.U8(uint64(1) << 32)))

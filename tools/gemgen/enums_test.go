@@ -16,11 +16,11 @@ func enumItems() map[string]Item {
 	}
 }
 
-// enumStructure is a body with a string-enum leaf, the same item optional and renamed, and an open item with values.
+// enumStructure is a body with a string-enum leaf, the same item renamed, and an open item with values.
 func enumStructure() *StructureNode {
 	return &StructureNode{Type: "list", Items: []StructureNode{
 		{Item: "CARRIERACTION"},
-		{Item: "CARRIERACTION", As: "next", Optional: true},
+		{Item: "CARRIERACTION", As: "next"},
 		{Item: "OBJTYPE"},
 	}}
 }
@@ -41,7 +41,7 @@ func TestStringEnumBuilder(t *testing.T) {
 }
 
 // TestStringEnumDecoder proves a fixed string enumeration decodes into a field of the named type,
-// converting decodeASCII's string through a local both for a plain and for an optional leaf,
+// converting decodeASCII's string through a local for each leaf,
 // while an open item with values decodes into a secs2.Item field.
 func TestStringEnumDecoder(t *testing.T) {
 	items := enumItems()
@@ -51,7 +51,6 @@ func TestStringEnumDecoder(t *testing.T) {
 	require.Equal(t, []decodeField{
 		{Name: "CARRIERACTION", Type: "CARRIERACTION", Param: 0, Path: []int{0}},
 		{Name: "NEXT", Type: "CARRIERACTION", Param: 1, Path: []int{1}},
-		{Name: "NEXTPresent", Type: "bool", Param: -1, Presence: true, Path: []int{1}},
 		{Name: "OBJTYPE", Type: "secs2.Item", Param: 2, Path: []int{2}},
 	}, fields)
 
@@ -61,13 +60,11 @@ func TestStringEnumDecoder(t *testing.T) {
 		"\t\treturn out, err\n"+
 		"\t}\n\n"+
 		"\tout.CARRIERACTION = CARRIERACTION(s1)\n")
-	require.Contains(t, src, "\tif out.NEXTPresent {\n"+
-		"\t\tvar s2 string\n"+
-		"\t\tif s2, err = decodeASCII(root.At(1), \"NEXT\"); err != nil {\n"+
-		"\t\t\treturn out, err\n"+
-		"\t\t}\n\n"+
-		"\t\tout.NEXT = CARRIERACTION(s2)\n"+
-		"\t}\n")
+	require.Contains(t, src, "\tvar s2 string\n"+
+		"\tif s2, err = decodeASCII(root.At(1), \"NEXT\"); err != nil {\n"+
+		"\t\treturn out, err\n"+
+		"\t}\n\n"+
+		"\tout.NEXT = CARRIERACTION(s2)\n")
 	require.Contains(t, src, "if out.OBJTYPE, err = decodeScalarItem(root.At(2), \"OBJTYPE\"); err != nil {")
 }
 
@@ -88,5 +85,5 @@ func TestStringEnumTests(t *testing.T) {
 	decodeTests, err := renderDecodeTests(mf, items)
 	require.NoError(t, err)
 	require.Contains(t, string(decodeTests), `CARRIERACTION: "carrieraction",`)
-	require.Contains(t, string(decodeTests), "func TestDecodeS1F1NEXTAbsent(t *testing.T) {")
+	require.Contains(t, string(decodeTests), `NEXT:          "next",`)
 }

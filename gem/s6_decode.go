@@ -858,23 +858,19 @@ func DecodeS6F24(item secs2.Item, opts ...DecodeOption) (S6F24Reply, error) {
 //
 // Body: L[7]{ <dataid> <opid> U4[linkid] A[rcpspec] <rmchgstat> L[n]{ <attributes>... } L[2]{ U1[rmack] L[n]{ <errors>... } } }.
 //
-// It is filled by [DecodeS6F25] and mirrors the parameters of [S6F25], in order,
-// apart from its LINKIDPresent field.
+// It is filled by [DecodeS6F25] and mirrors the parameters of [S6F25], in order.
 //
 // SEMI E5 lets LINKID be sent as a zero-length item:
-// [DecodeS6F25] decodes that form as a zero LINKID with LINKIDPresent false.
-// [S6F25] always sends a value,
-// so callers that need the zero-length form build the body with [secs2] directly.
+// [DecodeS6F25] decodes that form as a nil LINKID, and [S6F25] sends it for a nil argument.
 type S6F25Body struct {
-	DATAID        secs2.Item
-	OPID          secs2.Item
-	LINKID        uint32
-	LINKIDPresent bool
-	RCPSPEC       string
-	RMCHGSTAT     secs2.Item
-	ATTRIBUTES    []RecipeAttribute
-	RMACK         RMACK
-	ERRORS        []ErrorInfo
+	DATAID     secs2.Item
+	OPID       secs2.Item
+	LINKID     *uint32
+	RCPSPEC    string
+	RMCHGSTAT  secs2.Item
+	ATTRIBUTES []RecipeAttribute
+	RMACK      RMACK
+	ERRORS     []ErrorInfo
 }
 
 // DecodeS6F25 decodes the body of an S6F25 (Notification Report Send) message into a [S6F25Body].
@@ -903,14 +899,8 @@ func DecodeS6F25(item secs2.Item, opts ...DecodeOption) (S6F25Body, error) {
 		return out, err
 	}
 
-	if out.LINKIDPresent, err = presentAt[*secs2.UintItem](root.At(2), "LINKID"); err != nil {
+	if out.LINKID, err = decodeOptional[*secs2.UintItem](root.At(2), "LINKID", decodeUintAs[uint32]); err != nil {
 		return out, err
-	}
-
-	if out.LINKIDPresent {
-		if out.LINKID, err = decodeUintAs[uint32](root.At(2), "LINKID"); err != nil {
-			return out, err
-		}
 	}
 
 	if out.RCPSPEC, err = decodeASCII(root.At(3), "RCPSPEC"); err != nil {

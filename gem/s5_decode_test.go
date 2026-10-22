@@ -3,6 +3,7 @@
 package gem_test
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/gem"
@@ -39,12 +40,12 @@ func init() {
 		_, err := gem.DecodeS5F6(item, opts...)
 
 		return err
-	}, gem.S5F6(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"}).Item())
+	}, gem.S5F6(gem.Alarm{ALCD: new(gem.ALCD(0x87)), ALID: secs2.A("alid"), ALTX: "altx"}).Item())
 	registerFuzzDecoder("DecodeS5F8", func(item secs2.Item, opts ...gem.DecodeOption) error {
 		_, err := gem.DecodeS5F8(item, opts...)
 
 		return err
-	}, gem.S5F8(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"}).Item())
+	}, gem.S5F8(gem.Alarm{ALCD: new(gem.ALCD(0x87)), ALID: secs2.A("alid"), ALTX: "altx"}).Item())
 	registerFuzzDecoder("DecodeS5F9", func(item secs2.Item, opts ...gem.DecodeOption) error {
 		_, err := gem.DecodeS5F9(item, opts...)
 
@@ -186,7 +187,7 @@ func TestDecodeS5F5RoundTrip(t *testing.T) {
 }
 
 func TestDecodeS5F6RoundTrip(t *testing.T) {
-	msg := gem.S5F6(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"})
+	msg := gem.S5F6(gem.Alarm{ALCD: new(gem.ALCD(0x87)), ALID: secs2.A("alid"), ALTX: "altx"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -199,14 +200,65 @@ func TestDecodeS5F6RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S5F6Reply{
-		ALARMS: []gem.Alarm{{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"}},
+		ALARMS: []gem.Alarm{{ALCD: new(gem.ALCD(0x87)), ALID: secs2.A("alid"), ALTX: "altx"}},
+	}
+
+	assertDecoded(t, got, want)
+}
+
+func TestDecodeS5F6AlarmALCDAbsent(t *testing.T) {
+	msg := gem.S5F6(gem.Alarm{ALID: secs2.A("alid"), ALTX: "altx"})
+
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+	list1, err := decoded.ToList()
+	if err != nil {
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list1))
+	}
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list2))
+	}
+	got3 := list2[0].ToBytes()
+	want3 := secs2.B().ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("alcd: got %x, want the zero-length item %x", got3, want3)
+	}
+	got4 := list2[1].ToBytes()
+	want4 := secs2.A("alid").ToBytes()
+	if !bytes.Equal(got4, want4) {
+		t.Errorf("alid: got %x, want %x", got4, want4)
+	}
+	v5, err := list2[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[2].ToASCII: %v", err)
+	}
+	if v5 != "altx" {
+		t.Errorf("altx: got %q, want %q", v5, "altx")
+	}
+
+	got, err := gem.DecodeS5F6(decoded)
+	if err != nil {
+		t.Fatalf("DecodeS5F6: %v", err)
+	}
+
+	want := gem.S5F6Reply{
+		ALARMS: []gem.Alarm{{ALID: secs2.A("alid"), ALTX: "altx"}},
 	}
 
 	assertDecoded(t, got, want)
 }
 
 func TestDecodeS5F8RoundTrip(t *testing.T) {
-	msg := gem.S5F8(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"})
+	msg := gem.S5F8(gem.Alarm{ALCD: new(gem.ALCD(0x87)), ALID: secs2.A("alid"), ALTX: "altx"})
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -219,7 +271,58 @@ func TestDecodeS5F8RoundTrip(t *testing.T) {
 	}
 
 	want := gem.S5F8Reply{
-		ALARMS: []gem.Alarm{{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"}},
+		ALARMS: []gem.Alarm{{ALCD: new(gem.ALCD(0x87)), ALID: secs2.A("alid"), ALTX: "altx"}},
+	}
+
+	assertDecoded(t, got, want)
+}
+
+func TestDecodeS5F8AlarmALCDAbsent(t *testing.T) {
+	msg := gem.S5F8(gem.Alarm{ALID: secs2.A("alid"), ALTX: "altx"})
+
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+	list1, err := decoded.ToList()
+	if err != nil {
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 1 {
+		t.Fatalf("list length: got %d, want 1", len(list1))
+	}
+	list2, err := list1[0].ToList()
+	if err != nil {
+		t.Fatalf("list1[0].ToList: %v", err)
+	}
+	if len(list2) != 3 {
+		t.Fatalf("list length: got %d, want 3", len(list2))
+	}
+	got3 := list2[0].ToBytes()
+	want3 := secs2.B().ToBytes()
+	if !bytes.Equal(got3, want3) {
+		t.Errorf("alcd: got %x, want the zero-length item %x", got3, want3)
+	}
+	got4 := list2[1].ToBytes()
+	want4 := secs2.A("alid").ToBytes()
+	if !bytes.Equal(got4, want4) {
+		t.Errorf("alid: got %x, want %x", got4, want4)
+	}
+	v5, err := list2[2].ToASCII()
+	if err != nil {
+		t.Fatalf("list2[2].ToASCII: %v", err)
+	}
+	if v5 != "altx" {
+		t.Errorf("altx: got %q, want %q", v5, "altx")
+	}
+
+	got, err := gem.DecodeS5F8(decoded)
+	if err != nil {
+		t.Fatalf("DecodeS5F8: %v", err)
+	}
+
+	want := gem.S5F8Reply{
+		ALARMS: []gem.Alarm{{ALID: secs2.A("alid"), ALTX: "altx"}},
 	}
 
 	assertDecoded(t, got, want)

@@ -329,6 +329,23 @@ func presentAt[T secs2.Item](c secs2.Cursor, field string) (bool, error) {
 	return true, nil
 }
 
+// decodeOptional decodes the optional field at c with decode, the field's own decode helper,
+// and returns a pointer to the value, or nil when the item is a zero-length item of type I,
+// the item type decode reads (see [presentAt]).
+func decodeOptional[I secs2.Item, T any](c secs2.Cursor, field string, decode func(secs2.Cursor, string) (T, error)) (*T, error) {
+	present, err := presentAt[I](c, field)
+	if err != nil || !present {
+		return nil, err
+	}
+
+	value, err := decode(c, field)
+	if err != nil {
+		return nil, err
+	}
+
+	return &value, nil
+}
+
 // decodeASCII returns the ASCII item at c as a string.
 func decodeASCII(c secs2.Cursor, field string) (string, error) {
 	value, err := c.ASCII()
@@ -445,6 +462,17 @@ func valueItems[T any](values []T, item func(T) secs2.Item) []secs2.Item {
 	}
 
 	return items
+}
+
+// optionalItem returns the item item builds from the value v points to,
+// or the zero-length item empty builds when v is nil,
+// which SEMI E5 lets stand for an omitted value.
+func optionalItem[T any](v *T, item func(T) secs2.Item, empty func(...any) secs2.Item) secs2.Item {
+	if v == nil {
+		return empty()
+	}
+
+	return item(*v)
 }
 
 // groupItems returns the list item of each group, for a builder's repeat of a group.

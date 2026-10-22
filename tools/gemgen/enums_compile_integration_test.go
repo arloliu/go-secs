@@ -52,8 +52,8 @@ FORMCODE:
   namedType: true
 `
 
-// enumsS3YAML carries the string enumeration as a plain and as an optional leaf,
-// beside the two open items and the named type without values.
+// enumsS3YAML carries the string enumeration twice, the second time renamed,
+// beside the two open items and the named type without values, which is optional.
 const enumsS3YAML = `
 stream: 3
 messages:
@@ -71,17 +71,17 @@ messages:
           type: list
           items:
             - {item: CARRIERACTION}
-            - {item: CARRIERACTION, as: next, optional: true}
+            - {item: CARRIERACTION, as: next}
             - {item: ERRCODE}
             - {item: OBJTYPE}
-            - {item: FORMCODE}
+            - {item: FORMCODE, optional: true}
 `
 
 // enumsConstantsTest is a hand-written test planted beside the generated code.
 // It passes the generated constants where callers would:
 // typed string constants to the builder,
 // untyped constants of the open items to the secs2 constructor of the format sent,
-// and a value of the named type without constants to the builder.
+// and a pointer to a value of the named type without constants to the builder.
 // The decoded fields must give back the same constants and value.
 const enumsConstantsTest = `package PKG
 
@@ -92,7 +92,7 @@ import (
 )
 
 func TestEnumConstantsRoundTrip(t *testing.T) {
-	msg := S3F17(CARRIERACTIONProceedWithCarrier, CARRIERACTIONPodRelease, secs2.I1(ERRCODEMinus), secs2.A(OBJTYPECarrier), FORMCODE(0x81))
+	msg := S3F17(CARRIERACTIONProceedWithCarrier, CARRIERACTIONPodRelease, secs2.I1(ERRCODEMinus), secs2.A(OBJTYPECarrier), new(FORMCODE(0x81)))
 
 	body, err := secs2.Decode(msg.Item().ToBytes())
 	if err != nil {
@@ -118,8 +118,8 @@ func TestEnumConstantsRoundTrip(t *testing.T) {
 		t.Errorf("CARRIERACTION: got %q", action)
 	}
 
-	if !got.NEXTPresent || got.NEXT != CARRIERACTIONPodRelease {
-		t.Errorf("NEXT: got %q, present %v", got.NEXT, got.NEXTPresent)
+	if got.NEXT != CARRIERACTIONPodRelease {
+		t.Errorf("NEXT: got %q", got.NEXT)
 	}
 
 	if v, err := got.ERRCODE.ToInt(); err != nil || len(v) != 1 || v[0] != ERRCODEMinus {
@@ -130,9 +130,9 @@ func TestEnumConstantsRoundTrip(t *testing.T) {
 		t.Errorf("OBJTYPE: got %q, %v", s, err)
 	}
 
-	var code FORMCODE = got.FORMCODE
-	if code != 0x81 {
-		t.Errorf("FORMCODE: got %#x", byte(code))
+	var code *FORMCODE = got.FORMCODE
+	if code == nil || *code != 0x81 {
+		t.Errorf("FORMCODE: got %v", code)
 	}
 
 	if b, err := list[4].ToBinary(); err != nil || len(b) != 1 || b[0] != 0x81 {
@@ -202,7 +202,7 @@ func TestEnumsCompileAndRunAgainstRealSecs2(t *testing.T) {
 
 	builders, err := os.ReadFile(filepath.Join(checkDir, "s3.go"))
 	require.NoError(t, err)
-	require.Contains(t, string(builders), "func S3F17(carrieraction CARRIERACTION, next CARRIERACTION, errcode secs2.Item, objtype secs2.Item, formcode FORMCODE) secs2.SECS2Message")
+	require.Contains(t, string(builders), "func S3F17(carrieraction CARRIERACTION, next CARRIERACTION, errcode secs2.Item, objtype secs2.Item, formcode *FORMCODE) secs2.SECS2Message")
 
 	// Rewrite `package gem` and `package gem_test` to one unique name,
 	// so the generated tests become internal tests of the generated builders and decoders.
@@ -248,7 +248,7 @@ func TestEnumsCompileAndRunAgainstRealSecs2(t *testing.T) {
 	for _, name := range []string{
 		"TestS3F17",
 		"TestDecodeS3F17RoundTrip",
-		"TestDecodeS3F17NEXTAbsent",
+		"TestDecodeS3F17FORMCODEAbsent",
 		"TestEnumConstantsRoundTrip",
 	} {
 		require.Containsf(t, string(out), "--- PASS: "+name+" ", "%s did not run and pass:\n%s", name, string(out))

@@ -158,10 +158,10 @@ type StructureNode struct {
 	// It is how one body carries the same item twice, or two opaque nodes.
 	As string `yaml:"as"`
 	// Optional marks a leaf SEMI E5 lets the sender transmit as a zero-length item.
-	// Its decoder accepts that form and reports it through a <FIELD>Present field;
-	// its builder still always sends a value.
-	// It is valid only on a binding: fixed leaf with a scalar goType,
-	// outside any repeat's or packed group's of.
+	// Its builder parameter, decoder field, and group field are then pointers:
+	// nil sends and decodes as the zero-length item of the leaf's format.
+	// It is valid only on a binding: fixed leaf with a scalar goType other than an ASCII string,
+	// outside any repeat's or packed group's of; a group's leaf may be optional.
 	// On a group reference it marks a list SEMI E5 lets be sent as L[0] instead:
 	// the field or element is then a pointer, nil for L[0].
 	Optional bool `yaml:"optional"`

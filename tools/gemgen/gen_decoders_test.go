@@ -289,31 +289,20 @@ func TestFieldsAgreeWithParamsOverRealData(t *testing.T) {
 	}
 }
 
-// requireFieldsMirrorParams checks that the non-presence fields mirror params one to one, in order and by name,
-// and that every presence field directly follows its value field and mirrors no parameter.
+// requireFieldsMirrorParams checks that the fields mirror params one to one, in order, by name, and by type.
 func requireFieldsMirrorParams(t *testing.T, code string, params []Param, fields []decodeField) {
 	t.Helper()
 
-	next := 0
+	require.Lenf(t, fields, len(params), "%s: field count", code)
 
 	for i, f := range fields {
-		if f.Presence {
-			require.Positivef(t, i, "%s: presence field %s has no value field before it", code, f.Name)
-			require.Equalf(t, fields[i-1].Name+"Present", f.Name, "%s: field %d", code, i)
-			require.Equalf(t, -1, f.Param, "%s: presence field %s", code, f.Name)
-			require.Equalf(t, "bool", f.Type, "%s: presence field %s", code, f.Name)
+		require.Equalf(t, i, f.Param, "%s: field %s", code, f.Name)
+		require.Equalf(t, strings.ToUpper(params[i].Name), f.Name, "%s: field %d", code, i)
 
-			continue
+		if !params[i].Repeat {
+			require.Equalf(t, params[i].Type, f.Type, "%s: field %s", code, f.Name)
 		}
-
-		require.Lessf(t, next, len(params), "%s: field %s has no parameter", code, f.Name)
-		require.Equalf(t, next, f.Param, "%s: field %s", code, f.Name)
-		require.Equalf(t, strings.ToUpper(params[next].Name), f.Name, "%s: field %d", code, i)
-
-		next++
 	}
-
-	require.Equalf(t, len(params), next, "%s: value field count", code)
 }
 
 // bodyHasDecoder reports whether the generator must emit a decoder and a decode round-trip test for b.
@@ -325,34 +314,50 @@ func bodyHasDecoder(b Body) bool {
 	return b.Structure != nil && b.Variant == ""
 }
 
-// optionalLeafFields returns the decoder field names of the optional leaves in n, in body order.
-// It does not descend into a repeat's or packed group's element shape, where no leaf is optional.
-func optionalLeafFields(n *StructureNode) []string {
-	if n == nil {
-		return nil
-	}
+// optionalLeafFields returns the names the absent tests of the optional leaves n reaches are named after:
+// a body's leaf by its field, and a group's leaf by its group and field, e.g. AlarmALCD, each leaf once.
+// It walks a repeat's element shape and every group reference, where a group's leaves may be optional.
+func optionalLeafFields(n *StructureNode, prefix string) []string {
+	seen := map[*StructureNode]bool{}
 
-	switch n.Kind() {
-	case "leaf":
-		if n.Optional {
-			return []string{nodeNames(n).Field}
-		}
-
-		return nil
-	case "list":
-		if n.Repeat != "" || n.Packed != "" {
+	var walk func(n *StructureNode, prefix string) []string
+	walk = func(n *StructureNode, prefix string) []string {
+		if n == nil || seen[n] {
 			return nil
 		}
 
-		var out []string
-		for i := range n.Items {
-			out = append(out, optionalLeafFields(&n.Items[i])...)
-		}
+		seen[n] = true
 
-		return out
-	default:
-		return nil
+		switch n.Kind() {
+		case "leaf":
+			if n.Optional {
+				return []string{prefix + nodeNames(n).Field}
+			}
+
+			return nil
+		case "group":
+			return walk(n.def.Structure, n.Group)
+		case "list":
+			if n.Packed != "" {
+				return nil
+			}
+
+			if n.Repeat != "" {
+				return walk(n.Of, prefix)
+			}
+
+			var out []string
+			for i := range n.Items {
+				out = append(out, walk(&n.Items[i], prefix)...)
+			}
+
+			return out
+		default:
+			return nil
+		}
 	}
+
+	return walk(n, prefix)
 }
 
 // declaredFuncs returns the names of the top-level functions declared in the generated source src,
@@ -422,8 +427,8 @@ func TestEveryDecodableBodyGetsADecoderOverRealData(t *testing.T) {
 						wantTests = append(wantTests, "Test"+name+"EmptyList")
 					}
 
-					// Each optional leaf also gets a test decoding the body with that item sent zero-length.
-					for _, field := range optionalLeafFields(b.Structure) {
+					// Each optional leaf the body reaches, its groups' included, also gets a test sending that item zero-length.
+					for _, field := range optionalLeafFields(b.Structure, "") {
 						wantTests = append(wantTests, "Test"+name+field+"Absent")
 					}
 				}

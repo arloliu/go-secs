@@ -40,11 +40,10 @@
 // so gem stays independent of any transport package.
 // The result struct's fields mirror the builder's parameters in order, under the E5 data item names,
 // so a body built by [S1F14] decodes through [DecodeS1F14] into the same three values.
-// One kind of field differs from the builder, and the result type's doc names it:
-// an item SEMI E5 lets be sent zero-length, such as the LINKID of S6F25,
-// has a companion presence field: [S6F25Body] carries LINKIDPresent,
-// false when LINKID arrived zero-length and LINKID holds the zero value.
-// The builder always sends a value.
+// An item SEMI E5 lets be sent zero-length, such as the LINKID of S6F25,
+// is a pointer both ways, and the doc of its builder and result type says so:
+// [S6F25] sends a nil linkid as a zero-length item,
+// and [DecodeS6F25] decodes a zero-length LINKID as nil.
 //
 // A repeated group of one fixed-format item is a slice of values both ways:
 // [S18F4] takes its statuses as strings, and [S18F4Reply.STATUSES] holds them so.
@@ -62,7 +61,7 @@
 //   - A group SEMI E5 marks optional — an error code and its text, a set of limit attributes — decodes in either its full or its omitted form,
 //     and the omitted fields keep their zero value.
 //     Where E5 lets a whole body be sent zero-length, as for S6F16, an empty list decodes with every field zero.
-//   - An item SEMI E5 lets be sent zero-length decodes as absent through its presence field, as described above.
+//   - An item SEMI E5 lets be sent zero-length decodes as a nil pointer, as described above.
 //   - A numeric field accepts any width of its own family:
 //     a U8 item decodes into a field the standard declares U4, an I1 into an I4, an F4 into an F8.
 //     The value must still fit the declared width, so nothing is ever truncated —

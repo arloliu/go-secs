@@ -23,28 +23,17 @@ var decodeSupportSource string
 // generated enum types in items.go use, so a result struct reads as the E5 body it decodes.
 // A node that sets as: is named after that instead.
 //
-// Param is the index of the builder parameter the field mirrors, or -1 when it mirrors none.
-// Presence marks the <FIELD>Present field an optional leaf adds right after its value field:
-// it mirrors no parameter and reports whether the item arrived with a value.
+// Param is the index of the builder parameter the field mirrors.
+// An optional leaf's field is a pointer, nil when the item arrived zero-length, as its parameter is.
 // Elem is the element item's goType for the field of a value repeat, and empty for any other field:
 // such a field is a slice of decoded values, as its parameter is a slice of values to send.
-// Path is the list-index path from the body root to the item the field is read from;
-// a presence field shares its value field's path.
+// Path is the list-index path from the body root to the item the field is read from.
 type decodeField struct {
-	Name     string
-	Type     string
-	Param    int
-	Presence bool
-	Elem     string
-	Path     []int
-}
-
-// optionalLeaf is one optional leaf of a decoded body:
-// what a generated test needs to send that leaf zero-length.
-type optionalLeaf struct {
-	Field string // the leaf's value field
-	Path  []int  // list-index path from the body root to the leaf
-	Empty string // expression building a zero-length item of the leaf's format, e.g. secs2.U2()
+	Name  string
+	Type  string
+	Param int
+	Elem  string
+	Path  []int
 }
 
 // decoderView is the per-decoder view model the decoders template renders.
@@ -154,7 +143,7 @@ func newDecoderView(stream int, m Message, b Body, items map[string]Item) (decod
 // BuildFields returns the ordered result-struct fields a generated decoder fills.
 //
 // It walks the structure with the same ordering and the same stopping rules as [BuildParams],
-// so every field except a presence field describes the builder parameter its Param names,
+// so every field describes the builder parameter its Param names,
 // and those parameters appear in order.
 // gen_decoders_test.go asserts that agreement name-by-name over every message in data/messages.
 func BuildFields(n *StructureNode, items map[string]Item) ([]decodeField, error) {
@@ -164,16 +153,6 @@ func BuildFields(n *StructureNode, items map[string]Item) ([]decodeField, error)
 	}
 
 	return e.fields, nil
-}
-
-// optionalLeaves returns the optional leaves of a body, in body order.
-func optionalLeaves(n *StructureNode, items map[string]Item) ([]optionalLeaf, error) {
-	e, err := walkDecoder("S0F0", n, items)
-	if err != nil {
-		return nil, err
-	}
-
-	return e.optionals, nil
 }
 
 // walkDecoder walks a validated body structure with a fresh emitter.
@@ -209,17 +188,16 @@ func walkGroupDecoder(g *Group, items map[string]Item) (*decodeEmitter, error) {
 // and labels each error by appending to its field parameter, which names the group's own position,
 // e.g. field+".VIDS" for a field and field+"[1]" for a sub-list.
 type decodeEmitter struct {
-	code      string
-	items     map[string]Item
-	recv      string
-	root      string
-	group     bool
-	fields    []decodeField
-	optionals []optionalLeaf
-	lines     []string
-	counter   int
-	params    int  // builder parameters mirrored so far: the next value field's Param
-	usesCfg   bool // whether a statement reads the decode options, so a message decoder must build cfg
+	code    string
+	items   map[string]Item
+	recv    string
+	root    string
+	group   bool
+	fields  []decodeField
+	lines   []string
+	counter int
+	params  int  // builder parameters mirrored so far: the next field's Param
+	usesCfg bool // whether a statement reads the decode options, so a message decoder must build cfg
 }
 
 // cfg renders the expression of the decode options the emitted statements pass on,
@@ -277,15 +255,6 @@ func (e *decodeEmitter) field(name string, goType string, path []int) string {
 	e.params++
 
 	return name
-}
-
-// presenceField records the presence field of the optional leaf at path whose value field is name,
-// and returns its Go name.
-func (e *decodeEmitter) presenceField(name string, path []int) string {
-	presence := name + "Present"
-	e.fields = append(e.fields, decodeField{Name: presence, Type: "bool", Param: -1, Presence: true, Path: slices.Clone(path)})
-
-	return presence
 }
 
 // assign emits the guarded "decode into the field, or return the error" statement pair every
@@ -554,7 +523,6 @@ func (e *decodeEmitter) emitFixedList(n *StructureNode, path []int) error {
 	e.params = tail.params
 	e.usesCfg = e.usesCfg || tail.usesCfg
 	e.fields = append(e.fields, tail.fields...)
-	e.optionals = append(e.optionals, tail.optionals...)
 
 	e.emit(fmt.Sprintf("if %s == %d {", count, full))
 	e.emit(trimTrailingBlank(tail.lines)...)
@@ -583,10 +551,12 @@ func (e *decodeEmitter) emitLeaf(n *StructureNode, path []int) error {
 	name := nodeNames(n)
 	expr := e.pathExpr(path)
 
-	// Validation rejects this case first;
+	// Validation rejects these cases first;
 	// the check keeps an unvalidated node from being decoded as if it were not optional.
-	if n.Optional && (it.Binding != BindingFixed || isByteArrayGoType(it.GoType)) {
-		return fmt.Errorf("item %s: optional needs a binding: fixed item with a scalar goType", n.Item)
+	if n.Optional {
+		if err := optionalLeafError(n.Item, it); err != nil {
+			return err
+		}
 	}
 
 	if it.Binding != BindingFixed {
@@ -613,9 +583,7 @@ func (e *decodeEmitter) emitLeaf(n *StructureNode, path []int) error {
 		return nil
 	}
 
-	e.emitOptionalLeaf(name, goType, itemFormat, path, sc)
-
-	return nil
+	return e.emitOptionalLeaf(n, name, goType, itemFormat, path)
 }
 
 // itemDecodeFunc returns the decode helper that reads n as a secs2.Item:
@@ -711,31 +679,26 @@ func (e *decodeEmitter) decodeInto(name string, goType string, sc scalarCall) []
 	}
 }
 
-// emitOptionalLeaf emits the statements that decode an optional leaf into its value and presence fields.
+// emitOptionalLeaf emits the statement that decodes an optional leaf into its pointer field.
 //
-// A zero-length item of the type sc reads leaves the value at zero and the presence field false.
-// Any other item goes to sc, exactly as for a leaf that is not optional,
+// A zero-length item of the type the leaf's decode helper reads leaves the field nil.
+// Any other item goes to that helper, exactly as for a leaf that is not optional,
 // so a wrong-format item, empty or not, is still an error.
-func (e *decodeEmitter) emitOptionalLeaf(name emittedName, goType string, itemFormat string, path []int, sc scalarCall) {
-	value := e.field(name.Field, goType, path)
-	presence := e.presenceField(value, path)
-
-	empty := fmt.Sprintf("secs2.%s()", itemFormat)
-	if itemFormat == "A" {
-		empty = `secs2.A("")`
+func (e *decodeEmitter) emitOptionalLeaf(n *StructureNode, name emittedName, goType string, itemFormat string, path []int) error {
+	sf, err := scalarDecodeFunc(itemFormat, goType)
+	if err != nil {
+		return fmt.Errorf("item %s: %w", n.Item, err)
 	}
 
-	e.optionals = append(e.optionals, optionalLeaf{Field: value, Path: slices.Clone(path), Empty: empty})
+	// Only the ASCII helper returns another type than goType, and validation rejects an optional ASCII leaf.
+	if sf.result != goType {
+		return fmt.Errorf("item %s: no optional decoder for a %s read as %s", n.Item, sf.result, goType)
+	}
 
-	e.emit(
-		fmt.Sprintf("if %s.%s, err = presentAt[%s](%s, %s); err != nil {", e.recv, presence, sc.family, e.pathExpr(path), e.label(name.Label)),
-		e.fail(),
-		"}",
-		"",
-		fmt.Sprintf("if %s.%s {", e.recv, presence),
-	)
-	e.emit(trimTrailingBlank(e.decodeInto(value, goType, sc))...)
-	e.emit("}", "")
+	e.assign(e.field(name.Field, "*"+goType, path),
+		fmt.Sprintf("decodeOptional[%s](%s, %s, %s)", sf.family, e.pathExpr(path), e.label(name.Label), sf.fn))
+
+	return nil
 }
 
 // emitBinaryLeaf walks a B-format leaf whose Go type is a byte slice or a byte array,
@@ -806,32 +769,19 @@ func resultTypeDoc(typeName string, code string, mainName string, m Message, b B
 	}
 
 	names := optionalFieldNames(b.Structure)
-	doc = append(doc, mirrorsDoc(mainName, names)...)
+	doc = append(doc, fmt.Sprintf("It is filled by [Decode%s] and mirrors the parameters of [%s], in order.", mainName, mainName))
 	doc = append(doc, emptyListDoc(b.Structure, m)...)
 
 	if len(names) > 0 {
-		pairs := make([]string, len(names))
-		for i, name := range names {
-			pairs[i] = fmt.Sprintf("%sPresent for %s", name, name)
+		field := "a nil " + names[0]
+		if len(names) > 1 {
+			field = "a nil field"
 		}
 
 		doc = append(doc,
 			"",
 			optionalSummary(names)+":",
-		)
-
-		if len(names) == 1 {
-			doc = append(doc, fmt.Sprintf("[Decode%s] decodes that form as a zero %s with %sPresent false.", mainName, names[0], names[0]))
-		} else {
-			doc = append(doc,
-				fmt.Sprintf("[Decode%s] decodes that form as a zero field with its presence field false,", mainName),
-				joinAnd(pairs)+".",
-			)
-		}
-
-		doc = append(doc,
-			fmt.Sprintf("[%s] always sends a value,", mainName),
-			"so callers that need the zero-length form build the body with [secs2] directly.",
+			fmt.Sprintf("[Decode%s] decodes that form as %s, and [%s] sends it for a nil argument.", mainName, field, mainName),
 		)
 	}
 
@@ -866,28 +816,6 @@ func decoderDoc(typeName string, code string, mainName string, m Message, b Body
 	}
 
 	return doc
-}
-
-// mirrorsDoc renders the godoc sentence saying a result struct mirrors the parameters of its builder mainName,
-// naming the exceptions: the presence fields of the optional leaves names.
-func mirrorsDoc(mainName string, names []string) []string {
-	head := fmt.Sprintf("It is filled by [Decode%s] and mirrors the parameters of [%s], in order", mainName, mainName)
-
-	if len(names) == 0 {
-		return []string{head + "."}
-	}
-
-	presence := make([]string, len(names))
-	for i, name := range names {
-		presence[i] = name + "Present"
-	}
-
-	fields := "field"
-	if len(names) > 1 {
-		fields = "fields"
-	}
-
-	return []string{head + ",", fmt.Sprintf("apart from its %s %s.", joinAnd(presence), fields)}
 }
 
 // emptyListDoc renders the godoc paragraph naming the positions of a body that set allowEmptyList,
@@ -947,7 +875,7 @@ func emptyListPositions(n *StructureNode, name string) []string {
 	return positions
 }
 
-// optionalFieldNames returns the value field names of a body's optional leaves, in body order.
+// optionalFieldNames returns the field names of a body's or a group's optional leaves, in body order.
 //
 // It walks the same nodes as [BuildParams]:
 // nothing below a repeat's or packed group's of may be optional.
@@ -1004,9 +932,8 @@ func optionalBuilderDoc(n *StructureNode) []string {
 
 	return []string{
 		"",
-		optionalSummary(names) + ",",
-		"but this builder always sends a value:",
-		"callers that need the zero-length form build the body with [secs2] directly.",
+		optionalSummary(names) + ":",
+		"a nil argument sends that form.",
 	}
 }
 

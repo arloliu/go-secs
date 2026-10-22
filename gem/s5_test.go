@@ -147,7 +147,7 @@ func TestS5F5(t *testing.T) {
 }
 
 func TestS5F6(t *testing.T) {
-	msg := gem.S5F6(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"})
+	msg := gem.S5F6(gem.Alarm{ALCD: new(gem.ALCD(0x87)), ALID: secs2.A("alid"), ALTX: "altx"})
 
 	assertS5Header(t, msg, 6, false)
 
@@ -201,7 +201,7 @@ func TestS5F7(t *testing.T) {
 }
 
 func TestS5F8(t *testing.T) {
-	msg := gem.S5F8(gem.Alarm{ALCD: 0x87, ALID: secs2.A("alid"), ALTX: "altx"})
+	msg := gem.S5F8(gem.Alarm{ALCD: new(gem.ALCD(0x87)), ALID: secs2.A("alid"), ALTX: "altx"})
 
 	assertS5Header(t, msg, 8, false)
 

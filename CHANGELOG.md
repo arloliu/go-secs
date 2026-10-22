@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Builders, decoders, and their tests are generated for streams 3, 4, 7, 8, 10, and 12 to 19: 315 more messages.
 - E5 data items with defined values get typed constants,
   from the E5 tables and from the GEM300 standards that define value vocabularies for E5 items.
-- Builders for the short forms E5 names, presence fields for items E5 lets be sent zero-length,
+- Builders for the short forms E5 names, pointers for items E5 lets be sent zero-length, nil for that form,
   and values in and out for repeated groups of one fixed-format item.
 - A named struct for each list shape a message repeats, such as `Report` and `ErrorInfo`,
   which builders take and decoders return, checked element by element.
@@ -33,8 +33,10 @@ Several shipped `gem` signatures change; see Upgrade notes.
   An untyped constant such as `0x86` still compiles; a `byte` variable needs a conversion.
 - `gem`: SPD in `S2F3` and `S2F6` is a binary item of any length, as E5 defines it,
   so the builders take and the decoders return `[]byte` instead of a single `byte`.
-- `gem`: `S6F25Body` gains `LINKIDPresent`, which is false when LINKID arrived zero-length;
-  composite literals of `S6F25Body` without field names no longer compile.
+- `gem`: LINKID, which E5 has S6F25 send zero-length for a change notification, is a pointer both ways:
+  `S6F25` takes `linkid *uint32`, which it sends zero-length when nil,
+  and `S6F25Body.LINKID` is a `*uint32`, nil when LINKID arrived zero-length.
+  Call `S6F25(dataid, opid, new(uint32(7)), …)` for a confirmation report, and pass nil for a change notification.
 - `gem`: `S5F5` takes one item holding every ALID, as E5 defines it, instead of a list of ALID items,
   and `S5F5Body.ALIDS` is that item: call `S5F5(secs2.U4(1, 2, 3))` rather than `S5F5(secs2.U4(1), secs2.U4(2), secs2.U4(3))`,
   and `S5F5(secs2.U4())` to ask for every alarm.
@@ -61,6 +63,7 @@ Several shipped `gem` signatures change; see Upgrade notes.
     `S2F45` `VariableLimits`, `S2F46` `VariableLimitAck`, and `S2F48` `VariableLimitAttributes`;
   - alarms and data: `S5F6` and `S5F8` take `Alarm`, `S6F3` and `S6F8` `DataSet`, `S6F9` `DataSetValues`,
     and `S6F22` `VariableValue`;
+    `Alarm.ALCD` is a `*ALCD`, nil for the zero-length code E5 lets S5F6 return for an alarm whose code does not exist;
   - errors: `S1F20` and `S6F25` take their errors as `ErrorInfo`, and `S6F25` its attributes as `[]RecipeAttribute`.
 - `gem`: a repeat whose elements are themselves lists of one shape is a slice of slices:
   `S1F20` takes `objects [][]secs2.Item`, and `S6F27` takes `samples ...[]Report`,
@@ -84,10 +87,13 @@ Several shipped `gem` signatures change; see Upgrade notes.
   A constant from another standard than E5, or with a spelling another standard differs on, says so in its doc.
 - `gem`: short-form builders for the forms E5 names, decoded by the message's main decoder:
   `S5F14Accepted`, `S5F15Success`, `S5F18Success`, `S15F41Delete`, `S16F27NoParams`, `S16F28Success`, and `S17F5Untriggered`.
-- `gem`: presence fields for items E5 lets be sent zero-length:
-  `S6F25Body.LINKIDPresent`, the FNLOC, FFROT, and ORLOC fields of S12F1 and S12F3,
-  the FNLOC and ORLOC fields of S12F4, and the TRAUTOD and RPTOC fields of S17F5.
-  The decoder accepts a zero-length item there and reports it absent; the builder always sends a value.
+- `gem`: an item E5 lets be sent zero-length is a pointer as builder parameter, result field, and group field,
+  and nil stands for the zero-length item, so a builder can send that form and a decoder reports it:
+  the LINKID of S6F25, the FNLOC, FFROT, and ORLOC of S12F1 and S12F3, the FNLOC and ORLOC of S12F4,
+  the TRAUTOD and RPTOC of S17F5, the ALCD of `Alarm` in S5F6 and S5F8,
+  and the VERIFYRSPSTAT of `PDESendResult` in S19F13.
+  A pointer to a zero value, such as `new(uint32(0))` or `new(false)`, sends and decodes as that value, not as nil.
+  A decoder also reads a zero-length item of another width of the same kind as nil, such as a U4 for a U2 FNLOC.
 - `gem`: a repeated group of one fixed-format item is a slice of values both ways:
   the builder takes the values and the decoder returns them,
   as a named type where the item has one (`S19F1` takes `attributes ...PDEATTRIBUTE`).
@@ -120,9 +126,10 @@ Several shipped `gem` signatures change; see Upgrade notes.
 
 - `gem`: `S1F16`, `S1F18`, `S6F6`, and `S6F23` and their result types
   use the named types `OFLACK`, `ONLACK`, `GRANT6`, and `RSDC` (see Upgrade notes).
-- `gem`: `S5F1`, `S5F6`, `S5F8`, and `S6F9` and their result types use the named types `ALCD` and `PFCD` (see Upgrade notes).
+- `gem`: `S5F1`, `S6F9`, and their result types use the named types `ALCD` and `PFCD`,
+  and the `Alarm` of `S5F6` and `S5F8` holds its code as `*ALCD` (see Upgrade notes).
 - `gem`: `S2F3` and `S2F6` take SPD as `[]byte`, and their decoders return it so (see Upgrade notes).
-- `gem`: `DecodeS6F25` accepts a zero-length LINKID and reports it through `LINKIDPresent` (see Upgrade notes).
+- `gem`: `S6F25` sends a nil LINKID zero-length, and `DecodeS6F25` accepts a zero-length LINKID and returns it as nil (see Upgrade notes).
 - `gem`: `S2F12` and `S5F9` take their SPIDs and recovery actions as strings,
   and their decoders return them so (see Upgrade notes).
 - `gem`: the builders and decoders of the messages that repeat a list take and return its struct,
