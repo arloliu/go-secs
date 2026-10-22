@@ -32,7 +32,7 @@ func DecodeS3F2(item secs2.Item) (S3F2Reply, error) {
 	}
 
 	if n1 == 2 {
-		if out.MF, err = decodeItem(root.At(0), "MF"); err != nil {
+		if out.MF, err = decodeScalarItem(root.At(0), "MF"); err != nil {
 			return out, err
 		}
 
@@ -72,7 +72,7 @@ func DecodeS3F4(item secs2.Item) (S3F4Reply, error) {
 	}
 
 	if n1 == 2 {
-		if out.MF, err = decodeItem(root.At(0), "MF"); err != nil {
+		if out.MF, err = decodeScalarItem(root.At(0), "MF"); err != nil {
 			return out, err
 		}
 
@@ -110,7 +110,7 @@ func DecodeS3F5(item secs2.Item) (S3F5Body, error) {
 		return out, err
 	}
 
-	if out.MF, err = decodeItem(root.At(0), "MF"); err != nil {
+	if out.MF, err = decodeScalarItem(root.At(0), "MF"); err != nil {
 		return out, err
 	}
 
@@ -176,7 +176,7 @@ func DecodeS3F7(item secs2.Item) (S3F7Body, error) {
 		return out, err
 	}
 
-	if out.MF, err = decodeItem(root.At(0), "MF"); err != nil {
+	if out.MF, err = decodeScalarItem(root.At(0), "MF"); err != nil {
 		return out, err
 	}
 
@@ -184,7 +184,7 @@ func DecodeS3F7(item secs2.Item) (S3F7Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(2), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(2), "MID"); err != nil {
 		return out, err
 	}
 
@@ -245,11 +245,11 @@ func DecodeS3F9(item secs2.Item) (S3F9Body, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(0), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(0), "MID"); err != nil {
 		return out, err
 	}
 
-	if out.EMID, err = decodeItem(root.At(1), "EMID"); err != nil {
+	if out.EMID, err = decodeScalarItem(root.At(1), "EMID"); err != nil {
 		return out, err
 	}
 
@@ -305,7 +305,7 @@ func DecodeS3F11(item secs2.Item) (S3F11Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.PTN, err = decodeItem(root, "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root, "PTN"); err != nil {
 		return out, err
 	}
 
@@ -339,7 +339,7 @@ func DecodeS3F12(item secs2.Item) (S3F12Reply, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
@@ -347,7 +347,7 @@ func DecodeS3F12(item secs2.Item) (S3F12Reply, error) {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(2), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(2), "MID"); err != nil {
 		return out, err
 	}
 
@@ -380,11 +380,11 @@ func DecodeS3F13(item secs2.Item) (S3F13Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -445,11 +445,11 @@ func DecodeS3F15(item secs2.Item) (S3F15Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
-	if out.DATALENGTH, err = decodeItem(root.At(1), "DATALENGTH"); err != nil {
+	if out.DATALENGTH, err = decodeScalarItem(root.At(1), "DATALENGTH"); err != nil {
 		return out, err
 	}
 
@@ -513,7 +513,7 @@ func DecodeS3F17(item secs2.Item) (S3F17Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -528,7 +528,7 @@ func DecodeS3F17(item secs2.Item) (S3F17Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(3), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(3), "PTN"); err != nil {
 		return out, err
 	}
 
@@ -648,7 +648,7 @@ func DecodeS3F21(item secs2.Item) (S3F21Body, error) {
 		return out, err
 	}
 
-	if out.PORTS, err = decodeItems(root.At(2), "PORTS"); err != nil {
+	if out.PORTS, err = decodeEach(root.At(2), "PORTS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -805,7 +805,7 @@ func DecodeS3F25(item secs2.Item) (S3F25Body, error) {
 
 	out.PORTACTION = PORTACTION(s1)
 
-	if out.PTN, err = decodeItem(root.At(1), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(1), "PTN"); err != nil {
 		return out, err
 	}
 
@@ -883,7 +883,7 @@ func DecodeS3F27(item secs2.Item) (S3F27Body, error) {
 		return out, err
 	}
 
-	if out.PORTS, err = decodeItems(root.At(1), "PORTS"); err != nil {
+	if out.PORTS, err = decodeEach(root.At(1), "PORTS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -967,7 +967,7 @@ func DecodeS3F29(item secs2.Item) (S3F29Body, error) {
 		return out, err
 	}
 
-	if out.DATALENGTH, err = decodeItem(root.At(3), "DATALENGTH"); err != nil {
+	if out.DATALENGTH, err = decodeScalarItem(root.At(3), "DATALENGTH"); err != nil {
 		return out, err
 	}
 
@@ -1061,7 +1061,7 @@ func DecodeS3F31(item secs2.Item) (S3F31Body, error) {
 		return out, err
 	}
 
-	if out.DATALENGTH, err = decodeItem(root.At(3), "DATALENGTH"); err != nil {
+	if out.DATALENGTH, err = decodeScalarItem(root.At(3), "DATALENGTH"); err != nil {
 		return out, err
 	}
 
@@ -1185,11 +1185,11 @@ func DecodeS3F35(item secs2.Item) (S3F35Body, error) {
 		return out, err
 	}
 
-	if out.INPTN, err = decodeItem(root.At(2), "INPTN"); err != nil {
+	if out.INPTN, err = decodeScalarItem(root.At(2), "INPTN"); err != nil {
 		return out, err
 	}
 
-	if out.OUTPTN, err = decodeItem(root.At(3), "OUTPTN"); err != nil {
+	if out.OUTPTN, err = decodeScalarItem(root.At(3), "OUTPTN"); err != nil {
 		return out, err
 	}
 

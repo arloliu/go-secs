@@ -30,11 +30,11 @@ func DecodeS4F1(item secs2.Item) (S4F1Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -95,11 +95,11 @@ func DecodeS4F3(item secs2.Item) (S4F3Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -132,11 +132,11 @@ func DecodeS4F5(item secs2.Item) (S4F5Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -169,11 +169,11 @@ func DecodeS4F7(item secs2.Item) (S4F7Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -206,11 +206,11 @@ func DecodeS4F9(item secs2.Item) (S4F9Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -243,11 +243,11 @@ func DecodeS4F11(item secs2.Item) (S4F11Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -280,11 +280,11 @@ func DecodeS4F13(item secs2.Item) (S4F13Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -317,11 +317,11 @@ func DecodeS4F15(item secs2.Item) (S4F15Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -354,11 +354,11 @@ func DecodeS4F17(item secs2.Item) (S4F17Body, error) {
 		return out, err
 	}
 
-	if out.PTN, err = decodeItem(root.At(0), "PTN"); err != nil {
+	if out.PTN, err = decodeScalarItem(root.At(0), "PTN"); err != nil {
 		return out, err
 	}
 
-	if out.MID, err = decodeItem(root.At(1), "MID"); err != nil {
+	if out.MID, err = decodeScalarItem(root.At(1), "MID"); err != nil {
 		return out, err
 	}
 
@@ -420,7 +420,7 @@ func DecodeS4F19(item secs2.Item) (S4F19Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -471,7 +471,7 @@ func DecodeS4F20(item secs2.Item) (S4F20Reply, error) {
 		return out, err
 	}
 
-	if out.ATOMICIDS, err = decodeItems(root.At(1), "ATOMICIDS"); err != nil {
+	if out.ATOMICIDS, err = decodeEach(root.At(1), "ATOMICIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -654,11 +654,11 @@ func DecodeS4F25(item secs2.Item) (S4F25Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
-	if out.DATALENGTH, err = decodeItem(root.At(1), "DATALENGTH"); err != nil {
+	if out.DATALENGTH, err = decodeScalarItem(root.At(1), "DATALENGTH"); err != nil {
 		return out, err
 	}
 
@@ -736,11 +736,11 @@ func DecodeS4F27(item secs2.Item) (S4F27Body, error) {
 		return out, err
 	}
 
-	if out.TRLINK, err = decodeItem(root.At(1, 0), "TRLINK"); err != nil {
+	if out.TRLINK, err = decodeScalarItem(root.At(1, 0), "TRLINK"); err != nil {
 		return out, err
 	}
 
-	if out.TRPORT, err = decodeItem(root.At(1, 1), "TRPORT"); err != nil {
+	if out.TRPORT, err = decodeScalarItem(root.At(1, 1), "TRPORT"); err != nil {
 		return out, err
 	}
 
@@ -748,7 +748,7 @@ func DecodeS4F27(item secs2.Item) (S4F27Body, error) {
 		return out, err
 	}
 
-	if out.TROBJTYPE, err = decodeItem(root.At(1, 3), "TROBJTYPE"); err != nil {
+	if out.TROBJTYPE, err = decodeScalarItem(root.At(1, 3), "TROBJTYPE"); err != nil {
 		return out, err
 	}
 
@@ -760,7 +760,7 @@ func DecodeS4F27(item secs2.Item) (S4F27Body, error) {
 		return out, err
 	}
 
-	if out.TRPTPORT, err = decodeItem(root.At(1, 6), "TRPTPORT"); err != nil {
+	if out.TRPTPORT, err = decodeScalarItem(root.At(1, 6), "TRPTPORT"); err != nil {
 		return out, err
 	}
 
@@ -772,7 +772,7 @@ func DecodeS4F27(item secs2.Item) (S4F27Body, error) {
 		return out, err
 	}
 
-	if out.TRLOCATION, err = decodeItem(root.At(1, 9), "TRLOCATION"); err != nil {
+	if out.TRLOCATION, err = decodeScalarItem(root.At(1, 9), "TRLOCATION"); err != nil {
 		return out, err
 	}
 
@@ -807,11 +807,11 @@ func DecodeS4F29(item secs2.Item) (S4F29Body, error) {
 		return out, err
 	}
 
-	if out.TRLINK, err = decodeItem(root.At(0), "TRLINK"); err != nil {
+	if out.TRLINK, err = decodeScalarItem(root.At(0), "TRLINK"); err != nil {
 		return out, err
 	}
 
-	if out.MCINDEX, err = decodeItem(root.At(1), "MCINDEX"); err != nil {
+	if out.MCINDEX, err = decodeScalarItem(root.At(1), "MCINDEX"); err != nil {
 		return out, err
 	}
 
@@ -854,11 +854,11 @@ func DecodeS4F31(item secs2.Item) (S4F31Body, error) {
 		return out, err
 	}
 
-	if out.TRLINK, err = decodeItem(root.At(0), "TRLINK"); err != nil {
+	if out.TRLINK, err = decodeScalarItem(root.At(0), "TRLINK"); err != nil {
 		return out, err
 	}
 
-	if out.MCINDEX, err = decodeItem(root.At(1), "MCINDEX"); err != nil {
+	if out.MCINDEX, err = decodeScalarItem(root.At(1), "MCINDEX"); err != nil {
 		return out, err
 	}
 
@@ -904,7 +904,7 @@ func DecodeS4F33(item secs2.Item) (S4F33Body, error) {
 		return out, err
 	}
 
-	if out.TRLINK, err = decodeItem(root.At(0), "TRLINK"); err != nil {
+	if out.TRLINK, err = decodeScalarItem(root.At(0), "TRLINK"); err != nil {
 		return out, err
 	}
 
@@ -944,7 +944,7 @@ func DecodeS4F35(item secs2.Item) (S4F35Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.TRLINK, err = decodeItem(root, "TRLINK"); err != nil {
+	if out.TRLINK, err = decodeScalarItem(root, "TRLINK"); err != nil {
 		return out, err
 	}
 
@@ -977,7 +977,7 @@ func DecodeS4F37(item secs2.Item) (S4F37Body, error) {
 		return out, err
 	}
 
-	if out.TRLINK, err = decodeItem(root.At(0), "TRLINK"); err != nil {
+	if out.TRLINK, err = decodeScalarItem(root.At(0), "TRLINK"); err != nil {
 		return out, err
 	}
 
@@ -1009,7 +1009,7 @@ func DecodeS4F39(item secs2.Item) (S4F39Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.TRLINK, err = decodeItem(root, "TRLINK"); err != nil {
+	if out.TRLINK, err = decodeScalarItem(root, "TRLINK"); err != nil {
 		return out, err
 	}
 
@@ -1042,7 +1042,7 @@ func DecodeS4F41(item secs2.Item) (S4F41Body, error) {
 		return out, err
 	}
 
-	if out.TRLINK, err = decodeItem(root.At(0), "TRLINK"); err != nil {
+	if out.TRLINK, err = decodeScalarItem(root.At(0), "TRLINK"); err != nil {
 		return out, err
 	}
 

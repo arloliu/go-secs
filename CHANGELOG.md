@@ -116,6 +116,14 @@ Several shipped `gem` signatures change; see Upgrade notes.
   It previously sent a list of items, which E5 does not define for this message.
 - `gem`: `S2F49` and `S6F29` set the reply bit, since S2F50 and S6F30 are their replies.
   They previously sent W=0, so the equipment's acknowledge or trace data never came back.
+- `gem`: decoders reject a list where E5 excludes one:
+  an equipment-defined item whose E5 formats do not include L, such as PPID, ALID, or VID,
+  is an error when it arrives as a list, whether in the body, in a group, or as an element of a repeat,
+  for example `gem: REPORTS[0].VIDS[0]: got list, want a non-list item`.
+  The decoders of streams 1, 2, 5, 6, and 9, shipped in v2.6.0, accepted such a list and returned it.
+  Only lists are rejected: an item in a format E5 does not list, such as an ASCII ALID or CEID, still decodes.
+  `DecodeS2F14` alone accepts an empty list `L,0` as a constant value,
+  which E5 defines there to mean the constant does not exist.
 
 ## [2.6.0] - 2026-09-28
 

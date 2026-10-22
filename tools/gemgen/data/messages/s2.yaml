@@ -175,7 +175,7 @@ messages:
     bodies:
       - actor: both
         replyExpected: false
-        structure: {type: list, repeat: ecvs, of: {item: ECV}}
+        structure: {type: list, repeat: ecvs, of: {item: ECV, allowEmptyList: true}}
 
   - function: 15
     name: New Equipment Constant Send

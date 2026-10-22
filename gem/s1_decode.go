@@ -88,7 +88,7 @@ func DecodeS1F3(item secs2.Item) (S1F3Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.SVIDS, err = decodeItems(root, "SVIDS"); err != nil {
+	if out.SVIDS, err = decodeEach(root, "SVIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -293,7 +293,7 @@ func DecodeS1F11(item secs2.Item) (S1F11Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.SVIDS, err = decodeItems(root, "SVIDS"); err != nil {
+	if out.SVIDS, err = decodeEach(root, "SVIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -560,15 +560,15 @@ func DecodeS1F19(item secs2.Item) (S1F19Body, error) {
 		return out, err
 	}
 
-	if out.OBJTYPE, err = decodeItem(root.At(0), "OBJTYPE"); err != nil {
+	if out.OBJTYPE, err = decodeScalarItem(root.At(0), "OBJTYPE"); err != nil {
 		return out, err
 	}
 
-	if out.OBJIDS, err = decodeItems(root.At(1), "OBJIDS"); err != nil {
+	if out.OBJIDS, err = decodeEach(root.At(1), "OBJIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
-	if out.ATTRIDS, err = decodeItems(root.At(2), "ATTRIDS"); err != nil {
+	if out.ATTRIDS, err = decodeEach(root.At(2), "ATTRIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -633,7 +633,7 @@ func DecodeS1F21(item secs2.Item) (S1F21Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.VIDS, err = decodeItems(root, "VIDS"); err != nil {
+	if out.VIDS, err = decodeEach(root, "VIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -689,7 +689,7 @@ func DecodeS1F23(item secs2.Item) (S1F23Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.CEIDS, err = decodeItems(root, "CEIDS"); err != nil {
+	if out.CEIDS, err = decodeEach(root, "CEIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 

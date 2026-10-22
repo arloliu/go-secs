@@ -34,7 +34,7 @@ func DecodeS10F1(item secs2.Item) (S10F1Body, error) {
 		return out, err
 	}
 
-	if out.TEXT, err = decodeItem(root.At(1), "TEXT"); err != nil {
+	if out.TEXT, err = decodeScalarItem(root.At(1), "TEXT"); err != nil {
 		return out, err
 	}
 
@@ -99,7 +99,7 @@ func DecodeS10F3(item secs2.Item) (S10F3Body, error) {
 		return out, err
 	}
 
-	if out.TEXT, err = decodeItem(root.At(1), "TEXT"); err != nil {
+	if out.TEXT, err = decodeScalarItem(root.At(1), "TEXT"); err != nil {
 		return out, err
 	}
 
@@ -164,7 +164,7 @@ func DecodeS10F5(item secs2.Item) (S10F5Body, error) {
 		return out, err
 	}
 
-	if out.TEXTS, err = decodeItems(root.At(1), "TEXTS"); err != nil {
+	if out.TEXTS, err = decodeEach(root.At(1), "TEXTS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -248,7 +248,7 @@ func DecodeS10F9(item secs2.Item) (S10F9Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.TEXT, err = decodeItem(root, "TEXT"); err != nil {
+	if out.TEXT, err = decodeScalarItem(root, "TEXT"); err != nil {
 		return out, err
 	}
 

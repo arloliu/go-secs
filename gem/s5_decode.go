@@ -35,7 +35,7 @@ func DecodeS5F1(item secs2.Item) (S5F1Body, error) {
 		return out, err
 	}
 
-	if out.ALID, err = decodeItem(root.At(1), "ALID"); err != nil {
+	if out.ALID, err = decodeScalarItem(root.At(1), "ALID"); err != nil {
 		return out, err
 	}
 
@@ -104,7 +104,7 @@ func DecodeS5F3(item secs2.Item) (S5F3Body, error) {
 		return out, err
 	}
 
-	if out.ALID, err = decodeItem(root.At(1), "ALID"); err != nil {
+	if out.ALID, err = decodeScalarItem(root.At(1), "ALID"); err != nil {
 		return out, err
 	}
 
@@ -160,7 +160,7 @@ func DecodeS5F5(item secs2.Item) (S5F5Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.ALIDS, err = decodeItem(root, "ALIDS"); err != nil {
+	if out.ALIDS, err = decodeScalarItem(root, "ALIDS"); err != nil {
 		return out, err
 	}
 
@@ -405,7 +405,7 @@ func DecodeS5F14(item secs2.Item) (S5F14Reply, error) {
 	}
 
 	if n1 == 2 {
-		if out.ERRCODE, err = decodeItem(root.At(1, 1, 0), "ERRCODE"); err != nil {
+		if out.ERRCODE, err = decodeScalarItem(root.At(1, 1, 0), "ERRCODE"); err != nil {
 			return out, err
 		}
 
@@ -468,7 +468,7 @@ func DecodeS5F15(item secs2.Item) (S5F15Body, error) {
 	}
 
 	if n1 == 2 {
-		if out.ERRCODE, err = decodeItem(root.At(2, 1, 0), "ERRCODE"); err != nil {
+		if out.ERRCODE, err = decodeScalarItem(root.At(2, 1, 0), "ERRCODE"); err != nil {
 			return out, err
 		}
 
@@ -554,7 +554,7 @@ func DecodeS5F18(item secs2.Item) (S5F18Reply, error) {
 	}
 
 	if n1 == 2 {
-		if out.ERRCODE, err = decodeItem(root.At(1, 1, 0), "ERRCODE"); err != nil {
+		if out.ERRCODE, err = decodeScalarItem(root.At(1, 1, 0), "ERRCODE"); err != nil {
 			return out, err
 		}
 

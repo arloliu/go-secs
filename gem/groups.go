@@ -28,7 +28,7 @@ func decodeErrorInfo(c secs2.Cursor, field string) (ErrorInfo, error) {
 		return g, err
 	}
 
-	if g.ERRCODE, err = decodeItem(c.At(0), field+".ERRCODE"); err != nil {
+	if g.ERRCODE, err = decodeScalarItem(c.At(0), field+".ERRCODE"); err != nil {
 		return g, err
 	}
 
@@ -63,7 +63,7 @@ func decodeAttribute(c secs2.Cursor, field string) (Attribute, error) {
 		return g, err
 	}
 
-	if g.ATTRID, err = decodeItem(c.At(0), field+".ATTRID"); err != nil {
+	if g.ATTRID, err = decodeScalarItem(c.At(0), field+".ATTRID"); err != nil {
 		return g, err
 	}
 
@@ -133,11 +133,11 @@ func decodeCommandParam(c secs2.Cursor, field string) (CommandParam, error) {
 		return g, err
 	}
 
-	if g.CPNAME, err = decodeItem(c.At(0), field+".CPNAME"); err != nil {
+	if g.CPNAME, err = decodeScalarItem(c.At(0), field+".CPNAME"); err != nil {
 		return g, err
 	}
 
-	if g.CPVAL, err = decodeItem(c.At(1), field+".CPVAL"); err != nil {
+	if g.CPVAL, err = decodeScalarItem(c.At(1), field+".CPVAL"); err != nil {
 		return g, err
 	}
 
@@ -168,7 +168,7 @@ func decodeReport(c secs2.Cursor, field string) (Report, error) {
 		return g, err
 	}
 
-	if g.RPTID, err = decodeItem(c.At(0), field+".RPTID"); err != nil {
+	if g.RPTID, err = decodeScalarItem(c.At(0), field+".RPTID"); err != nil {
 		return g, err
 	}
 
@@ -205,11 +205,11 @@ func decodeProgramMaterials(c secs2.Cursor, field string) (ProgramMaterials, err
 		return g, err
 	}
 
-	if g.PPID, err = decodeItem(c.At(0), field+".PPID"); err != nil {
+	if g.PPID, err = decodeScalarItem(c.At(0), field+".PPID"); err != nil {
 		return g, err
 	}
 
-	if g.MIDS, err = decodeItems(c.At(1), field+".MIDS"); err != nil {
+	if g.MIDS, err = decodeEach(c.At(1), field+".MIDS", decodeScalarItem); err != nil {
 		return g, err
 	}
 
@@ -242,11 +242,11 @@ func decodeProcessCommand(c secs2.Cursor, field string) (ProcessCommand, error) 
 		return g, err
 	}
 
-	if g.CCODE, err = decodeItem(c.At(0), field+".CCODE"); err != nil {
+	if g.CCODE, err = decodeScalarItem(c.At(0), field+".CCODE"); err != nil {
 		return g, err
 	}
 
-	if g.PARAMETERS, err = decodeItems(c.At(1), field+".PARAMETERS"); err != nil {
+	if g.PARAMETERS, err = decodeEach(c.At(1), field+".PARAMETERS", decodeScalarItem); err != nil {
 		return g, err
 	}
 
@@ -430,7 +430,7 @@ func decodeAlarm(c secs2.Cursor, field string) (Alarm, error) {
 		return g, err
 	}
 
-	if g.ALID, err = decodeItem(c.At(1), field+".ALID"); err != nil {
+	if g.ALID, err = decodeScalarItem(c.At(1), field+".ALID"); err != nil {
 		return g, err
 	}
 
@@ -467,7 +467,7 @@ func decodeDataValue(c secs2.Cursor, field string) (DataValue, error) {
 		return g, err
 	}
 
-	if g.DVNAME, err = decodeItem(c.At(0), field+".DVNAME"); err != nil {
+	if g.DVNAME, err = decodeScalarItem(c.At(0), field+".DVNAME"); err != nil {
 		return g, err
 	}
 
@@ -504,7 +504,7 @@ func decodeDataSet(c secs2.Cursor, field string) (DataSet, error) {
 		return g, err
 	}
 
-	if g.DSID, err = decodeItem(c.At(0), field+".DSID"); err != nil {
+	if g.DSID, err = decodeScalarItem(c.At(0), field+".DSID"); err != nil {
 		return g, err
 	}
 
@@ -541,7 +541,7 @@ func decodeDataSetValues(c secs2.Cursor, field string) (DataSetValues, error) {
 		return g, err
 	}
 
-	if g.DSID, err = decodeItem(c.At(0), field+".DSID"); err != nil {
+	if g.DSID, err = decodeScalarItem(c.At(0), field+".DSID"); err != nil {
 		return g, err
 	}
 
@@ -578,7 +578,7 @@ func decodeVariableValue(c secs2.Cursor, field string) (VariableValue, error) {
 		return g, err
 	}
 
-	if g.VID, err = decodeItem(c.At(0), field+".VID"); err != nil {
+	if g.VID, err = decodeScalarItem(c.At(0), field+".VID"); err != nil {
 		return g, err
 	}
 
@@ -615,7 +615,7 @@ func decodeAnnotatedReport(c secs2.Cursor, field string) (AnnotatedReport, error
 		return g, err
 	}
 
-	if g.RPTID, err = decodeItem(c.At(0), field+".RPTID"); err != nil {
+	if g.RPTID, err = decodeScalarItem(c.At(0), field+".RPTID"); err != nil {
 		return g, err
 	}
 
@@ -652,11 +652,11 @@ func decodeMapRow(c secs2.Cursor, field string) (MapRow, error) {
 		return g, err
 	}
 
-	if g.RSINF, err = decodeItem(c.At(0), field+".RSINF"); err != nil {
+	if g.RSINF, err = decodeScalarItem(c.At(0), field+".RSINF"); err != nil {
 		return g, err
 	}
 
-	if g.BINLT, err = decodeItem(c.At(1), field+".BINLT"); err != nil {
+	if g.BINLT, err = decodeScalarItem(c.At(1), field+".BINLT"); err != nil {
 		return g, err
 	}
 
@@ -689,11 +689,11 @@ func decodeMapPosition(c secs2.Cursor, field string) (MapPosition, error) {
 		return g, err
 	}
 
-	if g.XYPOS, err = decodeItem(c.At(0), field+".XYPOS"); err != nil {
+	if g.XYPOS, err = decodeScalarItem(c.At(0), field+".XYPOS"); err != nil {
 		return g, err
 	}
 
-	if g.BINLT, err = decodeItem(c.At(1), field+".BINLT"); err != nil {
+	if g.BINLT, err = decodeScalarItem(c.At(1), field+".BINLT"); err != nil {
 		return g, err
 	}
 
@@ -726,7 +726,7 @@ func decodeObjectAttributes(c secs2.Cursor, field string) (ObjectAttributes, err
 		return g, err
 	}
 
-	if g.OBJID, err = decodeItem(c.At(0), field+".OBJID"); err != nil {
+	if g.OBJID, err = decodeScalarItem(c.At(0), field+".OBJID"); err != nil {
 		return g, err
 	}
 
@@ -764,11 +764,11 @@ func decodeTraceError(c secs2.Cursor, field string) (TraceError, error) {
 		return g, err
 	}
 
-	if g.TRID, err = decodeItem(c.At(0), field+".TRID"); err != nil {
+	if g.TRID, err = decodeScalarItem(c.At(0), field+".TRID"); err != nil {
 		return g, err
 	}
 
-	if g.ERRCODE, err = decodeItem(c.At(1), field+".ERRCODE"); err != nil {
+	if g.ERRCODE, err = decodeScalarItem(c.At(1), field+".ERRCODE"); err != nil {
 		return g, err
 	}
 
@@ -806,11 +806,11 @@ func decodeReportError(c secs2.Cursor, field string) (ReportError, error) {
 		return g, err
 	}
 
-	if g.RPTID, err = decodeItem(c.At(0), field+".RPTID"); err != nil {
+	if g.RPTID, err = decodeScalarItem(c.At(0), field+".RPTID"); err != nil {
 		return g, err
 	}
 
-	if g.ERRCODE, err = decodeItem(c.At(1), field+".ERRCODE"); err != nil {
+	if g.ERRCODE, err = decodeScalarItem(c.At(1), field+".ERRCODE"); err != nil {
 		return g, err
 	}
 
@@ -848,11 +848,11 @@ func decodePortError(c secs2.Cursor, field string) (PortError, error) {
 		return g, err
 	}
 
-	if g.PTN, err = decodeItem(c.At(0), field+".PTN"); err != nil {
+	if g.PTN, err = decodeScalarItem(c.At(0), field+".PTN"); err != nil {
 		return g, err
 	}
 
-	if g.ERRCODE, err = decodeItem(c.At(1), field+".ERRCODE"); err != nil {
+	if g.ERRCODE, err = decodeScalarItem(c.At(1), field+".ERRCODE"); err != nil {
 		return g, err
 	}
 
@@ -890,7 +890,7 @@ func decodeStatusVariableName(c secs2.Cursor, field string) (StatusVariableName,
 		return g, err
 	}
 
-	if g.SVID, err = decodeItem(c.At(0), field+".SVID"); err != nil {
+	if g.SVID, err = decodeScalarItem(c.At(0), field+".SVID"); err != nil {
 		return g, err
 	}
 
@@ -932,7 +932,7 @@ func decodeDataVariableName(c secs2.Cursor, field string) (DataVariableName, err
 		return g, err
 	}
 
-	if g.VID, err = decodeItem(c.At(0), field+".VID"); err != nil {
+	if g.VID, err = decodeScalarItem(c.At(0), field+".VID"); err != nil {
 		return g, err
 	}
 
@@ -974,7 +974,7 @@ func decodeCollectionEventName(c secs2.Cursor, field string) (CollectionEventNam
 		return g, err
 	}
 
-	if g.CEID, err = decodeItem(c.At(0), field+".CEID"); err != nil {
+	if g.CEID, err = decodeScalarItem(c.At(0), field+".CEID"); err != nil {
 		return g, err
 	}
 
@@ -982,7 +982,7 @@ func decodeCollectionEventName(c secs2.Cursor, field string) (CollectionEventNam
 		return g, err
 	}
 
-	if g.VIDS, err = decodeItems(c.At(2), field+".VIDS"); err != nil {
+	if g.VIDS, err = decodeEach(c.At(2), field+".VIDS", decodeScalarItem); err != nil {
 		return g, err
 	}
 
@@ -1015,11 +1015,11 @@ func decodeConstantValue(c secs2.Cursor, field string) (ConstantValue, error) {
 		return g, err
 	}
 
-	if g.ECID, err = decodeItem(c.At(0), field+".ECID"); err != nil {
+	if g.ECID, err = decodeScalarItem(c.At(0), field+".ECID"); err != nil {
 		return g, err
 	}
 
-	if g.ECV, err = decodeItem(c.At(1), field+".ECV"); err != nil {
+	if g.ECV, err = decodeScalarItem(c.At(1), field+".ECV"); err != nil {
 		return g, err
 	}
 
@@ -1056,7 +1056,7 @@ func decodeConstantName(c secs2.Cursor, field string) (ConstantName, error) {
 		return g, err
 	}
 
-	if g.ECID, err = decodeItem(c.At(0), field+".ECID"); err != nil {
+	if g.ECID, err = decodeScalarItem(c.At(0), field+".ECID"); err != nil {
 		return g, err
 	}
 
@@ -1064,15 +1064,15 @@ func decodeConstantName(c secs2.Cursor, field string) (ConstantName, error) {
 		return g, err
 	}
 
-	if g.ECMIN, err = decodeItem(c.At(2), field+".ECMIN"); err != nil {
+	if g.ECMIN, err = decodeScalarItem(c.At(2), field+".ECMIN"); err != nil {
 		return g, err
 	}
 
-	if g.ECMAX, err = decodeItem(c.At(3), field+".ECMAX"); err != nil {
+	if g.ECMAX, err = decodeScalarItem(c.At(3), field+".ECMAX"); err != nil {
 		return g, err
 	}
 
-	if g.ECDEF, err = decodeItem(c.At(4), field+".ECDEF"); err != nil {
+	if g.ECDEF, err = decodeScalarItem(c.At(4), field+".ECDEF"); err != nil {
 		return g, err
 	}
 
@@ -1109,11 +1109,11 @@ func decodeReportDefinition(c secs2.Cursor, field string) (ReportDefinition, err
 		return g, err
 	}
 
-	if g.RPTID, err = decodeItem(c.At(0), field+".RPTID"); err != nil {
+	if g.RPTID, err = decodeScalarItem(c.At(0), field+".RPTID"); err != nil {
 		return g, err
 	}
 
-	if g.VIDS, err = decodeItems(c.At(1), field+".VIDS"); err != nil {
+	if g.VIDS, err = decodeEach(c.At(1), field+".VIDS", decodeScalarItem); err != nil {
 		return g, err
 	}
 
@@ -1146,11 +1146,11 @@ func decodeEventLink(c secs2.Cursor, field string) (EventLink, error) {
 		return g, err
 	}
 
-	if g.CEID, err = decodeItem(c.At(0), field+".CEID"); err != nil {
+	if g.CEID, err = decodeScalarItem(c.At(0), field+".CEID"); err != nil {
 		return g, err
 	}
 
-	if g.RPTIDS, err = decodeItems(c.At(1), field+".RPTIDS"); err != nil {
+	if g.RPTIDS, err = decodeEach(c.At(1), field+".RPTIDS", decodeScalarItem); err != nil {
 		return g, err
 	}
 
@@ -1183,7 +1183,7 @@ func decodeCommandParamAck(c secs2.Cursor, field string) (CommandParamAck, error
 		return g, err
 	}
 
-	if g.CPNAME, err = decodeItem(c.At(0), field+".CPNAME"); err != nil {
+	if g.CPNAME, err = decodeScalarItem(c.At(0), field+".CPNAME"); err != nil {
 		return g, err
 	}
 
@@ -1299,11 +1299,11 @@ func decodeDeadband(c secs2.Cursor, field string) (Deadband, error) {
 		return g, err
 	}
 
-	if g.UPPERDB, err = decodeItem(c.At(0), field+".UPPERDB"); err != nil {
+	if g.UPPERDB, err = decodeScalarItem(c.At(0), field+".UPPERDB"); err != nil {
 		return g, err
 	}
 
-	if g.LOWERDB, err = decodeItem(c.At(1), field+".LOWERDB"); err != nil {
+	if g.LOWERDB, err = decodeScalarItem(c.At(1), field+".LOWERDB"); err != nil {
 		return g, err
 	}
 
@@ -1374,7 +1374,7 @@ func decodeVariableLimits(c secs2.Cursor, field string) (VariableLimits, error) 
 		return g, err
 	}
 
-	if g.VID, err = decodeItem(c.At(0), field+".VID"); err != nil {
+	if g.VID, err = decodeScalarItem(c.At(0), field+".VID"); err != nil {
 		return g, err
 	}
 
@@ -1450,7 +1450,7 @@ func decodeVariableLimitAck(c secs2.Cursor, field string) (VariableLimitAck, err
 		return g, err
 	}
 
-	if g.VID, err = decodeItem(c.At(0), field+".VID"); err != nil {
+	if g.VID, err = decodeScalarItem(c.At(0), field+".VID"); err != nil {
 		return g, err
 	}
 
@@ -1496,11 +1496,11 @@ func decodeLimitValues(c secs2.Cursor, field string) (LimitValues, error) {
 		return g, err
 	}
 
-	if g.UPPERDB, err = decodeItem(c.At(1), field+".UPPERDB"); err != nil {
+	if g.UPPERDB, err = decodeScalarItem(c.At(1), field+".UPPERDB"); err != nil {
 		return g, err
 	}
 
-	if g.LOWERDB, err = decodeItem(c.At(2), field+".LOWERDB"); err != nil {
+	if g.LOWERDB, err = decodeScalarItem(c.At(2), field+".LOWERDB"); err != nil {
 		return g, err
 	}
 
@@ -1540,11 +1540,11 @@ func decodeLimitAttributes(c secs2.Cursor, field string) (LimitAttributes, error
 		return g, err
 	}
 
-	if g.LIMITMIN, err = decodeItem(c.At(1), field+".LIMITMIN"); err != nil {
+	if g.LIMITMIN, err = decodeScalarItem(c.At(1), field+".LIMITMIN"); err != nil {
 		return g, err
 	}
 
-	if g.LIMITMAX, err = decodeItem(c.At(2), field+".LIMITMAX"); err != nil {
+	if g.LIMITMAX, err = decodeScalarItem(c.At(2), field+".LIMITMAX"); err != nil {
 		return g, err
 	}
 
@@ -1582,7 +1582,7 @@ func decodeVariableLimitAttributes(c secs2.Cursor, field string) (VariableLimitA
 		return g, err
 	}
 
-	if g.VID, err = decodeItem(c.At(0), field+".VID"); err != nil {
+	if g.VID, err = decodeScalarItem(c.At(0), field+".VID"); err != nil {
 		return g, err
 	}
 
@@ -1628,7 +1628,7 @@ func decodeMaterialLocation(c secs2.Cursor, field string) (MaterialLocation, err
 		return g, err
 	}
 
-	if g.MID, err = decodeItem(c.At(2), field+".MID"); err != nil {
+	if g.MID, err = decodeScalarItem(c.At(2), field+".MID"); err != nil {
 		return g, err
 	}
 
@@ -1663,7 +1663,7 @@ func decodeMaterialTimeToCompletion(c secs2.Cursor, field string) (MaterialTimeT
 		return g, err
 	}
 
-	if g.TTC, err = decodeItem(c.At(0), field+".TTC"); err != nil {
+	if g.TTC, err = decodeScalarItem(c.At(0), field+".TTC"); err != nil {
 		return g, err
 	}
 
@@ -1671,7 +1671,7 @@ func decodeMaterialTimeToCompletion(c secs2.Cursor, field string) (MaterialTimeT
 		return g, err
 	}
 
-	if g.MID, err = decodeItem(c.At(2), field+".MID"); err != nil {
+	if g.MID, err = decodeScalarItem(c.At(2), field+".MID"); err != nil {
 		return g, err
 	}
 
@@ -1830,11 +1830,11 @@ func decodeTransferJob(c secs2.Cursor, field string) (TransferJob, error) {
 		return g, err
 	}
 
-	if g.TRLINK, err = decodeItem(c.At(0), field+".TRLINK"); err != nil {
+	if g.TRLINK, err = decodeScalarItem(c.At(0), field+".TRLINK"); err != nil {
 		return g, err
 	}
 
-	if g.TRPORT, err = decodeItem(c.At(1), field+".TRPORT"); err != nil {
+	if g.TRPORT, err = decodeScalarItem(c.At(1), field+".TRPORT"); err != nil {
 		return g, err
 	}
 
@@ -1842,7 +1842,7 @@ func decodeTransferJob(c secs2.Cursor, field string) (TransferJob, error) {
 		return g, err
 	}
 
-	if g.TROBJTYPE, err = decodeItem(c.At(3), field+".TROBJTYPE"); err != nil {
+	if g.TROBJTYPE, err = decodeScalarItem(c.At(3), field+".TROBJTYPE"); err != nil {
 		return g, err
 	}
 
@@ -1858,7 +1858,7 @@ func decodeTransferJob(c secs2.Cursor, field string) (TransferJob, error) {
 		return g, err
 	}
 
-	if g.TRPTPORT, err = decodeItem(c.At(7), field+".TRPTPORT"); err != nil {
+	if g.TRPTPORT, err = decodeScalarItem(c.At(7), field+".TRPTPORT"); err != nil {
 		return g, err
 	}
 
@@ -1870,7 +1870,7 @@ func decodeTransferJob(c secs2.Cursor, field string) (TransferJob, error) {
 		return g, err
 	}
 
-	if g.TRLOCATION, err = decodeItem(c.At(10), field+".TRLOCATION"); err != nil {
+	if g.TRLOCATION, err = decodeScalarItem(c.At(10), field+".TRLOCATION"); err != nil {
 		return g, err
 	}
 
@@ -1916,7 +1916,7 @@ func decodeProcessCommandDefinition(c secs2.Cursor, field string) (ProcessComman
 		return g, err
 	}
 
-	if g.CCODE, err = decodeItem(c.At(0), field+".CCODE"); err != nil {
+	if g.CCODE, err = decodeScalarItem(c.At(0), field+".CCODE"); err != nil {
 		return g, err
 	}
 
@@ -1928,31 +1928,31 @@ func decodeProcessCommandDefinition(c secs2.Cursor, field string) (ProcessComman
 		return g, err
 	}
 
-	if g.BLKDEF, err = decodeItem(c.At(3), field+".BLKDEF"); err != nil {
+	if g.BLKDEF, err = decodeScalarItem(c.At(3), field+".BLKDEF"); err != nil {
 		return g, err
 	}
 
-	if g.BCDS, err = decodeItem(c.At(4), field+".BCDS"); err != nil {
+	if g.BCDS, err = decodeScalarItem(c.At(4), field+".BCDS"); err != nil {
 		return g, err
 	}
 
-	if g.IBCDS, err = decodeItem(c.At(5), field+".IBCDS"); err != nil {
+	if g.IBCDS, err = decodeScalarItem(c.At(5), field+".IBCDS"); err != nil {
 		return g, err
 	}
 
-	if g.NBCDS, err = decodeItem(c.At(6), field+".NBCDS"); err != nil {
+	if g.NBCDS, err = decodeScalarItem(c.At(6), field+".NBCDS"); err != nil {
 		return g, err
 	}
 
-	if g.ACDS, err = decodeItem(c.At(7), field+".ACDS"); err != nil {
+	if g.ACDS, err = decodeScalarItem(c.At(7), field+".ACDS"); err != nil {
 		return g, err
 	}
 
-	if g.IACDS, err = decodeItem(c.At(8), field+".IACDS"); err != nil {
+	if g.IACDS, err = decodeScalarItem(c.At(8), field+".IACDS"); err != nil {
 		return g, err
 	}
 
-	if g.NACDS, err = decodeItem(c.At(9), field+".NACDS"); err != nil {
+	if g.NACDS, err = decodeScalarItem(c.At(9), field+".NACDS"); err != nil {
 		return g, err
 	}
 
@@ -1990,11 +1990,11 @@ func decodeProgramError(c secs2.Cursor, field string) (ProgramError, error) {
 		return g, err
 	}
 
-	if g.ACKC7A, err = decodeItem(c.At(0), field+".ACKC7A"); err != nil {
+	if g.ACKC7A, err = decodeScalarItem(c.At(0), field+".ACKC7A"); err != nil {
 		return g, err
 	}
 
-	if g.SEQNUM, err = decodeItem(c.At(1), field+".SEQNUM"); err != nil {
+	if g.SEQNUM, err = decodeScalarItem(c.At(1), field+".SEQNUM"); err != nil {
 		return g, err
 	}
 
@@ -2032,7 +2032,7 @@ func decodeAttributeQualifier(c secs2.Cursor, field string) (AttributeQualifier,
 		return g, err
 	}
 
-	if g.ATTRID, err = decodeItem(c.At(0), field+".ATTRID"); err != nil {
+	if g.ATTRID, err = decodeScalarItem(c.At(0), field+".ATTRID"); err != nil {
 		return g, err
 	}
 
@@ -2073,11 +2073,11 @@ func decodeObjectTypeAttributes(c secs2.Cursor, field string) (ObjectTypeAttribu
 		return g, err
 	}
 
-	if g.OBJTYPE, err = decodeItem(c.At(0), field+".OBJTYPE"); err != nil {
+	if g.OBJTYPE, err = decodeScalarItem(c.At(0), field+".OBJTYPE"); err != nil {
 		return g, err
 	}
 
-	if g.ATTRIDS, err = decodeItems(c.At(1), field+".ATTRIDS"); err != nil {
+	if g.ATTRIDS, err = decodeEach(c.At(1), field+".ATTRIDS", decodeScalarItem); err != nil {
 		return g, err
 	}
 
@@ -2110,7 +2110,7 @@ func decodeObjectTypeServices(c secs2.Cursor, field string) (ObjectTypeServices,
 		return g, err
 	}
 
-	if g.OBJTYPE, err = decodeItem(c.At(0), field+".OBJTYPE"); err != nil {
+	if g.OBJTYPE, err = decodeScalarItem(c.At(0), field+".OBJTYPE"); err != nil {
 		return g, err
 	}
 
@@ -2199,7 +2199,7 @@ func decodeRecipeDescriptor(c secs2.Cursor, field string) (RecipeDescriptor, err
 		return g, err
 	}
 
-	if g.RCPDESCLTH, err = decodeItem(c.At(2), field+".RCPDESCLTH"); err != nil {
+	if g.RCPDESCLTH, err = decodeScalarItem(c.At(2), field+".RCPDESCLTH"); err != nil {
 		return g, err
 	}
 
@@ -2328,11 +2328,11 @@ func decodeRecipeChange(c secs2.Cursor, field string) (RecipeChange, error) {
 		return g, err
 	}
 
-	if g.RMCHGTYPE, err = decodeItem(c.At(3), field+".RMCHGTYPE"); err != nil {
+	if g.RMCHGTYPE, err = decodeScalarItem(c.At(3), field+".RMCHGTYPE"); err != nil {
 		return g, err
 	}
 
-	if g.OPID, err = decodeItem(c.At(4), field+".OPID"); err != nil {
+	if g.OPID, err = decodeScalarItem(c.At(4), field+".OPID"); err != nil {
 		return g, err
 	}
 
@@ -2384,7 +2384,7 @@ func decodeProcessJob(c secs2.Cursor, field string) (ProcessJob, error) {
 		return g, err
 	}
 
-	if g.MF, err = decodeItem(c.At(1), field+".MF"); err != nil {
+	if g.MF, err = decodeScalarItem(c.At(1), field+".MF"); err != nil {
 		return g, err
 	}
 

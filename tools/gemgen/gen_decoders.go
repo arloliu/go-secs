@@ -355,7 +355,8 @@ func (e *decodeEmitter) emitList(n *StructureNode, path []int) error {
 
 // emitRepeat walks a repeat: a list of any number of elements of the shape its of declares.
 //
-// A repeat of secs2 items returns the list's children as they are.
+// A repeat of secs2 items returns the list's children as they are,
+// or checks each one when its item excludes L (see [decodeEmitter.repeatCall]).
 // Any other repeat decodes each element with the function [elemDecodeFunc] gives,
 // so an element's decode error names the field and the element's index, e.g. REPORTS[1].
 func (e *decodeEmitter) emitRepeat(n *StructureNode, path []int) error {
@@ -382,8 +383,16 @@ func (e *decodeEmitter) emitRepeat(n *StructureNode, path []int) error {
 
 // repeatCall renders the call that decodes the repeat n from the cursor expression cursor,
 // labeling its errors with the Go expression label.
+//
+// A repeat of secs2 items returns the list's children as they are,
+// unless its element is a leaf whose item excludes L:
+// each element is then checked with that leaf's decode helper, as any other element is decoded.
 func (e *decodeEmitter) repeatCall(n *StructureNode, cursor string, label string) (string, error) {
 	if elemType(n.Of, e.items) == "secs2.Item" {
+		if fn := itemDecodeFunc(n.Of, e.items); fn != "decodeItem" {
+			return fmt.Sprintf("decodeEach(%s, %s, %s)", cursor, label, fn), nil
+		}
+
 		return fmt.Sprintf("decodeItems(%s, %s)", cursor, label), nil
 	}
 
@@ -412,6 +421,10 @@ func (e *decodeEmitter) elemDecodeFunc(n *StructureNode) (string, error) {
 		return "decode" + of.Group, nil
 	case "list":
 		if elemType(of.Of, e.items) == "secs2.Item" {
+			if fn := itemDecodeFunc(of.Of, e.items); fn != "decodeItem" {
+				return fmt.Sprintf("eachOf(%s)", fn), nil
+			}
+
 			return "decodeItems", nil
 		}
 
@@ -564,7 +577,7 @@ func (e *decodeEmitter) emitLeaf(n *StructureNode, path []int) error {
 	}
 
 	if it.Binding != BindingFixed {
-		e.assign(e.field(name.Field, "secs2.Item", path), fmt.Sprintf("decodeItem(%s, %s)", expr, e.label(name.Label)))
+		e.assign(e.field(name.Field, "secs2.Item", path), fmt.Sprintf("%s(%s, %s)", itemDecodeFunc(n, e.items), expr, e.label(name.Label)))
 
 		return nil
 	}
@@ -590,6 +603,21 @@ func (e *decodeEmitter) emitLeaf(n *StructureNode, path []int) error {
 	e.emitOptionalLeaf(name, goType, itemFormat, path, sc)
 
 	return nil
+}
+
+// itemDecodeFunc returns the decode helper that reads n as a secs2.Item:
+// a leaf whose item [rejectsList] reads through decodeScalarItem,
+// or decodeScalarOrEmptyList when the leaf sets allowEmptyList;
+// any other node, such as an opaque node or a leaf whose item allows a list, through decodeItem.
+func itemDecodeFunc(n *StructureNode, items map[string]Item) string {
+	switch {
+	case n.Kind() != "leaf" || !rejectsList(items[n.Item]):
+		return "decodeItem"
+	case n.AllowEmptyList:
+		return "decodeScalarOrEmptyList"
+	default:
+		return "decodeScalarItem"
+	}
 }
 
 // scalarCall is a decode helper call that reads one single-value leaf.
@@ -766,6 +794,7 @@ func resultTypeDoc(typeName string, code string, mainName string, m Message, b B
 
 	names := optionalFieldNames(b.Structure)
 	doc = append(doc, mirrorsDoc(mainName, names)...)
+	doc = append(doc, emptyListDoc(b.Structure, m)...)
 
 	if len(names) > 0 {
 		pairs := make([]string, len(names))
@@ -810,6 +839,8 @@ func decoderDoc(typeName string, code string, mainName string, m Message, b Body
 		"a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.",
 	}
 
+	doc = append(doc, emptyListDoc(b.Structure, m)...)
+
 	if m.Source == "external" {
 		doc = append(doc, "", externalSourceDisclaimer)
 	}
@@ -837,6 +868,63 @@ func mirrorsDoc(mainName string, names []string) []string {
 	}
 
 	return []string{head + ",", fmt.Sprintf("apart from its %s %s.", joinAnd(presence), fields)}
+}
+
+// emptyListDoc renders the godoc paragraph naming the positions of a body that set allowEmptyList,
+// which accept the empty list L[0] where every other list is an error,
+// followed by the message's exception, which says what L[0] means there;
+// or nil when the body has no such position.
+func emptyListDoc(n *StructureNode, m Message) []string {
+	positions := emptyListPositions(n, "")
+	if len(positions) == 0 {
+		return nil
+	}
+
+	sentence := joinAnd(positions) + " may also be L[0], an empty list, which SEMI E5 gives a meaning in this message;"
+	doc := append([]string{""}, wrapParagraph(strings.ToUpper(sentence[:1])+sentence[1:]+" any other list is an error.")...)
+
+	if m.Exception != "" && m.Exception != "None" {
+		doc = append(doc, "")
+		doc = append(doc, wrapParagraph(ensurePeriod("Exception: "+m.Exception))...)
+	}
+
+	return doc
+}
+
+// emptyListPositions returns the positions below n whose leaf sets allowEmptyList, in body order,
+// each named after its field, e.g. "ECV", or as an element of a repeat field, e.g. "an element of ECVS".
+// name is the position n itself stands for, or "" for a body root.
+// Group references are not walked: a group's positions belong to the group's own godoc.
+func emptyListPositions(n *StructureNode, name string) []string {
+	switch {
+	case n == nil:
+		return nil
+	case n.Kind() == "leaf":
+		if !n.AllowEmptyList {
+			return nil
+		}
+
+		if name == "" {
+			name = nodeNames(n).Field
+		}
+
+		return []string{name}
+	case n.Kind() != "list" || n.Packed != "":
+		return nil
+	case n.Repeat != "":
+		if name == "" {
+			name = nodeNames(n).Field
+		}
+
+		return emptyListPositions(n.Of, "an element of "+name)
+	}
+
+	var positions []string
+	for i := range n.Items {
+		positions = append(positions, emptyListPositions(&n.Items[i], "")...)
+	}
+
+	return positions
 }
 
 // optionalFieldNames returns the value field names of a body's optional leaves, in body order.

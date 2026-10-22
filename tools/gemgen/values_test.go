@@ -111,7 +111,7 @@ func TestRenderDecodersValueRepeat(t *testing.T) {
 	require.Regexp(t, `\tACTIONS +\[\]CARRIERACTION\n`, got)
 	require.Contains(t, got, `if out.LOCS, err = decodeEach(root.At(0), "LOCS", decodeUintAs[uint16]); err != nil {`)
 	require.Contains(t, got, `if out.ACKS, err = decodeEach(root.At(2), "ACKS", decodeByteAs[COMMACK]); err != nil {`)
-	require.Contains(t, got, `if out.SVIDS, err = decodeItems(root.At(3), "SVIDS"); err != nil {`)
+	require.Contains(t, got, `if out.SVIDS, err = decodeEach(root.At(3), "SVIDS", decodeScalarItem); err != nil {`)
 	require.Contains(t, got, `if out.ACTIONS, err = decodeEach(root.At(4), "ACTIONS", decodeASCIIAs[CARRIERACTION]); err != nil {`)
 	require.Contains(t, got, `if out.NAMES, err = decodeEach(root.At(5), "NAMES", decodeASCII); err != nil {`)
 	require.Contains(t, got, `if out.FLAGS, err = decodeEach(root.At(6), "FLAGS", decodeBool); err != nil {`)

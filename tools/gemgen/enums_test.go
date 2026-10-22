@@ -68,7 +68,7 @@ func TestStringEnumDecoder(t *testing.T) {
 		"\t\t}\n\n"+
 		"\t\tout.NEXT = CARRIERACTION(s2)\n"+
 		"\t}\n")
-	require.Contains(t, src, "if out.OBJTYPE, err = decodeItem(root.At(2), \"OBJTYPE\"); err != nil {")
+	require.Contains(t, src, "if out.OBJTYPE, err = decodeScalarItem(root.At(2), \"OBJTYPE\"); err != nil {")
 }
 
 // TestStringEnumTests proves the generated tests pass a bare string literal to a string-enum parameter,

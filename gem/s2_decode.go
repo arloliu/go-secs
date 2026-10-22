@@ -34,7 +34,7 @@ func DecodeS2F1(item secs2.Item) (S2F1Body, error) {
 		return out, err
 	}
 
-	if out.LENGTH, err = decodeItem(root.At(1), "LENGTH"); err != nil {
+	if out.LENGTH, err = decodeScalarItem(root.At(1), "LENGTH"); err != nil {
 		return out, err
 	}
 
@@ -342,7 +342,7 @@ func DecodeS2F13(item secs2.Item) (S2F13Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.ECIDS, err = decodeItems(root, "ECIDS"); err != nil {
+	if out.ECIDS, err = decodeEach(root, "ECIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -354,6 +354,12 @@ func DecodeS2F13(item secs2.Item) (S2F13Body, error) {
 // Body: L[n]{ <ecvs>... }.
 //
 // It is filled by [DecodeS2F14] and mirrors the parameters of [S2F14], in order.
+//
+// An element of ECVS may also be L[0], an empty list, which SEMI E5 gives a meaning in this message;
+// any other list is an error.
+//
+// Exception: A zero-length list item for ECVi means that ECIDi does not exist.
+// The list format for this data item is not allowed, except in this case.
 type S2F14Reply struct {
 	ECVS []secs2.Item
 }
@@ -363,6 +369,12 @@ type S2F14Reply struct {
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S2F14Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
+// An element of ECVS may also be L[0], an empty list, which SEMI E5 gives a meaning in this message;
+// any other list is an error.
+//
+// Exception: A zero-length list item for ECVi means that ECIDi does not exist.
+// The list format for this data item is not allowed, except in this case.
 func DecodeS2F14(item secs2.Item) (S2F14Reply, error) {
 	var out S2F14Reply
 
@@ -370,7 +382,7 @@ func DecodeS2F14(item secs2.Item) (S2F14Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.ECVS, err = decodeItems(root, "ECVS"); err != nil {
+	if out.ECVS, err = decodeEach(root, "ECVS", decodeScalarOrEmptyList); err != nil {
 		return out, err
 	}
 
@@ -482,7 +494,7 @@ func DecodeS2F19(item secs2.Item) (S2F19Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.RIC, err = decodeItem(root, "RIC"); err != nil {
+	if out.RIC, err = decodeScalarItem(root, "RIC"); err != nil {
 		return out, err
 	}
 
@@ -510,7 +522,7 @@ func DecodeS2F20(item secs2.Item) (S2F20Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.RAC, err = decodeItem(root, "RAC"); err != nil {
+	if out.RAC, err = decodeScalarItem(root, "RAC"); err != nil {
 		return out, err
 	}
 
@@ -538,7 +550,7 @@ func DecodeS2F21(item secs2.Item) (S2F21Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.RCMD, err = decodeItem(root, "RCMD"); err != nil {
+	if out.RCMD, err = decodeScalarItem(root, "RCMD"); err != nil {
 		return out, err
 	}
 
@@ -566,7 +578,7 @@ func DecodeS2F22(item secs2.Item) (S2F22Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.CMDA, err = decodeItem(root, "CMDA"); err != nil {
+	if out.CMDA, err = decodeScalarItem(root, "CMDA"); err != nil {
 		return out, err
 	}
 
@@ -602,7 +614,7 @@ func DecodeS2F23(item secs2.Item) (S2F23Body, error) {
 		return out, err
 	}
 
-	if out.TRID, err = decodeItem(root.At(0), "TRID"); err != nil {
+	if out.TRID, err = decodeScalarItem(root.At(0), "TRID"); err != nil {
 		return out, err
 	}
 
@@ -610,15 +622,15 @@ func DecodeS2F23(item secs2.Item) (S2F23Body, error) {
 		return out, err
 	}
 
-	if out.TOTSMP, err = decodeItem(root.At(2), "TOTSMP"); err != nil {
+	if out.TOTSMP, err = decodeScalarItem(root.At(2), "TOTSMP"); err != nil {
 		return out, err
 	}
 
-	if out.REPGSZ, err = decodeItem(root.At(3), "REPGSZ"); err != nil {
+	if out.REPGSZ, err = decodeScalarItem(root.At(3), "REPGSZ"); err != nil {
 		return out, err
 	}
 
-	if out.SVIDS, err = decodeItems(root.At(4), "SVIDS"); err != nil {
+	if out.SVIDS, err = decodeEach(root.At(4), "SVIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -740,11 +752,11 @@ func DecodeS2F27(item secs2.Item) (S2F27Body, error) {
 		return out, err
 	}
 
-	if out.PPID, err = decodeItem(root.At(1), "PPID"); err != nil {
+	if out.PPID, err = decodeScalarItem(root.At(1), "PPID"); err != nil {
 		return out, err
 	}
 
-	if out.MIDS, err = decodeItems(root.At(2), "MIDS"); err != nil {
+	if out.MIDS, err = decodeEach(root.At(2), "MIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -772,7 +784,7 @@ func DecodeS2F28(item secs2.Item) (S2F28Reply, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.CMDA, err = decodeItem(root, "CMDA"); err != nil {
+	if out.CMDA, err = decodeScalarItem(root, "CMDA"); err != nil {
 		return out, err
 	}
 
@@ -800,7 +812,7 @@ func DecodeS2F29(item secs2.Item) (S2F29Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.ECIDS, err = decodeItems(root, "ECIDS"); err != nil {
+	if out.ECIDS, err = decodeEach(root, "ECIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -917,7 +929,7 @@ func DecodeS2F33(item secs2.Item) (S2F33Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -982,7 +994,7 @@ func DecodeS2F35(item secs2.Item) (S2F35Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1051,7 +1063,7 @@ func DecodeS2F37(item secs2.Item) (S2F37Body, error) {
 		return out, err
 	}
 
-	if out.CEIDS, err = decodeItems(root.At(1), "CEIDS"); err != nil {
+	if out.CEIDS, err = decodeEach(root.At(1), "CEIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
@@ -1112,11 +1124,11 @@ func DecodeS2F39(item secs2.Item) (S2F39Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
-	if out.DATALENGTH, err = decodeItem(root.At(1), "DATALENGTH"); err != nil {
+	if out.DATALENGTH, err = decodeScalarItem(root.At(1), "DATALENGTH"); err != nil {
 		return out, err
 	}
 
@@ -1177,7 +1189,7 @@ func DecodeS2F41(item secs2.Item) (S2F41Body, error) {
 		return out, err
 	}
 
-	if out.RCMD, err = decodeItem(root.At(0), "RCMD"); err != nil {
+	if out.RCMD, err = decodeScalarItem(root.At(0), "RCMD"); err != nil {
 		return out, err
 	}
 
@@ -1316,7 +1328,7 @@ func DecodeS2F45(item secs2.Item) (S2F45Body, error) {
 		return out, err
 	}
 
-	if out.DATAID, err = decodeItem(root.At(0), "DATAID"); err != nil {
+	if out.DATAID, err = decodeScalarItem(root.At(0), "DATAID"); err != nil {
 		return out, err
 	}
 
@@ -1385,7 +1397,7 @@ func DecodeS2F47(item secs2.Item) (S2F47Body, error) {
 
 	root := secs2.NewCursor(item)
 
-	if out.VIDS, err = decodeItems(root, "VIDS"); err != nil {
+	if out.VIDS, err = decodeEach(root, "VIDS", decodeScalarItem); err != nil {
 		return out, err
 	}
 
