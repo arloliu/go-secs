@@ -295,3 +295,35 @@ func TestDecodeFixedWidthArray(t *testing.T) {
 	_, err = gem.DecodeS9F1(secs2.A("0123456789"))
 	requireDecodeError(t, err, "gem: MHEAD:")
 }
+
+// TestS5F5VectorBody pins S5F5 to the shape SEMI E5 gives it: one item holding every ALID,
+// <ALID1,...,ALIDn>, not a list, and a zero-length item asking for every alarm.
+func TestS5F5VectorBody(t *testing.T) {
+	msg := gem.S5F5(secs2.U4(1, 2, 3))
+	if msg.Item().IsList() {
+		t.Fatalf("S5F5 body is a list, want one U4 item")
+	}
+
+	got, err := gem.DecodeS5F5(msg.Item())
+	if err != nil {
+		t.Fatalf("DecodeS5F5: %v", err)
+	}
+
+	alids, err := got.ALIDS.ToUint()
+	if err != nil {
+		t.Fatalf("ALIDS.ToUint: %v", err)
+	}
+
+	if len(alids) != 3 || alids[0] != 1 || alids[1] != 2 || alids[2] != 3 {
+		t.Errorf("ALIDS: got %v, want [1 2 3]", alids)
+	}
+
+	all, err := gem.DecodeS5F5(gem.S5F5(secs2.U4()).Item())
+	if err != nil {
+		t.Fatalf("DecodeS5F5 of a zero-length item: %v", err)
+	}
+
+	if all.ALIDS.Size() != 0 {
+		t.Errorf("ALIDS size: got %d, want 0", all.ALIDS.Size())
+	}
+}

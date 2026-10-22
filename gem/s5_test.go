@@ -139,17 +139,10 @@ func TestS5F5(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secs2.Decode: %v", err)
 	}
-	list1, err := decoded.ToList()
-	if err != nil {
-		t.Fatalf("decoded.ToList: %v", err)
-	}
-	if len(list1) != 1 {
-		t.Fatalf("list length: got %d, want 1", len(list1))
-	}
-	got2 := list1[0].ToBytes()
-	want2 := secs2.A("alids").ToBytes()
-	if !bytes.Equal(got2, want2) {
-		t.Errorf("alids: got %x, want %x", got2, want2)
+	got1 := decoded.ToBytes()
+	want1 := secs2.A("alids").ToBytes()
+	if !bytes.Equal(got1, want1) {
+		t.Errorf("alids: got %x, want %x", got1, want1)
 	}
 }
 

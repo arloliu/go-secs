@@ -28,6 +28,9 @@ Several shipped `gem` signatures change; see Upgrade notes.
   so the builders take and the decoders return `[]byte` instead of a single `byte`.
 - `gem`: `S6F25Body` gains `LINKIDPresent`, which is false when LINKID arrived zero-length;
   composite literals of `S6F25Body` without field names no longer compile.
+- `gem`: `S5F5` takes one item holding every ALID, as E5 defines it, instead of a list of ALID items,
+  and `S5F5Body.ALIDS` is that item: call `S5F5(secs2.U4(1, 2, 3))` rather than `S5F5(secs2.U4(1), secs2.U4(2), secs2.U4(3))`,
+  and `S5F5(secs2.U4())` to ask for every alarm.
 
 ### Added
 
@@ -60,6 +63,8 @@ Several shipped `gem` signatures change; see Upgrade notes.
   which E5 allows when there is no data or no report for the CEID.
   They previously rejected it as a list of the wrong length.
 - `gem`: godoc shows an empty list as `L[0]{}` instead of `L[0]{  }`.
+- `gem`: `S5F5` sends its ALIDs as one item, `<ALID1,...,ALIDn>`, and `DecodeS5F5` accepts that item (see Upgrade notes).
+  It previously sent a list of items, which E5 does not define for this message.
 
 ## [2.6.0] - 2026-09-28
 

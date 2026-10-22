@@ -180,12 +180,8 @@ func TestDecodeS5F5RoundTrip(t *testing.T) {
 		t.Fatalf("DecodeS5F5: %v", err)
 	}
 
-	if len(got.ALIDS) != 1 {
-		t.Fatalf("ALIDS: got %d elements, want 1", len(got.ALIDS))
-	}
-
-	if !bytes.Equal(got.ALIDS[0].ToBytes(), secs2.A("alids").ToBytes()) {
-		t.Errorf("ALIDS: got %x, want %x", got.ALIDS[0].ToBytes(), secs2.A("alids").ToBytes())
+	if !bytes.Equal(got.ALIDS.ToBytes(), secs2.A("alids").ToBytes()) {
+		t.Errorf("ALIDS: got %x, want %x", got.ALIDS.ToBytes(), secs2.A("alids").ToBytes())
 	}
 }
 
