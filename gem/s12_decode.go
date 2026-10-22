@@ -30,11 +30,12 @@ type S12F1Body struct {
 	PRAXI PRAXI
 }
 
-// DecodeS12F1 decodes the body of an S12F1 (Map Set-up Data Send) message into a [S12F1Body].
+// DecodeS12F1 decodes the body of an S12F1 (Map Set-up Data Send) message into an [S12F1Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F1(item secs2.Item, opts ...DecodeOption) (S12F1Body, error) {
 	var out S12F1Body
@@ -120,11 +121,12 @@ type S12F2Reply struct {
 	SDACK SDACK
 }
 
-// DecodeS12F2 decodes the body of an S12F2 (Map Set-up Data Acknowledge) message into a [S12F2Reply].
+// DecodeS12F2 decodes the body of an S12F2 (Map Set-up Data Acknowledge) message into an [S12F2Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS12F2(item secs2.Item, opts ...DecodeOption) (S12F2Reply, error) {
 	var out S12F2Reply
@@ -160,11 +162,12 @@ type S12F3Body struct {
 	NULBC secs2.Item
 }
 
-// DecodeS12F3 decodes the body of an S12F3 (Map Set-up Data Request) message into a [S12F3Body].
+// DecodeS12F3 decodes the body of an S12F3 (Map Set-up Data Request) message into an [S12F3Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F3(item secs2.Item, opts ...DecodeOption) (S12F3Body, error) {
 	var out S12F3Body
@@ -243,11 +246,12 @@ type S12F4Reply struct {
 	MLCL  secs2.Item
 }
 
-// DecodeS12F4 decodes the body of an S12F4 (Map Set-up Data) message into a [S12F4Reply].
+// DecodeS12F4 decodes the body of an S12F4 (Map Set-up Data) message into an [S12F4Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F4(item secs2.Item, opts ...DecodeOption) (S12F4Reply, error) {
 	var out S12F4Reply
@@ -339,11 +343,12 @@ type S12F5Body struct {
 	MLCL  secs2.Item
 }
 
-// DecodeS12F5 decodes the body of an S12F5 (Map Transmit Inquire) message into a [S12F5Body].
+// DecodeS12F5 decodes the body of an S12F5 (Map Transmit Inquire) message into an [S12F5Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F5(item secs2.Item, opts ...DecodeOption) (S12F5Body, error) {
 	var out S12F5Body
@@ -385,11 +390,12 @@ type S12F6Reply struct {
 	GRNT1 GRNT1
 }
 
-// DecodeS12F6 decodes the body of an S12F6 (Map Transmit Grant) message into a [S12F6Reply].
+// DecodeS12F6 decodes the body of an S12F6 (Map Transmit Grant) message into an [S12F6Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS12F6(item secs2.Item, opts ...DecodeOption) (S12F6Reply, error) {
 	var out S12F6Reply
@@ -416,11 +422,12 @@ type S12F7Body struct {
 	ROWS  []MapRow
 }
 
-// DecodeS12F7 decodes the body of an S12F7 (Map Data Send Type 1) message into a [S12F7Body].
+// DecodeS12F7 decodes the body of an S12F7 (Map Data Send Type 1) message into an [S12F7Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F7(item secs2.Item, opts ...DecodeOption) (S12F7Body, error) {
 	var out S12F7Body
@@ -458,11 +465,12 @@ type S12F8Reply struct {
 	MDACK MDACK
 }
 
-// DecodeS12F8 decodes the body of an S12F8 (Map Data Acknowledge Type 1) message into a [S12F8Reply].
+// DecodeS12F8 decodes the body of an S12F8 (Map Data Acknowledge Type 1) message into an [S12F8Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F8Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS12F8(item secs2.Item, opts ...DecodeOption) (S12F8Reply, error) {
 	var out S12F8Reply
@@ -490,11 +498,12 @@ type S12F9Body struct {
 	BINLT secs2.Item
 }
 
-// DecodeS12F9 decodes the body of an S12F9 (Map Data Send Type 2) message into a [S12F9Body].
+// DecodeS12F9 decodes the body of an S12F9 (Map Data Send Type 2) message into an [S12F9Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F9(item secs2.Item, opts ...DecodeOption) (S12F9Body, error) {
 	var out S12F9Body
@@ -536,11 +545,12 @@ type S12F10Reply struct {
 	MDACK MDACK
 }
 
-// DecodeS12F10 decodes the body of an S12F10 (Map Data Acknowledge Type 2) message into a [S12F10Reply].
+// DecodeS12F10 decodes the body of an S12F10 (Map Data Acknowledge Type 2) message into an [S12F10Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F10Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS12F10(item secs2.Item, opts ...DecodeOption) (S12F10Reply, error) {
 	var out S12F10Reply
@@ -567,11 +577,12 @@ type S12F11Body struct {
 	POSITIONS []MapPosition
 }
 
-// DecodeS12F11 decodes the body of an S12F11 (Map Data Send Type 3) message into a [S12F11Body].
+// DecodeS12F11 decodes the body of an S12F11 (Map Data Send Type 3) message into an [S12F11Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F11(item secs2.Item, opts ...DecodeOption) (S12F11Body, error) {
 	var out S12F11Body
@@ -609,11 +620,12 @@ type S12F12Reply struct {
 	MDACK MDACK
 }
 
-// DecodeS12F12 decodes the body of an S12F12 (Map Data Acknowledge Type 3) message into a [S12F12Reply].
+// DecodeS12F12 decodes the body of an S12F12 (Map Data Acknowledge Type 3) message into an [S12F12Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F12Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS12F12(item secs2.Item, opts ...DecodeOption) (S12F12Reply, error) {
 	var out S12F12Reply
@@ -639,11 +651,12 @@ type S12F13Body struct {
 	IDTYP IDTYP
 }
 
-// DecodeS12F13 decodes the body of an S12F13 (Map Data Request Type 1) message into a [S12F13Body].
+// DecodeS12F13 decodes the body of an S12F13 (Map Data Request Type 1) message into an [S12F13Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F13Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F13(item secs2.Item, opts ...DecodeOption) (S12F13Body, error) {
 	var out S12F13Body
@@ -679,11 +692,12 @@ type S12F14Reply struct {
 	ROWS  []MapRow
 }
 
-// DecodeS12F14 decodes the body of an S12F14 (Map Data Type 1) message into a [S12F14Reply].
+// DecodeS12F14 decodes the body of an S12F14 (Map Data Type 1) message into an [S12F14Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F14Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F14(item secs2.Item, opts ...DecodeOption) (S12F14Reply, error) {
 	var out S12F14Reply
@@ -722,11 +736,12 @@ type S12F15Body struct {
 	IDTYP IDTYP
 }
 
-// DecodeS12F15 decodes the body of an S12F15 (Map Data Request Type 2) message into a [S12F15Body].
+// DecodeS12F15 decodes the body of an S12F15 (Map Data Request Type 2) message into an [S12F15Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F15Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F15(item secs2.Item, opts ...DecodeOption) (S12F15Body, error) {
 	var out S12F15Body
@@ -763,11 +778,12 @@ type S12F16Reply struct {
 	BINLT secs2.Item
 }
 
-// DecodeS12F16 decodes the body of an S12F16 (Map Data Type 2) message into a [S12F16Reply].
+// DecodeS12F16 decodes the body of an S12F16 (Map Data Type 2) message into an [S12F16Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F16Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F16(item secs2.Item, opts ...DecodeOption) (S12F16Reply, error) {
 	var out S12F16Reply
@@ -814,11 +830,12 @@ type S12F17Body struct {
 	SDBIN SDBIN
 }
 
-// DecodeS12F17 decodes the body of an S12F17 (Map Data Request Type 3) message into a [S12F17Body].
+// DecodeS12F17 decodes the body of an S12F17 (Map Data Request Type 3) message into an [S12F17Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F17Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F17(item secs2.Item, opts ...DecodeOption) (S12F17Body, error) {
 	var out S12F17Body
@@ -858,11 +875,12 @@ type S12F18Reply struct {
 	POSITIONS []MapPosition
 }
 
-// DecodeS12F18 decodes the body of an S12F18 (Map Data Type 3) message into a [S12F18Reply].
+// DecodeS12F18 decodes the body of an S12F18 (Map Data Type 3) message into an [S12F18Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F18Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F18(item secs2.Item, opts ...DecodeOption) (S12F18Reply, error) {
 	var out S12F18Reply
@@ -904,11 +922,12 @@ type S12F19Body struct {
 	DATLC uint8
 }
 
-// DecodeS12F19 decodes the body of an S12F19 (Map Error Report Send) message into a [S12F19Body].
+// DecodeS12F19 decodes the body of an S12F19 (Map Error Report Send) message into an [S12F19Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S12F19Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS12F19(item secs2.Item, opts ...DecodeOption) (S12F19Body, error) {
 	var out S12F19Body

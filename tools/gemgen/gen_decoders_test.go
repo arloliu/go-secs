@@ -183,7 +183,7 @@ func TestRenderDecodersTakeOptions(t *testing.T) {
 	repeat := renderOneDecoder(t, 2, "both", &StructureNode{Type: "list", Repeat: "svids", Of: &StructureNode{Item: "SVID"}}, decoderItems())
 
 	require.Contains(t, repeat, "func DecodeS1F2(item secs2.Item, opts ...DecodeOption) (S1F2Reply, error) {")
-	require.NotContains(t, repeat, "cfg")
+	require.False(t, usesIdent(t, []byte(repeat), "cfg"), "a body with no list of fixed length declares no decode config")
 	require.Contains(t, repeat, "// No [DecodeOption] changes how it decodes: the body declares no list of fixed length.")
 }
 
@@ -377,6 +377,27 @@ func declaredFuncs(t *testing.T, src []byte) []string {
 	}
 
 	return names
+}
+
+// usesIdent reports whether the generated source src names the identifier name in its code,
+// leaving out its comments and string literals.
+func usesIdent(t *testing.T, src []byte, name string) bool {
+	t.Helper()
+
+	file, err := parser.ParseFile(token.NewFileSet(), "", src, parser.SkipObjectResolution)
+	require.NoError(t, err)
+
+	found := false
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && id.Name == name {
+			found = true
+		}
+
+		return !found
+	})
+
+	return found
 }
 
 // fuzzRegisterCall matches a generated decode test file's registration of one decoder with the fuzz harness.

@@ -1,14 +1,19 @@
 // Package gem provides pure value builders and body decoders for SEMI E30 (GEM) role messages.
 //
 // It covers the messages SEMI E5 defines in streams 1 to 10 and 12 to 19 (E5 defines no stream 11).
-// The builders, decoders, and item constants are generated from a transcription of SEMI E5 kept as YAML
-// in tools/gemgen/data of the go-secs repository.
+// The builders, decoders, groups, item constants, and catalog are generated from a transcription of SEMI E5 kept as YAML in tools/gemgen/data of the go-secs repository.
 //
 // Every builder returns a [secs2.SECS2Message] that can be sent via Connection.SendSECS2Message on an established HSMS or SECS-I connection.
 //
 // The transport-agnostic base builder is [secs2.NewMessage]; callers that need stream/function pairs not covered here should use it directly.
 //
 // Equipment-defined identifiers are passed as [secs2.Item] values so callers control the SECS-II type (ASCII, integer, binary, …) without coupling to gem.
+//
+// Set every [secs2.Item] argument and field a builder or a group takes.
+// [secs2.L] drops a nil child, so a nil item shortens the list that holds it,
+// and the peer receives a body of the wrong shape.
+// A pointer to a group whose fields are all nil is no exception:
+// &Deadband{} sends L[0], as a nil *Deadband does.
 //
 // # Item values
 //
@@ -22,12 +27,36 @@
 // The values come from SEMI E5 and, for the GEM300 vocabularies (carrier actions, process job commands, object types, and the like),
 // from the standard that defines them; a constant from another standard than E5 names it in its doc.
 //
+// The alarm code [ALCD] combines a category with a set bit:
+// [S5F1] takes gem.ALCDAlarmSet|gem.ALCDPersonalSafety,
+// and [ALCD.Category] and [ALCD.Set] read the two parts of a received code.
+// [PFCD], the predefined form code of S6F9, is a named type without constants, since E5 defines no values for it.
+//
 // # Short forms
 //
 // Where SEMI E5 names a shorter form of a message, a second builder with a descriptive suffix sends it:
 // [S16F28Success] sends the S16F28 acknowledge with an empty error list.
 // A short form has no decoder of its own;
 // the main decoder of the message, here [DecodeS16F28], decodes both forms.
+//
+// # Groups
+//
+// Where a message repeats a list, each element is a named struct, a group,
+// shared by every message that repeats a list of the same shape:
+// [Report] holds the RPTID and the values of one report,
+// [S6F11] takes the reports as Report values, and [DecodeS6F11] returns them so.
+// A group's doc gives its shape, and its fields follow the result-struct rules below.
+// Its Item method builds its list, for a body assembled by hand with [secs2.NewMessage].
+//
+//	msg := gem.S6F11(dataid, ceid,
+//		gem.Report{RPTID: secs2.U4(7), VALUES: []secs2.Item{secs2.A("IDLE"), secs2.U4(42)}},
+//		gem.Report{RPTID: secs2.U4(8)},
+//	)
+//
+// A repeat whose elements are themselves repeats is a slice of slices:
+// [S6F27] takes one []Report per trace sample.
+// A repeat of one fixed-format item is a slice of values both ways:
+// [S18F4] takes its statuses as strings, and [S18F4Reply.STATUSES] holds them so.
 //
 // # Decoding a received body
 //
@@ -40,27 +69,33 @@
 // so gem stays independent of any transport package.
 // The result struct's fields mirror the builder's parameters in order, under the E5 data item names,
 // so a body built by [S1F14] decodes through [DecodeS1F14] into the same three values.
+//
 // An item SEMI E5 lets be sent zero-length, such as the LINKID of S6F25,
 // is a pointer both ways, and the doc of its builder and result type says so:
 // [S6F25] sends a nil linkid as a zero-length item,
 // and [DecodeS6F25] decodes a zero-length LINKID as nil.
-//
-// A repeated group of one fixed-format item is a slice of values both ways:
-// [S18F4] takes its statuses as strings, and [S18F4Reply.STATUSES] holds them so.
+// A pointer to a zero value, such as new(uint32(0)), sends and decodes as that value.
+// A group's field follows the same rule,
+// and a list E5 lets be sent as L[0] inside a group, or as a repeat's element, is a pointer to its group:
+// [Limit.DEADBAND] is a *[Deadband], nil for L[0],
+// and [S15F24] takes each recipe's descriptors as []*RecipeDescriptor.
 //
 // # The strict-shape contract
 //
-// A decoder accepts exactly the body shape its result type's Body: line documents, and nothing else.
-// A list of the wrong length, an item of the wrong SECS-II type, a value too wide for the E5 data item's declared width, or a missing position all return an error naming the E5 field or the body position that failed.
+// With no options, a decoder accepts exactly the body shape its result type's Body: line documents, and nothing else.
+// A list of the wrong length, an item of the wrong SECS-II type, a value too wide for the E5 data item's declared width, or a missing position all return an error
+// naming its path from the body, such as REPORTS[1].VIDS.
 // A mismatch is never reported as a zero value with a nil error.
+// Every element of a repeat is checked at full depth, groups inside groups included.
 //
 // Four shapes are deliberately permissive:
 //
-//   - A repeated group (an SVID list, a report list) accepts any number of elements, including none.
-//     An empty group decodes as an empty slice; test it with len, not against nil.
-//   - A group SEMI E5 marks optional — an error code and its text, a set of limit attributes — decodes in either its full or its omitted form,
-//     and the omitted fields keep their zero value.
-//     Where E5 lets a whole body be sent zero-length, as for S6F16, an empty list decodes with every field zero.
+//   - A repeat (an SVID list, a report list) accepts any number of elements, including none.
+//     An empty repeat decodes as an empty slice; test it with len, not against nil.
+//   - A list SEMI E5 lets be sent short, such as the error code and text of S5F14, decodes in either its full or its short form.
+//     In a body, the omitted fields keep their zero value;
+//     where a pointer to a group stands for the list, L[0] decodes as nil, as described above.
+//     Where E5 lets a whole body be sent as an empty list, as for S6F16, L[0] decodes with every field zero.
 //   - An item SEMI E5 lets be sent zero-length decodes as a nil pointer, as described above.
 //   - A numeric field accepts any width of its own family:
 //     a U8 item decodes into a field the standard declares U4, an I1 into an I4, an F4 into an F8.
@@ -71,7 +106,42 @@
 // the decoder returns them as they arrived rather than guessing a type the standard leaves open.
 // It rejects only a list where the item's E5 formats exclude one,
 // and accepts a format E5 does not list, such as an ASCII ALID.
+// [DecodeS2F14] alone accepts an empty list as a constant value,
+// which E5 defines there to mean the constant does not exist.
 //
-// Equipment that pads or extends a body beyond the standard shape will not decode here.
+// # Decode options
+//
+// Every decoder takes options after the body item.
+// [AllowTrailing] accepts a list holding more items than E5 declares, in the body or in a group,
+// for equipment that appends its own items to a standard body;
+// the decoder reads the declared items and ignores the rest.
+//
+//	body, err := gem.DecodeS5F1(msg.Item(), gem.AllowTrailing())
+//
+// It relaxes only the list length: a list holding fewer items, an item of the wrong format,
+// and a list where E5 excludes one are still errors.
+// A body that departs from E5 in another way will not decode here.
 // That case is served by the manual path, [secs2.NewCursor] over the body item, which reads only the positions a caller asks for.
+//
+// # Catalog
+//
+// [Lookup] describes a message by its stream, its function, and the [Role] of its sender:
+// its E5 name and mnemonic, its [Direction], its reply bit and reply function,
+// and a Decode function that decodes a received body into the message's result type,
+// so a receiver needs no switch over stream and function.
+// The role picks the form where the host and the equipment send different bodies, as for S1F13.
+// Lookup does not check the direction:
+// compare [MessageInfo.Direction] with the sender, for instance before answering with [S9F5].
+//
+//	info, ok := gem.Lookup(msg.StreamCode(), msg.FunctionCode(), gem.RoleEquipment)
+//	if ok && info.Decode != nil {
+//		body, err := info.Decode(msg.Item(), gem.AllowTrailing())
+//		// body holds the form's result type, such as an S6F11Body.
+//	}
+//
+// [AcceptReply] builds the reply that accepts a primary as a whole,
+// such as S6F12 with [ACKC6Accepted] for an event report.
+// The reply asserts what E5 says its acknowledge value means, which for some messages is more than receipt:
+// HCACK 0 in S2F42 says the command has been performed.
+// Where completion comes later, build the reply with the message's builder instead.
 package gem

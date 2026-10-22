@@ -16,11 +16,12 @@ type S17F1Body struct {
 	VIDS    []secs2.Item
 }
 
-// DecodeS17F1 decodes the body of an S17F1 (Data Report Create Request) message into a [S17F1Body].
+// DecodeS17F1 decodes the body of an S17F1 (Data Report Create Request) message into an [S17F1Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F1(item secs2.Item, opts ...DecodeOption) (S17F1Body, error) {
 	var out S17F1Body
@@ -63,11 +64,12 @@ type S17F2Reply struct {
 	ERRCODE secs2.Item
 }
 
-// DecodeS17F2 decodes the body of an S17F2 (Data Report Create Acknowledge) message into a [S17F2Reply].
+// DecodeS17F2 decodes the body of an S17F2 (Data Report Create Acknowledge) message into an [S17F2Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F2Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F2(item secs2.Item, opts ...DecodeOption) (S17F2Reply, error) {
 	var out S17F2Reply
@@ -101,11 +103,12 @@ type S17F3Body struct {
 	RPTIDS []secs2.Item
 }
 
-// DecodeS17F3 decodes the body of an S17F3 (Data Report Delete Request) message into a [S17F3Body].
+// DecodeS17F3 decodes the body of an S17F3 (Data Report Delete Request) message into an [S17F3Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS17F3(item secs2.Item, opts ...DecodeOption) (S17F3Body, error) {
 	var out S17F3Body
@@ -131,11 +134,12 @@ type S17F4Reply struct {
 	ERRORS []ReportError
 }
 
-// DecodeS17F4 decodes the body of an S17F4 (Data Report Delete Acknowledge) message into a [S17F4Reply].
+// DecodeS17F4 decodes the body of an S17F4 (Data Report Delete Acknowledge) message into an [S17F4Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F4Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F4(item secs2.Item, opts ...DecodeOption) (S17F4Reply, error) {
 	var out S17F4Reply
@@ -184,11 +188,12 @@ type S17F5Body struct {
 	RPTOC        *bool
 }
 
-// DecodeS17F5 decodes the body of an S17F5 (Trace Create Request) message into a [S17F5Body].
+// DecodeS17F5 decodes the body of an S17F5 (Trace Create Request) message into an [S17F5Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F5(item secs2.Item, opts ...DecodeOption) (S17F5Body, error) {
 	var out S17F5Body
@@ -274,11 +279,12 @@ type S17F6Reply struct {
 	ERRCODE secs2.Item
 }
 
-// DecodeS17F6 decodes the body of an S17F6 (Trace Create Acknowledge) message into a [S17F6Reply].
+// DecodeS17F6 decodes the body of an S17F6 (Trace Create Acknowledge) message into an [S17F6Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F6Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F6(item secs2.Item, opts ...DecodeOption) (S17F6Reply, error) {
 	var out S17F6Reply
@@ -312,11 +318,12 @@ type S17F7Body struct {
 	TRIDS []secs2.Item
 }
 
-// DecodeS17F7 decodes the body of an S17F7 (Trace Delete Request) message into a [S17F7Body].
+// DecodeS17F7 decodes the body of an S17F7 (Trace Delete Request) message into an [S17F7Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS17F7(item secs2.Item, opts ...DecodeOption) (S17F7Body, error) {
 	var out S17F7Body
@@ -342,11 +349,12 @@ type S17F8Reply struct {
 	ERRORS []TraceError
 }
 
-// DecodeS17F8 decodes the body of an S17F8 (Trace Delete Acknowledge) message into a [S17F8Reply].
+// DecodeS17F8 decodes the body of an S17F8 (Trace Delete Acknowledge) message into an [S17F8Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F8Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F8(item secs2.Item, opts ...DecodeOption) (S17F8Reply, error) {
 	var out S17F8Reply
@@ -383,11 +391,12 @@ type S17F9Body struct {
 	RPTIDS  []secs2.Item
 }
 
-// DecodeS17F9 decodes the body of an S17F9 (Collection Event Link Request) message into a [S17F9Body].
+// DecodeS17F9 decodes the body of an S17F9 (Collection Event Link Request) message into an [S17F9Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F9(item secs2.Item, opts ...DecodeOption) (S17F9Body, error) {
 	var out S17F9Body
@@ -431,11 +440,12 @@ type S17F10Reply struct {
 	ERRCODE secs2.Item
 }
 
-// DecodeS17F10 decodes the body of an S17F10 (Collection Event Link Acknowledge) message into a [S17F10Reply].
+// DecodeS17F10 decodes the body of an S17F10 (Collection Event Link Acknowledge) message into an [S17F10Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F10Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F10(item secs2.Item, opts ...DecodeOption) (S17F10Reply, error) {
 	var out S17F10Reply
@@ -475,11 +485,12 @@ type S17F11Body struct {
 	RPTID   secs2.Item
 }
 
-// DecodeS17F11 decodes the body of an S17F11 (Collection Event Unlink Request) message into a [S17F11Body].
+// DecodeS17F11 decodes the body of an S17F11 (Collection Event Unlink Request) message into an [S17F11Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F11(item secs2.Item, opts ...DecodeOption) (S17F11Body, error) {
 	var out S17F11Body
@@ -520,11 +531,12 @@ type S17F12Reply struct {
 	ERRCODE secs2.Item
 }
 
-// DecodeS17F12 decodes the body of an S17F12 (Collection Event Unlink Acknowledge) message into a [S17F12Reply].
+// DecodeS17F12 decodes the body of an S17F12 (Collection Event Unlink Acknowledge) message into an [S17F12Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F12Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F12(item secs2.Item, opts ...DecodeOption) (S17F12Reply, error) {
 	var out S17F12Reply
@@ -566,11 +578,12 @@ type S17F13Body struct {
 	TRIDS []secs2.Item
 }
 
-// DecodeS17F13 decodes the body of an S17F13 (Trace Reset Request) message into a [S17F13Body].
+// DecodeS17F13 decodes the body of an S17F13 (Trace Reset Request) message into an [S17F13Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F13Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS17F13(item secs2.Item, opts ...DecodeOption) (S17F13Body, error) {
 	var out S17F13Body
@@ -596,11 +609,12 @@ type S17F14Reply struct {
 	ERRORS []TraceError
 }
 
-// DecodeS17F14 decodes the body of an S17F14 (Trace Report Reset Acknowledge) message into a [S17F14Reply].
+// DecodeS17F14 decodes the body of an S17F14 (Trace Report Reset Acknowledge) message into an [S17F14Reply].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S17F14Reply] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS17F14(item secs2.Item, opts ...DecodeOption) (S17F14Reply, error) {
 	var out S17F14Reply

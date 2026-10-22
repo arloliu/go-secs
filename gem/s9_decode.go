@@ -13,11 +13,12 @@ type S9F1Body struct {
 	MHEAD [10]byte
 }
 
-// DecodeS9F1 decodes the body of an S9F1 (Unrecognized Device ID) message into a [S9F1Body].
+// DecodeS9F1 decodes the body of an S9F1 (Unrecognized Device ID) message into an [S9F1Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F1Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS9F1(item secs2.Item, opts ...DecodeOption) (S9F1Body, error) {
 	var out S9F1Body
@@ -49,11 +50,12 @@ type S9F3Body struct {
 	MHEAD [10]byte
 }
 
-// DecodeS9F3 decodes the body of an S9F3 (Unrecognized Stream Type) message into a [S9F3Body].
+// DecodeS9F3 decodes the body of an S9F3 (Unrecognized Stream Type) message into an [S9F3Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F3Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS9F3(item secs2.Item, opts ...DecodeOption) (S9F3Body, error) {
 	var out S9F3Body
@@ -85,11 +87,12 @@ type S9F5Body struct {
 	MHEAD [10]byte
 }
 
-// DecodeS9F5 decodes the body of an S9F5 (Unrecognized Function Type) message into a [S9F5Body].
+// DecodeS9F5 decodes the body of an S9F5 (Unrecognized Function Type) message into an [S9F5Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F5Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS9F5(item secs2.Item, opts ...DecodeOption) (S9F5Body, error) {
 	var out S9F5Body
@@ -121,11 +124,12 @@ type S9F7Body struct {
 	MHEAD [10]byte
 }
 
-// DecodeS9F7 decodes the body of an S9F7 (Illegal Data) message into a [S9F7Body].
+// DecodeS9F7 decodes the body of an S9F7 (Illegal Data) message into an [S9F7Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F7Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS9F7(item secs2.Item, opts ...DecodeOption) (S9F7Body, error) {
 	var out S9F7Body
@@ -157,11 +161,12 @@ type S9F9Body struct {
 	SHEAD [10]byte
 }
 
-// DecodeS9F9 decodes the body of an S9F9 (Transaction Timer Timeout) message into a [S9F9Body].
+// DecodeS9F9 decodes the body of an S9F9 (Transaction Timer Timeout) message into an [S9F9Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F9Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS9F9(item secs2.Item, opts ...DecodeOption) (S9F9Body, error) {
 	var out S9F9Body
@@ -193,11 +198,12 @@ type S9F11Body struct {
 	MHEAD [10]byte
 }
 
-// DecodeS9F11 decodes the body of an S9F11 (Data Too Long) message into a [S9F11Body].
+// DecodeS9F11 decodes the body of an S9F11 (Data Too Long) message into an [S9F11Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F11Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // No [DecodeOption] changes how it decodes: the body declares no list of fixed length.
 func DecodeS9F11(item secs2.Item, opts ...DecodeOption) (S9F11Body, error) {
 	var out S9F11Body
@@ -230,11 +236,12 @@ type S9F13Body struct {
 	EDID secs2.Item
 }
 
-// DecodeS9F13 decodes the body of an S9F13 (Conversation Timeout) message into a [S9F13Body].
+// DecodeS9F13 decodes the body of an S9F13 (Conversation Timeout) message into an [S9F13Body].
 //
 // item is the message body, as returned by SECS2Message.Item.
 // The body must match the shape [S9F13Body] documents:
 // a wrong list length, a wrong SECS-II type, or a missing position returns an error naming the E5 field that failed.
+//
 // With [AllowTrailing], a list may hold more children than the shape declares; the extra ones are ignored.
 func DecodeS9F13(item secs2.Item, opts ...DecodeOption) (S9F13Body, error) {
 	var out S9F13Body
