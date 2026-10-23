@@ -36,6 +36,28 @@
 // and [ALCD.Category] and [ALCD.Set] read the two parts of a received code.
 // [PFCD], the predefined form code of S6F9, is a named type without constants, since E5 defines no values for it.
 //
+// # Time values
+//
+// The TIME, TIMESTAMP, and STIME data items and the CLOCK variable are strings in builders and result structs alike.
+// The TimeFormat equipment constant picks their form (SEMI E5 Table 4):
+// [TimeFormat12] YYMMDDhhmmss, [TimeFormat16] YYYYMMDDhhmmsscc, or [TimeFormatExtended] YYYY-MM-DDThh:mm:ss.sTZD.
+// [FormatTime] writes a [time.Time] in the form the constant selects, as for the TIME of [S2F31],
+// and [ParseTime] reads any of the three forms back, reporting which one it found.
+//
+//	s, err := gem.FormatTime(time.Now(), gem.TimeFormat16)
+//	// ...
+//	t, format, err := gem.ParseTime(reply.TIME, time.Now())
+//
+// A 12-byte time names no century, so ParseTime takes a reference time and picks the year nearest to it;
+// the 12- and 16-byte forms name no zone either, so their time is in the reference's Location.
+// Parsing is strict E5 and checks the shape and the field ranges only, never whether the time is plausible.
+//
+// A CLOCK value reported in an S6F11 arrives as a [secs2.Item] in [Report.VALUES],
+// so take its ASCII value at the position the report defines before calling ParseTime.
+// An empty STIME, which E5 lets S6F1 send when the time is to be derived from SMPLN,
+// and an empty TIME in S2F18, which means no time exists, are the caller's cases to handle:
+// ParseTime rejects an empty string.
+//
 // # Short forms
 //
 // Where SEMI E5 names a shorter form of a message, a second builder with a descriptive suffix sends it:
