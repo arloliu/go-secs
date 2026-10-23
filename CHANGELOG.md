@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 A connection can end a transaction early from either side,
 and a `gem` builder fails the send instead of sending a body of the wrong shape.
+`gem` also converts E5 time strings and prints its named item values by name.
 
 - `hsms.ReplyAbort` answers a received primary with SxF0, the Abort Transaction message (SEMI E5 §10.4.1),
   so the sender need not wait out its reply timer.
@@ -22,6 +23,8 @@ and a `gem` builder fails the send instead of sending a body of the wrong shape.
 - A nil `secs2.Item` passed to a `gem` builder or set in a group field fails the send and names where it was,
   instead of vanishing from the list that held it.
   `secs2.NewErrorItem` is the item that carries such an error to the send.
+- `gem.FormatTime` and `gem.ParseTime` convert between `time.Time` and the three TIME forms of SEMI E5 Table 4.
+- The named `gem` item types, such as `gem.COMMACK`, print their constant's name.
 
 The public API only gains additions.
 Several behavior changes need a look before upgrading; see Upgrade notes.
@@ -65,6 +68,14 @@ Several behavior changes need a look before upgrading; see Upgrade notes.
   Before, it dropped the outermost layer:
   the result read as `itemErr`'s text without `field: `, and `errors.Is` did not reach the wrapper.
   Code that compares the text of such an error sees the added context.
+
+- `gem`: the named numeric item types, such as `COMMACK`, `HCACK`, and `ALCD`, now have a `String` method,
+  so `%v`, `%s`, `%q`, `%x`, and `%X` print the constant's name, such as `COMMACKAccepted`, instead of the number,
+  and `COMMACK(5)` for a value with no constant.
+  `%x` and `%X` hex-encode that name.
+  `%d`, `%#v`, integer conversions, JSON, and the wire encoding are unchanged.
+  Code that parses or compares the text these verbs produce should use `%d` or `int(v)` for the number,
+  and `%x` with `byte(v)` for hexadecimal.
 
 ### Added
 
@@ -111,6 +122,16 @@ Several behavior changes need a look before upgrading; see Upgrade notes.
   so `ProcessJob.material` names the same field in a send error and in a decode error.
 - `gem`: `S7F6Denied`, `S7F8NoSuchMID`, and `S7F36NoSuchMID`, the zero-length replies E5 names,
   decoded by the main decoder of each message.
+- `gem`: `FormatTime(t, format, opts...)` and `ParseTime(s, ref)` convert between `time.Time` and the TIME, TIMESTAMP, STIME, and CLOCK strings.
+  They use the forms of the TimeFormat equipment constant (SEMI E5 Table 4):
+  `TimeFormat12` (`YYMMDDhhmmss`), `TimeFormat16` (`YYYYMMDDhhmmsscc`), and `TimeFormatExtended` (`YYYY-MM-DDThh:mm:ss.sTZD`, SEMI E148).
+  `ParseTime` detects the form and returns it.
+  A 12-byte time takes its century from `ref`, the year nearest to it,
+  and the 12- and 16-byte forms take `ref`'s Location.
+  Parsing is strict E5 and checks the shape and field ranges only.
+  Output is truncated, never rounded, and the extended form has 3 fraction digits unless `WithFractionDigits` picks 1 to 6.
+  Every error wraps `ErrInvalidTime`.
+- `gem`: a `String` method on every named item type with numeric constants, and on `TimeFormat` (see Upgrade notes).
 - `secs2`: `NewErrorItem(err)` returns an item that carries err,
   so `hsms.NewDataMessage` rejects any body that contains it.
   Its `Error()`, and that of every list holding it, reports err's text unchanged, and `errors.Is` reaches err.
@@ -122,6 +143,7 @@ Several behavior changes need a look before upgrading; see Upgrade notes.
   otherwise it is copied, never modified.
 - `hsms`: with `WithSessionIDValidation` on, only an equipment-role connection answers a session-ID mismatch with S9F1 (see Upgrade notes).
 - `hsmsss`: `Config.IsEquip` reports `EquipmentRole` instead of `AutoS9F9` (see Upgrade notes).
+- `gem`: the named numeric item types print their constant's name with `%v` and the other string verbs (see Upgrade notes).
 
 ### Fixed
 

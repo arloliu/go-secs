@@ -146,6 +146,7 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   Repeated lists are named structs such as `gem.Report`, and `gem.AllowTrailing` lets a decoder accept equipment that appends items to a body.
   `gem.Lookup` describes and decodes any of these messages by stream and function,
   and `gem.AcceptReply` builds the reply that accepts one.
+  `gem.FormatTime` and `gem.ParseTime` convert the E5 TIME strings to and from `time.Time`.
 * **logger** — a small logging façade for integrating your own logging framework.
 
 ## Performance
