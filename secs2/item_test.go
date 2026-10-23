@@ -480,6 +480,43 @@ func TestNewItemError_Nil(t *testing.T) {
 	require.Equal(t, "secs2: nil error", err.Error())
 }
 
+// TestNewItemError_KeepsWrappedError verifies that an error which wraps or joins an *ItemError,
+// rather than being one, is stored whole:
+// its text and every error it wraps stay reachable, and Error() does not panic.
+func TestNewItemError_KeepsWrappedError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("sentinel failure")
+	other := errors.New("other failure")
+	inner := NewItemError(sentinel)
+
+	tests := []struct {
+		name  string
+		err   error
+		reach []error
+	}{
+		{name: "wrapped plain error", err: fmt.Errorf("field: %w", sentinel), reach: []error{sentinel}},
+		{name: "wrapped ItemError", err: fmt.Errorf("field: %w", inner), reach: []error{inner, sentinel}},
+		{name: "joined ItemError", err: errors.Join(inner, other), reach: []error{inner, sentinel, other}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			itemErr := NewItemError(tt.err)
+
+			require.NotPanics(t, func() { _ = itemErr.Error() })
+			require.Equal(t, tt.err.Error(), itemErr.Error())
+			require.Same(t, tt.err, itemErr.Unwrap())
+
+			for _, want := range tt.reach {
+				require.ErrorIs(t, itemErr, want)
+			}
+		})
+	}
+}
+
 // TestNewItemError_deferredErrorSurface proves the wrap chain stays errors.Is-transparent all the
 // way from a concrete item's deferred error to the original sentinel, through baseItem.setError's
 // errors.Join + NewItemError path.

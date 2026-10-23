@@ -111,15 +111,17 @@ func NewItemErrorWithMsg(errMsg string) *ItemError {
 
 // NewItemError wraps err as an ItemError.
 //
-// If err is already an ItemError, the inner error is unwrapped to avoid double-wrapping.
+// If err is itself an *ItemError, its inner error is reused, so a direct *ItemError is not double-wrapped.
+// Any other error, including one that wraps or joins an *ItemError, is stored as is,
+// which keeps its text and keeps every error it wraps reachable through errors.Is.
+// A nil err is replaced with a fixed "secs2: nil error".
 func NewItemError(err error) *ItemError {
 	if err == nil {
 		err = errors.New("secs2: nil error")
 	}
 
-	itemErr := &ItemError{}
-	if errors.As(err, &itemErr) {
-		return &ItemError{err: errors.Unwrap(err)}
+	if itemErr, ok := err.(*ItemError); ok && itemErr != nil { //nolint:errorlint // only a direct *ItemError is flattened; a wrapped or joined one is kept whole
+		return &ItemError{err: itemErr.err}
 	}
 
 	return &ItemError{err: err}
