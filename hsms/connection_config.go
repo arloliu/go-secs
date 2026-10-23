@@ -631,8 +631,8 @@ func WithAsyncSendErrorHandler(fn func(msg Message, err error)) ConnOption {
 // a slow fn slows that one send call and nothing else;
 // it never runs on a protocol goroutine.
 // Async sends are out of scope for this hook:
-// SendDataMessageAsync, ForwardDataMessageAsync, SendAsync, and ReplyDataMessage
-// (which is itself built on SendAsync, not a synchronous write)
+// SendDataMessageAsync, ForwardDataMessageAsync, SendAsync, ReplyDataMessage, and ReplyAbort
+// (the last two are themselves built on SendAsync, not a synchronous write)
 // never report a TxEvent — see WithAsyncSendErrorHandler for their failure observability.
 // A control transaction — the Select.req / Linktest.req sends a transport issues internally — never reports one either;
 // only a caller-issued DATA message send does.

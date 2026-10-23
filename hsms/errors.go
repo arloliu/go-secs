@@ -129,7 +129,7 @@ var (
 	// even though — unlike ErrT3Timeout/ErrT6Timeout — that expiry does not make a retry worthwhile.
 	ErrCloseTimeout = errors.New("hsms: close timeout (tasks still live)")
 
-	// ErrNilMessage indicates SendSECS2Message, ReplyDataMessage, ForwardDataMessage,
+	// ErrNilMessage indicates SendSECS2Message, ReplyDataMessage, ReplyAbort, ForwardDataMessage,
 	// or ForwardDataMessageAsync was called with a nil message.
 	//
 	// Classification: IsTransient and IsTimeout both report false.
@@ -149,7 +149,8 @@ var (
 	// SendDataMessage, SendDataMessageAsync, and SendSECS2Message each mint fresh System Bytes for
 	// every call, so every message sent through them always opens a new transaction and is always a
 	// primary (SEMI E5 §7.2: a primary function must be odd). A reply message must instead go through
-	// ReplyDataMessage, which derives its even function from the primary it answers.
+	// ReplyDataMessage, which derives its even function from the primary it answers,
+	// and an SxF0 abort through ReplyAbort.
 	//
 	// Classification: IsTransient and IsTimeout both report false.
 	// This is a caller bug, and the same function code fails on every retry.
@@ -165,6 +166,29 @@ var (
 	// Classification: IsTransient and IsTimeout both report false.
 	// This is a caller bug, and the same call fails on every retry.
 	ErrAsyncReplyExpected = errors.New("hsms: async send cannot expect a reply")
+
+	// ErrNoReplyExpected indicates ReplyAbort was called with a primary whose W-bit is clear.
+	//
+	// Function 0 is sent in lieu of an expected reply (SEMI E5 §10.4.1),
+	// and a primary without the W-bit expects none:
+	// it is a whole transaction by itself (E5 §8.2), so there is no open transaction to close.
+	// Nothing is sent.
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// The same primary fails on every retry.
+	ErrNoReplyExpected = errors.New("hsms: primary expects no reply, so there is no open transaction to close")
+
+	// ErrAbortUnsupported indicates ReplyAbort was called with an endpoint that does not implement [AbortReplier],
+	// such as a caller's own SECS2Endpoint implementation or a wrapper that hides the go-secs connection it holds.
+	// Nothing is sent.
+	// It wraps [errors.ErrUnsupported], so errors.Is(err, errors.ErrUnsupported) reports true.
+	//
+	// A wrapper can support ReplyAbort by implementing AbortReplier itself,
+	// forwarding to [ReplyAbort] with the endpoint it wraps.
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// The same endpoint fails on every retry.
+	ErrAbortUnsupported = fmt.Errorf("hsms: endpoint does not support ReplyAbort: %w", errors.ErrUnsupported)
 )
 
 // RejectError is returned by a synchronous send whose transaction the peer answered with an HSMS Reject.req (SEMI E37 §7.10) instead of the expected reply.

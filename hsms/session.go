@@ -8,8 +8,11 @@ import (
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-// Compile-time assertion that *session implements SECS2Endpoint.
-var _ SECS2Endpoint = (*session)(nil)
+// Compile-time assertions that *session implements SECS2Endpoint and AbortReplier.
+var (
+	_ SECS2Endpoint = (*session)(nil)
+	_ AbortReplier  = (*session)(nil)
+)
 
 // session is the unexported concrete implementation of [SECS2Endpoint].
 // One session exists per HSMS-SS connection (single-session per E37.1).
@@ -208,13 +211,13 @@ func (s *session) ForwardDataMessageAsync(ctx context.Context, msg *DataMessage)
 	return s.rt.SendAsync(ctx, msg)
 }
 
-// originSender is the narrow capability [session.ReplyDataMessage] needs from its own connection:
+// originSender is the narrow capability [session.reply] needs from its own connection:
 // its identity token, to recognize a primary it admitted itself, and a generation-bound send to
 // reply through that same generation.
 // *connection satisfies it (asserted in connection.go).
 // A session built over a test double that does not — most in-package mock runtimes —
 // safely falls through to the ordinary send path,
-// since the type assertion in ReplyDataMessage simply reports false for it.
+// since the type assertion in reply simply reports false for it.
 type originSender interface {
 	originIdentity() *connIdentity
 	SendAsyncFromGeneration(ctx context.Context, gen uint64, msg Message) error
@@ -244,10 +247,38 @@ func (s *session) ReplyDataMessage(ctx context.Context, primary *DataMessage, it
 		return ErrNilMessage
 	}
 
+	return s.reply(ctx, primary, primary.Function()+1, item) // SECS-II secondary function = primary function + 1
+}
+
+// ReplyAbort answers primary with SxF0, the Abort Transaction message of primary's stream (SEMI E5 §10.4.1).
+//
+// The checks run in this order, and a refused call sends nothing:
+// a nil primary returns ErrNilMessage,
+// then a primary without the W-bit returns ErrNoReplyExpected, whichever generation admitted it.
+// Otherwise the abort is sent exactly as ReplyDataMessage sends a reply,
+// with the same generation binding and errors;
+// only the function differs, 0 instead of primary.Function()+1, and the body is empty.
+func (s *session) ReplyAbort(ctx context.Context, primary *DataMessage) error {
+	if primary == nil {
+		return ErrNilMessage
+	}
+
+	if !primary.WaitBit() {
+		return ErrNoReplyExpected
+	}
+
+	return s.reply(ctx, primary, 0, nil)
+}
+
+// reply is the shared body of ReplyDataMessage and ReplyAbort:
+// it builds a W-bit-clear message of primary's stream with the given function,
+// this session's ID, and primary's System Bytes verbatim (E37 §8.2.6.9),
+// and enqueues it bound to the generation that admitted primary when this session's own connection did.
+func (s *session) reply(ctx context.Context, primary *DataMessage, function byte, item secs2.Item) error {
 	dm, err := NewDataMessage(
 		primary.Stream(),
-		primary.Function()+1, // SECS-II secondary function = primary function + 1
-		false,                // no W-bit on reply messages
+		function,
+		false, // no W-bit on reply messages
 		s.rt.SessionID(),
 		primary.SystemBytes(), // verbatim primary system bytes (E37 §8.2.6.9)
 		item,

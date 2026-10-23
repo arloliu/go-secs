@@ -1,6 +1,7 @@
 package secs1
 
 import (
+	"context"
 	"errors"
 
 	"github.com/arloliu/go-secs/v2/hsms"
@@ -67,9 +68,19 @@ type connection struct {
 	metrics  *ConnectionMetrics
 }
 
+var _ hsms.AbortReplier = (*connection)(nil)
+
 // BlockMetrics returns the SECS-I block/line-level counters (see the Connection doc).
 func (c *connection) BlockMetrics() *ConnectionMetrics {
 	return c.metrics
+}
+
+// ReplyAbort answers primary with SxF0 through the embedded connection; see [hsms.ReplyAbort].
+//
+// It is spelled out because only the methods of the embedded hsms.Connection interface are promoted,
+// and ReplyAbort is not one of them.
+func (c *connection) ReplyAbort(ctx context.Context, primary *hsms.DataMessage) error {
+	return hsms.ReplyAbort(ctx, c.Connection, primary)
 }
 
 // UpdateConfigOptions applies the caller's options and then re-forces the two invariants NewConfig establishes at construction, as the last two options:

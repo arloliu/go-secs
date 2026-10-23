@@ -156,6 +156,8 @@ type SECS2Endpoint interface {
 	// one your code constructed with [DataMessage.Derive] rather than received —
 	// are not checked: the reply uses the ordinary send path (the same not-Selected, context, and validation errors as any other send apply),
 	// and you own correlation for it.
+	//
+	// To close primary's transaction with SxF0 instead of a reply, call [ReplyAbort] in place of ReplyDataMessage.
 	ReplyDataMessage(ctx context.Context, primary *DataMessage, item secs2.Item) error
 
 	// AddDataMessageHandler appends one or more inbound data message handlers.

@@ -570,7 +570,7 @@ func newTxEvent(dm *DataMessage, e *epoch, replyWaited bool, start time.Time, er
 //	  writeFrame: same sub-cases as above           -> (same as above)      -> (same as above)
 //	  success (on wire, no local reply awaited)     -> nil                 -> TxSent
 //
-// ReplyDataMessage is deliberately NOT in this table: session.ReplyDataMessage enqueues via
+// ReplyDataMessage and ReplyAbort are deliberately NOT in this table: session.reply enqueues via
 // rt.SendAsync (the async fire-and-forget primitive shared with SendDataMessageAsync and
 // ForwardDataMessageAsync), not sendWaitReply/sendNoReply, so it never reaches this classifier —
 // see WithTransactionObserver's godoc.

@@ -22,9 +22,9 @@ var ErrNoScriptedReply = errors.New("hsmstest: no scripted reply queued")
 
 // SentMessage records one outbound call made through FakeEndpoint.
 type SentMessage struct {
-	Method  string            // "SendDataMessage" | "SendDataMessageAsync" | "SendSECS2Message" | "ReplyDataMessage" | "ForwardDataMessage" | "ForwardDataMessageAsync"
+	Method  string            // "SendDataMessage" | "SendDataMessageAsync" | "SendSECS2Message" | "ReplyDataMessage" | "ReplyAbort" | "ForwardDataMessage" | "ForwardDataMessageAsync"
 	Message *hsms.DataMessage // the message as the fake reconstructed it (Forward* record it verbatim)
-	Primary *hsms.DataMessage // ReplyDataMessage only: the primary being replied to
+	Primary *hsms.DataMessage // ReplyDataMessage and ReplyAbort only: the primary being replied to
 }
 
 // reply is one scripted (reply, err) result for a synchronous send.
@@ -61,7 +61,10 @@ type FakeEndpoint struct {
 	done      chan struct{}
 }
 
-var _ hsms.SECS2Endpoint = (*FakeEndpoint)(nil)
+var (
+	_ hsms.SECS2Endpoint = (*FakeEndpoint)(nil)
+	_ hsms.AbortReplier  = (*FakeEndpoint)(nil)
+)
 
 // FakeOption configures a FakeEndpoint at construction time.
 type FakeOption func(*FakeEndpoint)
@@ -271,19 +274,17 @@ func (f *FakeEndpoint) record(method string, stream, function byte, replyExpecte
 	return nil
 }
 
-// recordReply is ReplyDataMessage's equivalent of record: it constructs the reply message with
-// the exact fixed shape the real engine uses (stream/function/W-bit/system-bytes all derived
-// from primary, never from caller input), and returns any construction error BEFORE recording a
-// SentMessage entry. The only constructor error reachable on this path is item.Error(), since
-// primary.Stream() is already masked to <=127 and replyExpected is hardcoded false (so the
-// even-function W-bit check can never fire here).
-func (f *FakeEndpoint) recordReply(primary *hsms.DataMessage, item secs2.Item) error {
-	if primary == nil {
-		return hsms.ErrNilMessage
-	}
-
+// recordReply is the reply paths' equivalent of record:
+// it constructs the reply message with the exact fixed shape the real engine uses
+// (stream/function/W-bit/system-bytes all derived from primary, never from caller input),
+// and returns any construction error BEFORE recording a SentMessage entry.
+// The only constructor error reachable on this path is item.Error(),
+// since primary.Stream() is already masked to <=127 and replyExpected is hardcoded false
+// (so the even-function W-bit check can never fire here).
+// The caller has already rejected a nil primary.
+func (f *FakeEndpoint) recordReply(method string, primary *hsms.DataMessage, function byte, item secs2.Item) error {
 	msg, err := hsms.NewDataMessage(
-		primary.Stream(), primary.Function()+1, false,
+		primary.Stream(), function, false,
 		f.sessionID, primary.SystemBytes(), item,
 	)
 	if err != nil {
@@ -291,7 +292,7 @@ func (f *FakeEndpoint) recordReply(primary *hsms.DataMessage, item secs2.Item) e
 	}
 
 	f.mu.Lock()
-	f.sent = append(f.sent, SentMessage{Method: "ReplyDataMessage", Message: msg, Primary: primary})
+	f.sent = append(f.sent, SentMessage{Method: method, Message: msg, Primary: primary})
 	f.mu.Unlock()
 
 	return nil
@@ -398,7 +399,32 @@ func (f *FakeEndpoint) SendSECS2Message(_ context.Context, msg secs2.SECS2Messag
 // Unlike the real hsms.SECS2Endpoint.ReplyDataMessage, this never refuses a reply:
 // FakeEndpoint models no connection generations, so it has no stale-generation case to reproduce.
 func (f *FakeEndpoint) ReplyDataMessage(_ context.Context, primary *hsms.DataMessage, item secs2.Item) error {
-	return f.recordReply(primary, item)
+	if primary == nil {
+		return hsms.ErrNilMessage
+	}
+
+	return f.recordReply("ReplyDataMessage", primary, primary.Function()+1, item)
+}
+
+// ReplyAbort records the SxF0 that answers primary, as hsms.ReplyAbort sends it:
+// primary's stream and System Bytes, function 0, no W-bit, and no body.
+// It never consults the reply script.
+// It refuses in the real session's order, recording nothing:
+// hsms.ErrNilMessage if primary is nil,
+// then hsms.ErrNoReplyExpected if primary's W-bit is clear.
+//
+// Like ReplyDataMessage, it models no connection generations,
+// so it never returns the real endpoint's hsms.ErrConnClosed for a primary of an ended generation.
+func (f *FakeEndpoint) ReplyAbort(_ context.Context, primary *hsms.DataMessage) error {
+	if primary == nil {
+		return hsms.ErrNilMessage
+	}
+
+	if !primary.WaitBit() {
+		return hsms.ErrNoReplyExpected
+	}
+
+	return f.recordReply("ReplyAbort", primary, 0, nil)
 }
 
 // ForwardDataMessage records a verbatim forward send, preserving msg exactly (System Bytes and
