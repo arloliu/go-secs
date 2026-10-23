@@ -12,7 +12,7 @@ sources:
   - {resource: hsms/handler_panic_test.go, digest: sha256:def868b2ecc8930c, revision: be7a75b}
   - {resource: hsms/endpoint.go, digest: sha256:b2d226b53d367d41, revision: da56326}
   - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: be7a75b}
-  - {resource: hsms/connection_config.go, digest: sha256:fffdf6ce9b29ba7f, revision: da56326}
+  - {resource: hsms/connection_config.go, digest: sha256:ce0ac428789edddd, revision: 2a92a5e}
   - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: da56326}
   - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: be7a75b}
   - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: da56326}

@@ -1,5 +1,13 @@
 # Log
 
+## 2026-10-24
+* **Update**: the seven draft entries from the 2026-10-23 sync verified against source at `2a92a5e` by `openai/gpt-6-astra`.
+  Each failed the first pass and was corrected: overstated claims narrowed, missing sources added, history narration removed,
+  and code comments that disagree with the code recorded in the entries.
+  Promoted to stable after a clean pass: [reply-wait claim](/hsms/reply-wait-claim.md) (retitled "at most one result"), [S9 correlation](/hsms/s9-correlation.md), [two-legged control exemption](/hsms/reply-matching-control-exemption.md), [nil item send failure](/gem/nil-item-send-failure.md), [send error accounting](/hsms/send-error-accounting.md), [inbound generation fence](/hsms/inbound-generation-fence.md).
+  [The transaction observer's chokepoints](/hsms/transaction-observer-chokepoints.md) stays draft: its last pass found one more imprecise claim, now corrected but not re-verified.
+* Digest/revision-only refresh to `2a92a5e` (comment-only changes to `hsms/connection_config.go` and `hsms/connection_metrics.go`): [inflight gauge](/hsms/inflight-gauge.md), [reconnect backoff scope](/hsms/reconnect-backoff-scope.md), [reconnect retry ownership](/hsms/reconnect-retry-ownership.md), [handler panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md).
+
 ## 2026-10-23
 * Sync to `da56326` (the commits since `be7a75b`: `ReplyAbort`, the equipment-role flag, the one-shot reply-wait claim, `WithAbortReplyError`, `WithS9Correlation`, and the gem nil-item error).
   Digest/revision-only refresh, prose untouched: [selected gates](/hsms/selected-gates.md), [stale-epoch write guard](/hsms/stale-epoch-write-guard.md), [inflight gauge](/hsms/inflight-gauge.md), [max message size ceiling](/hsms/max-message-size-ceiling.md), [reconnect backoff scope](/hsms/reconnect-backoff-scope.md), [reconnect retry ownership](/hsms/reconnect-retry-ownership.md), [supervisor join](/hsms/supervisor-join.md), [open-close abort](/hsms/open-close-abort.md), [generation report fence](/hsms/generation-report-fence.md), [generation-bound wire sends](/hsms/generation-bound-wire-sends.md), [synchronous commit gate](/hsms/synchronous-commit-gate.md), [transition cause injection sites](/hsms/transition-cause-injection-sites.md), [handler panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md), [linktest teardown exemption](/hsmsss/linktest-teardown-exemption.md), [block-send detect/act split](/secs1/block-send-detect-act-split.md), [decode aliasing](/secs2/decode-aliasing.md), [trailing bytes counting](/crosscutting/trailing-bytes-counting.md).
