@@ -453,6 +453,16 @@ used by its parameters and fields as an enumeration's would be; PFCD is the one 
 ALCD has a values table for the E5 categories and the set bit,
 and its `Set` and `Category` methods are hand-written in `gem/alcd.go`.
 
+### String methods
+
+Every fixed item whose named type is over `byte` or `uint8` and has a values table gets a generated `String()` in `gem/items.go`:
+a switch that returns the constant's name, and `TYPE(n)` for a value with no constant.
+String types, untyped constant blocks, and named types without values get none.
+A value that appears twice in one table fails generation, and so does a table that uses all 256 values,
+since the generated `gem/items_string_test.go` checks every constant and one undefined value per type.
+`customString: true` on such an item skips the generated method for a hand-written one;
+ALCD uses it, because its set bit combines with a category, and its `String` lives in `gem/alcd.go`.
+
 ### Decode options
 
 Every decoder takes `opts ...DecodeOption`, which the generated `gem/decode.go` defines with its one option, `AllowTrailing`.

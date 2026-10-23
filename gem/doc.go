@@ -36,6 +36,12 @@
 // and [ALCD.Category] and [ALCD.Set] read the two parts of a received code.
 // [PFCD], the predefined form code of S6F9, is a named type without constants, since E5 defines no values for it.
 //
+// Every named type with numeric constants has a String method that returns the constant's name,
+// such as "COMMACKAccepted", and "COMMACK(5)" for a value with no constant,
+// so %v and %s print the name, %q quotes it, and %x and %X hex-encode it;
+// format with %d, or convert with int(v), for the number.
+// [ALCD.String] joins the set bit and the category, as in "ALCDAlarmSet|ALCDPersonalSafety".
+//
 // # Time values
 //
 // The TIME, TIMESTAMP, and STIME data items and the CLOCK variable are strings in builders and result structs alike.

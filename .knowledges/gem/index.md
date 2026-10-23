@@ -27,6 +27,7 @@ No transport, no session state, no I/O — builders are pure. Stream/function pa
 - generated builders: `gem/` (see `tools/gemgen`, which generates much of this package)
 - groups: `gem/groups.go`; decode options: `gem/decode.go`; catalog: `gem/catalog.go` (all generated)
 - the hand-written SxF0 builder: `gem/abort.go` → `Abort`
+- TIME, TIMESTAMP, STIME, and CLOCK strings in the three E5 forms: `gem/time.go` → `FormatTime`, `ParseTime`
 
 # Read first
 
