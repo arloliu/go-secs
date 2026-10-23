@@ -191,16 +191,21 @@ var (
 	// The same endpoint fails on every retry.
 	ErrAbortUnsupported = fmt.Errorf("hsms: endpoint does not support ReplyAbort: %w", errors.ErrUnsupported)
 
-	// ErrTransactionAborted indicates the peer answered a reply-expected data send with function 0 (SxF0) instead of the expected reply.
+	// ErrTransactionAborted indicates the peer answered a reply-expected data send with function 0 (SxF0)
+	// instead of the expected reply.
 	//
 	// Function 0 is sent in lieu of an expected reply to abort the transaction (SEMI E5 §10.4.1),
 	// and the originator terminates the transaction on receiving it (SEMI E5 §8.3).
 	// SendDataMessage and SendSECS2Message return it only when [WithAbortReplyError] is enabled,
 	// and they return the SxF0 message alongside it.
-	// With the option disabled, the SxF0 is returned as the reply with a nil error.
+	// With the option disabled, the SxF0 is returned as the reply with a nil error,
+	// or with its decode error if its body fails to decode.
 	//
 	// Classification: IsTransient and IsTimeout both report false.
-	// The peer chose to abort, and nothing says a retry would be answered differently.
+	// An SxF0 carries no reason, and a peer may send one after a transmission error (SEMI E5 §10.4.1),
+	// so a retry may or may not be answered differently.
+	// IsTransient treats an error it cannot show to be retryable as permanent,
+	// because misreading a permanent error as retryable risks a retry storm.
 	ErrTransactionAborted = errors.New("hsms: transaction aborted by peer (SxF0)")
 )
 
@@ -229,4 +234,60 @@ type RejectError struct {
 // Error implements the error interface.
 func (e *RejectError) Error() string {
 	return fmt.Sprintf("hsms: peer rejected message (reason %d)", e.Reason)
+}
+
+// S9Error is returned by a synchronous send
+// whose transaction the peer answered with a Stream 9 error message instead of the expected reply,
+// when [WithS9Correlation] is enabled.
+//
+// The peer sends S9F1, S9F3, S9F5, S9F7, or S9F11 when it cannot process our message
+// because of its device ID, stream, function, format, or length (SEMI E5 §10.13).
+// It takes no further action on a message in error (SEMI E30 §4.9.3),
+// so no reply will follow, and the send returns this error instead of waiting out T3.
+// Callers inspect it with errors.As:
+//
+//	var s9 *hsms.S9Error
+//	if errors.As(err, &s9) {
+//		// s9.Function names the fault; s9.Msg is the S9 message itself
+//	}
+//
+// The S9 message still reaches the data handlers as well;
+// returning it here does not consume that delivery.
+//
+// Classification: IsTransient and IsTimeout both report false.
+// The peer reported a fault in the message itself, and the same message fails the same way on every retry.
+type S9Error struct {
+	// Function is the S9 message's function: 1, 3, 5, 7, or 11.
+	Function byte
+	// MHEAD is the S9 message's body: the header of our message as the peer received it.
+	MHEAD [10]byte
+	// Msg is the S9 message itself.
+	// Like every inbound message, it is immutable and safe to retain.
+	Msg *DataMessage
+}
+
+// Error implements the error interface.
+// It names the stream and function of the message the peer faulted, read from MHEAD,
+// and the S9 function with its meaning,
+// for example "hsms: peer answered S1F3 with S9F5 (unrecognized function type)".
+func (e *S9Error) Error() string {
+	return fmt.Sprintf("hsms: peer answered S%dF%d with S9F%d (%s)", e.MHEAD[2]&0x7F, e.MHEAD[3], e.Function, s9FunctionMeaning(e.Function))
+}
+
+// s9FunctionMeaning returns the SEMI E5 §10.13 meaning of the S9 error function f, or "error" for any other function.
+func s9FunctionMeaning(f byte) string {
+	switch f {
+	case 1:
+		return "unrecognized device ID"
+	case 3:
+		return "unrecognized stream type"
+	case 5:
+		return "unrecognized function type"
+	case 7:
+		return "illegal data"
+	case 11:
+		return "data too long"
+	default:
+		return "error"
+	}
 }

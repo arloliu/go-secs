@@ -32,17 +32,22 @@ const (
 // replyWaiter is the registry's value type: the sender-owned reply channel plus enough of the
 // primary's identity to validate a candidate reply against SEMI E37 §9.4.1's stream/function
 // fields.
-// SessionID is deliberately NOT carried here — WithSessionIDValidation already owns
-// inbound SessionID policy at an earlier seam (DeliverOwnedFrame's checkSessionID), so a
-// registry-level SessionID rule would be dead code behind that drop.
+// route deliberately does NOT compare a reply's SessionID —
+// WithSessionIDValidation already owns inbound SessionID policy at an earlier seam (DeliverOwnedFrame's checkSessionID),
+// so a registry-level SessionID rule would be dead code behind that drop.
 //
 // isData records whether the primary was a *DataMessage, as opposed to a *ControlMessage
 // (Select/Deselect/Linktest).
-// Only a data primary has a stream/function to compare in the first
-// place — *ControlMessage has no Stream()/Function() methods at all — and the registration site
-// (sendWaitReply) already knows which kind it registered via a type assertion, so storing the
-// flag here keeps route's control-transaction exemption explicit rather than re-deriving the
-// kind from the routed result.
+// Only a data primary has a stream/function to compare in the first place —
+// *ControlMessage has no Stream()/Function() methods at all —
+// and the registration site (sendWaitReply) already knows which kind it registered,
+// since it calls registerData or registerControl after a type assertion,
+// so storing the flag here keeps route's control-transaction exemption explicit
+// rather than re-deriving the kind from the routed result.
+//
+// header is the data primary's 10-byte header as it was sent, session ID included:
+// the identity an S9 error message's MHEAD body is compared against (see failS9).
+// It is zero for a control registration, which failS9 never matches.
 //
 // state is the one-shot completion claim (replyOpen, replyClaimedByReply, replyClaimedByS9).
 // The registry stores the waiter by pointer, so every Load sees the same claim;
@@ -50,6 +55,7 @@ const (
 type replyWaiter struct {
 	ch       chan replyResult
 	state    atomic.Uint32
+	header   [10]byte
 	stream   uint8
 	function uint8
 	isData   bool
@@ -58,14 +64,17 @@ type replyWaiter struct {
 // replyRegistry maps SystemBytes keys to the sender-owned reply waiters.
 //
 // Lifecycle invariant (§5.5): the SENDER owns the entire channel lifetime.
-// It calls register before sending and deregisters via defer on return —
+// It registers (registerData or registerControl) before sending and deregisters via defer on return —
 // whether the reply arrived, timed-out, or the connection was lost.
-// The receiver (route) only claims the waiter and then performs a non-blocking send into the buffered channel;
+// The receiver (route or failS9) only claims the waiter and then performs a non-blocking send into the buffered channel;
 // it never creates, closes, or deletes the channel.
 // The claim makes that send happen at most once per registration,
 // so the one-slot buffer always has room for it.
 // A late reply that arrives after deregister finds no entry (miss → dropped);
 // one that arrives after another result claimed the wait, but before deregister, sends nothing.
+// A receiver that loaded the waiter just before deregister can still claim the open wait
+// and send into the buffer the sender has abandoned:
+// it is reported delivered, and the result is garbage-collected with the channel.
 // close(ch) is intentionally absent everywhere: this makes the F5
 // "send on closed channel" panic class structurally unreachable.
 type replyRegistry struct {
@@ -77,17 +86,38 @@ func newReplyRegistry() replyRegistry {
 	return replyRegistry{m: xsync.NewMapOf[[4]byte, *replyWaiter]()}
 }
 
-// register allocates a buffered reply channel for key, stores it alongside the primary's
-// stream/function/isData (see replyWaiter) in an open waiter, and returns the channel to the sender.
-// stream and function are the primary's own values, meaningless (and ignored by route) when
-// isData is false.
-// The caller is responsible for calling deregister (via defer) when the send operation
-// completes or is abandoned.
-func (r replyRegistry) register(key [4]byte, stream, function uint8, isData bool) chan replyResult {
-	ch := make(chan replyResult, 1)
-	r.m.Store(key, &replyWaiter{ch: ch, stream: stream, function: function, isData: isData})
+// registerData opens a reply wait for the data primary whose sent header is header,
+// and returns the wait's buffered reply channel to the sender.
+// The key, stream, and function all come from that one header,
+// so the identity route compares a reply against
+// and the identity failS9 compares an MHEAD against can never disagree.
+// The caller is responsible for calling deregister (via defer)
+// when the send operation completes or is abandoned.
+func (r replyRegistry) registerData(header [10]byte) chan replyResult {
+	return r.store([4]byte(header[6:10]), &replyWaiter{
+		header:   header,
+		stream:   header[2] & 0x7F,
+		function: header[3],
+		isData:   true,
+	})
+}
 
-	return ch
+// registerControl opens a reply wait for the control primary (Select, Deselect, or Linktest) whose System Bytes are key,
+// and returns the wait's buffered reply channel to the sender.
+// A control waiter carries no stream, function, or header:
+// route never compares a candidate against it, and failS9 never matches it.
+// The caller is responsible for calling deregister (via defer)
+// when the send operation completes or is abandoned.
+func (r replyRegistry) registerControl(key [4]byte) chan replyResult {
+	return r.store(key, &replyWaiter{})
+}
+
+// store gives w a fresh one-slot reply channel, publishes w as the open waiter for key, and returns the channel.
+func (r replyRegistry) store(key [4]byte, w *replyWaiter) chan replyResult {
+	w.ch = make(chan replyResult, 1)
+	r.m.Store(key, w)
+
+	return w.ch
 }
 
 // deregister removes the waiter associated with key from the registry.
@@ -192,6 +222,68 @@ func (r replyRegistry) route(key [4]byte, res replyResult, strict bool) (deliver
 	}
 
 	return true, mismatched
+}
+
+// failS9 completes the open data wait that an S9 error message reports a fault in, with res.
+//
+// mhead is the S9's body: the header of our message as the peer received it (SEMI E5 §10.13).
+// Its System Bytes (mhead[6:10]) are the key, never the S9 envelope's own.
+// It matches only a waiter registered for a data primary,
+// and only when mhead identifies that primary under policy (see mheadPolicy).
+// The match then claims the open wait with replyClaimedByS9 and sends res to the sender.
+//
+// It reports whether res completed the wait.
+// It reports false, and sends nothing, when no data waiter matches,
+// or when another result already claimed the wait.
+func (r replyRegistry) failS9(mhead [10]byte, policy mheadPolicy, res replyResult) bool {
+	w, ok := r.m.Load([4]byte(mhead[6:10]))
+	if !ok || !w.isData || !policy.matches(mhead, w.header) {
+		return false
+	}
+
+	if !w.state.CompareAndSwap(replyOpen, replyClaimedByS9) {
+		return false
+	}
+
+	// The claim makes this the registration's only send, so the one-slot buffer has room.
+	select {
+	case w.ch <- res:
+	default:
+	}
+
+	return true
+}
+
+// mheadPolicy selects how failS9 compares an S9's MHEAD body against the header a data primary was sent with.
+// A connection chooses it once, from its transport, when it is constructed.
+type mheadPolicy uint8
+
+const (
+	// mheadExact requires all 10 bytes to be equal.
+	// An HSMS peer's MHEAD is the 10-byte HSMS message header (SEMI E37 §9.4.2.1),
+	// so the session ID, the W-bit, stream, function, PType, SType, and System Bytes must all be the ones sent.
+	mheadExact mheadPolicy = iota
+
+	// mheadBlock compares a SECS-I peer's MHEAD, the block header it received (SEMI E4 §8),
+	// against the HSMS-form header that was sent.
+	// The device ID must be equal, ignoring the R-bit (the top bit of byte 0),
+	// and so must the W-bit with stream, function, and System Bytes.
+	// Bytes 4 and 5, the E-bit and block number, are ignored:
+	// they describe the block the peer read, not the message.
+	mheadBlock
+)
+
+// matches reports whether mhead identifies the message that was sent with header under p.
+func (p mheadPolicy) matches(mhead, header [10]byte) bool {
+	if p == mheadExact {
+		return mhead == header
+	}
+
+	return mhead[0]&0x7F == header[0]&0x7F &&
+		mhead[1] == header[1] &&
+		mhead[2] == header[2] &&
+		mhead[3] == header[3] &&
+		[4]byte(mhead[6:10]) == [4]byte(header[6:10])
 }
 
 // len returns the number of currently registered pending-reply entries.

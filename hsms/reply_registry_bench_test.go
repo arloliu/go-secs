@@ -13,7 +13,7 @@ func BenchmarkReplyRegistry_Transaction(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		ch := r.register(key, 1, 1, true)
+		ch := r.registerData(sentHeader(key, 1, 1))
 		if delivered, _ := r.route(key, reply, false); !delivered {
 			b.Fatal("conforming reply was not delivered")
 		}

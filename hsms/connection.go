@@ -200,6 +200,10 @@ type connection struct {
 	// Allocated once in NewConnection and never mutated afterward.
 	ident *connIdentity
 
+	// mhead is how an S9 error message's MHEAD body is compared against a waiting send's header (WithS9Correlation).
+	// It depends only on the transport, so NewConnection chooses it once (see transportMHEADPolicy) and it never changes.
+	mhead mheadPolicy
+
 	// dropWarn rate-limits the B1 not-selected-drop Warn (B3); the metric counter is the
 	// authoritative chokepoint and is incremented on every drop regardless.
 	dropWarn *throttle.Throttle
@@ -260,8 +264,8 @@ type connection struct {
 	// The reconnect-backoff persistence tests set it to record the exact delay sequence the loop computes, one call per dial attempt.
 	testHookBackoff func(d time.Duration)
 
-	// testHookBeforeFanout is called by deliverOwnedFrameOn
-	// immediately after checkSessionID and before the inbound message is routed (reply correlation / session fan-out) on the RESOLVED epoch.
+	// testHookBeforeFanout is called by deliverOwnedFrameOn immediately after checkSessionID,
+	// before the inbound message is routed (S9 correlation, reply correlation, session fan-out) on the RESOLVED epoch.
 	// It is nil in production (zero cost).
 	// A test uses it to pause delivery between admission and fan-out,
 	// so it can advance the generation (publish a successor, end the admitting generation) in that window before releasing.
@@ -339,6 +343,7 @@ func NewConnection(cfg *ConnectionConfig, tr transport) (Connection, error) {
 		connectLoopWg: sync.WaitGroup{},
 		dropWarn:      throttle.New(dropNotSelectedWarnInterval),
 		ident:         &connIdentity{},
+		mhead:         transportMHEADPolicy(tr),
 	}
 	c.cfg.Store(cfg) // atomic publish; UpdateConfigOptions swaps a fresh pointer, never mutates in place
 
@@ -353,6 +358,25 @@ func NewConnection(cfg *ConnectionConfig, tr transport) (Connection, error) {
 	c.connHandlers = &c.handlers
 
 	return c, nil
+}
+
+// secs1MHEADTransport is implemented by a transport whose peer sends a SECS-I block header,
+// not an HSMS message header,
+// as the MHEAD body of an S9 error message.
+// secs1's transport implements it; the method lives on an unexported type, so it is not public API.
+type secs1MHEADTransport interface {
+	UsesSECS1MHEAD() bool
+}
+
+// transportMHEADPolicy chooses the MHEAD comparison for tr:
+// mheadBlock when tr reports SECS-I block headers,
+// and mheadExact otherwise, including when tr does not implement secs1MHEADTransport.
+func transportMHEADPolicy(tr transport) mheadPolicy {
+	if t, ok := tr.(secs1MHEADTransport); ok && t.UsesSECS1MHEAD() {
+		return mheadBlock
+	}
+
+	return mheadExact
 }
 
 // State returns the current logical E37 state.

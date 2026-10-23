@@ -210,7 +210,7 @@ func TestRouteReplyFromGeneration_StaleGenDoesNotStealSuccessorTransaction_DataS
 	endAndSucceed(c, genN, genSucc)
 
 	sb := [4]byte{0, 0, 0, 46}
-	replyCh := genSucc.replies.register(sb, 1, 1, true) // successor's own open S1F1 transaction
+	replyCh := genSucc.replies.registerData(sentHeader(sb, 1, 1)) // successor's own open S1F1 transaction
 	defer genSucc.replies.deregister(sb)
 
 	stale := mustSendReply(t, sb) // S1F2 secondary carrying the SAME System Bytes, read on genN
@@ -234,7 +234,7 @@ func TestRouteReplyFromGeneration_StaleGenDoesNotStealSuccessorTransaction_Contr
 	endAndSucceed(c, genN, genSucc)
 
 	req := NewLinktestReq([4]byte{0, 0, 0, 47})
-	replyCh := genSucc.replies.register(req.SystemBytes(), 0, 0, false) // control registration
+	replyCh := genSucc.replies.registerControl(req.SystemBytes()) // control registration
 
 	rsp, err := NewLinktestRsp(req)
 	require.NoError(t, err)
@@ -259,7 +259,7 @@ func TestRouteReplyFromGeneration_StaleGenDoesNotStealSuccessorTransaction_Rejec
 	endAndSucceed(c, genN, genSucc)
 
 	sb := [4]byte{0, 0, 0, 48}
-	replyCh := genSucc.replies.register(sb, 1, 1, true)
+	replyCh := genSucc.replies.registerData(sentHeader(sb, 1, 1))
 	defer genSucc.replies.deregister(sb)
 
 	primary := mustSendData(t, sb, true)
@@ -285,7 +285,7 @@ func TestRouteReplyFromGeneration_LiveGenerationCompletesTransaction(t *testing.
 	c, genN, _ := newTwoGenConn(t)
 
 	sb := [4]byte{0, 0, 0, 52}
-	replyCh := genN.replies.register(sb, 1, 1, true)
+	replyCh := genN.replies.registerData(sentHeader(sb, 1, 1))
 	defer genN.replies.deregister(sb)
 
 	reply := mustSendReply(t, sb)
@@ -311,7 +311,7 @@ func TestRouteReplyFromGeneration_Gen0TakesPlainPath(t *testing.T) {
 	c, genN, _ := newTwoGenConn(t)
 
 	sb := [4]byte{0, 0, 0, 53}
-	replyCh := genN.replies.register(sb, 1, 1, true)
+	replyCh := genN.replies.registerData(sentHeader(sb, 1, 1))
 	defer genN.replies.deregister(sb)
 
 	reply := mustSendReply(t, sb)

@@ -336,16 +336,16 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 	if !fireAndForget {
 		key := msg.SystemBytes()
 
-		// A control primary (dm == nil here) has no stream/function to register; the zero
-		// values are stored but never compared (isData false), same as the E37 §9.4.1
-		// control-transaction exemption route enforces below.
-		var stream, function uint8
+		// A data primary registers the header it is sent with:
+		// route compares a reply's stream/function against it,
+		// and an S9 error message's MHEAD is compared against all of it (WithS9Correlation).
+		// A control primary (dm == nil here) has neither to register,
+		// the same as the E37 §9.4.1 control-transaction exemption route enforces below.
 		if dm != nil {
-			stream = dm.Stream()
-			function = dm.Function()
+			ch = e.replies.registerData(dm.HeaderBytes())
+		} else {
+			ch = e.replies.registerControl(key)
 		}
-
-		ch = e.replies.register(key, stream, function, isData)
 		defer e.replies.deregister(key)
 	}
 
@@ -484,7 +484,8 @@ func tryReply(ch chan replyResult) (replyResult, bool) {
 // abortErr is true only for a data transaction on a connection with WithAbortReplyError enabled;
 // then a function 0 data reply (SxF0, SEMI E5 §10.4.1) is returned with ErrTransactionAborted instead of a nil error.
 // The check reads only the header, so an SxF0 whose body fails to decode is still reported as aborted.
-// Every other result, including a *RejectError, is returned unchanged.
+// Every other result is returned unchanged,
+// including a *RejectError or an *S9Error (WithS9Correlation, with a nil message).
 func replyOutcome(res replyResult, abortErr bool) (Message, error) {
 	if abortErr && res.err == nil {
 		if dm, ok := res.msg.(*DataMessage); ok && dm.Function() == 0 {
@@ -574,13 +575,18 @@ func newTxEvent(dm *DataMessage, e *epoch, replyWaited bool, start time.Time, er
 //	  wait-select: res.err == nil (reply)            -> nil                 -> TxReplied
 //	  wait-select: res.err is *RejectError           -> *RejectError        -> TxRejected
 //	  wait-select: SxF0 reply, WithAbortReplyError   -> ErrTransactionAborted -> TxAborted
+//	  wait-select: S9 error, WithS9Correlation       -> *S9Error            -> TxPeerError
 //	  wait-select: timer.C (T3/T6)                   -> ErrT3Timeout        -> TxT3Timeout
 //	  wait-select: timer.C, reply already ready      -> nil / *RejectError /
-//	                                                    ErrTransactionAborted -> TxReplied / TxRejected / TxAborted
+//	                                                    ErrTransactionAborted /
+//	                                                    *S9Error            -> TxReplied / TxRejected /
+//	                                                                           TxAborted / TxPeerError
 //	  wait-select: timer.C, teardown started         -> ErrConnClosed        -> TxCanceled
 //	  wait-select: e.ctx.Done() (teardown)           -> ErrConnClosed        -> TxCanceled
 //	  wait-select: e.ctx.Done(), reply already ready -> nil / *RejectError /
-//	                                                    ErrTransactionAborted -> TxReplied / TxRejected / TxAborted
+//	                                                    ErrTransactionAborted /
+//	                                                    *S9Error            -> TxReplied / TxRejected /
+//	                                                                           TxAborted / TxPeerError
 //	  wait-select: callerCtx.Done()                  -> context.Canceled /
 //	                                                    DeadlineExceeded    -> TxCanceled
 //
@@ -603,11 +609,16 @@ func classifyTxOutcome(replyWaited bool, err error) TxOutcome {
 		return TxSent
 	}
 
-	var rejectErr *RejectError
+	var (
+		rejectErr *RejectError
+		s9Err     *S9Error
+	)
 
 	switch {
 	case errors.As(err, &rejectErr):
 		return TxRejected
+	case errors.As(err, &s9Err):
+		return TxPeerError
 	case errors.Is(err, ErrT3Timeout):
 		return TxT3Timeout
 	case errors.Is(err, ErrTransactionAborted):

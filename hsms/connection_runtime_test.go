@@ -36,7 +36,7 @@ func TestDeliverOwnedFrame_PrimaryNotRoutedAsReply(t *testing.T) {
 	// Mimic a waiting W-bit sender: register a reply channel for SB on the live epoch's
 	// sender-owned registry (exactly what sendWaitReply does before it writes the primary).
 	// Stream/function mirror the S1F1 primary sent below (isData true — see mustSendData).
-	replyCh := e.replies.register(sb, 1, 1, true)
+	replyCh := e.replies.registerData(sentHeader(sb, 1, 1))
 	defer e.replies.deregister(sb)
 
 	// A registered data handler must receive the peer's primary (synchronous fan-out).
@@ -80,7 +80,7 @@ func TestDeliverOwnedFrame_SecondaryRoutedToSender(t *testing.T) {
 	sb := [4]byte{0, 0, 0, 2}
 
 	// Registered for the S1F1 primary this S1F2 reply (mustSendReply) correctly answers.
-	replyCh := e.replies.register(sb, 1, 1, true)
+	replyCh := e.replies.registerData(sentHeader(sb, 1, 1))
 	defer e.replies.deregister(sb)
 
 	handlerCh := make(chan *DataMessage, 1)

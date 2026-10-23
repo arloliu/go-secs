@@ -288,6 +288,10 @@ func (c *connection) deliverOwnedFrameOn(e *epoch, frame []byte) error {
 		hook()
 	}
 
+	// An S9 error message may end the waiting send it reports a fault in (WithS9Correlation).
+	// It is still routed below exactly as before, whether or not it ended one.
+	c.correlateS9On(e, dm)
+
 	// Reply correlation applies ONLY to a SECONDARY (reply). A reply reuses the primary's System
 	// Bytes (E37 §8.2.6.9) and, per SECS-II, carries an even function with the W-bit clear (including
 	// SxF0, the transaction-abort secondary — E5 §7.2/§10.4.1).
@@ -303,6 +307,42 @@ func (c *connection) deliverOwnedFrameOn(e *epoch, frame []byte) error {
 	}
 
 	return c.routeDataOn(e, dm)
+}
+
+// correlateS9On fails the waiting data send on e
+// that dm, an S9 error message, reports a fault in (see [WithS9Correlation]).
+//
+// It acts only when the option is enabled, e is non-nil,
+// dm is S9F1, S9F3, S9F5, S9F7, or S9F11,
+// and dm's body decodes as a binary item of exactly 10 bytes, the MHEAD;
+// every other message, including S9F9 and S9F13, is left untouched, and its body stays undecoded.
+// A body that fails to decode is not matched here;
+// the decode error stays cached on dm, and routeDataOn diverts or delivers dm as it would anyway.
+//
+// It never consumes dm: the caller routes dm afterwards, unchanged, whether or not a send was failed.
+func (c *connection) correlateS9On(e *epoch, dm *DataMessage) {
+	if e == nil || dm.Stream() != 9 || !c.cfg.Load().s9Correlation {
+		return
+	}
+
+	switch dm.Function() {
+	case 1, 3, 5, 7, 11:
+	default:
+		return
+	}
+
+	item, err := dm.Item()
+	if err != nil || !item.IsBinary() || item.Size() != 10 {
+		return
+	}
+
+	b, err := item.ToBinary()
+	if err != nil {
+		return
+	}
+
+	mhead := [10]byte(b)
+	e.replies.failS9(mhead, c.mhead, replyResult{err: &S9Error{Function: dm.Function(), MHEAD: mhead, Msg: dm}})
 }
 
 // checkSessionID validates dm's SessionID against this connection's own configured SessionID

@@ -75,8 +75,11 @@ type SECS2Endpoint interface {
 	// function must be odd (SEMI E5 §7.2); an even function returns ErrEvenFunctionPrimary without sending anything.
 	//
 	// Returns the reply DataMessage on success.
-	// An SxF0 reply is returned with a nil error unless [WithAbortReplyError] is enabled,
-	// in which case it is returned together with ErrTransactionAborted.
+	// An SxF0 reply is returned with a nil error, or with its decode error if its body fails to decode,
+	// unless [WithAbortReplyError] is enabled,
+	// in which case it is returned together with [ErrTransactionAborted].
+	// A Stream 9 error message about the send leaves it waiting for T3 unless [WithS9Correlation] is enabled,
+	// in which case it ends the send with (nil, *S9Error).
 	SendDataMessage(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) (*DataMessage, error)
 
 	// SendDataMessageAsync enqueues a fire-and-forget data message.
@@ -99,7 +102,7 @@ type SECS2Endpoint interface {
 	// Returns ErrNilMessage if msg is nil or typed-nil.
 	//
 	// Returns the reply DataMessage on success.
-	// An SxF0 reply is handled as SendDataMessage handles it.
+	// An SxF0 reply and a Stream 9 error message are handled as SendDataMessage handles them.
 	SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error)
 
 	// ForwardDataMessage writes a pre-built data message verbatim on the caller's goroutine.
