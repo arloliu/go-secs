@@ -3,212 +3,207 @@ type: Mechanic
 title: The inbound generation fence
 description: How an inbound frame or reply is bound to the generation whose recv goroutine actually read it, and the two different kinds of cutoff that enforce it.
 tags: [hsms, hsmsss, generations, inbound, fan-out]
-status: draft
-generated: {by: "claude/sonnet-5", at: 2026-10-23T09:30:00Z}
+status: stable
+generated: {by: "claude/opus-5.5", at: 2026-10-23T18:00:00Z}
+verified:
+  - {by: "openai/gpt-6-astra", at: 2026-10-23T18:42:42Z}
 sources:
-  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: da56326}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
-  - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: da56326}
-  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: da56326}
-  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: be7a75b}
-  - {resource: hsms/data_msg.go, digest: sha256:a90443b564284b51, revision: da56326}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: be7a75b}
-  - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
-  - {resource: internal/gencap/gencap.go, digest: sha256:b7a6e492698ff6d3, revision: be7a75b}
-  - {resource: secs1/transport.go, digest: sha256:8751c0d91c45f678, revision: da56326}
-  - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: 2a92a5e}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: 2a92a5e}
+  - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: 2a92a5e}
+  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: 2a92a5e}
+  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: 2a92a5e}
+  - {resource: hsms/data_msg.go, digest: sha256:a90443b564284b51, revision: 2a92a5e}
+  - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: 2a92a5e}
+  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: 2a92a5e}
+  - {resource: hsms/connection_metrics.go, digest: sha256:87b11ae3785c0870, revision: 2a92a5e}
+  - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: 2a92a5e}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: 2a92a5e}
+  - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: 2a92a5e}
+  - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: 2a92a5e}
+  - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: 2a92a5e}
+  - {resource: internal/gencap/gencap.go, digest: sha256:b7a6e492698ff6d3, revision: 2a92a5e}
+  - {resource: secs1/transport.go, digest: sha256:8751c0d91c45f678, revision: 2a92a5e}
+  - {resource: hsmsss/transport_socket.go, digest: sha256:7eb2e5f887e7f1c3, revision: 2a92a5e}
 ---
 
 # What it does
 
-The godoc on the new entry points already covers almost everything a reader would ask first.
-`DeliverOwnedFrameFromGeneration`/`RouteReplyFromGeneration` (`hsms/connection_runtime.go`) state the admission cutoff,
-why a stale `RouteReplyFromGeneration` reports `true` rather than `false`,
-and the `staleRecv` accounting.
-`deliverOwnedFrameOn`/`checkSessionID` state the origin stamp and why the S9F1 enqueue is bound to the resolved epoch.
-`connIdentity` and `DataMessage`'s origin fields (`hsms/connection.go`, `hsms/data_msg.go`) state why a token and not a connection pointer.
-`Done`'s own doc (`hsms/connection.go`) states that no fan-out in this package selects on it any more.
-`recvDataMsgOn`/`dispatchDecodeErrorOn` (`hsms/session.go`) state the observed-cancellation, recheck-per-handler contract.
-What none of them lay out as one piece is the sequence:
-admission and fan-out are two DIFFERENT kinds of cutoff, run one after the other,
-with a window between them that three nil-by-default test hooks sit at;
-that `lastRecvStamp` is written before either cutoff runs at all;
-that SECS-I's plain ingress gets the origin stamp but not the admission cutoff;
-and that there is no exported stale-admission-drop counter —
-the Debug log identifies the refusal, but other receive-side accounting can already have occurred before it runs.
-That is the delta this entry records.
+An inbound HSMS-SS data frame or control reply is bound to the generation whose recv goroutine read it,
+not to whatever generation is current when the call runs.
+Two cutoffs enforce that in sequence: one-shot admission under `genGate` (cutoff #1),
+then a per-step cancellation check during fan-out (cutoff #2).
+One resolved `*epoch` carries an admitted frame through to fan-out and the handler's reply.
+SECS-I's plain ingress gets the origin stamp but not the admission cutoff.
 
 # How it works
 
 **The sequence, end to end.**
-`hsmsss.recvLoop` reads a frame off the socket it was handed AT SPAWN —
+`hsmsss.recvLoop` reads off the socket it was handed at spawn —
 never a re-read of `t.conn`; see [activity stamps](/hsmsss/activity-stamps.md) —
-then does three things in order, before any generation-liveness decision has been made at all:
-stores `lastRecvStamp`, fires `testHookAfterReadFrame` (nil in production), then calls `dispatchFrame`.
-`dispatchFrame` routes a data frame to `t.deliverOwnedFrame(g.gen, frame)`
-and a control response to `t.routeReply(g.gen, msg)` (`hsmsss/transport_control.go`),
-both of which type-assert the runtime to `genRuntime` (`gencap.GenerationRuntime`) and,
+through `readObserved`, which stamps `lastRecvStamp` for every complete frame
+and attempts wire-observer reporting only when there is no socket record or it acquired that socket's report scope.
+`recvLoop` then fires `testHookAfterReadFrame` (nil in production) and calls `dispatchFrame`.
+All of this precedes any generation-liveness decision.
+`dispatchFrame` can answer a frame without ever reaching admission:
+a bad PType/SType or a control frame with a body gets a Reject.req,
+a data frame while not Selected gets a Reject (reason 4),
+Select.req, Deselect.req, and Linktest.req go to `handleControlReq`,
+Separate.req goes to `handleSeparateReq`, and Reject.req follows reply routing.
+Otherwise it routes a data frame to `t.deliverOwnedFrame(g.gen, frame)`
+and a control response to `t.routeReply(g.gen, msg)` (`hsmsss/transport_control.go`).
+Both type-assert the runtime to `genRuntime` (`gencap.GenerationRuntime`) and,
 when it is offered, call `DeliverOwnedFrameFromGeneration`/`RouteReplyFromGeneration` naming `g.gen` —
-the generation THIS recv goroutine was spawned for, not whatever generation happens to be current when the call runs.
+the generation this recv goroutine was spawned for.
 
 **Cutoff #1: admission, one-shot, behind a lock.**
-`DeliverOwnedFrameFromGeneration`/`RouteReplyFromGeneration` resolve `gen` via `connection.liveEpoch(gen)` (`hsms/connection_lifecycle.go`),
-which takes `genGate.RLock`, checks `cur.Load()` against `{id == gen, !ended}`, and returns either the live `*epoch` or `nil`.
-This is a single yes/no decision made once, at one point in the call chain.
-A refusal here is not a decode error and not visible to `hsmsss` at all:
+`DeliverOwnedFrameFromGeneration`/`RouteReplyFromGeneration` first hand a `gen` of 0
+to their plain counterparts (`DeliverOwnedFrame`/`RouteReply`);
+`liveEpoch` itself has no zero-generation special case.
+A nonzero `gen` is resolved via `connection.liveEpoch(gen)` (`hsms/connection_lifecycle.go`),
+which takes `genGate.RLock`, checks `cur.Load()` against `{id == gen, !ended}`,
+and returns either the live `*epoch` or `nil`.
+A refusal is not a decode error and is not visible to `hsmsss`:
 the frame is dropped, `connection.staleRecv` is incremented,
-and a `Debug`-level log line is emitted naming the reported and current generation —
-`dispatchFrame` sees only that the call "completed"
-(a dropped frame returns `nil` from the deliver path; a dropped reply reports `true`,
-a deliberate choice so `dispatchFrame`'s HIT branch —
-not its Reject-sending MISS branch — is the one that runs against a generation already known to be dead).
+and a `Debug` log line names the reported and current generation.
+`dispatchFrame` sees only that the call completed:
+a dropped frame returns `nil`;
+a dropped reply reports `true`,
+deliberately, so `dispatchFrame`'s HIT branch runs rather than its Reject-sending MISS branch.
 
 **Once admitted, one resolved epoch carries the rest.**
-`deliverOwnedFrameOn(e, frame)` decodes, stamps `dm.originIdent`/`dm.originGen` from `e` (never from a fresh `c.cur.Load()`),
-runs `checkSessionID(e, dm)` when session-ID validation is on —
-which drops a mismatch in either role and, only in the equipment role (`cfg.equipmentRole`), first enqueues an S9F1 through `e` specifically, via `enqueueAsync`,
-so a mismatch admitted by a generation that ends before the enqueue runs drops the S9F1 with the rest of that generation's stranded queue rather than landing on a successor;
-an inbound S9F1 is exempt from the check and never dropped —
-fires `testHookBeforeFanout` (nil in production),
-calls `correlateS9On(e, dm)`, which can end a waiting send through `e.replies` (see [S9 correlation](/hsms/s9-correlation.md)),
-and then calls `routeReplyOn(e, dm)` / `routeDataOn(e, dm)`.
-None of these steps re-resolves `c.cur`; they all thread the SAME `e` cutoff #1 already picked.
+`deliverOwnedFrameOn(e, frame)` decodes,
+then, whenever `e` is non-nil, stamps `dm.originIdent` from `c.ident` and `dm.originGen` from `e.id` (never from a fresh `c.cur.Load()`).
+The stamp precedes the primary/secondary split, so secondaries are stamped too.
+When session-ID validation is on, it runs `checkSessionID(e, dm)`,
+which drops a mismatch in either role.
+Only in the equipment role (`cfg.equipmentRole`) does it first enqueue an S9F1 through `e`, via `enqueueAsync`,
+so a mismatch admitted by a generation that ends before the enqueue runs
+drops the S9F1 with that generation's stranded queue rather than landing on a successor.
+An inbound S9F1 is exempt from the check and never dropped.
+Next it fires `testHookBeforeFanout` (nil in production),
+calls `correlateS9On(e, dm)`,
+which can end a waiting send through `e.replies` (see [S9 correlation](/hsms/s9-correlation.md)),
+and then calls `routeReplyOn(e, dm)` for a secondary and `routeDataOn(e, dm)` for a primary or a reply miss.
+None of these steps re-resolves `c.cur`.
 
-**Cutoff #2: fan-out, ongoing, no lock.**
-`routeDataOn`/`dispatchDecodeErrorOn` (`hsms/connection_runtime.go`, `hsms/session.go`)
-do not gate on `liveEpoch` again.
-They compute `done := epochDone(e)` — `e.ctx.Done()`, never `e.done` —
-and `recvDataMsgOn`/`dispatchDecodeErrorOn` recheck that channel with a non-blocking `select`
-before EACH handler call and EACH channel send, not just once at entry.
-This is a fundamentally different kind of cutoff from #1:
-liveEpoch is a point-in-time decision made once behind `genGate`;
-`e.ctx.Done()` is a channel a long-running fan-out can observe becoming ready partway through,
-so fan-out stops when a per-step check observes cancellation;
-a handler or channel delivery whose check already passed can still proceed, without ever re-taking a lock.
-`Done()`'s own doc explains why the fan-out cannot use `e.done` instead:
-`e.done` only closes after `tr.Stop`'s bounded join completes,
-and that join waits (via the recv goroutine) for THIS SAME fan-out to return —
+**Cutoff #2: fan-out, ongoing, never under `genGate`.**
+`routeDataOn` (`hsms/connection_runtime.go`) does not consult `liveEpoch` again.
+It computes `done := epochDone(e)` — `e.ctx.Done()`, never `e.done` —
+and passes it to `recvDataMsgOn`/`dispatchDecodeErrorOn` (`hsms/session.go`).
+Each snapshots its registrations under `s.mu.RLock`, releases it,
+then rechecks `done` with a non-blocking `select` before EACH handler call and EACH channel send.
+Unlike #1, this observes cancellation partway through a long fan-out;
+a handler whose check already passed is invoked,
+and a channel delivery whose check passed still selects between the send and `done`, so it is not guaranteed to deliver.
+`Done()`'s own doc (`hsms/connection.go`) explains why the fan-out cannot use `e.done`:
+`e.done` closes only after `(*epoch).join` completes the bounded join,
+and that join waits (via the recv goroutine) for this same fan-out to return —
 selecting on `e.done` here would be a circular wait.
 
-**As of `d244104`, cutoff #2 also threads `e`'s own generation past the fan-out, into the handler call itself.**
-`routeDataOn` derives `gen` from `e.id` (0 when `e` is nil) and passes it as a new leading parameter to
-`recvDataMsgOn`/`dispatchDecodeErrorOn` (`hsms/session.go`), which pass it straight through to
-`callDataHandler`/`callDecodeErrorHandler` — the same generation cutoff #1 already resolved, never
-re-derived.
-Those two call sites use `gen` for something outside this entry's own scope: if the handler they invoke
-ends via `runtime.Goexit` instead of returning, they disconnect exactly `gen` — the admitted epoch's
-own ID — rather than whatever generation happens to be current once the handler finally exits.
-That disconnect report is a no-op only for the specific condition `disconnectHandlerGeneration`
-checks: `gen == 0` is ignored outright, and a nonzero `gen` that no longer matches the current
-epoch's identity is rejected by `injectDisconnect`.
-This is a DIFFERENT condition from either cutoff above: it compares identity only, not `ended`, so a
-report naming an ended-but-still-current epoch (the same epoch cutoff #1 admitted `e` under) still
-gets through — see [the generation report fence](/hsms/generation-report-fence.md)
-for that check's exact shape.
-See [the callback panic/Goexit isolation entry](/hsms/handler-panic-goexit-isolation.md) for that
-mechanism; the fact this entry records is only that the plumbing for it rides the SAME resolved `e`
-cutoff #1 already picked, one parameter deeper than before.
-A more consequential change rides along with it: before `d244104`, `callDataHandler` ran a
-`DataMessageHandler` with NO recover at all — a panicking handler crashed the process.
-It is now recovered (and counted) through the same `runCallback` isolation, so the "per-step recheck"
-this section already documents (does the fan-out stop before the NEXT handler/channel) is no longer the
-only thing standing between one misbehaving handler and the rest of the fan-out; a PANIC inside a single
-handler no longer takes down the others either.
+**The resolved generation also reaches the handler call.**
+`routeDataOn` derives `gen` from `e.id` (0 when `e` is nil)
+and passes it through `recvDataMsgOn`/`dispatchDecodeErrorOn` to `callDataHandler`/`callDecodeErrorHandler`, never re-derived.
+On the connection-backed path (`s.rt` implements `handlerHost`),
+those run the handler under `runCallback`: a panic is recovered and counted,
+and a handler that ends via `runtime.Goexit` reports `disconnectHandlerGeneration(gen)` —
+the admitted epoch's own ID, not whatever is current once the handler exits.
+A zero `gen` (`disconnectHandlerGeneration`), no current epoch, or a mismatched ID (`injectDisconnect`) injects nothing.
+A matching epoch is marked as a communications failure,
+and a disconnect event is injected if a supervisor exists;
+`ended` is never checked —
+see [the generation report fence](/hsms/generation-report-fence.md) and [callback isolation](/hsms/handler-panic-goexit-isolation.md).
 
-**The window between the two cutoffs, and where the test hooks sit.**
-Three nil-by-default hooks mark the three points in this sequence a test can pause at:
-`testHookAfterReadFrame` (`hsmsss/transport.go`, fired in `recvLoop`) sits BEFORE cutoff #1 —
-between the read and `dispatchFrame`, i.e. before admission is even attempted;
-`testHookBeforeS9F1Enqueue` (`hsms/connection.go`, fired in `checkSessionID`, equipment role only) sits AFTER cutoff #1,
-between admission and the S9F1's `enqueueAsync` on the resolved epoch;
-`testHookBeforeFanout` (`hsms/connection.go`, fired in `deliverOwnedFrameOn`) sits AFTER cutoff #1 and `checkSessionID`,
-immediately before S9 correlation and cutoff #2's fan-out.
-Each one lets a test advance the generation (publish a successor, end the admitting one)
-in exactly the window that hook marks,
-to exercise what admission or fan-out does when the generation dies right there.
+**Where the test hooks sit.**
+One nil-by-default hook precedes cutoff #1: `testHookAfterReadFrame`, fired in `recvLoop` before `dispatchFrame`.
+Two follow it: `testHookBeforeS9F1Enqueue` (in `checkSessionID`, equipment role only, before the S9F1 enqueue)
+and `testHookBeforeFanout` (in `deliverOwnedFrameOn`, before S9 correlation and reply/data routing).
+Each lets a test advance the generation in exactly that window.
 
-**The reply side reuses the SAME origin, through a token rather than a pointer.**
+**The reply side reuses the same origin, through a token rather than a pointer.**
 `session.reply` (`hsms/session.go`), the shared body of `ReplyDataMessage` and `ReplyAbort`,
 compares `primary.originIdent` against `os.originIdentity()` by pointer identity
-(`*connIdentity`, a one-byte, non-zero-size struct — see its own doc for why zero-size would make two different connections' tokens alias)
+(`*connIdentity`, one byte so distinct tokens never alias)
 and, on a match, calls `SendAsyncFromGeneration(ctx, primary.originGen, dm)` instead of the unbound `SendAsync`.
-The token is a POINTER identity check, not a `*connection` or `*epoch` field:
-a `DataMessage` that instead held a `*connection` would keep that connection's whole handler/channel registration and its current epoch reachable
-for as long as an application retains the message —
-the token exists for that retention reason as much as for correctness.
+A token rather than a `*connection` keeps a retained message from pinning the connection's handlers and epoch.
 
 **SECS-I's plain ingress gets the stamp but not cutoff #1.**
-`secs1`'s assembler is wired at construction to `t.rt.DeliverOwnedFrame` (`secs1/transport.go` → `newTransport`'s `t.newSink`) —
+`secs1`'s assembler is wired in `newTransport` (`t.newSink`) to `t.rt.DeliverOwnedFrame` —
 the plain, gen-less entry point, never `DeliverOwnedFrameFromGeneration`.
-`DeliverOwnedFrame` resolves `c.cur.Load()` unconditionally and always proceeds to `deliverOwnedFrameOn`:
-there is no `liveEpoch` admission decision, no `staleRecv` accounting, and no refusal path for SECS-I frames at all.
-Plain ingress stamps the resolved epoch's identity only when that epoch is non-nil;
-otherwise the message remains unstamped.
-When it is stamped, `ReplyDataMessage`'s generation-bound reply still works for SECS-I —
-but the protection cutoff #1 gives HSMS-SS (a straggler naming a DEAD generation gets refused before decode)
-has no SECS-I counterpart in this fence;
-SECS-I's own straggler protection is structural, in its line engine's own per-generation ctx/bundle, entirely outside this mechanism.
+`DeliverOwnedFrame` passes `c.cur.Load()` straight to `deliverOwnedFrameOn`:
+no `liveEpoch` decision, no `staleRecv` accounting, no refusal path.
+A stamped SECS-I message still gets a generation-bound reply,
+but SECS-I's straggler protection lives in its line engine's per-generation ctx/bundle, not in this fence.
 
 # Invariants
 
-- Admission (cutoff #1) is decided exactly once per inbound frame/reply, under `genGate.RLock`, at `liveEpoch`.
-  Nothing downstream re-decides it or re-reads `c.cur`.
-- The fan-out (cutoff #2) never takes `genGate`;
-  it only ever selects on the already-resolved `e.ctx.Done()`, rechecked before each step.
-- `lastRecvStamp` is written on every complete frame read, before dispatch and therefore before cutoff #1 runs —
-  a frame cutoff #1 goes on to refuse is still counted as proof of link liveness.
-- `RouteReplyFromGeneration` reports `true` (not `false`) for a stale generation, deliberately,
-  so a stale Select.rsp lands on `dispatchFrame`'s HIT branch (where `commitSelected` itself refuses it)
-  rather than the MISS branch (which would attempt a pointless `Reject.req`).
-- At this revision, SECS-I's INBOUND ingress bypasses admission checking entirely: `secs1`'s assembler
-  is wired at construction directly to the plain `DeliverOwnedFrame` (`secs1/transport.go` →
-  `newTransport`'s `t.newSink`), never to `DeliverOwnedFrameFromGeneration`, so it never reaches
-  `liveEpoch` and never takes that function's own `if gen == 0` branch (which exists for OTHER
-  gen-less callers that do go through the generation-aware entry point).
-  A stamped SECS-I reply is not exempt the same way on the OUTBOUND leg: when a live generation
-  admitted the primary, `ReplyDataMessage` binds the reply through `SendAsyncFromGeneration`, which
-  resolves that nonzero `originGen` through `liveEpoch` like any other generation-named send.
+- Each call reaching a generation-aware inbound entry point with a nonzero `gen`
+  performs exactly one `liveEpoch` admission check, under `genGate.RLock`.
+  Decode, origin stamping, S9 correlation, reply routing, and fan-out all reuse that resolved epoch.
+  Separate commit and disconnect operations (`selectCommitGate`, `injectDisconnect`) perform their own current-generation checks.
+- The fan-out never takes `genGate`;
+  it takes only `s.mu.RLock` to snapshot registrations,
+  and selects on the already-resolved `e.ctx.Done()`, rechecked before each step.
+- `lastRecvStamp` is written on every complete frame read (in `readObserved`), before dispatch and therefore before cutoff #1 —
+  a frame cutoff #1 goes on to refuse still counts as proof of link liveness.
+- `RouteReplyFromGeneration` reports `true` (not `false`) for a stale generation,
+  so a stale Select.rsp lands on `dispatchFrame`'s HIT branch, not the Reject-sending MISS branch.
+  On HIT, `commitSelected(g.gen)` → `CommitSelectedFromGeneration` → `supervisor.commitFrom` → `selectCommitGate` refuses the stale commit.
+- SECS-I's inbound ingress never reaches `liveEpoch`.
+  Its outbound reply is not exempt the same way: when a live generation admitted the primary,
+  `ReplyDataMessage` binds the reply through `SendAsyncFromGeneration`,
+  which resolves that nonzero `originGen` through `liveEpoch` like any other generation-named send.
 - `connection.staleRecv` is incremented on every cutoff-#1 refusal (frame or reply)
-  but is not part of `ConnectionMetrics` — it has no exported accessor.
-  The Debug log line identifies the refusal,
-  but other receive-side accounting (e.g. `RejectRecvCount` for a stale Reject.req) can already have run before the refusal.
+  but is not part of `ConnectionMetrics`; it has no exported accessor.
 
 # Failure modes
 
-- Code that expects `staleRecv` to be readable through `ConnectionMetrics`
-  (by analogy with `DataMsgRecvCount` or `ReplyMismatchCount`) will find no such method;
-  there is no exported stale-admission-drop counter.
+- Code expecting `staleRecv` through `ConnectionMetrics`
+  (by analogy with `DataMsgRecvCount` or `ReplyMismatchCount`) finds no such method.
   The Debug log's `reported_generation`/`current_generation` fields identify the refusal,
-  but a stale Reject.req is already counted in `RejectRecvCount` before that refusal runs.
+  but other receive-side accounting can already have run:
+  a stale Reject.req is counted in `hsmsss` `RejectRecvCount` before `routeReply` is called.
 - A new fan-out path that selects on `e.done` instead of `epochDone(e)` (`e.ctx.Done()`) creates a circular dependency:
-  `e.done` cannot close until `tr.Stop`'s bounded join completes,
+  `e.done` cannot close until the bounded join completes,
   and that join is waiting on the very recv goroutine driving the fan-out —
-  delivery stalls until the join's own timeout fires, rather than stopping promptly on cancellation.
-- Assuming SECS-I gets the same stale-generation protection as HSMS-SS
-  because both go through `DeliverOwnedFrame`/`deliverOwnedFrameOn` is wrong:
-  SECS-I's calls never pass through `DeliverOwnedFrameFromGeneration`, so they never hit `liveEpoch`'s refusal at all.
+  delivery stalls until the join's timeout fires, rather than stopping promptly on cancellation.
+- Assuming SECS-I gets HSMS-SS's stale-generation refusal because both reach `deliverOwnedFrameOn` is wrong.
+
+# Gotchas
+
+- Two code comments disagree with the code.
+  `AddDataMessageChan` (`hsms/session.go`) says channel delivery selects on `rt.Done()`;
+  `recvDataMsgOn` actually selects on the `done` it is passed, the resolved epoch's `e.ctx.Done()`.
+  The `DataMessage` origin-field comment (`hsms/data_msg.go`) says the fields record an inbound PRIMARY;
+  `deliverOwnedFrameOn` stamps every inbound data message with a non-nil epoch, secondaries included.
 
 # Where to look
 
-- the two admission cutoffs and the resolved-epoch propagation: `hsms/connection_runtime.go` →
-  `(*connection).DeliverOwnedFrameFromGeneration`, `(*connection).deliverOwnedFrameOn`,
+- the admission entry points and the resolved-epoch propagation: `hsms/connection_runtime.go` →
+  `(*connection).DeliverOwnedFrame`, `(*connection).DeliverOwnedFrameFromGeneration`, `(*connection).deliverOwnedFrameOn`,
   `(*connection).RouteReplyFromGeneration`, `(*connection).routeReplyOn`, `(*connection).checkSessionID`, `(*connection).correlateS9On`
-- the one-shot admission gate: `hsms/connection_lifecycle.go` → `(*connection).liveEpoch`
+- the one-shot admission gate and the separate commit/disconnect checks: `hsms/connection_lifecycle.go` →
+  `(*connection).liveEpoch`, `(*connection).selectCommitGate`, `(*connection).injectDisconnect`
+- the stale Select.rsp commit refusal: `hsmsss/transport_control.go` → `(*transport).commitSelected`; `hsms/supervisor.go` → `(*supervisor).commitFrom`
 - the per-step recheck during fan-out: `hsms/session.go` → `(*session).recvDataMsgOn`, `(*session).dispatchDecodeErrorOn`
-- the generation `gen` now carries into the handler call, and the panic isolation it feeds: `hsms/connection_runtime.go` →
-  `(*connection).routeDataOn`; `hsms/session.go` → `(*session).callDataHandler`, `(*session).callDecodeErrorHandler`;
+- the generation carried into the handler call: `hsms/connection_runtime.go` → `(*connection).routeDataOn`;
+  `hsms/session.go` → `(*session).callDataHandler`, `(*session).callDecodeErrorHandler`;
   `hsms/handler_panic.go` → `(*connection).disconnectHandlerGeneration`
 - why the fan-out watches `ctx.Done()` and not the join-complete signal: `hsms/connection.go` →
-  `(*connection).Done`, `epochDone`
-- the reply-side origin token and its retention rationale: `hsms/connection.go` → `connIdentity`, `(*connection).originIdentity`;
-  `hsms/data_msg.go` → `DataMessage.originIdent`, `DataMessage.originGen`
-- the origin-token check that routes a reply through the SAME generation: `hsms/session.go` →
-  `(*session).ReplyDataMessage`, `(*session).ReplyAbort`, `(*session).reply`, `originSender`
-- the three test-hook windows: `hsmsss/transport.go` → `transport.testHookAfterReadFrame`;
+  `(*connection).Done`, `epochDone`; `hsms/epoch.go` → `(*epoch).join`
+- the reply-side origin token: `hsms/connection.go` → `connIdentity`, `(*connection).originIdentity`;
+  `hsms/data_msg.go` → `DataMessage`
+- the origin-token check that routes a reply through the same generation: `hsms/session.go` →
+  `(*session).ReplyDataMessage`, `(*session).ReplyAbort`, `(*session).reply`, `originSender`;
+  `hsms/connection_send.go` → `(*connection).SendAsyncFromGeneration`, `(*connection).enqueueAsync`
+- the unexported stale counter: `hsms/connection.go` → `connection.staleRecv`;
+  `hsms/connection_metrics.go` → `ConnectionMetrics`; `hsmsss/metrics.go` → `(*ConnectionMetrics).RejectRecvCount`
+- the test-hook windows: `hsmsss/transport.go` → `transport.testHookAfterReadFrame`;
   `hsms/connection.go` → `connection.testHookBeforeFanout`, `connection.testHookBeforeS9F1Enqueue`
 - hsmsss's generation-bound dispatch wrappers: `hsmsss/transport_control.go` →
   `(*transport).deliverOwnedFrame`, `(*transport).routeReply`, `genRuntime`
-- the read-then-dispatch sequence, and where the stamp/hook precede admission: `hsmsss/transport_recv.go` →
-  `(*transport).recvLoop`, `(*transport).dispatchFrame`
+- the read-then-dispatch sequence, where the stamp and hook precede admission: `hsmsss/transport_recv.go` →
+  `(*transport).recvLoop`, `(*transport).readObserved`, `(*transport).dispatchFrame`
 - the shared capability method set: `internal/gencap/gencap.go` → `GenerationRuntime`
-- SECS-I's unfenced plain-path ingress: `secs1/transport.go` → `newTransport`'s `t.newSink` wiring to `t.rt.DeliverOwnedFrame`
+- SECS-I's unfenced plain-path ingress: `secs1/transport.go` → `newTransport`
+- the observer report scope: `hsmsss/transport_socket.go` → `(*socketRecord).openReport`
