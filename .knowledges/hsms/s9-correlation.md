@@ -4,18 +4,18 @@ title: Where an inbound S9 is correlated to a waiting send
 description: Where S9 correlation sits on the inbound path, what it reads from the S9 and from the waiter, how the MHEAD comparison is chosen per transport, and why the S9 is still delivered afterwards.
 tags: [hsms, secs1, s9, reply-correlation, inbound]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-10-23T18:00:00Z}
+generated: {by: "claude/opus-5.5", at: 2026-10-24T01:00:00Z}
 verified:
-  - {by: "openai/gpt-6-astra", at: 2026-10-23T18:42:42Z}
+  - {by: "openai/gpt-6-astra", at: 2026-10-23T19:40:56Z}
 sources:
-  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: 2a92a5e}
-  - {resource: hsms/reply_registry.go, digest: sha256:8f6b52cc0e84f7db, revision: 2a92a5e}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7e522b23c55a811d, revision: 88ad632}
+  - {resource: hsms/reply_registry.go, digest: sha256:bb2120b6e1edee23, revision: d059562}
   - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: 2a92a5e}
-  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: 2a92a5e}
+  - {resource: hsms/connection_send.go, digest: sha256:0c55541698a8bd5d, revision: 88ad632}
   - {resource: secs1/transport.go, digest: sha256:8751c0d91c45f678, revision: 2a92a5e}
-  - {resource: hsms/connection_config.go, digest: sha256:ce0ac428789edddd, revision: 2a92a5e}
-  - {resource: hsms/data_msg.go, digest: sha256:a90443b564284b51, revision: 2a92a5e}
-  - {resource: hsms/s9_correlation_test.go, digest: sha256:a3de9b08c23b6b18, revision: 2a92a5e}
+  - {resource: hsms/connection_config.go, digest: sha256:fe4de03d86aa7fba, revision: 88ad632}
+  - {resource: hsms/data_msg.go, digest: sha256:ca18a5b197706c0e, revision: 0433b27}
+  - {resource: hsms/s9_correlation_test.go, digest: sha256:d63a3c5ea9b47ced, revision: d059562}
 ---
 
 # What it does
@@ -87,8 +87,8 @@ while `mheadExact` compares all 10 bytes, session ID and PType/SType included.
   `TestS9Correlation_BodyLeftUndecoded` catches it.
 - **Keying the lookup on the S9 envelope's System Bytes** misses the intended waiter, so the send waits out T3.
   With the header comparison intact it cannot end a waiter whose stored System Bytes differ from the MHEAD's.
-  `TestS9Correlation_NoMatch` does not detect a lookup-only change, although its test comment says its envelope row does:
-  in that row the MHEAD differs from the sent header, so the comparison rejects it under either key.
+  `TestS9Correlation_EachFunctionEndsSend` catches it, since its S9 envelope's System Bytes differ from the sent ones;
+  `TestS9Correlation_NoMatch`'s envelope row does not, because its MHEAD differs from the sent header and the comparison rejects it under either key.
 - **Dropping `failS9`'s `isData` condition** lets an S9 end a Linktest or Select wait;
   `TestS9Correlation_ControlWaiterNotMatched` catches it.
 - **A SECS-I transport that stops reporting `UsesSECS1MHEAD`** falls back to `mheadExact`,

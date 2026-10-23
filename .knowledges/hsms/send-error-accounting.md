@@ -4,16 +4,16 @@ title: Send error accounting — which outcomes count
 description: Which synchronous data-send outcomes count in DataMsgErrCount, and why every teardown-observed outcome — including a write that fails after teardown starts — reports ErrConnClosed and is excluded.
 tags: [hsms, metrics, send, lifecycle]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-10-23T18:00:00Z}
+generated: {by: "claude/opus-5.5", at: 2026-10-24T01:00:00Z}
 verified:
-  - {by: "openai/gpt-6-astra", at: 2026-10-23T18:42:42Z}
+  - {by: "openai/gpt-6-astra", at: 2026-10-23T19:40:56Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: 2a92a5e}
+  - {resource: hsms/connection_send.go, digest: sha256:0c55541698a8bd5d, revision: 88ad632}
   - {resource: hsms/connection_metrics.go, digest: sha256:87b11ae3785c0870, revision: 2a92a5e}
-  - {resource: hsms/connection_send_metrics_test.go, digest: sha256:457aeefcd9801abc, revision: 2a92a5e}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: 2a92a5e}
+  - {resource: hsms/connection_send_metrics_test.go, digest: sha256:d271185678b37703, revision: 88ad632}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7e522b23c55a811d, revision: 88ad632}
   - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: 2a92a5e}
-  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: 2a92a5e}
+  - {resource: hsms/session.go, digest: sha256:2496fbf0a3e18e86, revision: d059562}
   - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: 2a92a5e}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:8ef63578b72806e0, revision: 2a92a5e}
   - {resource: gem/s9.go, digest: sha256:3fcf895ac2d6e4d9, revision: 2a92a5e}
@@ -158,16 +158,11 @@ The data-error counter is exactly that: a *data* counter.
 
 # Gotchas
 
-Code comments that disagree with the code:
-- `sendWaitReplyOn`'s write-failure comment says "The frame never reached the wire."
-  That is not true for every `writeFrame` failure:
-  `writeFrame`'s own comment notes a write may have sent part of the frame before failing,
+- A counted write failure does not mean nothing reached the peer:
+  `writeFrame` may have sent part of the frame before failing,
   and `(*transport).Write` returns `bufs.WriteTo`'s error without requiring zero bytes written.
-- `TestSendMetrics_DataMsgErr_OnWriteError_FireAndForget`'s doc comment says the increment is "guarded on isData alone";
-  the guard is `isData && isCountedSendErr(err)`.
-  Both write-error tests' comments also describe the failure as "before the wire",
-  which holds for the test harness but not for a real partial write:
-  the tests use `mockTransport`, whose `captureWrite` returns the configured `writeErr` without recording a frame.
+- The write-error tests use `mockTransport`, whose `captureWrite` returns the configured `writeErr` without recording a frame,
+  so they model a failure with nothing written.
 
 The regression tests `TestSendMetrics_DataMsgErr_OnWriteError` (W-bit set)
 and `TestSendMetrics_DataMsgErr_OnWriteError_FireAndForget` (!W)

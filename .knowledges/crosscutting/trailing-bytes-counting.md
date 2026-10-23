@@ -9,7 +9,7 @@ verified:
   - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
   - {resource: secs2/decode.go, digest: sha256:13650cb9e1cb45f1, revision: 02dd98c}
-  - {resource: hsms/data_msg.go, digest: sha256:a90443b564284b51, revision: da56326}
+  - {resource: hsms/data_msg.go, digest: sha256:ca18a5b197706c0e, revision: 0433b27}
   - {resource: internal/framecodec/owned.go, digest: sha256:9d1b4b90d8205347, revision: 3660aa4}
 ---
 

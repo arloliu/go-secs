@@ -4,17 +4,17 @@ title: The reply registry's two-legged control exemption
 description: Why registration-side isData and result-side *DataMessage assertion are two independent gates, not one, and what breaks when only one survives.
 tags: [hsms, reply-correlation, e37, control]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-10-23T18:00:00Z}
+generated: {by: "claude/opus-5.5", at: 2026-10-24T01:00:00Z}
 verified:
-  - {by: "openai/gpt-6-astra", at: 2026-10-23T18:42:42Z}
+  - {by: "openai/gpt-6-astra", at: 2026-10-23T19:40:56Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: 2a92a5e}
-  - {resource: hsms/reply_registry.go, digest: sha256:8f6b52cc0e84f7db, revision: 2a92a5e}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: 2a92a5e}
-  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: 2a92a5e}
+  - {resource: hsms/connection_send.go, digest: sha256:0c55541698a8bd5d, revision: 88ad632}
+  - {resource: hsms/reply_registry.go, digest: sha256:bb2120b6e1edee23, revision: d059562}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7e522b23c55a811d, revision: 88ad632}
+  - {resource: hsms/session.go, digest: sha256:2496fbf0a3e18e86, revision: d059562}
   - {resource: hsms/reply_registry_test.go, digest: sha256:46ed00a4436d8e37, revision: 2a92a5e}
   - {resource: hsms/reply_matching_test.go, digest: sha256:4fd21a7d86752c61, revision: 2a92a5e}
-  - {resource: hsmsss/integration_reply_matching_test.go, digest: sha256:e3ff71163fa0ec13, revision: 2a92a5e}
+  - {resource: hsmsss/integration_reply_matching_test.go, digest: sha256:8c465ba9ec0dec87, revision: 88ad632}
   - {resource: hsmsss/integration_orphan_control_rsp_test.go, digest: sha256:630da2a164739532, revision: 2a92a5e}
   - {resource: hsmsss/harness_endpoint_test.go, digest: sha256:4db1d08cd272c0fc, revision: 2a92a5e}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: 2a92a5e}
@@ -34,8 +34,7 @@ That is the delta this entry records:
 dropping leg 2 alone is invisible to the two obvious round-trip tests;
 dropping leg 1 alone is not,
 since leg 1 also gates the DATA-registration `*ControlMessage`-miss check those same tests exercise.
-The comment's "Both always deliver uncompared" is imprecise:
-both bypass comparison, but only a result that wins [the reply-wait claim](/hsms/reply-wait-claim.md) is delivered.
+Both exempt results bypass comparison, but only a result that wins [the reply-wait claim](/hsms/reply-wait-claim.md) is delivered.
 
 # How it works
 

@@ -3,22 +3,24 @@ type: Mechanic
 title: The transaction observer's two chokepoints, its isData gate, and its outcome classifier
 description: Why WithTransactionObserver instruments two call sites (not one), why the isData gate prevents an observer-path panic for control messages, and how classifyTxOutcome's eight-way split relates to isCountedSendErr's binary one.
 tags: [hsms, observability, send, metrics, lifecycle]
-status: draft
-generated: {by: "claude/opus-5.5", at: 2026-10-23T18:00:00Z}
+status: stable
+generated: {by: "claude/opus-5.5", at: 2026-10-24T01:00:00Z}
+verified:
+  - {by: "openai/gpt-6-astra", at: 2026-10-23T19:40:56Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: 2a92a5e}
-  - {resource: hsms/transaction_observer.go, digest: sha256:e76d57a56b7a83f0, revision: 2a92a5e}
-  - {resource: hsms/connection_config.go, digest: sha256:ce0ac428789edddd, revision: 2a92a5e}
-  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: 2a92a5e}
+  - {resource: hsms/connection_send.go, digest: sha256:0c55541698a8bd5d, revision: 88ad632}
+  - {resource: hsms/transaction_observer.go, digest: sha256:6ba390eb2ebc682a, revision: 88ad632}
+  - {resource: hsms/connection_config.go, digest: sha256:fe4de03d86aa7fba, revision: 88ad632}
+  - {resource: hsms/session.go, digest: sha256:2496fbf0a3e18e86, revision: d059562}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: 2a92a5e}
-  - {resource: hsmsss/transaction_observer_test.go, digest: sha256:498f47d6b3971437, revision: 2a92a5e}
+  - {resource: hsmsss/transaction_observer_test.go, digest: sha256:e9bfa958683a3882, revision: d059562}
   - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: 2a92a5e}
   - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: 2a92a5e}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:8ef63578b72806e0, revision: 2a92a5e}
-  - {resource: hsms/data_msg.go, digest: sha256:a90443b564284b51, revision: 2a92a5e}
+  - {resource: hsms/data_msg.go, digest: sha256:ca18a5b197706c0e, revision: 0433b27}
   - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: 2a92a5e}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: 2a92a5e}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: 2a92a5e}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7e522b23c55a811d, revision: 88ad632}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: 2a92a5e}
   - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: 2a92a5e}
 ---
@@ -107,9 +109,6 @@ asserts that `rec.snapshot()` stays empty across several completed auto-linktest
 Those linktests run through the generation-bound bypass,
 so the test verifies the combined exclusion,
 not the `isData` gate independently.
-Its leading doc comment describes both barriers correctly;
-the inline comment inside the test body still claims it "exercises the gate"
-on each connection's "own WriteMessage(Linktest.req) calls", which is inaccurate.
 
 **The classifier vs. the counter.**
 `classifyTxOutcome` (`hsms/connection_send.go`, next to `isCountedSendErr`)
@@ -160,8 +159,7 @@ including the receive loop when a data handler sends (see Gotchas).
 - Every sync return path in `sendWaitReplyOn` / `sendNoReplyOn` reachable when `isData` is true,
   plus the chokepoint's own `ErrNotOpen` when no epoch is current, maps to exactly one `TxOutcome` —
   the full return-path table is `classifyTxOutcome`'s doc comment in `hsms/connection_send.go`.
-  That table's transport-write rows omit classifier precedence:
-  a raw or teardown-wrapped error matching the Reject, S9, T3, or abort checks receives that outcome before lifecycle classification.
+  A raw or teardown-wrapped write error matching the Reject, S9, T3, or abort checks receives that outcome before lifecycle classification.
 - The `isData` gate must run before any field of `dm` is read.
   `newTxEvent` assumes a non-nil `dm`; nothing downstream nil-checks it.
 - `ReplyDataMessage` and `ReplyAbort` share the async `session.reply` path and are not observed;
@@ -197,11 +195,8 @@ including the receive loop when a data handler sends (see Gotchas).
 
 # Gotchas
 
-- `TxEvent.ReplyWaited`'s field comment (`hsms/transaction_observer.go`) says
-  "true when the message's W-bit asked the peer for a reply";
-  `WriteMessageNoReply` reports `false` even for a forwarded W-bit message.
-  `newTxEvent`'s doc comment states the actual rule.
-- `WithTransactionObserver`'s godoc says the hook "never runs on a protocol goroutine".
+- `TxEvent.ReplyWaited` is false for every `WriteMessageNoReply` event, even a forwarded W-bit message.
+- The observer runs on a protocol goroutine when the send does:
   HSMS-SS dispatches inbound data synchronously from `recvLoop`, through `deliverOwnedFrameOn` and `routeDataOn`, into `recvDataMsgOn`,
   so a handler that calls `SendDataMessage` runs the observer on that receive goroutine.
 

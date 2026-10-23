@@ -4,18 +4,18 @@ title: The inbound generation fence
 description: How an inbound frame or reply is bound to the generation whose recv goroutine actually read it, and the two different kinds of cutoff that enforce it.
 tags: [hsms, hsmsss, generations, inbound, fan-out]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-10-23T18:00:00Z}
+generated: {by: "claude/opus-5.5", at: 2026-10-24T01:00:00Z}
 verified:
-  - {by: "openai/gpt-6-astra", at: 2026-10-23T18:42:42Z}
+  - {by: "openai/gpt-6-astra", at: 2026-10-23T19:40:56Z}
 sources:
-  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: 2a92a5e}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7e522b23c55a811d, revision: 88ad632}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: 2a92a5e}
   - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: 2a92a5e}
-  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: 2a92a5e}
+  - {resource: hsms/session.go, digest: sha256:2496fbf0a3e18e86, revision: d059562}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: 2a92a5e}
-  - {resource: hsms/data_msg.go, digest: sha256:a90443b564284b51, revision: 2a92a5e}
+  - {resource: hsms/data_msg.go, digest: sha256:ca18a5b197706c0e, revision: 0433b27}
   - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: 2a92a5e}
-  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: 2a92a5e}
+  - {resource: hsms/connection_send.go, digest: sha256:0c55541698a8bd5d, revision: 88ad632}
   - {resource: hsms/connection_metrics.go, digest: sha256:87b11ae3785c0870, revision: 2a92a5e}
   - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: 2a92a5e}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: 2a92a5e}
@@ -80,7 +80,7 @@ which drops a mismatch in either role.
 Only in the equipment role (`cfg.equipmentRole`) does it first enqueue an S9F1 through `e`, via `enqueueAsync`,
 so a mismatch admitted by a generation that ends before the enqueue runs
 drops the S9F1 with that generation's stranded queue rather than landing on a successor.
-An inbound S9F1 is exempt from the check and never dropped.
+An inbound S9F1 is exempt from session-ID validation and is never dropped by that check.
 Next it fires `testHookBeforeFanout` (nil in production),
 calls `correlateS9On(e, dm)`,
 which can end a waiting send through `e.replies` (see [S9 correlation](/hsms/s9-correlation.md)),
@@ -171,11 +171,10 @@ but SECS-I's straggler protection lives in its line engine's per-generation ctx/
 
 # Gotchas
 
-- Two code comments disagree with the code.
-  `AddDataMessageChan` (`hsms/session.go`) says channel delivery selects on `rt.Done()`;
-  `recvDataMsgOn` actually selects on the `done` it is passed, the resolved epoch's `e.ctx.Done()`.
-  The `DataMessage` origin-field comment (`hsms/data_msg.go`) says the fields record an inbound PRIMARY;
-  `deliverOwnedFrameOn` stamps every inbound data message with a non-nil epoch, secondaries included.
+- Channel delivery in `recvDataMsgOn` selects on the `done` it is passed, the resolved epoch's `e.ctx.Done()`, not on the current runtime's.
+- `deliverOwnedFrameOn` stamps every inbound data message admitted with a non-nil epoch, secondaries included.
+  The reply methods consult the stamp of whatever message they are passed as the primary:
+  `ReplyDataMessage` does not check that it is a primary, and `ReplyAbort` first requires the W-bit.
 
 # Where to look
 

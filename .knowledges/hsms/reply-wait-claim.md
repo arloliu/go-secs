@@ -4,18 +4,18 @@ title: How a reply wait ends with at most one result
 description: The one-shot claim every result must win before it reaches a waiting sender, what each losing candidate reports, and how the sender's select arms turn the winner into a return value.
 tags: [hsms, reply-correlation, concurrency, s9, sxf0]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-10-23T18:00:00Z}
+generated: {by: "claude/opus-5.5", at: 2026-10-24T01:00:00Z}
 verified:
-  - {by: "openai/gpt-6-astra", at: 2026-10-23T18:42:42Z}
+  - {by: "openai/gpt-6-astra", at: 2026-10-23T19:40:56Z}
 sources:
-  - {resource: hsms/reply_registry.go, digest: sha256:8f6b52cc0e84f7db, revision: 2a92a5e}
-  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: 2a92a5e}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: 2a92a5e}
-  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: 2a92a5e}
-  - {resource: hsms/connection_config.go, digest: sha256:ce0ac428789edddd, revision: 2a92a5e}
+  - {resource: hsms/reply_registry.go, digest: sha256:bb2120b6e1edee23, revision: d059562}
+  - {resource: hsms/connection_send.go, digest: sha256:0c55541698a8bd5d, revision: 88ad632}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7e522b23c55a811d, revision: 88ad632}
+  - {resource: hsms/session.go, digest: sha256:2496fbf0a3e18e86, revision: d059562}
+  - {resource: hsms/connection_config.go, digest: sha256:fe4de03d86aa7fba, revision: 88ad632}
   - {resource: hsms/reply_registry_test.go, digest: sha256:46ed00a4436d8e37, revision: 2a92a5e}
   - {resource: hsms/reply_matching_test.go, digest: sha256:4fd21a7d86752c61, revision: 2a92a5e}
-  - {resource: hsms/s9_correlation_test.go, digest: sha256:a3de9b08c23b6b18, revision: 2a92a5e}
+  - {resource: hsms/s9_correlation_test.go, digest: sha256:d63a3c5ea9b47ced, revision: d059562}
   - {resource: hsms/abort_reply_error_test.go, digest: sha256:03ed70180a5e3879, revision: 2a92a5e}
 ---
 
@@ -30,10 +30,6 @@ and the claim decides which of them, at most one, is published to the sender.
 Nor do they say where each loser ends up,
 why mismatch detection runs before the claim,
 or how `WithAbortReplyError` rewrites the winner on every arm that can return it.
-Two comments are imprecise:
-the `replyRegistry` comment says a reply arriving after deregister is dropped,
-but a missed data secondary falls through to `routeDataOn`;
-and the `RouteReply` comment explains duplicates through the buffer, while the claim state decides them.
 The two-legged comparison that runs ahead of the claim is [the control exemption](/hsms/reply-matching-control-exemption.md);
 the inbound path that produces the S9 claimant is [S9 correlation](/hsms/s9-correlation.md).
 

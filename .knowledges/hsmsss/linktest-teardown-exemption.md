@@ -10,7 +10,7 @@ verified:
 sources:
   - {resource: hsmsss/transport_procedures.go, digest: sha256:8ef63578b72806e0, revision: be7a75b}
   - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: be7a75b}
-  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: da56326}
+  - {resource: hsms/connection_send.go, digest: sha256:0c55541698a8bd5d, revision: 88ad632}
   - {resource: hsms/errors.go, digest: sha256:e5ca779322f09ac5, revision: da56326}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
   - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
