@@ -112,6 +112,8 @@ func (m *ConnectionMetrics) DataMsgRecvCount() uint64 {
 //   - A peer Reject of our transaction (surfaced as *RejectError — a peer-signalled outcome, not a local send error).
 //   - A peer SxF0 abort of our transaction: it is a received reply, counted only by DataMsgRecvCount,
 //     whether or not WithAbortReplyError reports it as ErrTransactionAborted.
+//   - A peer Stream 9 error message that ends our transaction under WithS9Correlation (surfaced as *S9Error):
+//     it is the peer's report, counted only by DataMsgRecvCount.
 //   - An async-path (SendAsync/ReplyDataMessage/ReplyAbort) failure.
 //   - A message rejected before the wire for exceeding MaxMessageSize (ErrMessageTooLarge) — a
 //     local, caller-side construction error, not a transport/protocol failure.
@@ -138,8 +140,10 @@ func (m *ConnectionMetrics) DataMsgErrCount() uint64 {
 // SessionID is never compared here (see WithSessionIDValidation for that seam).
 //
 // The count means something different depending on WithStrictReplyMatching:
-//   - Disabled (the default): each counted candidate was still delivered to the waiting sender despite the mismatch —
-//     nothing else about delivery changed.
+//   - Disabled (the default): a counted candidate that finds the sender still waiting is delivered to it despite the mismatch.
+//     One that finds the wait already ended is counted the same way but never reaches the sender:
+//     after an earlier reply it is dropped as a duplicate,
+//     and after an S9 ended the send (see WithS9Correlation) it reaches the data handlers as an orphan secondary.
 //     A rising count under the default identifies a sloppy peer without breaking it;
 //     SEMI E37 §9.4.1 full field validation is opt-in (see WithStrictReplyMatching).
 //   - Enabled: each counted candidate was diverted to the data handlers as an unsolicited message instead of satisfying the waiting sender.

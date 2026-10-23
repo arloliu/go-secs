@@ -256,6 +256,10 @@ func (t *transport) Start(ctx context.Context, rt hsms.TransportRuntime) error {
 // IsActive reports whether this transport is configured for the active (dialing) role.
 func (t *transport) IsActive() bool { return t.cfg.Active() }
 
+// UsesSECS1MHEAD reports that a peer's S9 error message carries a SECS-I block header as its MHEAD (SEMI E4 §8),
+// so the hsms core compares it ignoring the R-bit, E-bit, and block number (see hsms.WithS9Correlation).
+func (t *transport) UsesSECS1MHEAD() bool { return true }
+
 // tcpDown reports an involuntary disconnect, naming its TransitionCause when the runtime accepts one.
 // Every TCPDown producer in this package goes through it,
 // so the cause is chosen at the site that knows why the line is going down.

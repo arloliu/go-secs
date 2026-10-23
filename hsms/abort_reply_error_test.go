@@ -79,7 +79,7 @@ func requireTransactionClean(t *testing.T, c *connection) {
 
 	require.Zero(t, c.cur.Load().replies.len(), "the reply registration must be removed")
 	require.Equal(t, int64(0), c.metrics.DataMsgInflightCount(), "the inflight gauge must return to 0")
-	require.Equal(t, uint64(0), c.metrics.DataMsgErrCount(), "an SxF0 reply is never a data-message error")
+	require.Equal(t, uint64(0), c.metrics.DataMsgErrCount(), "a peer-answered send is never a data-message error")
 }
 
 // abortSendFuncs are the two session methods that wait for a reply through this package.

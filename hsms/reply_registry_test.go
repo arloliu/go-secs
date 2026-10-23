@@ -1,7 +1,6 @@
 package hsms
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -13,7 +12,7 @@ import (
 func TestReplyRegistry_RouteHit(t *testing.T) {
 	r := newReplyRegistry()
 	key := [4]byte{1, 2, 3, 4}
-	ch := r.register(key, 0, 0, false)
+	ch := r.registerControl(key)
 	defer r.deregister(key)
 	delivered, mismatched := r.route(key, replyResult{msg: nil, err: nil}, false)
 	require.True(t, delivered)
@@ -35,7 +34,7 @@ func TestReplyRegistry_RouteMiss(t *testing.T) {
 func TestReplyRegistry_LateReplyAfterDeregisterIsDropped(t *testing.T) {
 	r := newReplyRegistry()
 	key := [4]byte{5, 5, 5, 5}
-	_ = r.register(key, 0, 0, false)
+	_ = r.registerControl(key)
 	r.deregister(key) // sender gave up (ctx/T3)
 	delivered, _ := r.route(key, replyResult{}, false)
 	require.False(t, delivered, "late reply after deregister must drop, never panic")
@@ -45,7 +44,7 @@ func TestReplyRegistry_LateReplyAfterDeregisterIsDropped(t *testing.T) {
 func TestReplyRegistry_RouteNeverBlocks(t *testing.T) {
 	r := newReplyRegistry()
 	key := [4]byte{7, 7, 7, 7}
-	_ = r.register(key, 0, 0, false) // cap-1 channel, nobody draining
+	_ = r.registerControl(key) // cap-1 channel, nobody draining
 	delivered, _ := r.route(key, replyResult{}, false)
 	require.True(t, delivered) // fills buffer
 	done := make(chan struct{})
@@ -66,6 +65,12 @@ func replyDM(stream, function uint8) *DataMessage {
 	dm.header[3] = function
 
 	return dm
+}
+
+// sentHeader builds the 10-byte header a W-bit data primary of stream and function is sent with under System Bytes sb,
+// with session ID 0xFFFF: the header registerData records for the wait.
+func sentHeader(sb [4]byte, stream, function uint8) [10]byte {
+	return [10]byte{0xFF, 0xFF, 0x80 | stream&0x7F, function, 0, 0, sb[0], sb[1], sb[2], sb[3]}
 }
 
 // TestReplyRegistry_FieldMatching is the field-comparison matrix (Task 6 Design Reference): a
@@ -96,7 +101,7 @@ func TestReplyRegistry_FieldMatching(t *testing.T) {
 		t.Run(tt.name+"/default", func(t *testing.T) {
 			r := newReplyRegistry()
 			key := [4]byte{0, 0, 0, 1}
-			ch := r.register(key, 1, 1, true)
+			ch := r.registerData(sentHeader(key, 1, 1))
 			defer r.deregister(key)
 
 			reply := replyDM(tt.replyStream, tt.replyFunction)
@@ -115,7 +120,7 @@ func TestReplyRegistry_FieldMatching(t *testing.T) {
 		t.Run(tt.name+"/strict", func(t *testing.T) {
 			r := newReplyRegistry()
 			key := [4]byte{0, 0, 0, 2}
-			ch := r.register(key, 1, 1, true)
+			ch := r.registerData(sentHeader(key, 1, 1))
 			defer r.deregister(key)
 
 			reply := replyDM(tt.replyStream, tt.replyFunction)
@@ -150,7 +155,7 @@ func TestReplyRegistry_FieldMatching(t *testing.T) {
 func TestReplyRegistry_ControlExemption_RegistrationLeg(t *testing.T) {
 	r := newReplyRegistry()
 	key := [4]byte{1, 1, 1, 1}
-	ch := r.register(key, 0, 0, false) // isData false: a control primary (e.g. Select.req)
+	ch := r.registerControl(key) // isData false: a control primary (e.g. Select.req)
 	defer r.deregister(key)
 
 	// Even a *DataMessage result with wildly different fields must deliver uncompared: a
@@ -199,7 +204,7 @@ func TestReplyRegistry_DataRegistration_ControlResultMustMiss(t *testing.T) {
 			t.Run(tt.name+"/"+map[bool]string{false: "default", true: "strict"}[strict], func(t *testing.T) {
 				r := newReplyRegistry()
 				key := [4]byte{0, 0, 0, 30}
-				ch := r.register(key, 1, 1, true) // isData true: registered for a data primary (S1F1)
+				ch := r.registerData(sentHeader(key, 1, 1)) // isData true: registered for a data primary (S1F1)
 				defer r.deregister(key)
 
 				control := tt.control.WithSystemBytes(key)
@@ -240,7 +245,7 @@ func TestReplyRegistry_DataRegistration_ControlResultMustMiss(t *testing.T) {
 func TestReplyRegistry_ControlExemption_ResultLeg(t *testing.T) {
 	r := newReplyRegistry()
 	key := [4]byte{2, 2, 2, 2}
-	ch := r.register(key, 1, 1, true) // isData true: registered for a data primary
+	ch := r.registerData(sentHeader(key, 1, 1)) // isData true: registered for a data primary
 	defer r.deregister(key)
 
 	rejectResult := replyResult{err: &RejectError{Reason: 3}}
@@ -257,21 +262,9 @@ func TestReplyRegistry_ControlExemption_ResultLeg(t *testing.T) {
 	}
 }
 
-// claimByS9 does to key's wait what an S9 error message correlated to the transaction does:
-// it claims the open wait with replyClaimedByS9 and, on winning, sends s9 to the sender.
-// It reports whether the claim won.
-func claimByS9(r replyRegistry, key [4]byte, s9 replyResult) bool {
-	w, ok := r.m.Load(key)
-	if !ok || !w.state.CompareAndSwap(replyOpen, replyClaimedByS9) {
-		return false
-	}
-
-	select {
-	case w.ch <- s9:
-	default:
-	}
-
-	return true
+// s9Result is the result an S9 error message correlated to the wait for header completes it with.
+func s9Result(header [10]byte) replyResult {
+	return replyResult{err: &S9Error{Function: 5, MHEAD: header}}
 }
 
 // requireOneResult receives the one result buffered on ch and fails if there is none.
@@ -305,7 +298,7 @@ func requireNoResult(t *testing.T, ch chan replyResult) {
 func TestReplyRegistry_StrictMismatchThenConformingReply(t *testing.T) {
 	r := newReplyRegistry()
 	key := [4]byte{0, 0, 0, 40}
-	ch := r.register(key, 1, 1, true)
+	ch := r.registerData(sentHeader(key, 1, 1))
 	defer r.deregister(key)
 
 	delivered, mismatched := r.route(key, replyResult{msg: replyDM(2, 2)}, true)
@@ -332,7 +325,8 @@ func TestReplyRegistry_StrictMismatchThenConformingReply(t *testing.T) {
 // Each case runs with the winner still buffered and with the sender having drained it but not yet deregistered:
 // the outcome must not depend on the buffer, because the claim alone records that the wait is over.
 //
-// TEETH: report every lost claim as delivered (the shape before the claim existed) and every S9 row fails;
+// TEETH: report every lost claim as delivered (the shape before the claim existed)
+// and every S9 row fails except the strict mismatched candidates, which miss before the claim;
 // drop the claim entirely and the drained rows deliver the candidate to the sender.
 func TestReplyRegistry_CandidateAfterClaim(t *testing.T) {
 	candidates := []struct {
@@ -353,7 +347,7 @@ func TestReplyRegistry_CandidateAfterClaim(t *testing.T) {
 					t.Run(name, func(t *testing.T) {
 						r := newReplyRegistry()
 						key := [4]byte{0, 0, 0, 41}
-						ch := r.register(key, 1, 1, true)
+						ch := r.registerData(sentHeader(key, 1, 1))
 						defer r.deregister(key)
 
 						var won replyResult
@@ -363,8 +357,8 @@ func TestReplyRegistry_CandidateAfterClaim(t *testing.T) {
 							require.True(t, delivered)
 							require.False(t, mismatched)
 						} else {
-							won = replyResult{err: errors.New("S9 for this transaction")}
-							require.True(t, claimByS9(r, key, won))
+							won = s9Result(sentHeader(key, 1, 1))
+							require.True(t, r.failS9(sentHeader(key, 1, 1), mheadExact, won))
 						}
 
 						if drained {
@@ -402,7 +396,7 @@ func TestReplyRegistry_ConcurrentCandidatesSendOnce(t *testing.T) {
 
 	r := newReplyRegistry()
 	key := [4]byte{0, 0, 0, 42}
-	ch := r.register(key, 1, 1, true)
+	ch := r.registerData(sentHeader(key, 1, 1))
 	defer r.deregister(key)
 
 	start := make(chan struct{})
@@ -418,7 +412,7 @@ func TestReplyRegistry_ConcurrentCandidatesSendOnce(t *testing.T) {
 	}
 	wg.Go(func() {
 		<-start
-		s9Won = claimByS9(r, key, replyResult{err: errors.New("S9 for this transaction")})
+		s9Won = r.failS9(sentHeader(key, 1, 1), mheadExact, s9Result(sentHeader(key, 1, 1)))
 	})
 
 	close(start)
@@ -434,5 +428,156 @@ func TestReplyRegistry_ConcurrentCandidatesSendOnce(t *testing.T) {
 	}
 	for i, d := range delivered {
 		require.Equal(t, !s9Won, d, "reply %d disagrees with the claim's winner", i)
+	}
+}
+
+// TestReplyRegistry_S9AfterReply sends an S9 for the wait after a reply already completed it,
+// with the reply still buffered and with the sender having drained it but not yet deregistered.
+// The S9 must not complete the wait a second time:
+// failS9 reports false, sends nothing, and leaves the reply's claim in place,
+// so the S9 is left to the data handlers.
+//
+// TEETH: drop failS9's claim (send whenever the MHEAD matches) and both rows fail.
+func TestReplyRegistry_S9AfterReply(t *testing.T) {
+	for _, drained := range []bool{false, true} {
+		t.Run(fmt.Sprintf("drained=%t", drained), func(t *testing.T) {
+			r := newReplyRegistry()
+			key := [4]byte{0, 0, 0, 43}
+			header := sentHeader(key, 1, 1)
+			ch := r.registerData(header)
+			defer r.deregister(key)
+
+			reply := replyResult{msg: replyDM(1, 2)}
+			delivered, _ := r.route(key, reply, false)
+			require.True(t, delivered)
+
+			if drained {
+				require.Equal(t, reply, requireOneResult(t, ch))
+			}
+
+			require.False(t, r.failS9(header, mheadExact, s9Result(header)), "the reply already completed the wait")
+
+			if !drained {
+				require.Equal(t, reply, requireOneResult(t, ch), "only the reply reaches the sender channel")
+			}
+			requireNoResult(t, ch)
+
+			w, ok := r.m.Load(key)
+			require.True(t, ok, "cleanup stays with the sender's deregister")
+			require.Equal(t, replyClaimedByReply, w.state.Load())
+		})
+	}
+}
+
+// TestReplyRegistry_FailS9Match covers what failS9 matches:
+// only a data waiter whose sent header the MHEAD identifies under the policy, keyed on the MHEAD's own System Bytes.
+func TestReplyRegistry_FailS9Match(t *testing.T) {
+	key := [4]byte{0, 0, 0, 44}
+	header := sentHeader(key, 6, 11)
+
+	withByte := func(i int, b byte) [10]byte {
+		m := header
+		m[i] = b
+
+		return m
+	}
+
+	tests := []struct {
+		name  string
+		mhead [10]byte
+		want  bool
+	}{
+		{"exact header", header, true},
+		{"other System Bytes", withByte(9, 45), false},
+		{"other session ID", withByte(1, 0xFE), false},
+		{"other stream", withByte(2, 0x80|2), false},
+		{"W-bit clear", withByte(2, 1), false},
+		{"other function", withByte(3, 5), false},
+		{"PType or SType set", withByte(5, 1), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newReplyRegistry()
+			ch := r.registerData(header)
+			defer r.deregister(key)
+
+			res := s9Result(tt.mhead)
+			require.Equal(t, tt.want, r.failS9(tt.mhead, mheadExact, res))
+
+			if tt.want {
+				require.Equal(t, res, requireOneResult(t, ch))
+			}
+			requireNoResult(t, ch)
+		})
+	}
+
+	t.Run("control waiter with the same System Bytes", func(t *testing.T) {
+		r := newReplyRegistry()
+		ch := r.registerControl(key)
+		defer r.deregister(key)
+
+		require.False(t, r.failS9(header, mheadExact, s9Result(header)), "an S9 never ends a control transaction")
+		requireNoResult(t, ch)
+
+		delivered, _ := r.route(key, replyResult{}, false)
+		require.True(t, delivered, "the control wait must still be open")
+	})
+
+	// Zero System Bytes make a control waiter's key equal its all-zero header's,
+	// so only the waiter's kind keeps an all-zero MHEAD from matching it.
+	t.Run("control waiter with an MHEAD equal to its zero header", func(t *testing.T) {
+		r := newReplyRegistry()
+		zero := [4]byte{}
+		ch := r.registerControl(zero)
+		defer r.deregister(zero)
+
+		require.False(t, r.failS9([10]byte{}, mheadExact, s9Result([10]byte{})), "an S9 never ends a control transaction")
+		requireNoResult(t, ch)
+	})
+
+	t.Run("no waiter", func(t *testing.T) {
+		r := newReplyRegistry()
+		require.False(t, r.failS9(header, mheadExact, s9Result(header)))
+	})
+}
+
+// TestMHEADPolicy_Matches is the comparison table for both policies.
+// The exact policy compares all 10 bytes.
+// The block policy ignores the R-bit (the top bit of byte 0) and bytes 4 and 5 (E-bit and block number),
+// and compares the device ID, W-bit with stream, function, and System Bytes.
+func TestMHEADPolicy_Matches(t *testing.T) {
+	header := [10]byte{0x01, 0x23, 0x81, 0x03, 0, 0, 0, 0, 0, 7}
+
+	with := func(f func(m *[10]byte)) [10]byte {
+		m := header
+		f(&m)
+
+		return m
+	}
+
+	tests := []struct {
+		name      string
+		mhead     [10]byte
+		wantExact bool
+		wantBlock bool
+	}{
+		{"identical", header, true, true},
+		{"R-bit set", with(func(m *[10]byte) { m[0] |= 0x80 }), false, true},
+		{"E-bit and block number", with(func(m *[10]byte) { m[4], m[5] = 0x80, 0x01 }), false, true},
+		{"R-bit, E-bit, and block number", with(func(m *[10]byte) { m[0] |= 0x80; m[4], m[5] = 0x80, 0x02 }), false, true},
+		{"other device ID high byte", with(func(m *[10]byte) { m[0] = 0x02 }), false, false},
+		{"other device ID low byte", with(func(m *[10]byte) { m[1] = 0x24 }), false, false},
+		{"W-bit clear", with(func(m *[10]byte) { m[2] = 0x01 }), false, false},
+		{"other stream", with(func(m *[10]byte) { m[2] = 0x82 }), false, false},
+		{"other function", with(func(m *[10]byte) { m[3] = 0x05 }), false, false},
+		{"other System Bytes", with(func(m *[10]byte) { m[6] = 1 }), false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.wantExact, mheadExact.matches(tt.mhead, header), "exact")
+			require.Equal(t, tt.wantBlock, mheadBlock.matches(tt.mhead, header), "block")
+		})
 	}
 }

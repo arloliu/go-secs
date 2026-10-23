@@ -38,6 +38,10 @@ const (
 	// while [WithAbortReplyError] is enabled; TxEvent.Err is [ErrTransactionAborted].
 	// With the option disabled, an SxF0 reply is reported as [TxReplied].
 	TxAborted
+	// TxPeerError indicates the peer answered a reply-expected send with a Stream 9 error message
+	// while [WithS9Correlation] is enabled; TxEvent.Err is an [*S9Error].
+	// With the option disabled, such a send waits out T3 and is reported as [TxT3Timeout].
+	TxPeerError
 )
 
 // TxEvent reports the outcome of one completed synchronous send transaction — see
@@ -88,6 +92,8 @@ func (o TxOutcome) String() string {
 		return "SendError"
 	case TxAborted:
 		return "Aborted"
+	case TxPeerError:
+		return "PeerError"
 	default:
 		return "TxOutcome(" + strconv.FormatUint(uint64(o), 10) + ")"
 	}

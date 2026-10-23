@@ -54,6 +54,7 @@ type ConnectionConfig struct {
 	validateSessionID          bool
 	strictReplyMatching        bool
 	abortReplyError            bool
+	s9Correlation              bool
 	autoS9F9                   bool
 	equipmentRole              bool
 	traceTraffic               bool
@@ -534,10 +535,13 @@ func WithSessionIDValidation(enabled bool) ConnOption {
 // SessionID is a separate seam:
 // enable [WithSessionIDValidation] too for full §9.4.1 field enforcement (mirrors how [WithReconnectBackoff](t5, 1.0) composes with [WithT5]).
 //
-// Disabled (the default) means every candidate reply —
+// Disabled (the default) means a candidate reply —
 // a W-clear, even-function *DataMessage secondary hitting an open System-Bytes entry registered for a data primary —
-// is delivered to the waiting sender even when its stream or function diverges from the primary;
+// that finds the sender still waiting is delivered to it even when its stream or function diverges from the primary;
 // the divergence is only counted (see [ConnectionMetrics.ReplyMismatchCount]).
+// A candidate that finds the wait already ended is counted the same way but does not reach the sender:
+// after an earlier reply it is dropped as a duplicate,
+// and after an S9 ended the send (see [WithS9Correlation]) it reaches the data handlers as an orphan secondary.
 // Control transactions (Select/Deselect/Linktest) and a peer Reject.req are never subject to this check either way —
 // they carry no stream/function to compare.
 //
@@ -561,6 +565,7 @@ func WithStrictReplyMatching(enabled bool) ConnOption {
 // Function 0 is sent in lieu of an expected reply to abort a transaction (SEMI E5 §10.4.1),
 // and the originator terminates the transaction on receiving it (SEMI E5 §8.3).
 // Disabled (the default), SendDataMessage and SendSECS2Message return the SxF0 as the reply with a nil error,
+// or with its decode error if its body fails to decode,
 // so a caller must check its Function() for 0 itself,
 // and a caller that decodes the reply as the expected secondary sees a misleading shape error instead.
 // Enabled, they return (reply, [ErrTransactionAborted]) instead of (reply, nil):
@@ -574,19 +579,82 @@ func WithStrictReplyMatching(enabled bool) ConnOption {
 //
 // The option applies only to the sends that wait for their reply through this package:
 // SendDataMessage and SendSECS2Message with the W-bit set.
-// ForwardDataMessage never waits for a reply, so an SxF0 answering a forwarded message reaches the data handlers as before.
+// ForwardDataMessage never waits for a reply,
+// so an SxF0 answering a forwarded message reaches the data handlers as before.
 // The handler path is unchanged as well:
 // an SxF0 that no waiting send claims, such as one that arrives after its send already returned,
 // is delivered to the DataMessageHandlers as a plain secondary.
 //
+// A send reads the setting once, when it starts waiting for its reply,
+// so changing it through [Connection.UpdateConfigOptions] does not affect a send that is already waiting.
+//
 // [WithTransactionObserver] reports an aborted send as [TxAborted].
 // The connection metrics do not change:
-// an SxF0 is a received reply, so it never counts toward [ConnectionMetrics.DataMsgErrCount], with or without this option.
+// an SxF0 is a received reply,
+// so it never counts toward [ConnectionMetrics.DataMsgErrCount], with or without this option.
 //
 // hsmsss and secs1 connections take it through their WithConnectionOption option.
 func WithAbortReplyError(enabled bool) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.abortReplyError = enabled
+
+		return nil
+	}
+}
+
+// WithS9Correlation makes a peer's Stream 9 error message about a reply-expected data send fail that send.
+//
+// A peer that cannot process a message answers it with S9F1 (unrecognized device ID), S9F3 (unrecognized stream type),
+// S9F5 (unrecognized function type), S9F7 (illegal data), or S9F11 (data too long),
+// whose body is MHEAD, the header of the faulted message (SEMI E5 §10.13).
+// It takes no further action on that message (SEMI E30 §4.9.3), so no reply will follow.
+// Disabled (the default), the send keeps waiting and returns [ErrT3Timeout] once T3 expires.
+// Enabled, an S9 whose MHEAD identifies a send still waiting for its reply ends that send at once:
+// SendDataMessage and SendSECS2Message return (nil, [*S9Error]), which carries the S9 message.
+//
+// The MHEAD is compared against the header our message was sent with, never against the S9's own header:
+//   - over HSMS, all 10 bytes must be equal (SEMI E37 §9.4.2.1):
+//     session ID, W-bit and stream, function, PType, SType, and System Bytes;
+//   - over SECS-I, the MHEAD is the block header the peer received,
+//     so the device ID (ignoring the R-bit), W-bit and stream, function, and System Bytes must be equal,
+//     and the E-bit and block number are ignored.
+//
+// The S9 body must decode as a 10-byte binary item;
+// an S9 with any other body, as well as S9F9 and S9F13, which do not identify a message we sent, ends no send.
+// Only the S9 itself is decoded early, and only while this option is enabled.
+//
+// Correlation does not consume the S9:
+// it still reaches the DataMessageHandlers (or the decode-error handlers) exactly as it would without this option,
+// whether or not it ended a send,
+// and that delivery is not ordered relative to the send's return.
+// An S9 that arrives after its send already returned, or after the genuine reply ended it, ends nothing.
+// A genuine reply that arrives after the S9 ended its send reaches the DataMessageHandlers as an orphan secondary.
+//
+// The option applies only to the sends that wait for their reply through this package:
+// SendDataMessage and SendSECS2Message with the W-bit set.
+// ForwardDataMessage never waits for a reply, so an S9 about a forwarded message only reaches the handlers.
+// An S9 is correlated within the connection generation that admitted it, as a reply is.
+// Over SECS-I, inbound messages are admitted without naming a generation,
+// so there it is whichever generation is current when the S9 is delivered;
+// this option does not change that.
+// With [WithSessionIDValidation] enabled,
+// an S9F3, S9F5, S9F7, or S9F11 carrying a session ID other than this connection's is dropped before correlation;
+// only S9F1 is exempt from that check.
+//
+// The setting is read each time an S9 is delivered, not when a send starts waiting,
+// so a change through [Connection.UpdateConfigOptions] applies to the next S9,
+// including one about a send that was already waiting.
+//
+// [WithTransactionObserver] reports a send ended this way as [TxPeerError].
+// No auto S9F9 is sent (see [WithAutoS9F9]): the send did not time out.
+// No metric counts the S9 or the ended send as an error:
+// like a peer Reject, the S9 is the peer's report,
+// counted only by [ConnectionMetrics.DataMsgRecvCount].
+//
+// hsmsss and secs1 connections take it through their WithConnectionOption option.
+func WithS9Correlation(enabled bool) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.s9Correlation = enabled
 
 		return nil
 	}

@@ -8,7 +8,6 @@ package hsms
 // field-comparison matrix lives in reply_registry_test.go; this file proves the wiring around it.
 
 import (
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -629,13 +628,14 @@ func TestReplyMatching_MismatchAfterClaimStillCounted(t *testing.T) {
 					c, _ := newTestSendConn(t, SelectedState, WithStrictReplyMatching(strict))
 					e := c.cur.Load()
 					sb := [4]byte{0, 0, 0, 50}
-					ch := e.replies.register(sb, 1, 1, true)
+					ch := e.replies.registerData(sentHeader(sb, 1, 1))
 					defer e.replies.deregister(sb)
 
 					if winner == "reply" {
 						require.True(t, c.routeReplyOn(e, mustReplyDM(t, 1, 2, sb)))
 					} else {
-						require.True(t, claimByS9(e.replies, sb, replyResult{err: errors.New("S9 for this transaction")}))
+						header := sentHeader(sb, 1, 1)
+						require.True(t, e.replies.failS9(header, c.mhead, s9Result(header)))
 					}
 					if drained {
 						requireOneResult(t, ch)
@@ -657,23 +657,27 @@ func TestReplyMatching_MismatchAfterClaimStillCounted(t *testing.T) {
 func TestReplyMatching_GenuineReplyAfterS9ReachesHandler(t *testing.T) {
 	for _, drained := range []bool{false, true} {
 		t.Run(fmt.Sprintf("drained=%t", drained), func(t *testing.T) {
-			c, _ := newTestSendConn(t, SelectedState)
+			c, _ := newTestSendConn(t, SelectedState, WithS9Correlation(true))
 			e := c.cur.Load()
 			sb := [4]byte{0, 0, 0, 51}
-			ch := e.replies.register(sb, 1, 1, true)
+			header := sentHeader(sb, 1, 1)
+			ch := e.replies.registerData(header)
 			defer e.replies.deregister(sb)
 
-			handlerCh := make(chan *DataMessage, 1)
+			handlerCh := make(chan *DataMessage, 2)
 			c.AddDataMessageHandler(func(msg *DataMessage, _ SECS2Endpoint) { handlerCh <- msg })
 
-			s9 := replyResult{err: errors.New("S9 for this transaction")}
-			require.True(t, claimByS9(e.replies, sb, s9))
+			s9 := mustS9(t, 5, [4]byte{0, 0, 9, 51}, secs2.NewBinaryItem(header[:]))
+			require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, s9)))
+
+			var res replyResult
 			if drained {
-				requireOneResult(t, ch)
+				res = requireOneResult(t, ch)
 			}
 
 			require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, mustReplyDM(t, 1, 2, sb))))
 
+			require.Equal(t, uint8(9), (<-handlerCh).Stream(), "the S9 reaches the data handler first")
 			select {
 			case got := <-handlerCh:
 				require.Equal(t, sb, got.SystemBytes())
@@ -683,8 +687,11 @@ func TestReplyMatching_GenuineReplyAfterS9ReachesHandler(t *testing.T) {
 			}
 
 			if !drained {
-				require.Equal(t, s9, requireOneResult(t, ch), "only the S9 result reaches the sender")
+				res = requireOneResult(t, ch)
 			}
+			var s9Err *S9Error
+			require.ErrorAs(t, res.err, &s9Err, "only the S9 result reaches the sender")
+			require.Equal(t, s9.SystemBytes(), s9Err.Msg.SystemBytes())
 			requireNoResult(t, ch)
 			require.Equal(t, uint64(0), c.metrics.ReplyMismatchCount())
 		})

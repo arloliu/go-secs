@@ -68,6 +68,8 @@
 //     Useful when the body is needed only in error-checking, not in full item form.
 //
 // A peer's rejection of a synchronous send is a separate, transaction-scoped outcome surfaced as a [RejectError], not a message-level error channel.
+// So is a peer's Stream 9 error message about a synchronous send,
+// surfaced as an [S9Error] when [WithS9Correlation] is enabled.
 //
 // Construction and [DataMessageBuilder.Build] errors are returned as (msg, error)
 // and include the item's aggregate Error() gate.
