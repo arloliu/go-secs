@@ -8,11 +8,11 @@ generated: {by: "claude/opus-5.5", at: 2026-09-26T10:24:15Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-26T10:28:15Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
+  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: da56326}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
+  - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: da56326}
   - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
-  - {resource: hsms/reply_registry.go, digest: sha256:20d02d66955eca24, revision: be7a75b}
+  - {resource: hsms/reply_registry.go, digest: sha256:8f6b52cc0e84f7db, revision: da56326}
   - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:8ef63578b72806e0, revision: be7a75b}
   - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}

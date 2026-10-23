@@ -7,6 +7,128 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+A connection can end a transaction early from either side,
+and a `gem` builder fails the send instead of sending a body of the wrong shape.
+
+- `hsms.ReplyAbort` answers a received primary with SxF0, the Abort Transaction message (SEMI E5 §10.4.1),
+  so the sender need not wait out its reply timer.
+- `hsms.WithAbortReplyError` makes a send answered with SxF0 return `hsms.ErrTransactionAborted`,
+  and `hsms.WithS9Correlation` ends a send the peer answered with a Stream 9 error message at once, with an `*hsms.S9Error`,
+  instead of waiting out T3.
+  Both are off by default.
+- `hsms.WithEquipmentRole` tells the connection core which side it plays,
+  and only the equipment answers a session-ID mismatch with S9F1,
+  since Stream 9 error messages travel from equipment to host (SEMI E5 §10.13).
+- A nil `secs2.Item` passed to a `gem` builder or set in a group field fails the send and names where it was,
+  instead of vanishing from the list that held it.
+  `secs2.NewErrorItem` is the item that carries such an error to the send.
+
+The public API only gains additions.
+Several behavior changes need a look before upgrading; see Upgrade notes.
+
+### Upgrade notes
+
+- `gem`: a nil `secs2.Item` passed to a builder or set in a group field, a typed nil such as `(*secs2.ListItem)(nil)` included,
+  now makes the message carry an error wrapping `gem.ErrNilItem` that names where,
+  such as `gem: nil item at S6F11 CEID`,
+  and `SendSECS2Message` returns that error without sending anything.
+  Before, the result depended on the kind of nil and where it sat.
+  `secs2.L` skipped a nil interface,
+  so the message went out with a shorter list than E5 defines, and no error.
+  A typed nil inside a list already failed the send,
+  but with `secs2: list contains nil item`, which named no location;
+  it now fails with the `gem.ErrNilItem` error above.
+  A nil of either kind passed as the whole body became an empty body (see the `S1F6` bullet below).
+- `gem`: `&Deadband{}`, a deadband whose fields are all nil, now carries that error too.
+  Set `Limit.DEADBAND` to nil to send the empty list `L[0]`.
+- `gem`: `S1F6`, `S1F8`, `S2F10`, and `S5F5` called with a nil item used to send the message header-only;
+  they now carry the error.
+  Pass a zero-length item, such as `secs2.L()` or `secs2.A("")`, for the zero-length form E5 defines.
+- `gem`: `S7F6`, `S7F8`, and `S7F36` called with nil for every item used to send the zero-length list `L[0]`;
+  that call now carries the error.
+  Call `S7F6Denied`, `S7F8NoSuchMID`, or `S7F36NoSuchMID`, which send the same bytes.
+- `hsms`, `hsmsss`: with `hsms.WithSessionIDValidation` on, a connection in the host role, the default,
+  still drops a message whose session ID is not its own,
+  but no longer answers it with S9F1.
+  An equipment connection that relied on that S9F1 without a role preset adds `hsmsss.WithEquipRole` or `hsms.WithEquipmentRole(true)`.
+  The presets `hsmsss.WithEquipRole` and `secs1.WithEquipment` set the flag, so a connection built with one is unchanged.
+  SECS-I connections behave as before:
+  the block assembler drops a block with a foreign device ID before this check runs.
+- `hsmsss`: `Config.IsEquip` reports the role flag that `WithEquipRole`, `WithHostRole`, and `hsms.WithEquipmentRole` set,
+  instead of whether the auto S9F9 is on.
+  A config that sets only `WithConnectionOption(hsms.WithAutoS9F9(true))`, without a role preset,
+  now reports `IsEquip() == false` and, with session-ID validation on, sends no S9F1;
+  add `WithEquipRole` to keep both.
+  A later `WithConnectionOption(hsms.WithAutoS9F9(false))` no longer turns an equipment config into a host one.
+- `secs2`: `NewItemError` given an error that wraps an `*ItemError`, such as `fmt.Errorf("field: %w", itemErr)`,
+  now keeps that error whole.
+  Before, it dropped the outermost layer:
+  the result read as `itemErr`'s text without `field: `, and `errors.Is` did not reach the wrapper.
+  Code that compares the text of such an error sees the added context.
+
+### Added
+
+- `hsms`: `ReplyAbort(ctx, ep, primary)` answers primary with SxF0:
+  the same stream and System Bytes, function 0, no W-bit, and no body.
+  It is sent like a reply from `ReplyDataMessage`, bound to the generation that delivered primary,
+  so a primary whose generation has ended returns `ErrConnClosed` instead of reaching a reconnected peer.
+  hsmsss and secs1 users call `hsms.ReplyAbort(ctx, conn, primary)`;
+  their `Connection` interfaces are unchanged.
+- `hsms`: `AbortReplier`, the interface `ReplyAbort` asserts the endpoint to.
+  Every connection `hsmsss.New`, `secs1.New`, and `hsms.NewConnection` return implements it,
+  and so does the `SECS2Endpoint` a handler receives.
+- `hsms`: `ErrNoReplyExpected`, which `ReplyAbort` returns without sending anything for a primary without the W-bit,
+  and `ErrAbortUnsupported`, which it returns for an endpoint that does not implement `AbortReplier`.
+  `ErrAbortUnsupported` wraps `errors.ErrUnsupported`.
+- `hsmstest`: `FakeEndpoint.ReplyAbort` records the SxF0 as the session builds it, under the method name `ReplyAbort`,
+  so a handler that refuses primaries can be tested against the fake.
+- `hsms`: `WithAbortReplyError(true)` makes `SendDataMessage` and `SendSECS2Message` return `(reply, ErrTransactionAborted)`
+  when the peer answers with SxF0, the SxF0 message included.
+  The abort takes precedence over a body that fails to decode, and a peer Reject.req still returns its `*RejectError`.
+  A send reads the setting once, when it starts waiting for its reply.
+- `hsms`: `WithS9Correlation(true)` ends a send still waiting for its reply
+  when the peer answers it with S9F1, S9F3, S9F5, S9F7, or S9F11 whose MHEAD body identifies it:
+  `SendDataMessage` and `SendSECS2Message` return `(nil, *S9Error)`,
+  and `S9Error` carries the S9 function, the MHEAD, and the S9 message.
+  Over HSMS all 10 MHEAD bytes must equal the header the message was sent with;
+  over SECS-I the R-bit, E-bit, and block number are ignored.
+  The S9 still reaches the data handlers,
+  and a genuine reply that arrives after it reaches them as an orphan secondary.
+  S9F9, S9F13, and an S9 whose body is not a 10-byte binary item end no send.
+- `hsms`: the `TxOutcome` values `TxAborted` and `TxPeerError`, appended after the existing ones,
+  which the transaction observer reports for a send ended by either option.
+  Neither error is transient or a timeout, no auto S9F9 follows, and no metric counts either as an error.
+- `hsms`: `WithEquipmentRole` and `ConnectionConfig.EquipmentRole`,
+  the role flag that gates the notifications the connection core sends on its own.
+  `hsmsss.WithEquipRole`, `hsmsss.WithHostRole`, `secs1.WithEquipment`, and `secs1.WithHost` set it alongside `WithAutoS9F9`;
+  each flag keeps the last value applied to it.
+- `gem`: `Abort(stream)` builds the header-only SxF0 of a stream,
+  for a relay that frames its own messages and sends them with `ForwardDataMessage`.
+  The package documentation gains a section on when to refuse a message with SxF0 or with Stream 9.
+- `gem`: `ErrNilItem`, which the error a nil item carries wraps.
+  A nil item in a repeat names its index, as in `gem: nil item at Report.VALUES[1]` or `gem: nil item at S1F20 OBJECTS[1][1]`.
+  The field is named by its decode label,
+  so `ProcessJob.material` names the same field in a send error and in a decode error.
+- `gem`: `S7F6Denied`, `S7F8NoSuchMID`, and `S7F36NoSuchMID`, the zero-length replies E5 names,
+  decoded by the main decoder of each message.
+- `secs2`: `NewErrorItem(err)` returns an item that carries err,
+  so `hsms.NewDataMessage` rejects any body that contains it.
+  Its `Error()`, and that of every list holding it, reports err's text unchanged, and `errors.Is` reaches err.
+
+### Changed
+
+- `gem`: every builder and group checks each `secs2.Item` it takes and replaces a nil one with an error item (see Upgrade notes).
+  When nothing is nil, the caller's slice is passed on as is, with no allocation;
+  otherwise it is copied, never modified.
+- `hsms`: with `WithSessionIDValidation` on, only an equipment-role connection answers a session-ID mismatch with S9F1 (see Upgrade notes).
+- `hsmsss`: `Config.IsEquip` reports `EquipmentRole` instead of `AutoS9F9` (see Upgrade notes).
+
+### Fixed
+
+- `secs2`: `NewItemError` no longer panics on an `errors.Join` that holds an `*ItemError`.
+  It flattens only a direct `*ItemError` and keeps any other error whole,
+  so a contextual wrapper such as `fmt.Errorf("field: %w", err)` keeps its text and its identity.
+
 ## [2.7.0] - 2026-10-22
 
 `gem` covers every SEMI E5 message of streams 1 to 10 and 12 to 19.

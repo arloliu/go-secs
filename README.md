@@ -88,6 +88,13 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   Enforcement is opt-in via `hsms.WithStrictReplyMatching(true)`, which turns a mismatched reply
   into a miss that stalls the transaction to T3 instead of completing it —
   enable it only once `ReplyMismatchCount` stays at 0 under the default.
+* **Ending a transaction early:** `hsms.ReplyAbort` answers a received primary with SxF0 (SEMI E5 §10.4.1),
+  so the sender need not wait out its reply timer;
+  hsmsss and secs1 users call `hsms.ReplyAbort(ctx, conn, primary)`.
+  On the sending side, `hsms.WithAbortReplyError(true)` returns an SxF0 reply with `hsms.ErrTransactionAborted`,
+  and `hsms.WithS9Correlation(true)` ends a send the peer answered with a Stream 9 error message at once,
+  returning an `*hsms.S9Error` instead of waiting out T3.
+  Both options are off by default.
 * **Diagnostics:** `DataMessage.TrailingBytes()` reports how many bytes followed the first decoded
   SECS-II item, for equipment that pads a frame's length around a fixed buffer rather than its
   actual encoded item.

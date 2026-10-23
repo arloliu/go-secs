@@ -19,13 +19,14 @@ No transport, no session state, no I/O — builders are pure. Stream/function pa
 
 # Entries
 
-None yet — this unit fills on miss via `/memex capture`.
+* [How a nil item becomes a send failure](/gem/nil-item-send-failure.md) - the two places a nil item vanished silently, which generated values are wrapped, and how the error reaches the send.
 
 # Entry points
 
 - base builder: `secs2/` → `NewMessage`
 - generated builders: `gem/` (see `tools/gemgen`, which generates much of this package)
 - groups: `gem/groups.go`; decode options: `gem/decode.go`; catalog: `gem/catalog.go` (all generated)
+- the hand-written SxF0 builder: `gem/abort.go` → `Abort`
 
 # Read first
 

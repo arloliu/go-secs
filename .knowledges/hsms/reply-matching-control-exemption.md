@@ -3,14 +3,12 @@ type: Mechanic
 title: The reply registry's two-legged control exemption
 description: Why registration-side isData and result-side *DataMessage assertion are two independent gates, not one, and what breaks when only one survives.
 tags: [hsms, reply-correlation, e37, control]
-status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
-verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-10-23T09:30:00Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
-  - {resource: hsms/reply_registry.go, digest: sha256:20d02d66955eca24, revision: be7a75b}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: be7a75b}
+  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: da56326}
+  - {resource: hsms/reply_registry.go, digest: sha256:8f6b52cc0e84f7db, revision: da56326}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: da56326}
   - {resource: hsmsss/integration_reply_matching_test.go, digest: sha256:e3ff71163fa0ec13, revision: be7a75b}
 ---
 
@@ -36,17 +34,17 @@ mismatch outright rather than genuinely comparing one.
 **Registration leg.**
 `sendWaitReply` (`connection_send.go`) resolves the current epoch and delegates to `sendWaitReplyOn`,
 which computes `dm, isData := msg.(*DataMessage)`.
-For a control primary (`dm == nil`, e.g. Select.req/Deselect.req/Linktest.req) the `stream`/`function`
-values passed to `register` are left at their zero defaults — they are stored but never read, because
-`isData` is false.
-`register` stores `{ch, stream, function, isData}` in a `replyWaiter`.
+A data primary registers through `registerData(dm.HeaderBytes())`,
+which derives the key, `stream`, and `function` from that one sent header, stores the header, and sets `isData`.
+A control primary (`dm == nil`, e.g. Select.req/Deselect.req/Linktest.req) registers through `registerControl(key)`,
+whose `*replyWaiter` carries no stream, function, or header, and has `isData` false.
 
 **Result leg.**
 `route` (`reply_registry.go`) only enters the comparison branch when **both** hold at once:
 `w.isData` is true, AND `dm, ok := res.msg.(*DataMessage)` succeeds against the routed result.
 A field-less `*RejectError` result (`res.msg == nil`
 — `routeReplyOn`'s `RejectReqType` branch in `connection_runtime.go`, reached via both `RouteReply` and `RouteReplyFromGeneration`, builds exactly this for a peer Reject.req)
-bypasses comparison regardless of `isData` (delivery is a non-blocking send into the waiter's one-slot buffer) —
+bypasses comparison regardless of `isData` (delivery claims the wait, then sends into the waiter's one-slot buffer) —
 a peer Reject.req is a terminal rejection of the primary (E37 §8.3.11), not a reply to validate.
 A `*ControlMessage` result (Select.rsp/Deselect.rsp/Linktest.rsp) is treated differently depending on registration direction:
 a control registration (`isData` false) delivers it uncompared.
@@ -85,7 +83,9 @@ That exception is function-only: a wrong-stream F0 still mismatches on stream.
 # Invariants
 
 - A comparison runs only when both legs hold;
-  a RejectError result, or a `*ControlMessage` result answering a CONTROL registration, bypasses comparison, with no mismatch recorded; `route` then attempts a non-blocking send into the waiter's one-slot buffer.
+  a RejectError result, or a `*ControlMessage` result answering a CONTROL registration, bypasses comparison, with no mismatch recorded;
+  `route` then claims the wait and sends into the waiter's one-slot buffer (see [the reply-wait claim](/hsms/reply-wait-claim.md)).
+- Leg 1 also gates `failS9`: an S9 error message never matches a control registration, so it cannot end a Select, Deselect, or Linktest wait.
 - The one exception: a `*ControlMessage` result answering a DATA registration is always a miss —
   not delivered, registration not consumed, no mismatch recorded —
   for a DATA registration (leg 1 true), in either strict mode.
@@ -125,6 +125,7 @@ That exception is function-only: a wrong-stream F0 still mismatches on stream.
 # Where to look
 
 - registration site, `isData` computed by type assertion: `hsms/connection_send.go` → `(*connection).sendWaitReplyOn` (called by `(*connection).sendWaitReply`)
-- storage and the two-legged gate: `hsms/reply_registry.go` → `replyWaiter`, `(replyRegistry).register`, `(replyRegistry).route`
+- storage and the two-legged gate: `hsms/reply_registry.go` → `replyWaiter`, `(replyRegistry).registerData`, `(replyRegistry).registerControl`, `(replyRegistry).route`
+- leg 1 on the S9 path: `hsms/reply_registry.go` → `(replyRegistry).failS9`
 - the field-less Reject result leg 2 must exclude: `hsms/connection_runtime.go` → `(*connection).routeReplyOn`
   (the shared body behind `RouteReply` and the generation-bound `RouteReplyFromGeneration`)

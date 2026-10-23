@@ -3,13 +3,11 @@ type: Mechanic
 title: Send error accounting — which outcomes count
 description: Which synchronous data-send outcomes count, and why every teardown-observed outcome — including a write that fails after teardown starts — reports ErrConnClosed and is excluded.
 tags: [hsms, metrics, send, lifecycle]
-status: stable
-generated: {by: "claude/sonnet-5.5", at: 2026-09-30T10:40:00Z}
-verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:58:06Z}
+status: draft
+generated: {by: "claude/sonnet-5.5", at: 2026-10-23T09:30:00Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
-  - {resource: hsms/connection_metrics.go, digest: sha256:dae358846f98653e, revision: be7a75b}
+  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: da56326}
+  - {resource: hsms/connection_metrics.go, digest: sha256:e3032ef5e2f6b173, revision: da56326}
   - {resource: hsms/connection_send_metrics_test.go, digest: sha256:457aeefcd9801abc, revision: be7a75b}
   - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
   - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
@@ -115,8 +113,9 @@ and when the auto-S9F9 knob is on it also sends an S9F9 (Transaction Timeout) no
 That notification is fire-and-forget and its own failure is deliberately swallowed, because the caller already has the timeout error to report.
 
 The four terminal branches of the reply wait attribute differently:
-reply (returned verbatim as `(res.msg, res.err)` and counted nowhere —
-a peer `*RejectError` arrives on this branch and never touches the counter),
+reply (returned through `replyOutcome` and counted nowhere —
+a peer `*RejectError`, and an `*S9Error` under `WithS9Correlation`, arrive on this branch and never touch the counter,
+and an SxF0 reply that `WithAbortReplyError` turns into `ErrTransactionAborted` is not counted either),
 protocol timeout,
 epoch teardown (`ErrConnClosed`, does not count),
 caller cancellation (returns the caller's error, does not count).
@@ -199,7 +198,7 @@ The data-error counter is exactly that: a *data* counter.
 
 - the classification policy: `hsms/connection_send.go` → `isCountedSendErr`
 - the write-failure teardown reclassification, ahead of `isCountedSendErr`: `hsms/connection_send.go` → `(*connection).writeFrame`
-- the four terminal branches, their priority re-check, and their attribution: `hsms/connection_send.go` → `(*connection).sendWaitReplyOn` (called by `(*connection).sendWaitReply` and `(*connection).WriteMessageFromGeneration`), `tryReply`
+- the four terminal branches, their priority re-check, and their attribution: `hsms/connection_send.go` → `(*connection).sendWaitReplyOn` (called by `(*connection).sendWaitReply` and `(*connection).WriteMessageFromGeneration`), `tryReply`, `replyOutcome`
 - the second synchronous path, now also named in the godoc: `hsms/connection_send.go` → `(*connection).sendNoReplyOn` (called by `(*connection).sendNoReply` and `(*connection).WriteMessageNoReply`)
 - the timeout notification: `hsms/connection_send.go` → `(*connection).sendAutoS9F9`
 - the counter's public contract, now accurate on which paths it counts: `hsms/connection_metrics.go` → `(*ConnectionMetrics).DataMsgErrCount`

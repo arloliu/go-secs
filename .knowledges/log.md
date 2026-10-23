@@ -1,5 +1,20 @@
 # Log
 
+## 2026-10-23
+* Sync to `da56326` (the commits since `be7a75b`: `ReplyAbort`, the equipment-role flag, the one-shot reply-wait claim, `WithAbortReplyError`, `WithS9Correlation`, and the gem nil-item error).
+  Digest/revision-only refresh, prose untouched: [selected gates](/hsms/selected-gates.md), [stale-epoch write guard](/hsms/stale-epoch-write-guard.md), [inflight gauge](/hsms/inflight-gauge.md), [max message size ceiling](/hsms/max-message-size-ceiling.md), [reconnect backoff scope](/hsms/reconnect-backoff-scope.md), [reconnect retry ownership](/hsms/reconnect-retry-ownership.md), [supervisor join](/hsms/supervisor-join.md), [open-close abort](/hsms/open-close-abort.md), [generation report fence](/hsms/generation-report-fence.md), [generation-bound wire sends](/hsms/generation-bound-wire-sends.md), [synchronous commit gate](/hsms/synchronous-commit-gate.md), [transition cause injection sites](/hsms/transition-cause-injection-sites.md), [handler panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md), [linktest teardown exemption](/hsmsss/linktest-teardown-exemption.md), [block-send detect/act split](/secs1/block-send-detect-act-split.md), [decode aliasing](/secs2/decode-aliasing.md), [trailing bytes counting](/crosscutting/trailing-bytes-counting.md).
+* **Update**: [The inbound generation fence](/hsms/inbound-generation-fence.md) `checkSessionID` sends the S9F1 only in the equipment role and exempts an inbound S9F1;
+  `correlateS9On` runs on the resolved epoch between the fan-out hook and reply routing;
+  the origin-bound reply now lives in `session.reply`, shared with `ReplyAbort`; draft.
+* **Update**: [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md) registration is split into `registerData` and `registerControl`,
+  delivery claims the wait first, and leg 1 also gates `failS9`; draft.
+* **Update**: [Send error accounting](/hsms/send-error-accounting.md) the reply branch returns through `replyOutcome`, and neither an `*S9Error` nor `ErrTransactionAborted` counts; draft.
+* **Update**: [The transaction observer's chokepoints](/hsms/transaction-observer-chokepoints.md) `TxAborted` and `TxPeerError` make the classifier eight-way; draft.
+* **Creation**: [How a reply wait ends with exactly one result](/hsms/reply-wait-claim.md) the one-shot claim, each loser's report, and the abort rewrite on every arm.
+* **Creation**: [Where an inbound S9 is correlated to a waiting send](/hsms/s9-correlation.md) inbound position, stored-header comparison, and the per-transport MHEAD policy.
+* **Creation**: [How a nil item becomes a send failure](/gem/nil-item-send-failure.md) the first `gem` entry: generator wrapping, the runtime helpers, and the error's path to `NewDataMessage`.
+* **Update**: [gem](/gem/index.md) entry points name the hand-written `Abort`.
+
 ## 2026-10-22
 * **Update**: [gem](/gem/index.md) responsibility and entry points name the group structs, decode options, and the catalog;
   the generated `gem/groups.go` and `gem/catalog.go` join the declined list.

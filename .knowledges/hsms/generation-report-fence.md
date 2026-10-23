@@ -10,8 +10,8 @@ verified:
 sources:
   - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: be7a75b}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: be7a75b}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: da56326}
+  - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: da56326}
   - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: be7a75b}
   - {resource: hsms/transport.go, digest: sha256:8e0ca0744b8527b9, revision: be7a75b}
@@ -19,7 +19,7 @@ sources:
   - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
   - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}
   - {resource: hsmsss/transport_passive.go, digest: sha256:f00a1ae9c47094d4, revision: be7a75b}
-  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: be7a75b}
+  - {resource: secs1/transport.go, digest: sha256:8751c0d91c45f678, revision: da56326}
   - {resource: internal/gencap/gencap.go, digest: sha256:b7a6e492698ff6d3, revision: be7a75b}
   - {resource: hsmsss/transport_control_test.go, digest: sha256:d7d6115539bd3043, revision: be7a75b}
 ---
