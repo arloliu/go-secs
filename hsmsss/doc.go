@@ -91,10 +91,12 @@
 //
 // Its scope is deliberately narrow.
 // §10.2 notes that HSMS-SS itself does not require the distinction,
-// so the setting drives exactly one behavior here.
-// An equipment-role connection answers its own T3 reply timeout with an S9F9 to the peer (Transaction Timeout, SEMI E5 §10.13);
-// a host-role connection does not.
-// It is [github.com/arloliu/go-secs/v2/hsms.WithAutoS9F9] under the hood.
+// so the setting drives only the Stream 9 notifications, which travel from equipment to host (SEMI E5 §10.13).
+// An equipment-role connection answers its own T3 reply timeout with an S9F9 to the peer (Transaction Timeout);
+// with [github.com/arloliu/go-secs/v2/hsms.WithSessionIDValidation] on,
+// it also answers a message dropped for a session-ID mismatch with an S9F1 (Unrecognized Device ID).
+// A host-role connection sends neither.
+// Under the hood the preset sets [github.com/arloliu/go-secs/v2/hsms.WithEquipmentRole] and [github.com/arloliu/go-secs/v2/hsms.WithAutoS9F9].
 // It does not affect the TCP role, the Select procedure, or any header field.
 //
 // The TCP role is a separate, independent setting: [WithActive] dials, [WithPassive] listens.

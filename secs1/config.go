@@ -226,18 +226,26 @@ func WithRetryLimit(n int) Option {
 //
 // Equipment is the master role: it initiates ENQ and ignores inbound ENQ during an active send.
 // It also enables the shared hsms.WithAutoS9F9 behavior: a synchronous data-message send whose reply times out (T3) automatically notifies the peer with an S9F9 (SEMI E5 §10.13) before the timeout error is returned.
+// It sets the shared [hsms.WithEquipmentRole] flag as well.
 //
 // The default role is host; use this option to override it. Equipment and host are mutually exclusive —
 // whichever option appears last in a [NewConfig] call wins.
+//
+// The SECS-I role ([Config.IsEquip]) drives the line role, R-bit direction, contention, and the assembler-violation notifications.
+// A later WithConnectionOption(hsms.WithEquipmentRole(...)) or WithConnectionOption(hsms.WithAutoS9F9(...)) changes only the shared hsms flag it names, never the SECS-I role.
 func WithEquipment() Option {
 	return func(c *Config) error {
 		c.isEquip = true
+
+		if err := hsms.WithEquipmentRole(true)(&c.ConnectionConfig); err != nil {
+			return err
+		}
 
 		return hsms.WithAutoS9F9(true)(&c.ConnectionConfig)
 	}
 }
 
-// WithHost sets the SECS-I role to host (slave), and disables the shared AutoS9F9 T3-timeout notification.
+// WithHost sets the SECS-I role to host (slave), and clears the shared [hsms.WithEquipmentRole] and [hsms.WithAutoS9F9] flags.
 //
 // The host is the default role.
 // This option is provided for explicit clarity or to override a preceding [WithEquipment] call.
@@ -246,6 +254,10 @@ func WithEquipment() Option {
 func WithHost() Option {
 	return func(c *Config) error {
 		c.isEquip = false
+
+		if err := hsms.WithEquipmentRole(false)(&c.ConnectionConfig); err != nil {
+			return err
+		}
 
 		return hsms.WithAutoS9F9(false)(&c.ConnectionConfig)
 	}

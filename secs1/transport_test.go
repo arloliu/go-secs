@@ -681,6 +681,46 @@ func TestNotifyAssemblerViolation_MapsBlockErrorsToS9F7(t *testing.T) {
 	}
 }
 
+// TestNotifyAssemblerViolation_SharedRoleFlagDoesNotChangeSECS1Role proves the assembler-violation
+// notifications follow the SECS-I role (IsEquip), not the shared hsms equipment-role flag.
+func TestNotifyAssemblerViolation_SharedRoleFlagDoesNotChangeSECS1Role(t *testing.T) {
+	tests := []struct {
+		name     string
+		opts     []Option
+		wantSent bool
+	}{
+		{
+			name:     "host with shared flag on",
+			opts:     []Option{WithHost(), WithConnectionOption(hsms.WithEquipmentRole(true))},
+			wantSent: false,
+		},
+		{
+			name:     "equipment with shared flag off",
+			opts:     []Option{WithEquipment(), WithConnectionOption(hsms.WithEquipmentRole(false))},
+			wantSent: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := NewConfig("127.0.0.1", 5000, append(tt.opts, WithDeviceID(0x1234))...)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantSent, cfg.IsEquip(), "the shared flag must not change the SECS-I role")
+
+			tr := newTransport(cfg)
+			rt := newMockRuntime()
+			tr.rt = rt
+
+			tr.notifyAssemblerViolation(ErrDeviceIDMismatch, [10]byte{})
+			if tt.wantSent {
+				require.Len(t, rt.sent, 1, "the SECS-I equipment role sends the S9F1")
+			} else {
+				require.Empty(t, rt.sent, "the SECS-I host role sends nothing")
+			}
+		})
+	}
+}
+
 func TestNotifyAssemblerViolation_HostRoleSendsNothing(t *testing.T) {
 	cfg, err := NewConfig("127.0.0.1", 5000, WithHost(), WithDeviceID(0x1234))
 	require.NoError(t, err)

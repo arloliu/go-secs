@@ -277,13 +277,51 @@ func TestDeliverOwnedFrame_SessionIDValidation_DefaultOff(t *testing.T) {
 	require.Empty(t, c.cur.Load().sendCh, "validation off must never emit an S9F1")
 }
 
-// TestDeliverOwnedFrame_SessionIDValidation_EnabledMismatchDropped proves that, with validation on,
-// a NON-S9F1 message whose SessionID does not match is dropped (never delivered) AND answered with
-// an S9F1 whose body is the offending message's 10-byte MHEAD (SEMI E5 §10.13), sent from this
-// connection's own SessionID.
+// TestDeliverOwnedFrame_SessionIDValidation_OffInEveryRole proves that the role does not matter with validation off:
+// a session-ID-mismatched message reaches the handler in the host and equipment roles alike,
+// and neither role answers it with an S9F1.
+func TestDeliverOwnedFrame_SessionIDValidation_OffInEveryRole(t *testing.T) {
+	tests := []struct {
+		name  string
+		equip bool
+	}{
+		{name: "host role", equip: false},
+		{name: "equipment role", equip: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestSendConn(t, SelectedState)
+			require.NoError(t, c.UpdateConfigOptions(WithSessionIDValidation(false), WithEquipmentRole(tt.equip)))
+
+			handlerCh := make(chan *DataMessage, 1)
+			c.AddDataMessageHandler(func(msg *DataMessage, _ SECS2Endpoint) {
+				handlerCh <- msg
+			})
+
+			mismatched, err := NewDataMessage(1, 1, false, 0x0001, [4]byte{0, 0, 0, 10}, secs2.NewASCIIItem("PING"))
+			require.NoError(t, err)
+			require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, mismatched)))
+
+			select {
+			case got := <-handlerCh:
+				require.Equal(t, uint16(0x0001), got.SessionID(), "validation off delivers regardless of SessionID")
+			default:
+				t.Fatal("with validation off, a mismatched-SessionID message must be delivered in every role")
+			}
+
+			require.Empty(t, c.cur.Load().sendCh, "validation off must never emit an S9F1, whatever the role")
+		})
+	}
+}
+
+// TestDeliverOwnedFrame_SessionIDValidation_EnabledMismatchDropped proves that, with validation on
+// in the equipment role, a NON-S9F1 message whose SessionID does not match is dropped (never
+// delivered) AND answered with an S9F1 whose body is the offending message's 10-byte MHEAD
+// (SEMI E5 §10.13), sent from this connection's own SessionID.
 func TestDeliverOwnedFrame_SessionIDValidation_EnabledMismatchDropped(t *testing.T) {
 	c, _ := newTestSendConn(t, SelectedState)
-	require.NoError(t, c.UpdateConfigOptions(WithSessionIDValidation(true)))
+	require.NoError(t, c.UpdateConfigOptions(WithSessionIDValidation(true), WithEquipmentRole(true)))
 
 	handlerCh := make(chan *DataMessage, 1)
 	c.AddDataMessageHandler(func(msg *DataMessage, _ SECS2Endpoint) {
@@ -320,6 +358,60 @@ func TestDeliverOwnedFrame_SessionIDValidation_EnabledMismatchDropped(t *testing
 	require.NoError(t, err)
 	mhead := mismatched.HeaderBytes()
 	require.Equal(t, mhead[:], body, "S9F1 body must equal the offending message's 10-byte MHEAD")
+}
+
+// TestDeliverOwnedFrame_SessionIDValidation_MismatchS9F1OnlyAsEquipment proves the role gate:
+// with validation on, a session-ID-mismatched message is dropped in every role,
+// but only the equipment role answers it with an S9F1.
+// Stream 9 errors travel from equipment to host (SEMI E5 §10.13), so the host role, which is also the default, sends nothing.
+func TestDeliverOwnedFrame_SessionIDValidation_MismatchS9F1OnlyAsEquipment(t *testing.T) {
+	tests := []struct {
+		name     string
+		opts     []ConnOption
+		wantS9F1 bool
+	}{
+		{name: "default role", opts: nil, wantS9F1: false},
+		{name: "host role", opts: []ConnOption{WithEquipmentRole(false)}, wantS9F1: false},
+		{name: "equipment role", opts: []ConnOption{WithEquipmentRole(true)}, wantS9F1: true},
+		{name: "equipment then host", opts: []ConnOption{WithEquipmentRole(true), WithEquipmentRole(false)}, wantS9F1: false},
+		{name: "equipment with AutoS9F9 off", opts: []ConnOption{WithEquipmentRole(true), WithAutoS9F9(false)}, wantS9F1: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newTestSendConn(t, SelectedState)
+			require.NoError(t, c.UpdateConfigOptions(append([]ConnOption{WithSessionIDValidation(true)}, tt.opts...)...))
+
+			handlerCh := make(chan *DataMessage, 1)
+			c.AddDataMessageHandler(func(msg *DataMessage, _ SECS2Endpoint) {
+				handlerCh <- msg
+			})
+
+			mismatched, err := NewDataMessage(1, 1, false, 0x0001, [4]byte{0, 0, 0, 8}, secs2.NewASCIIItem("PING"))
+			require.NoError(t, err)
+			require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, mismatched)))
+
+			select {
+			case <-handlerCh:
+				t.Fatal("a mismatched-SessionID message must be dropped in every role")
+			default:
+			}
+
+			sendCh := c.cur.Load().sendCh
+			if !tt.wantS9F1 {
+				require.Empty(t, sendCh, "only the equipment role answers a session-ID mismatch with an S9F1")
+
+				return
+			}
+
+			require.Len(t, sendCh, 1, "the equipment role answers a session-ID mismatch with exactly one S9F1")
+			req := <-sendCh
+			reply, ok := req.msg.(*DataMessage)
+			require.True(t, ok, "the auto-reply is a DataMessage")
+			require.Equal(t, uint8(9), reply.Stream())
+			require.Equal(t, uint8(1), reply.Function())
+		})
+	}
 }
 
 // TestDeliverOwnedFrame_SessionIDValidation_EnabledMatchDelivered proves that, with validation on, a

@@ -410,8 +410,8 @@ func TestReplyMatching_SessionID_ValidationOff_NotComparedInRegistry(t *testing.
 }
 
 // TestReplyMatching_SessionID_ValidationOn_DroppedBeforeRegistry proves the existing pinned
-// behavior: with WithSessionIDValidation on, a SessionID-mismatched reply is dropped and answered
-// with S9F1 BEFORE reply correlation — the registry never sees it, so ReplyMismatchCount stays 0.
+// behavior: with WithSessionIDValidation on, a SessionID-mismatched reply is dropped
+// BEFORE reply correlation — the registry never sees it, so ReplyMismatchCount stays 0.
 func TestReplyMatching_SessionID_ValidationOn_DroppedBeforeRegistry(t *testing.T) {
 	c, _ := newTestSendConn(t, SelectedState)
 	require.NoError(t, c.UpdateConfigOptions(WithSessionIDValidation(true)))

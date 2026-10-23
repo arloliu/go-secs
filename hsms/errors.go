@@ -139,7 +139,8 @@ var (
 	// ErrUnrecognizedSessionID indicates a NON-S9F1 inbound data message's SessionID did not match this connection's configured SessionID.
 	//
 	// Only returned/observable when session-ID validation is enabled via WithSessionIDValidation; the message is dropped
-	// and answered with an S9F1, rather than delivered to the registered DataMessageHandlers.
+	// rather than delivered to the registered DataMessageHandlers.
+	// In the equipment role (WithEquipmentRole) it is also answered with an S9F1; the host role sends nothing.
 	// An inbound S9F1 is exempted from this check entirely — it is delivered normally regardless of its own SessionID,
 	// and this error is never returned for it (see WithSessionIDValidation for why).
 	ErrUnrecognizedSessionID = errors.New("hsms: unrecognized session ID")
