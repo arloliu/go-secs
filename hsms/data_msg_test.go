@@ -1,6 +1,8 @@
 package hsms_test
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -420,6 +422,32 @@ func TestNewDataMessage_Q3_NestedListError(t *testing.T) {
 
 	_, err := hsms.NewDataMessage(1, 1, false, 0, [4]byte{}, badItem)
 	assert.Error(t, err)
+}
+
+// TestNewDataMessage_ErrorItem verifies that a body carrying a secs2.NewErrorItem,
+// directly or nested in lists, is rejected with the carried error intact.
+func TestNewDataMessage_ErrorItem(t *testing.T) {
+	sentinel := errors.New("required item is nil")
+	carried := fmt.Errorf("%w at %s", sentinel, "S1F3 SVID[0]")
+
+	tests := []struct {
+		name string
+		body secs2.Item
+	}{
+		{name: "direct", body: secs2.NewErrorItem(carried)},
+		{name: "nested", body: secs2.L(secs2.A("x"), secs2.L(secs2.U4(1), secs2.NewErrorItem(carried)))},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg, err := hsms.NewDataMessage(1, 3, true, 0, [4]byte{}, tt.body)
+			require.Error(t, err)
+			assert.Nil(t, msg)
+			assert.ErrorIs(t, err, carried)
+			assert.ErrorIs(t, err, sentinel)
+			assert.Contains(t, err.Error(), carried.Error())
+		})
+	}
 }
 
 // TestNewDataMessage_NilItem verifies that a nil secs2.Item is treated as an

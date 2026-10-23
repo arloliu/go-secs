@@ -1,6 +1,8 @@
 package secs2
 
 import (
+	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -714,4 +716,102 @@ func TestListItem_ExternalItem_NotFastPathed(t *testing.T) {
 
 	require.NoError(list.Error())
 	require.Equal(2, calls, "each Error() call must re-invoke the external child, same as before this task")
+}
+
+// TestNewErrorItem verifies that the item keeps the supplied error intact:
+// errors.Is reaches it, its text is unchanged, and nothing that renders the item panics.
+func TestNewErrorItem(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("required item is nil")
+	other := errors.New("another failure")
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "plain error", err: sentinel},
+		{name: "existing ItemError", err: NewItemError(sentinel)},
+		{name: "wrapped error", err: fmt.Errorf("%w at %s", sentinel, "S1F3 SVID[0]")},
+		{name: "joined ItemError and another error", err: errors.Join(NewItemError(sentinel), other)},
+		{name: "another item's error", err: NewIntItem(3).Error()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Error(t, tt.err, "precondition: the supplied error must be non-nil")
+
+			item := NewErrorItem(tt.err)
+			require.NotNil(t, item)
+
+			itemErr := item.Error()
+			require.Error(t, itemErr)
+			require.ErrorIs(t, itemErr, tt.err)
+
+			require.NotPanics(t, func() {
+				require.Equal(t, tt.err.Error(), itemErr.Error())
+				require.Empty(t, item.ToSML())
+				require.Empty(t, item.ToBytes())
+			})
+			require.Zero(t, item.EncodedLen())
+		})
+	}
+}
+
+func TestNewErrorItem_NilError(t *testing.T) {
+	t.Parallel()
+
+	item := NewErrorItem(nil)
+
+	require.Error(t, item.Error())
+	require.Equal(t, "secs2: nil error", item.Error().Error())
+}
+
+// TestNewErrorItem_NestedList verifies that the carried error surfaces through every enclosing list
+// and that none of them encodes.
+func TestNewErrorItem_NestedList(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("required item is nil")
+	carried := fmt.Errorf("%w at %s", sentinel, "S2F33 RPTID[1]")
+
+	inner := L(U4(1), NewErrorItem(carried))
+	outer := L(A("report"), L(inner))
+
+	for _, item := range []Item{inner, outer} {
+		err := item.Error()
+		require.ErrorIs(t, err, carried)
+		require.ErrorIs(t, err, sentinel)
+		require.Contains(t, err.Error(), carried.Error())
+
+		require.NotPanics(t, func() {
+			require.Empty(t, item.ToSML())
+			require.Empty(t, item.ToBytes())
+		})
+		require.Zero(t, item.EncodedLen())
+	}
+}
+
+func TestNewErrorItem_NeverEqual(t *testing.T) {
+	t.Parallel()
+
+	err := errors.New("boom")
+	item := NewErrorItem(err)
+
+	require.False(t, Equal(item, item))
+	require.False(t, Equal(item, NewErrorItem(err)))
+	require.False(t, Equal(item, L()))
+	require.False(t, Equal(L(), item))
+}
+
+func TestNewErrorItem_MessageBody(t *testing.T) {
+	t.Parallel()
+
+	err := errors.New("boom")
+	msg := NewMessage(1, 3, true, L(NewErrorItem(err)))
+
+	require.Error(t, msg.Item().Error())
+	require.ErrorIs(t, msg.Item().Error(), err)
 }

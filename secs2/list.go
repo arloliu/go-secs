@@ -19,8 +19,8 @@ type ListItem struct {
 	// clean caches whether every child (recursively) is a known-clean built-in item with no
 	// deferred error, so Error() can return nil in O(1) instead of re-walking the tree. It is
 	// computed once in NewListItem (and set directly by the decoder, which never produces an
-	// errored tree) and is never recomputed, matching the immutable-after-construction contract
-	// of all built-in items.
+	// errored tree; NewErrorItem leaves it false) and is never recomputed, matching the
+	// immutable-after-construction contract of all built-in items.
 	clean bool
 }
 
@@ -65,6 +65,33 @@ func NewListItem(values ...Item) Item {
 	item.clean = clean
 
 	return item
+}
+
+// NewErrorItem returns an item that carries err as its deferred error.
+//
+// The item exists to carry an error to the point where a message is sent:
+// a builder that cannot produce a valid item returns one in its place,
+// and the error then surfaces from Error() on the item and on every list that contains it.
+// Its SECS-II type and value are unspecified.
+// It never encodes, and hsms.NewDataMessage rejects it, or any list that contains it, with its error.
+//
+// err is kept intact:
+// the item's Error() reports err's text unchanged, and errors.Is reaches err and every error it wraps.
+// A nil err is replaced with a fixed "secs2: nil error".
+//
+// Parameters:
+//   - err: the error the item carries.
+//
+// Returns:
+//   - Item: an item whose Error() is non-nil and wraps err.
+func NewErrorItem(err error) Item {
+	if err == nil {
+		err = errors.New("secs2: nil error")
+	}
+
+	// Stored directly rather than through NewItemError,
+	// so a supplied *ItemError keeps its identity instead of being flattened to its inner error.
+	return &ListItem{baseItem: baseItem{itemErr: &ItemError{err: err}}}
 }
 
 // childClean reports whether v is a known-clean built-in item: a non-nil built-in pointer
