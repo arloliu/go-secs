@@ -28,13 +28,14 @@ type abortReply struct {
 
 // openAbortPair opens a passive equipment with handler and an active host, both Selected, and closes them on cleanup.
 // hostHandler, when not nil, receives the host's uncorrelated data messages.
-func openAbortPair(t *testing.T, handler, hostHandler hsms.DataMessageHandler) (passive, active *secs1E) {
+// hostOpts apply to the host after its base options.
+func openAbortPair(t *testing.T, handler, hostHandler hsms.DataMessageHandler, hostOpts ...Option) (passive, active *secs1E) {
 	t.Helper()
 
 	port := freePort(t)
 
 	passive = newSECS1Passive(t, port, handler)
-	active = newSECS1Active(t, port)
+	active = newSECS1Active(t, port, hostOpts...)
 
 	if hostHandler != nil {
 		active.conn.AddDataMessageHandler(hostHandler)

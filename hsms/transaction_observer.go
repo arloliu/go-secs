@@ -34,6 +34,10 @@ const (
 	// an oversized frame (ErrMessageTooLarge),
 	// or the connection not being open yet (ErrNotOpen).
 	TxSendError
+	// TxAborted indicates the peer answered a reply-expected send with function 0 (SxF0, SEMI E5 §10.4.1)
+	// while [WithAbortReplyError] is enabled; TxEvent.Err is [ErrTransactionAborted].
+	// With the option disabled, an SxF0 reply is reported as [TxReplied].
+	TxAborted
 )
 
 // TxEvent reports the outcome of one completed synchronous send transaction — see
@@ -82,6 +86,8 @@ func (o TxOutcome) String() string {
 		return "Canceled"
 	case TxSendError:
 		return "SendError"
+	case TxAborted:
+		return "Aborted"
 	default:
 		return "TxOutcome(" + strconv.FormatUint(uint64(o), 10) + ")"
 	}
