@@ -13,8 +13,8 @@ sources:
   - {resource: tools/gemgen/gen_groups.go, digest: sha256:ade3e2cce35af25d, revision: 2a92a5e}
   - {resource: secs2/list.go, digest: sha256:efff5c617ecb5e4f, revision: 2a92a5e}
   - {resource: secs2/item.go, digest: sha256:6b4559e64be0d9a0, revision: 2a92a5e}
-  - {resource: hsms/data_msg.go, digest: sha256:a90443b564284b51, revision: 2a92a5e}
-  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: 2a92a5e}
+  - {resource: hsms/data_msg.go, digest: sha256:ca18a5b197706c0e, revision: 0433b27}
+  - {resource: hsms/session.go, digest: sha256:2496fbf0a3e18e86, revision: d059562}
   - {resource: gem/doc.go, digest: sha256:1a98f80e93867d15, revision: 2a92a5e}
   - {resource: gem/abort.go, digest: sha256:3b2e4453c0a02420, revision: 2a92a5e}
   - {resource: gem/groups.go, digest: sha256:87d916e032f6b263, revision: 2a92a5e}

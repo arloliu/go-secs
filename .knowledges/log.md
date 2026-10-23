@@ -5,7 +5,11 @@
   Each failed the first pass and was corrected: overstated claims narrowed, missing sources added, history narration removed,
   and code comments that disagree with the code recorded in the entries.
   Promoted to stable after a clean pass: [reply-wait claim](/hsms/reply-wait-claim.md) (retitled "at most one result"), [S9 correlation](/hsms/s9-correlation.md), [two-legged control exemption](/hsms/reply-matching-control-exemption.md), [nil item send failure](/gem/nil-item-send-failure.md), [send error accounting](/hsms/send-error-accounting.md), [inbound generation fence](/hsms/inbound-generation-fence.md).
-  [The transaction observer's chokepoints](/hsms/transaction-observer-chokepoints.md) stays draft: its last pass found one more imprecise claim, now corrected but not re-verified.
+* **Update**: the hsms comments the verification found inaccurate were corrected in the code,
+  so [reply-wait claim](/hsms/reply-wait-claim.md), [S9 correlation](/hsms/s9-correlation.md), [two-legged control exemption](/hsms/reply-matching-control-exemption.md), [send error accounting](/hsms/send-error-accounting.md), [transaction observer chokepoints](/hsms/transaction-observer-chokepoints.md), and [inbound generation fence](/hsms/inbound-generation-fence.md)
+  state the behavior directly instead of recording the disagreement.
+  All six re-verified by `openai/gpt-6-astra` and stable, the transaction observer entry included.
+  Other entries citing the edited files: digest/revision-only refresh.
 * Digest/revision-only refresh to `2a92a5e` (comment-only changes to `hsms/connection_config.go` and `hsms/connection_metrics.go`): [inflight gauge](/hsms/inflight-gauge.md), [reconnect backoff scope](/hsms/reconnect-backoff-scope.md), [reconnect retry ownership](/hsms/reconnect-retry-ownership.md), [handler panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md).
 
 ## 2026-10-23
