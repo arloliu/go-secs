@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-10-24
+
 A connection can end a transaction early from either side,
 and a `gem` builder fails the send instead of sending a body of the wrong shape.
 `gem` also converts E5 time strings and prints its named item values by name.
@@ -2105,6 +2107,7 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
+[2.8.0]: https://github.com/arloliu/go-secs/releases/tag/v2.8.0
 [2.7.0]: https://github.com/arloliu/go-secs/releases/tag/v2.7.0
 [2.6.0]: https://github.com/arloliu/go-secs/releases/tag/v2.6.0
 [2.5.0]: https://github.com/arloliu/go-secs/releases/tag/v2.5.0
