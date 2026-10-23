@@ -53,6 +53,7 @@ type ConnectionConfig struct {
 	logger                     logger.Logger
 	validateSessionID          bool
 	strictReplyMatching        bool
+	abortReplyError            bool
 	autoS9F9                   bool
 	equipmentRole              bool
 	traceTraffic               bool
@@ -550,6 +551,42 @@ func WithSessionIDValidation(enabled bool) ConnOption {
 func WithStrictReplyMatching(enabled bool) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.strictReplyMatching = enabled
+
+		return nil
+	}
+}
+
+// WithAbortReplyError makes a peer's function 0 reply (SxF0) to a reply-expected data send an error.
+//
+// Function 0 is sent in lieu of an expected reply to abort a transaction (SEMI E5 §10.4.1),
+// and the originator terminates the transaction on receiving it (SEMI E5 §8.3).
+// Disabled (the default), SendDataMessage and SendSECS2Message return the SxF0 as the reply with a nil error,
+// so a caller must check its Function() for 0 itself,
+// and a caller that decodes the reply as the expected secondary sees a misleading shape error instead.
+// Enabled, they return (reply, [ErrTransactionAborted]) instead of (reply, nil):
+// the SxF0 message is still returned alongside the error, so its header stays available.
+//
+// The abort outcome takes precedence over a reply body that fails to decode:
+// SxF0 defines no body, so an SxF0 carrying a malformed one still returns ErrTransactionAborted, not the decode error.
+// An SxF0 must still be accepted as this transaction's reply first.
+// Under [WithStrictReplyMatching] an SxF0 with the wrong stream is a mismatch, so it does not end the transaction;
+// without it, the SxF0 is accepted and returns ErrTransactionAborted like any other.
+//
+// The option applies only to the sends that wait for their reply through this package:
+// SendDataMessage and SendSECS2Message with the W-bit set.
+// ForwardDataMessage never waits for a reply, so an SxF0 answering a forwarded message reaches the data handlers as before.
+// The handler path is unchanged as well:
+// an SxF0 that no waiting send claims, such as one that arrives after its send already returned,
+// is delivered to the DataMessageHandlers as a plain secondary.
+//
+// [WithTransactionObserver] reports an aborted send as [TxAborted].
+// The connection metrics do not change:
+// an SxF0 is a received reply, so it never counts toward [ConnectionMetrics.DataMsgErrCount], with or without this option.
+//
+// hsmsss and secs1 connections take it through their WithConnectionOption option.
+func WithAbortReplyError(enabled bool) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.abortReplyError = enabled
 
 		return nil
 	}

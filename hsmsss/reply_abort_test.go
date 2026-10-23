@@ -23,16 +23,19 @@ type abortDelivery struct {
 
 // newAbortPassive builds a passive connection through New, registers handler, opens it,
 // and returns it together with a scripted peer that has already selected it.
-func newAbortPassive(t *testing.T, handler hsms.DataMessageHandler) (Connection, net.Conn) {
+// opts apply after the base options.
+func newAbortPassive(t *testing.T, handler hsms.DataMessageHandler, opts ...Option) (Connection, net.Conn) {
 	t.Helper()
 
 	port := freeLoopbackPort(t)
 
-	cfg, err := NewConfig("127.0.0.1", port,
+	base := []Option{
 		WithPassive(),
 		WithConnectionOption(hsms.WithSessionID(testDeviceID)),
 		WithConnectionOption(hsms.WithLinktestInterval(0)),
-	)
+	}
+
+	cfg, err := NewConfig("127.0.0.1", port, append(base, opts...)...)
 	require.NoError(t, err)
 
 	conn, err := New(cfg)

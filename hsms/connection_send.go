@@ -380,7 +380,9 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 	}
 
 	// Protocol timer: T3 for a data transaction, T6 for a control transaction.
-	timers := c.cfg.Load().timers
+	cfg := c.cfg.Load()
+	timers := cfg.timers
+	abortErr := isData && cfg.abortReplyError
 	timeout := timers.T6
 	timeoutErr := ErrT6Timeout
 	if isData {
@@ -399,7 +401,7 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 
 	select {
 	case res := <-ch:
-		return res.msg, res.err
+		return replyOutcome(res, abortErr)
 	case <-timer.C:
 		if c.testHookWaitPicked != nil {
 			c.testHookWaitPicked(replyWaitArmTimer)
@@ -410,7 +412,7 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 		// Re-check the higher-priority outcomes non-blockingly, in priority order (reply, then teardown),
 		// before treating this as a genuine protocol-timer (T3/T6) timeout.
 		if res, ok := tryReply(ch); ok {
-			return res.msg, res.err
+			return replyOutcome(res, abortErr)
 		}
 
 		if e.ctx.Err() != nil {
@@ -443,7 +445,7 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 		// re-check it non-blockingly,
 		// so an outcome the caller was actually waiting for is never discarded in favor of the teardown this call had no way to avoid.
 		if res, ok := tryReply(ch); ok {
-			return res.msg, res.err
+			return replyOutcome(res, abortErr)
 		}
 
 		return nil, ErrConnClosed
@@ -476,6 +478,21 @@ func tryReply(ch chan replyResult) (replyResult, bool) {
 	default:
 		return replyResult{}, false
 	}
+}
+
+// replyOutcome turns a received reply result into sendWaitReplyOn's return values.
+// abortErr is true only for a data transaction on a connection with WithAbortReplyError enabled;
+// then a function 0 data reply (SxF0, SEMI E5 §10.4.1) is returned with ErrTransactionAborted instead of a nil error.
+// The check reads only the header, so an SxF0 whose body fails to decode is still reported as aborted.
+// Every other result, including a *RejectError, is returned unchanged.
+func replyOutcome(res replyResult, abortErr bool) (Message, error) {
+	if abortErr && res.err == nil {
+		if dm, ok := res.msg.(*DataMessage); ok && dm.Function() == 0 {
+			return dm, ErrTransactionAborted
+		}
+	}
+
+	return res.msg, res.err
 }
 
 // isCountedSendErr reports whether a writeFrame error on a DATA send counts as a data-message
@@ -556,11 +573,14 @@ func newTxEvent(dm *DataMessage, e *epoch, replyWaited bool, start time.Time, er
 //	  fire-and-forget short-circuit (!W, on wire)    -> nil                 -> TxSent
 //	  wait-select: res.err == nil (reply)            -> nil                 -> TxReplied
 //	  wait-select: res.err is *RejectError           -> *RejectError        -> TxRejected
+//	  wait-select: SxF0 reply, WithAbortReplyError   -> ErrTransactionAborted -> TxAborted
 //	  wait-select: timer.C (T3/T6)                   -> ErrT3Timeout        -> TxT3Timeout
-//	  wait-select: timer.C, reply already ready      -> nil / *RejectError  -> TxReplied / TxRejected
+//	  wait-select: timer.C, reply already ready      -> nil / *RejectError /
+//	                                                    ErrTransactionAborted -> TxReplied / TxRejected / TxAborted
 //	  wait-select: timer.C, teardown started         -> ErrConnClosed        -> TxCanceled
 //	  wait-select: e.ctx.Done() (teardown)           -> ErrConnClosed        -> TxCanceled
-//	  wait-select: e.ctx.Done(), reply already ready -> nil / *RejectError  -> TxReplied / TxRejected
+//	  wait-select: e.ctx.Done(), reply already ready -> nil / *RejectError /
+//	                                                    ErrTransactionAborted -> TxReplied / TxRejected / TxAborted
 //	  wait-select: callerCtx.Done()                  -> context.Canceled /
 //	                                                    DeadlineExceeded    -> TxCanceled
 //
@@ -590,6 +610,8 @@ func classifyTxOutcome(replyWaited bool, err error) TxOutcome {
 		return TxRejected
 	case errors.Is(err, ErrT3Timeout):
 		return TxT3Timeout
+	case errors.Is(err, ErrTransactionAborted):
+		return TxAborted
 	case errors.Is(err, ErrConnClosed), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return TxCanceled
 	default:

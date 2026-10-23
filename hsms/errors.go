@@ -190,6 +190,18 @@ var (
 	// Classification: IsTransient and IsTimeout both report false.
 	// The same endpoint fails on every retry.
 	ErrAbortUnsupported = fmt.Errorf("hsms: endpoint does not support ReplyAbort: %w", errors.ErrUnsupported)
+
+	// ErrTransactionAborted indicates the peer answered a reply-expected data send with function 0 (SxF0) instead of the expected reply.
+	//
+	// Function 0 is sent in lieu of an expected reply to abort the transaction (SEMI E5 §10.4.1),
+	// and the originator terminates the transaction on receiving it (SEMI E5 §8.3).
+	// SendDataMessage and SendSECS2Message return it only when [WithAbortReplyError] is enabled,
+	// and they return the SxF0 message alongside it.
+	// With the option disabled, the SxF0 is returned as the reply with a nil error.
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// The peer chose to abort, and nothing says a retry would be answered differently.
+	ErrTransactionAborted = errors.New("hsms: transaction aborted by peer (SxF0)")
 )
 
 // RejectError is returned by a synchronous send whose transaction the peer answered with an HSMS Reject.req (SEMI E37 §7.10) instead of the expected reply.

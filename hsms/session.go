@@ -2,6 +2,7 @@ package hsms
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 
@@ -87,12 +88,19 @@ func (s *session) SendDataMessage(ctx context.Context, stream, function byte, re
 	}
 
 	reply, err := s.rt.WriteMessage(ctx, msg)
-	if err != nil {
-		return nil, err
-	}
 
 	// nil interface → (nil, false); typed-nil is returned as nil.
 	dm, _ := reply.(*DataMessage)
+
+	if err != nil {
+		// An SxF0 reported as ErrTransactionAborted (WithAbortReplyError) is returned with the error,
+		// before the decode check below, so a malformed SxF0 body never replaces the abort.
+		if errors.Is(err, ErrTransactionAborted) {
+			return dm, err
+		}
+
+		return nil, err
+	}
 
 	// A reply whose body fails to decode must not unblock the caller as a clean success.
 	// Surface the decode error, but return the message alongside it (non-destructive: the
@@ -167,11 +175,16 @@ func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) 
 	}
 
 	reply, err := s.rt.WriteMessage(ctx, dm)
+	dataReply, _ := reply.(*DataMessage)
+
 	if err != nil {
+		// See SendDataMessage: an abort keeps its SxF0 message and takes precedence over a decode error.
+		if errors.Is(err, ErrTransactionAborted) {
+			return dataReply, err
+		}
+
 		return nil, err
 	}
-
-	dataReply, _ := reply.(*DataMessage)
 
 	// See SendDataMessage: an undecodable reply surfaces its decode error, but the message
 	// is still returned alongside the error so the caller keeps the header.
