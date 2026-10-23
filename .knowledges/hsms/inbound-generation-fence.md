@@ -3,21 +3,19 @@ type: Mechanic
 title: The inbound generation fence
 description: How an inbound frame or reply is bound to the generation whose recv goroutine actually read it, and the two different kinds of cutoff that enforce it.
 tags: [hsms, hsmsss, generations, inbound, fan-out]
-status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T08:02:46Z}
-verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T08:34:25Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-10-23T09:30:00Z}
 sources:
-  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: be7a75b}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: da56326}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
-  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: be7a75b}
+  - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: da56326}
+  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: da56326}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: be7a75b}
-  - {resource: hsms/data_msg.go, digest: sha256:88382441bb2794f4, revision: be7a75b}
+  - {resource: hsms/data_msg.go, digest: sha256:a90443b564284b51, revision: da56326}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: be7a75b}
   - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
   - {resource: internal/gencap/gencap.go, digest: sha256:b7a6e492698ff6d3, revision: be7a75b}
-  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: be7a75b}
+  - {resource: secs1/transport.go, digest: sha256:8751c0d91c45f678, revision: da56326}
   - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
 ---
 
@@ -67,9 +65,12 @@ not its Reject-sending MISS branch — is the one that runs against a generation
 
 **Once admitted, one resolved epoch carries the rest.**
 `deliverOwnedFrameOn(e, frame)` decodes, stamps `dm.originIdent`/`dm.originGen` from `e` (never from a fresh `c.cur.Load()`),
-runs `checkSessionID(e, dm)` — which enqueues an S9F1 through `e` specifically, via `enqueueAsync`,
-so a mismatch admitted by a generation that ends before the enqueue runs drops the S9F1 with the rest of that generation's stranded queue rather than landing on a successor —
+runs `checkSessionID(e, dm)` when session-ID validation is on —
+which drops a mismatch in either role and, only in the equipment role (`cfg.equipmentRole`), first enqueues an S9F1 through `e` specifically, via `enqueueAsync`,
+so a mismatch admitted by a generation that ends before the enqueue runs drops the S9F1 with the rest of that generation's stranded queue rather than landing on a successor;
+an inbound S9F1 is exempt from the check and never dropped —
 fires `testHookBeforeFanout` (nil in production),
+calls `correlateS9On(e, dm)`, which can end a waiting send through `e.replies` (see [S9 correlation](/hsms/s9-correlation.md)),
 and then calls `routeReplyOn(e, dm)` / `routeDataOn(e, dm)`.
 None of these steps re-resolves `c.cur`; they all thread the SAME `e` cutoff #1 already picked.
 
@@ -118,16 +119,17 @@ handler no longer takes down the others either.
 Three nil-by-default hooks mark the three points in this sequence a test can pause at:
 `testHookAfterReadFrame` (`hsmsss/transport.go`, fired in `recvLoop`) sits BEFORE cutoff #1 —
 between the read and `dispatchFrame`, i.e. before admission is even attempted;
-`testHookBeforeS9F1Enqueue` (`hsms/connection.go`, fired in `checkSessionID`) sits AFTER cutoff #1,
+`testHookBeforeS9F1Enqueue` (`hsms/connection.go`, fired in `checkSessionID`, equipment role only) sits AFTER cutoff #1,
 between admission and the S9F1's `enqueueAsync` on the resolved epoch;
 `testHookBeforeFanout` (`hsms/connection.go`, fired in `deliverOwnedFrameOn`) sits AFTER cutoff #1 and `checkSessionID`,
-immediately before cutoff #2's fan-out begins.
+immediately before S9 correlation and cutoff #2's fan-out.
 Each one lets a test advance the generation (publish a successor, end the admitting one)
 in exactly the window that hook marks,
 to exercise what admission or fan-out does when the generation dies right there.
 
 **The reply side reuses the SAME origin, through a token rather than a pointer.**
-`ReplyDataMessage` (`hsms/session.go`) compares `primary.originIdent` against `os.originIdentity()` by pointer identity
+`session.reply` (`hsms/session.go`), the shared body of `ReplyDataMessage` and `ReplyAbort`,
+compares `primary.originIdent` against `os.originIdentity()` by pointer identity
 (`*connIdentity`, a one-byte, non-zero-size struct — see its own doc for why zero-size would make two different connections' tokens alias)
 and, on a match, calls `SendAsyncFromGeneration(ctx, primary.originGen, dm)` instead of the unbound `SendAsync`.
 The token is a POINTER identity check, not a `*connection` or `*epoch` field:
@@ -190,7 +192,7 @@ SECS-I's own straggler protection is structural, in its line engine's own per-ge
 
 - the two admission cutoffs and the resolved-epoch propagation: `hsms/connection_runtime.go` →
   `(*connection).DeliverOwnedFrameFromGeneration`, `(*connection).deliverOwnedFrameOn`,
-  `(*connection).RouteReplyFromGeneration`, `(*connection).routeReplyOn`, `(*connection).checkSessionID`
+  `(*connection).RouteReplyFromGeneration`, `(*connection).routeReplyOn`, `(*connection).checkSessionID`, `(*connection).correlateS9On`
 - the one-shot admission gate: `hsms/connection_lifecycle.go` → `(*connection).liveEpoch`
 - the per-step recheck during fan-out: `hsms/session.go` → `(*session).recvDataMsgOn`, `(*session).dispatchDecodeErrorOn`
 - the generation `gen` now carries into the handler call, and the panic isolation it feeds: `hsms/connection_runtime.go` →
@@ -201,7 +203,7 @@ SECS-I's own straggler protection is structural, in its line engine's own per-ge
 - the reply-side origin token and its retention rationale: `hsms/connection.go` → `connIdentity`, `(*connection).originIdentity`;
   `hsms/data_msg.go` → `DataMessage.originIdent`, `DataMessage.originGen`
 - the origin-token check that routes a reply through the SAME generation: `hsms/session.go` →
-  `(*session).ReplyDataMessage`, `originSender`
+  `(*session).ReplyDataMessage`, `(*session).ReplyAbort`, `(*session).reply`, `originSender`
 - the three test-hook windows: `hsmsss/transport.go` → `transport.testHookAfterReadFrame`;
   `hsms/connection.go` → `connection.testHookBeforeFanout`, `connection.testHookBeforeS9F1Enqueue`
 - hsmsss's generation-bound dispatch wrappers: `hsmsss/transport_control.go` →

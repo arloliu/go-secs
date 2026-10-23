@@ -34,6 +34,8 @@ Item semantics belong to `secs2`.
 * [The inbound generation fence](/hsms/inbound-generation-fence.md) - how an inbound frame/reply is bound to the generation whose recv goroutine read it, the two different kinds of cutoff that enforce it, and the SECS-I asymmetry.
 * [How a user callback's panic or Goexit is contained](/hsms/handler-panic-goexit-isolation.md) - the two-frame detection runCallback needs, which goroutine each of the five callback sites runs on, and what this isolation does not cover.
 * [How Close interrupts a blocked Open](/hsms/open-close-abort.md) - the pending-close registration and abort token that unblock Open's Selected wait or first dial, and how the interrupted Start failure maps to Open's error.
+* [How a reply wait ends with exactly one result](/hsms/reply-wait-claim.md) - the one-shot claim a reply, a Reject.req, or an S9 must win, what each losing candidate reports, and how the sender's arms turn the winner into a return, SxF0 abort included.
+* [Where an inbound S9 is correlated to a waiting send](/hsms/s9-correlation.md) - its place between the session-ID check and reply routing, the stored header it is compared against, and the MHEAD form each transport selects.
 
 # Entry points
 

@@ -9,12 +9,12 @@ verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-25T13:08:00Z}
 sources:
   - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
-  - {resource: hsms/endpoint.go, digest: sha256:b75d6a0370642b02, revision: be7a75b}
+  - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: da56326}
+  - {resource: hsms/endpoint.go, digest: sha256:b2d226b53d367d41, revision: da56326}
   - {resource: internal/gencap/gencap.go, digest: sha256:b7a6e492698ff6d3, revision: be7a75b}
   - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
   - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}
-  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: be7a75b}
+  - {resource: secs1/transport.go, digest: sha256:8751c0d91c45f678, revision: da56326}
 ---
 
 # What it does

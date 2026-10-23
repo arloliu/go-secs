@@ -11,9 +11,9 @@ sources:
   - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
   - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: be7a75b}
   - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: be7a75b}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
+  - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: da56326}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: be7a75b}
-  - {resource: hsms/endpoint.go, digest: sha256:b75d6a0370642b02, revision: be7a75b}
+  - {resource: hsms/endpoint.go, digest: sha256:b2d226b53d367d41, revision: da56326}
 ---
 
 # What it does

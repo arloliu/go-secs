@@ -9,19 +9,19 @@ verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:57:34Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:5c6fef9f2a58e9f9, revision: be7a75b}
-  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: be7a75b}
+  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: da56326}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: be7a75b}
   - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: be7a75b}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: be7a75b}
-  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7f242f475b188a1b, revision: da56326}
+  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: da56326}
+  - {resource: hsms/connection.go, digest: sha256:42714e9581c0b14e, revision: da56326}
   - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
   - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
   - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: be7a75b}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:8ef63578b72806e0, revision: be7a75b}
-  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: be7a75b}
+  - {resource: secs1/transport.go, digest: sha256:8751c0d91c45f678, revision: da56326}
   - {resource: hsmsss/transport_control_test.go, digest: sha256:d7d6115539bd3043, revision: be7a75b}
   - {resource: hsmsss/integration_lifecycle_cause_test.go, digest: sha256:8edcbd4a7dcc10a1, revision: be7a75b}
   - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}

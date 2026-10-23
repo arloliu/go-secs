@@ -1,20 +1,18 @@
 ---
 type: Mechanic
 title: The transaction observer's two chokepoints, its isData gate, and its outcome classifier
-description: Why WithTransactionObserver instruments two call sites (not one), why the isData gate prevents an observer-path panic for control messages, and how classifyTxOutcome's six-way split relates to isCountedSendErr's binary one.
+description: Why WithTransactionObserver instruments two call sites (not one), why the isData gate prevents an observer-path panic for control messages, and how classifyTxOutcome's eight-way split relates to isCountedSendErr's binary one.
 tags: [hsms, observability, send, metrics, lifecycle]
-status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
-verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:58:06Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-10-23T09:30:00Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
-  - {resource: hsms/transaction_observer.go, digest: sha256:31245ab9750ba784, revision: be7a75b}
-  - {resource: hsms/connection_config.go, digest: sha256:fed694e843097a3c, revision: be7a75b}
-  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: be7a75b}
+  - {resource: hsms/connection_send.go, digest: sha256:ea94ab4fc9d25bb9, revision: da56326}
+  - {resource: hsms/transaction_observer.go, digest: sha256:e76d57a56b7a83f0, revision: da56326}
+  - {resource: hsms/connection_config.go, digest: sha256:fffdf6ce9b29ba7f, revision: da56326}
+  - {resource: hsms/session.go, digest: sha256:04cc770917f02f59, revision: da56326}
   - {resource: hsmsss/transaction_observer_test.go, digest: sha256:498f47d6b3971437, revision: be7a75b}
   - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
-  - {resource: hsms/data_msg.go, digest: sha256:88382441bb2794f4, revision: be7a75b}
+  - {resource: hsms/data_msg.go, digest: sha256:a90443b564284b51, revision: da56326}
   - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
 ---
 
@@ -94,14 +92,14 @@ is unchanged and still meaningful.
 
 **The classifier vs. the counter.**
 `classifyTxOutcome` (`hsms/connection_send.go`, next to `isCountedSendErr`)
-maps `(replyWaited bool, err error)` to one of six `TxOutcome` values.
+maps `(replyWaited bool, err error)` to one of eight `TxOutcome` values.
 It partitions the *same* error set `isCountedSendErr` already classifies,
 but the two disagree on granularity and partly on philosophy.
 `isCountedSendErr` is binary (counts toward `DataMsgErrCount` or does not)
 and excludes `ErrNotSelectedState`, `ErrConnClosed`, `ErrMessageTooLarge`,
 and caller-context cancellation/deadline from the count —
 see [Send error accounting](/hsms/send-error-accounting.md) for why.
-`classifyTxOutcome` has six buckets,
+`classifyTxOutcome` has eight buckets,
 and deliberately routes `ErrConnClosed` to `TxCanceled` — grouped with caller-context cancellation, not with `TxSendError`.
 `TxCanceled`'s own enum doc (`hsms/transaction_observer.go`) already names both cases explicitly, including connection closure —
 so the grouping is not a silent extension of an underspecified doc; the doc and the classifier agree.
@@ -113,6 +111,10 @@ even though `isCountedSendErr` also excludes them from the *counter* —
 the two functions answer different questions
 ("does this count as link-health noise?" vs. "how did this transaction end?"),
 so agreement on one axis (lifecycle exclusion) does not imply agreement on the other (does it count as a *failure* at all).
+`TxAborted` (`ErrTransactionAborted`, with `WithAbortReplyError`) and `TxPeerError` (an `*S9Error`, with `WithS9Correlation`)
+are peer answers that arrive on the reply branch, which never reaches `isCountedSendErr` at all,
+so neither counts toward `DataMsgErrCount`.
+`classifyTxOutcome` tests `*RejectError` and `*S9Error` with `errors.As` before the sentinel checks.
 
 **Observer timing.**
 The observer runs as a plain statement *after* the send's `sendWaitReplyOn`/`sendNoReplyOn` call fully returns —
@@ -137,6 +139,7 @@ like any unrecovered panic it keeps unwinding through the calling frames until s
 - `ReplyDataMessage` must never be rerouted onto `WriteMessage`/`WriteMessageNoReply` to make it observable
   without also accepting the blocking-semantics and metric-attribution break that would be —
   see [Send error accounting](/hsms/send-error-accounting.md)'s note that `ReplyDataMessage` is already classified as an async path there too.
+  The same holds for `ReplyAbort`, which shares its `session.reply` body.
 - `sendNoReply` arms no T3 timer and registers no reply channel,
   so it never generates a `TxT3Timeout` or `TxRejected` outcome itself.
   But `classifyTxOutcome` classifies purely on the returned error, without checking `replyWaited` —
