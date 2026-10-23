@@ -308,9 +308,11 @@ func (c *connection) deliverOwnedFrameOn(e *epoch, frame []byte) error {
 // checkSessionID validates dm's SessionID against this connection's own configured SessionID
 // (see WithSessionIDValidation), performed on the ALREADY-RESOLVED epoch e that admitted dm —
 // e is whichever epoch deliverOwnedFrameOn resolved, never a re-read of c.cur.
-// On a mismatch it sends an S9F1 from this connection's own SessionID
-// (fire-and-forget — a failure to send the S9F1 does not change the outcome),
-// and returns ErrUnrecognizedSessionID so the caller drops dm without routing it.
+// On a mismatch it returns ErrUnrecognizedSessionID so the caller drops dm without routing it, in either role.
+// In the equipment role (WithEquipmentRole) it first sends an S9F1 from this connection's own SessionID
+// (fire-and-forget — a failure to send the S9F1 does not change the outcome).
+// The host role sends nothing:
+// Stream 9 error messages travel from equipment to host (SEMI E5 §10.13).
 // An inbound S9F1 is exempted from the check entirely, regardless of its own SessionID:
 // checkSessionID returns nil immediately, so the caller proceeds to route dm normally
 // (delivered to DataMessageHandlers, or reply-correlated if it matches a pending transaction) —
@@ -323,7 +325,7 @@ func (c *connection) deliverOwnedFrameOn(e *epoch, frame []byte) error {
 // re-stamps it as a DataMessage carrying THIS connection's own SessionID and a fresh System Bytes
 // (S9F1 is a notification, not a reply to dm, so it must not reuse dm's System Bytes).
 //
-// The S9F1 is enqueued via enqueueAsync bound to e,
+// The equipment role's S9F1 is enqueued via enqueueAsync bound to e,
 // so it can never land on a successor generation's send queue:
 // a mismatch admitted by a generation that ends before the enqueue runs drops the S9F1 along with the rest of that generation's stranded queue (see SendAsyncFromGeneration).
 // A nil e (no live epoch) skips the enqueue entirely —
@@ -335,7 +337,7 @@ func (c *connection) checkSessionID(e *epoch, dm *DataMessage) error {
 		return nil
 	}
 
-	if e != nil {
+	if e != nil && c.cfg.Load().equipmentRole {
 		s9 := gem.S9F1(dm.HeaderBytes())
 		reject, err := NewDataMessage(
 			s9.StreamCode(), s9.FunctionCode(), s9.WaitBit(),

@@ -150,7 +150,7 @@ func (r replyRegistry) route(key [4]byte, res replyResult, strict bool) (deliver
 }
 
 // len returns the number of currently registered pending-reply entries.
-// Used by the clean-shutdown gate (Task 27) to confirm no sends are in flight.
+// Used by the clean-shutdown gate to confirm no sends are in flight.
 func (r replyRegistry) len() int {
 	return r.m.Size()
 }

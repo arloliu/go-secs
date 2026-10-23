@@ -126,7 +126,7 @@ type SECS2Endpoint interface {
 	// The message's session ID is sent verbatim on HSMS-SS.
 	//
 	// If the connection enables WithSessionIDValidation, a forwarded session ID that differs from the connection's makes the peer's reply fail inbound validation
-	// and be dropped (and answered with an S9F1), so it never reaches your handlers —
+	// and be dropped (and, in the equipment role, answered with an S9F1), so it never reaches your handlers —
 	// forward with the connection's own session ID, or leave validation disabled.
 	//
 	// On SECS-I the block-header device ID is always the configured device ID regardless of msg's session ID (only System Bytes / stream / function / W-bit go on the wire verbatim).

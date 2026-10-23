@@ -210,6 +210,18 @@ func TestConnectionConfig_WithAutoS9F9(t *testing.T) {
 	require.False(t, cfg.AutoS9F9())
 }
 
+func TestConnectionConfig_WithEquipmentRole(t *testing.T) {
+	cfg := DefaultConnectionConfig()
+	require.False(t, cfg.EquipmentRole(), "default is host")
+
+	require.NoError(t, cfg.apply(WithEquipmentRole(true)))
+	require.True(t, cfg.EquipmentRole())
+	require.False(t, cfg.AutoS9F9(), "the role flag is independent of AutoS9F9")
+
+	require.NoError(t, cfg.apply(WithEquipmentRole(false)))
+	require.False(t, cfg.EquipmentRole())
+}
+
 func TestConnectionConfig_WithTraceTraffic(t *testing.T) {
 	cfg := DefaultConnectionConfig()
 	require.False(t, cfg.TraceTraffic(), "default is disabled")

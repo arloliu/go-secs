@@ -38,8 +38,8 @@ type TimerConfig struct {
 //
 // All fields are unexported; use With* options to configure via apply.
 //
-// Only a subset of the configuration is exposed for reading: [ConnectionConfig.Timers], [ConnectionConfig.SessionID],
-// and [ConnectionConfig.WriteTimeout].
+// Only a subset of the configuration is exposed for reading through accessor methods,
+// such as [ConnectionConfig.Timers], [ConnectionConfig.SessionID], and [ConnectionConfig.EquipmentRole].
 // The remaining fields are set via With* options and have no read accessor.
 type ConnectionConfig struct {
 	timers                     TimerConfig
@@ -54,6 +54,7 @@ type ConnectionConfig struct {
 	validateSessionID          bool
 	strictReplyMatching        bool
 	autoS9F9                   bool
+	equipmentRole              bool
 	traceTraffic               bool
 	asyncSendErrHandler        func(msg Message, err error)
 	txObserver                 func(TxEvent)
@@ -493,8 +494,10 @@ func WithLogger(l logger.Logger) ConnOption {
 
 // WithSessionIDValidation enables or disables inbound SessionID validation.
 //
-// When enabled, any inbound data message whose SessionID does not match this connection's configured SessionID is dropped (never delivered to a DataMessageHandler)
-// and answered with an S9F1 sent from this connection's own SessionID.
+// When enabled, any inbound data message whose SessionID does not match this connection's configured SessionID is dropped (never delivered to a DataMessageHandler).
+// In the equipment role (see [WithEquipmentRole]) it is also answered with an S9F1 sent from this connection's own SessionID.
+// The host role drops it without a notification:
+// Stream 9 error messages travel from equipment to host (SEMI E5 §10.13), so a host never sends S9F1.
 //
 // An inbound message that is itself S9F1 (SEMI E5's own "unrecognized device ID" notification) is exempted from the check entirely:
 // it is delivered to DataMessageHandlers normally, regardless of its own SessionID,
@@ -561,7 +564,7 @@ func WithStrictReplyMatching(enabled bool) ConnOption {
 //
 // Most callers should not call this directly: it is the shared primitive behind hsmsss.WithEquipRole / hsmsss.WithHostRole
 // and secs1.WithEquipment / secs1.WithHost, which express the concept applications actually configure (equipment vs. host role)
-// and keep this and the transport's own role-specific state (e.g. secs1's line-contention role) in sync.
+// and keep this, [WithEquipmentRole], and the transport's own role-specific state (e.g. secs1's line-contention role) in sync.
 func WithAutoS9F9(enabled bool) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.autoS9F9 = enabled
@@ -573,6 +576,38 @@ func WithAutoS9F9(enabled bool) ConnOption {
 // AutoS9F9 reports whether automatic S9F9-on-T3-timeout notification is enabled (see WithAutoS9F9).
 func (c *ConnectionConfig) AutoS9F9() bool {
 	return c.autoS9F9
+}
+
+// WithEquipmentRole marks the connection as the equipment side of the link (true) or the host side (false).
+//
+// The flag gates the role-dependent notifications the hsms core sends on its own;
+// today that is the S9F1 answering a session-ID mismatch under [WithSessionIDValidation].
+// Stream 9 error messages travel from equipment to host (SEMI E5 §10.13),
+// so the host role drops a mismatched message without notifying the peer.
+//
+// The default is false (host).
+//
+// It does not change the SECS-I line role, the R-bit direction, or line contention;
+// secs1.WithEquipment / secs1.WithHost own those.
+// Nor does it enable the S9F9 T3-timeout notification, which [WithAutoS9F9] controls.
+//
+// Most callers should not call this directly:
+// the role presets hsmsss.WithEquipRole / hsmsss.WithHostRole and secs1.WithEquipment / secs1.WithHost set it together with [WithAutoS9F9].
+// Each flag keeps its own value, and the last option applied to it wins,
+// so a later WithConnectionOption(hsms.WithAutoS9F9(false)) leaves this flag unchanged, and vice versa.
+func WithEquipmentRole(enabled bool) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.equipmentRole = enabled
+
+		return nil
+	}
+}
+
+// EquipmentRole reports whether the connection acts as the equipment side of the link (see [WithEquipmentRole]).
+//
+// A false return means host (the default).
+func (c *ConnectionConfig) EquipmentRole() bool {
+	return c.equipmentRole
 }
 
 // WithTraceTraffic enables per-frame wire-level tracing.

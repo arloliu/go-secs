@@ -267,7 +267,7 @@ type connection struct {
 	// so it can advance the generation (publish a successor, end the admitting generation) in that window before releasing.
 	testHookBeforeFanout func()
 
-	// testHookBeforeS9F1Enqueue is called by checkSessionID
+	// testHookBeforeS9F1Enqueue is called by checkSessionID in the equipment role
 	// immediately before the S9F1 rejection notification is enqueued via enqueueAsync on the RESOLVED epoch.
 	// It is nil in production (zero cost).
 	// A test uses it to pause the S9F1 send between admission and enqueue,

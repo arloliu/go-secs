@@ -12,7 +12,7 @@ import (
 //
 // It embeds [hsms.ConnectionConfig] so all shared timer and policy knobs are promoted directly onto Config
 // and can be read via the promoted accessors: [hsms.ConnectionConfig.Timers], [hsms.ConnectionConfig.SessionID],
-// and [hsms.ConnectionConfig.WriteTimeout].
+// [hsms.ConnectionConfig.WriteTimeout], and [hsms.ConnectionConfig.EquipmentRole].
 // Other knobs (linktest interval/threshold, close timeout, logger, queue size) are write-only via [WithConnectionOption]
 // and have no read accessor.
 // Transport-specific settings (TCP endpoint, role, keep-alive) are separate unexported fields set through [Option] values.
@@ -223,11 +223,21 @@ func WithTCPKeepAlive(d time.Duration) Option {
 // WithEquipRole sets the connection role to equipment.
 //
 // A synchronous data-message send whose reply times out (T3) automatically notifies the peer with an S9F9 (Transaction Timeout, SEMI E5 §10.13) before the timeout error is returned to the caller.
-// Host (the default) sends no such notification.
+// With [hsms.WithSessionIDValidation] on, a message dropped for a session-ID mismatch is answered with an S9F1 (Unrecognized Device ID).
+// Host (the default) sends neither notification.
 //
 // Equipment and host are mutually exclusive — whichever of WithEquipRole/WithHostRole appears last in a NewConfig call wins.
+//
+// The preset sets two independent hsms flags, [hsms.WithEquipmentRole] (which [Config.IsEquip] reports) and [hsms.WithAutoS9F9].
+// Each flag keeps its own value, and the last option applied to it wins:
+// a later WithConnectionOption(hsms.WithAutoS9F9(false)) turns off only the S9F9 notification,
+// leaving the role, IsEquip, and the S9F1 unchanged.
 func WithEquipRole() Option {
 	return func(c *Config) error {
+		if err := hsms.WithEquipmentRole(true)(&c.ConnectionConfig); err != nil {
+			return err
+		}
+
 		return hsms.WithAutoS9F9(true)(&c.ConnectionConfig)
 	}
 }
@@ -237,6 +247,10 @@ func WithEquipRole() Option {
 // See WithEquipRole.
 func WithHostRole() Option {
 	return func(c *Config) error {
+		if err := hsms.WithEquipmentRole(false)(&c.ConnectionConfig); err != nil {
+			return err
+		}
+
 		return hsms.WithAutoS9F9(false)(&c.ConnectionConfig)
 	}
 }
@@ -265,8 +279,10 @@ func (c Config) ConnectTimeout() time.Duration { return c.connectTimeout }
 // IsEquip reports whether this connection is configured as equipment role (see WithEquipRole).
 //
 // A false return means host (the default).
+// It reports the role flag, [hsms.ConnectionConfig.EquipmentRole],
+// so an independent WithConnectionOption(hsms.WithAutoS9F9(...)) does not change it.
 func (c Config) IsEquip() bool {
-	return c.AutoS9F9()
+	return c.EquipmentRole()
 }
 
 // ApplyOptions applies the supplied options to the Config transactionally.

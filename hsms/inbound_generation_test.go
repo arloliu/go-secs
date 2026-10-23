@@ -430,7 +430,7 @@ func TestSessionDispatchDecodeErrorOn_CancellationSkipsLaterHandlers(t *testing.
 // ── Test 6: S9F1 must not land on a successor ────────────────────────────────────────────────
 
 // TestCheckSessionID_S9F1NotEnqueuedOnSuccessorAfterGenerationEnds covers a session-ID-mismatched
-// primary admitted on genN: checkSessionID pauses (via testHookBeforeS9F1Enqueue) right before it
+// primary admitted on genN by an equipment-role connection (the only role that sends the S9F1): checkSessionID pauses (via testHookBeforeS9F1Enqueue) right before it
 // enqueues the S9F1 notification, genN ends and genSucc is published while paused, then the
 // enqueue is released.
 // The S9F1 must land on genN's own send queue, never genSucc's.
@@ -438,7 +438,7 @@ func TestCheckSessionID_S9F1NotEnqueuedOnSuccessorAfterGenerationEnds(t *testing
 	t.Parallel()
 
 	c, genN, genSucc := newTwoGenConn(t)
-	require.NoError(t, c.UpdateConfigOptions(WithSessionIDValidation(true)))
+	require.NoError(t, c.UpdateConfigOptions(WithSessionIDValidation(true), WithEquipmentRole(true)))
 
 	b := newBlocker(t)
 	c.testHookBeforeS9F1Enqueue = b.block

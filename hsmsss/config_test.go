@@ -315,3 +315,50 @@ func TestNewConfig_WithHostRole_Default(t *testing.T) {
 		t.Error("IsEquip() = true, want false (whichever of WithEquipRole/WithHostRole is last wins)")
 	}
 }
+
+// TestNewConfig_RolePresetsSetBothFlags verifies that each role preset sets the role flag and AutoS9F9 together,
+// and that the last preset wins.
+func TestNewConfig_RolePresetsSetBothFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []hsmsss.Option
+		want bool
+	}{
+		{name: "default", opts: nil, want: false},
+		{name: "equip", opts: []hsmsss.Option{hsmsss.WithEquipRole()}, want: true},
+		{name: "host", opts: []hsmsss.Option{hsmsss.WithHostRole()}, want: false},
+		{name: "equip then host", opts: []hsmsss.Option{hsmsss.WithEquipRole(), hsmsss.WithHostRole()}, want: false},
+		{name: "host then equip", opts: []hsmsss.Option{hsmsss.WithHostRole(), hsmsss.WithEquipRole()}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := hsmsss.NewConfig("127.0.0.1", 5000, tt.opts...)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, cfg.IsEquip())
+			require.Equal(t, tt.want, cfg.EquipmentRole())
+			require.Equal(t, tt.want, cfg.AutoS9F9())
+		})
+	}
+}
+
+// TestNewConfig_IndependentFlagOverrides verifies the per-flag precedence:
+// a later hsms option changes only its own flag, and IsEquip follows the role flag, not AutoS9F9.
+func TestNewConfig_IndependentFlagOverrides(t *testing.T) {
+	cfg, err := hsmsss.NewConfig("127.0.0.1", 5000,
+		hsmsss.WithEquipRole(),
+		hsmsss.WithConnectionOption(hsms.WithAutoS9F9(false)),
+	)
+	require.NoError(t, err)
+	require.True(t, cfg.IsEquip(), "an independent AutoS9F9 override must not flip the reported role")
+	require.True(t, cfg.EquipmentRole(), "an independent AutoS9F9 override must leave the S9F1 gate on")
+	require.False(t, cfg.AutoS9F9())
+
+	cfg, err = hsmsss.NewConfig("127.0.0.1", 5000,
+		hsmsss.WithHostRole(),
+		hsmsss.WithConnectionOption(hsms.WithEquipmentRole(true)),
+	)
+	require.NoError(t, err)
+	require.True(t, cfg.IsEquip(), "a later role override wins for the role flag")
+	require.False(t, cfg.AutoS9F9(), "a role override leaves AutoS9F9 unchanged")
+}

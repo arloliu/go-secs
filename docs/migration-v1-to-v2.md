@@ -343,9 +343,11 @@ The session identity term is unified to **`SessionID`** everywhere (see section 
 | HSMS-SS equipment/host role | `hsmsss.WithEquipRole()` / `hsmsss.WithHostRole()` | `hsmsss.WithEquipRole()` / `hsmsss.WithHostRole()` (retained) |
 | TCP active/passive role | `WithActive()` / `WithPassive()` | unchanged |
 
-`hsmsss.WithEquipRole()` / `hsmsss.WithHostRole()` gate the shared `hsms.WithAutoS9F9` behavior:
-an equipment-role connection auto-sends an S9F9 (SEMI E5 §10.13) when a synchronous data-message
-send's reply wait times out (T3), matching v1. `hsmsss.Config.IsEquip()` reports the current role.
+`hsmsss.WithEquipRole()` / `hsmsss.WithHostRole()` set the shared `hsms.WithEquipmentRole` and `hsms.WithAutoS9F9` flags.
+An equipment-role connection auto-sends an S9F9 (SEMI E5 §10.13) when a synchronous data-message send's reply wait times out (T3), matching v1.
+With `hsms.WithSessionIDValidation` on, it also answers a message dropped for a session-ID mismatch with an S9F1;
+a host-role connection drops the message without notifying the peer, since Stream 9 errors travel from equipment to host.
+`hsmsss.Config.IsEquip()` reports the current role (the `hsms.WithEquipmentRole` flag).
 The HSMS TCP dial direction is still expressed separately via `WithActive()` (dial) vs
 `WithPassive()` (listen) — role and dial direction are independent axes.
 
@@ -1033,9 +1035,9 @@ names a replacement or states "no equivalent".
 | `WithCloseConnTimeout` | `WithConnectionOption(hsms.WithCloseTimeout)` | renamed | — |
 | `WithSendTimeout` | `WithConnectionOption(hsms.WithWriteTimeout)` | renamed | — |
 | `WithKeepAlivePeriod` | `WithTCPKeepAlive` | renamed | — |
-| `WithEquipRole/WithHostRole` | `WithEquipRole/WithHostRole` | retained | Gates the shared `hsms.WithAutoS9F9`: equipment role auto-sends S9F9 on a data-message T3 timeout, matching v1. Read back via `Config.IsEquip()`. |
+| `WithEquipRole/WithHostRole` | `WithEquipRole/WithHostRole` | retained | Sets the shared `hsms.WithEquipmentRole` and `hsms.WithAutoS9F9` flags: equipment role auto-sends S9F9 on a data-message T3 timeout, matching v1, and S9F1 on a session-ID mismatch when `hsms.WithSessionIDValidation` is on; host role sends neither. Read back via `Config.IsEquip()`. |
 | `WithAutoLinktest(bool)` | — | removed | v1's master on/off switch for auto-linktest has no direct v2 equivalent; to disable probing entirely use `hsms.WithLinktestInterval(0)`. Separately, v1's send/receive-activity suppression is restored in v2 as `hsms.WithLinktestSuppression` (default on) and extended with an outstanding-reply skip and a liveness-credit rule for linktest failures — this only tunes when an already-enabled probe cadence gets skipped; it is not a way to turn probing off. |
-| `WithValidateDataMessage` | `hsms.WithSessionIDValidation` | changed | v1 enabled inbound SessionID-mismatch rejection (auto-S9F1 + drop) BY DEFAULT; v2 ships with it OFF and no equivalent at all until `WithSessionIDValidation` was added back as an explicit opt-in (default still off, to avoid a silent behavior change for anyone already on v2). If your v1 code called `WithValidateDataMessage(false)` to tolerate non-compliant equipment, no action is needed — v2's default already matches that. If you relied on the v1 default (`true`), call `hsms.WithSessionIDValidation(true)` to restore it. |
+| `WithValidateDataMessage` | `hsms.WithSessionIDValidation` | changed | v1 enabled inbound SessionID-mismatch rejection (auto-S9F1 + drop) BY DEFAULT; v2 ships with it OFF and no equivalent at all until `WithSessionIDValidation` was added back as an explicit opt-in (default still off, to avoid a silent behavior change for anyone already on v2). If your v1 code called `WithValidateDataMessage(false)` to tolerate non-compliant equipment, no action is needed — v2's default already matches that. If you relied on the v1 default (`true`), call `hsms.WithSessionIDValidation(true)` to restore it. v2 drops a mismatched message in either role but sends the S9F1 only in the equipment role (`WithEquipRole`/`WithEquipment`, or `hsms.WithEquipmentRole(true)`), since Stream 9 errors travel from equipment to host (SEMI E5 §10.13). |
 | `WithTraceTraffic` | `hsms.WithTraceTraffic` | changed | Moved to the shared `hsms` package (`WithConnectionOption(hsms.WithTraceTraffic(true))`) so both transports get per-frame wire-level hex-dump tracing; v1 had it for HSMS-SS only. |
 | `WithConnectRemoteTimeout/WithAcceptConnTimeout/WithInitialRetryDelay/WithIdleReadTimeout/WithDataMsgQueueSize` | — | removed | No equivalent (automatic now / no direct replacement). |
 | — | `WithDialer(DialFunc)` | new | Inject a custom dialer. |
@@ -1055,7 +1057,7 @@ names a replacement or states "no equivalent".
 | `secs1.WithT1/WithT2/WithT4` (build-time) | `secs1.WithT1/WithT2/WithT4` (build-time, unchanged) or `secs1.WithConnectionOption(hsms.WithT1(...))` via `Connection.UpdateConfigOptions` (NEW: now live-updatable) | changed | v1 had no live-update path for T1/T2/T4; v2 promotes them into the shared `hsms.TimerConfig`, so they now ride the same live-update rail as T3/T5-T8. |
 | `WithT3Timeout` | `WithConnectionOption(hsms.WithT3)` | renamed | Reply timeout is core. |
 | `WithDeviceID/WithRetryLimit` | same | unchanged | — |
-| `WithValidateDataMessage` | `hsms.WithSessionIDValidation` | changed | v1 enabled inbound SessionID-mismatch rejection (auto-S9F1 + drop) BY DEFAULT; v2 ships with it OFF and no equivalent at all until `WithSessionIDValidation` was added back as an explicit opt-in (default still off, to avoid a silent behavior change for anyone already on v2). If your v1 code called `WithValidateDataMessage(false)` to tolerate non-compliant equipment, no action is needed — v2's default already matches that. If you relied on the v1 default (`true`), call `hsms.WithSessionIDValidation(true)` to restore it. |
+| `WithValidateDataMessage` | none (always on) | changed | On SECS-I a device-ID check needs no option: the block assembler drops a block whose device ID does not match, in either role and whatever `hsms.WithSessionIDValidation` says, so `WithValidateDataMessage(true)` needs no replacement and `WithValidateDataMessage(false)` has no v2 equivalent. Only the equipment role (`secs1.WithEquipment`) answers such a block with S9F1, since Stream 9 errors travel from equipment to host (SEMI E5 §10.13); `hsms.WithEquipmentRole` does not change this on SECS-I. |
 | `WithConnectTimeout` (deprecated) / `WithConnectRemoteTimeout/WithAcceptConnTimeout/WithCloseConnTimeout/WithSendTimeout/WithMaxRetryDelay/WithInitialRetryDelay/WithDuplicateDetection/WithSenderQueueSize/WithDataMsgQueueSize` | — | removed | No equivalent, or `hsms.WithCloseTimeout`/`hsms.WithWriteTimeout` via `WithConnectionOption`. |
 | `WithLogger(l)` | `WithConnectionOption(hsms.WithLogger(l))` | renamed | Core option. |
 | `WithKeepAlivePeriod` | `WithTCPKeepAlive` | renamed | — |

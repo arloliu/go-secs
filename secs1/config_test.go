@@ -292,6 +292,7 @@ func TestWithEquipment_AlsoEnablesAutoS9F9(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, cfg.IsEquip())
 	require.True(t, cfg.AutoS9F9(), "WithEquipment must also enable the shared AutoS9F9 primitive")
+	require.True(t, cfg.EquipmentRole(), "WithEquipment must also set the shared equipment-role flag")
 }
 
 func TestWithHost_AlsoDisablesAutoS9F9(t *testing.T) {
@@ -299,6 +300,13 @@ func TestWithHost_AlsoDisablesAutoS9F9(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, cfg.IsEquip())
 	require.False(t, cfg.AutoS9F9(), "WithHost must also disable the shared AutoS9F9 primitive")
+	require.False(t, cfg.EquipmentRole(), "WithHost must also clear the shared equipment-role flag")
+}
+
+func TestDefaultRole_EquipmentRoleCleared(t *testing.T) {
+	cfg, err := NewConfig("127.0.0.1", 5000)
+	require.NoError(t, err)
+	require.False(t, cfg.EquipmentRole(), "the default host role leaves the shared equipment-role flag cleared")
 }
 
 // TestWithConnectTimeout verifies the option stores a non-negative duration and rejects a negative
