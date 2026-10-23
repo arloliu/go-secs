@@ -1,6 +1,10 @@
 package hsms
 
-import "github.com/puzpuzpuz/xsync/v3"
+import (
+	"sync/atomic"
+
+	"github.com/puzpuzpuz/xsync/v3"
+)
 
 // replyResult carries the outcome of a pending reply: either a decoded reply
 // Message or an error (T3 timeout, connection closed, etc.).
@@ -8,6 +12,22 @@ type replyResult struct {
 	msg Message
 	err error
 }
+
+// The claim states of a replyWaiter.
+// Exactly one result completes a reply wait:
+// the first to move the state away from replyOpen sends on the waiter's channel,
+// and every later candidate finds the wait already claimed and sends nothing.
+const (
+	// replyOpen means no result has completed the wait yet.
+	replyOpen uint32 = iota
+	// replyClaimedByReply means a routed reply completed the wait,
+	// or a peer Reject.req that route delivered as a *RejectError.
+	replyClaimedByReply
+	// replyClaimedByS9 means an S9 error message correlated to the transaction completed the wait.
+	// A genuine reply that arrives afterwards is not this wait's to drop:
+	// route reports it as a miss, so it falls through to the data handlers.
+	replyClaimedByS9
+)
 
 // replyWaiter is the registry's value type: the sender-owned reply channel plus enough of the
 // primary's identity to validate a candidate reply against SEMI E37 §9.4.1's stream/function
@@ -23,8 +43,13 @@ type replyResult struct {
 // (sendWaitReply) already knows which kind it registered via a type assertion, so storing the
 // flag here keeps route's control-transaction exemption explicit rather than re-deriving the
 // kind from the routed result.
+//
+// state is the one-shot completion claim (replyOpen, replyClaimedByReply, replyClaimedByS9).
+// The registry stores the waiter by pointer, so every Load sees the same claim;
+// a copied waiter would carry a claim of its own and let two results complete one wait.
 type replyWaiter struct {
 	ch       chan replyResult
+	state    atomic.Uint32
 	stream   uint8
 	function uint8
 	isData   bool
@@ -35,30 +60,32 @@ type replyWaiter struct {
 // Lifecycle invariant (§5.5): the SENDER owns the entire channel lifetime.
 // It calls register before sending and deregisters via defer on return —
 // whether the reply arrived, timed-out, or the connection was lost.
-// The receiver (route) only performs a non-blocking send into the buffered
-// channel; it never creates, closes, or deletes the channel.
-// A late reply that arrives after deregister either finds no entry (miss → dropped) or
-// lands in the cap-1 buffer and is GC'd when the channel itself is GC'd.
+// The receiver (route) only claims the waiter and then performs a non-blocking send into the buffered channel;
+// it never creates, closes, or deletes the channel.
+// The claim makes that send happen at most once per registration,
+// so the one-slot buffer always has room for it.
+// A late reply that arrives after deregister finds no entry (miss → dropped);
+// one that arrives after another result claimed the wait, but before deregister, sends nothing.
 // close(ch) is intentionally absent everywhere: this makes the F5
 // "send on closed channel" panic class structurally unreachable.
 type replyRegistry struct {
-	m *xsync.MapOf[[4]byte, replyWaiter]
+	m *xsync.MapOf[[4]byte, *replyWaiter]
 }
 
 // newReplyRegistry returns an initialised replyRegistry ready for use.
 func newReplyRegistry() replyRegistry {
-	return replyRegistry{m: xsync.NewMapOf[[4]byte, replyWaiter]()}
+	return replyRegistry{m: xsync.NewMapOf[[4]byte, *replyWaiter]()}
 }
 
 // register allocates a buffered reply channel for key, stores it alongside the primary's
-// stream/function/isData (see replyWaiter), and returns the channel to the sender.
+// stream/function/isData (see replyWaiter) in an open waiter, and returns the channel to the sender.
 // stream and function are the primary's own values, meaningless (and ignored by route) when
 // isData is false.
 // The caller is responsible for calling deregister (via defer) when the send operation
 // completes or is abandoned.
 func (r replyRegistry) register(key [4]byte, stream, function uint8, isData bool) chan replyResult {
 	ch := make(chan replyResult, 1)
-	r.m.Store(key, replyWaiter{ch: ch, stream: stream, function: function, isData: isData})
+	r.m.Store(key, &replyWaiter{ch: ch, stream: stream, function: function, isData: isData})
 
 	return ch
 }
@@ -72,13 +99,12 @@ func (r replyRegistry) deregister(key [4]byte) {
 // route delivers res to the waiting sender for key using a non-blocking send (SEMI E37 §9.4.1).
 //
 // It returns (delivered, mismatched).
-// delivered reports whether a registered waiter was found for key and the result was offered to it
-// (a full one-slot buffer silently discards the result but still counts as delivered; see below):
-// true on every registry hit under the default (observe) posture, and true on a strict-mode hit UNLESS the candidate mismatched
-// (except a DATA registration answered by a *ControlMessage; see below).
+// delivered reports whether res is this registration's to consume:
+// true when res claimed the open wait and was sent to it,
+// and also true when an earlier reply had already claimed it (a duplicate; see below).
 // mismatched reports whether a compared candidate's stream or function diverged from the registered primary —
 // a combined stream+function mismatch counts once, not twice —
-// regardless of strict.
+// regardless of strict, and regardless of whether res wins the claim.
 //
 // A candidate is compared ONLY when both legs hold:
 // the entry was registered for a DATA primary (want.isData) AND the routed result itself carries a *DataMessage.
@@ -106,9 +132,17 @@ func (r replyRegistry) deregister(key [4]byte) {
 // true makes it a miss (delivered stays false) so the message falls through to RouteData as unsolicited —
 // the registration is NOT consumed, so a later conforming reply can still complete the transaction.
 //
+// Only a candidate that survives those checks claims the wait,
+// and only the claim's winner sends on the channel.
+// A candidate that finds the wait already claimed sends nothing, and its outcome depends on who won:
+//   - an earlier reply: (true, mismatched) — a duplicate reply is reported delivered and dropped;
+//   - an S9 error message: (false, mismatched) — the genuine reply misses,
+//     so it falls through to the data handlers instead of vanishing into a wait that has already ended.
+//
+// Either outcome holds whether or not the sender has drained the channel yet,
+// since the claim, not the buffer, records that the wait is over.
+//
 // On a true miss (key absent) it returns (false, false).
-// On hit, if the channel is already full (a duplicate reply raced in) the result is silently discarded via the default branch —
-// no block, no panic.
 func (r replyRegistry) route(key [4]byte, res replyResult, strict bool) (delivered bool, mismatched bool) {
 	w, ok := r.m.Load(key)
 	if !ok {
@@ -141,6 +175,17 @@ func (r replyRegistry) route(key [4]byte, res replyResult, strict bool) (deliver
 		return false, true
 	}
 
+	if !w.state.CompareAndSwap(replyOpen, replyClaimedByReply) {
+		// The wait already has its result; this candidate is not sent.
+		if w.state.Load() == replyClaimedByS9 {
+			return false, mismatched
+		}
+
+		return true, mismatched
+	}
+
+	// The claim makes this the registration's only send, so the one-slot buffer has room;
+	// the select stays non-blocking anyway, so route can never stall the receive loop.
 	select {
 	case w.ch <- res:
 	default:

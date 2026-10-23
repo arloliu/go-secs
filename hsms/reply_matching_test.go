@@ -8,6 +8,8 @@ package hsms
 // field-comparison matrix lives in reply_registry_test.go; this file proves the wiring around it.
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -612,4 +614,79 @@ func TestReplyMatching_ControlRegistration_DataSecondaryDeliveredUncompared(t *t
 	require.NotNil(t, got.msg)
 	require.Equal(t, uint64(0), c.metrics.ReplyMismatchCount(),
 		"a control registration (isData=false) is never a compared candidate")
+}
+
+// TestReplyMatching_MismatchAfterClaimStillCounted proves a mismatched candidate that arrives after the wait already has its result
+// still increments ReplyMismatchCount,
+// whichever result won the wait, in either matching mode, and whether or not the sender has drained the winner.
+// The candidate's delivered report follows the registry's rule:
+// a duplicate after a reply win under the default posture is reported delivered, everything else misses.
+func TestReplyMatching_MismatchAfterClaimStillCounted(t *testing.T) {
+	for _, winner := range []string{"reply", "S9"} {
+		for _, strict := range []bool{false, true} {
+			for _, drained := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s won/strict=%t/drained=%t", winner, strict, drained), func(t *testing.T) {
+					c, _ := newTestSendConn(t, SelectedState, WithStrictReplyMatching(strict))
+					e := c.cur.Load()
+					sb := [4]byte{0, 0, 0, 50}
+					ch := e.replies.register(sb, 1, 1, true)
+					defer e.replies.deregister(sb)
+
+					if winner == "reply" {
+						require.True(t, c.routeReplyOn(e, mustReplyDM(t, 1, 2, sb)))
+					} else {
+						require.True(t, claimByS9(e.replies, sb, replyResult{err: errors.New("S9 for this transaction")}))
+					}
+					if drained {
+						requireOneResult(t, ch)
+					}
+
+					delivered := c.routeReplyOn(e, mustReplyDM(t, 2, 4, sb))
+
+					require.Equal(t, winner == "reply" && !strict, delivered)
+					require.Equal(t, uint64(1), c.metrics.ReplyMismatchCount())
+				})
+			}
+		}
+	}
+}
+
+// TestReplyMatching_GenuineReplyAfterS9ReachesHandler proves the reply an S9 beat to the wait is not lost:
+// DeliverOwnedFrame hands it to the data handlers,
+// whether the sender still holds the S9 result in its buffer or has drained it and not yet deregistered.
+func TestReplyMatching_GenuineReplyAfterS9ReachesHandler(t *testing.T) {
+	for _, drained := range []bool{false, true} {
+		t.Run(fmt.Sprintf("drained=%t", drained), func(t *testing.T) {
+			c, _ := newTestSendConn(t, SelectedState)
+			e := c.cur.Load()
+			sb := [4]byte{0, 0, 0, 51}
+			ch := e.replies.register(sb, 1, 1, true)
+			defer e.replies.deregister(sb)
+
+			handlerCh := make(chan *DataMessage, 1)
+			c.AddDataMessageHandler(func(msg *DataMessage, _ SECS2Endpoint) { handlerCh <- msg })
+
+			s9 := replyResult{err: errors.New("S9 for this transaction")}
+			require.True(t, claimByS9(e.replies, sb, s9))
+			if drained {
+				requireOneResult(t, ch)
+			}
+
+			require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, mustReplyDM(t, 1, 2, sb))))
+
+			select {
+			case got := <-handlerCh:
+				require.Equal(t, sb, got.SystemBytes())
+				require.Equal(t, uint8(2), got.Function())
+			default:
+				t.Fatal("the reply the S9 beat must fall through to the data handler")
+			}
+
+			if !drained {
+				require.Equal(t, s9, requireOneResult(t, ch), "only the S9 result reaches the sender")
+			}
+			requireNoResult(t, ch)
+			require.Equal(t, uint64(0), c.metrics.ReplyMismatchCount())
+		})
+	}
 }
