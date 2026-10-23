@@ -27,15 +27,19 @@ const (
 // NamedType gives a fixed item without a values table a named type of its own,
 // which its parameters and decoder fields use as they would an enumeration's,
 // with no constants: a code E5 defines no values for.
+// CustomString marks an item whose named type has a hand-written String method in gem,
+// so the generator writes none for it:
+// a code whose value is not always one of its constants, such as ALCD's set bit ORed with a category.
 type Item struct {
-	Formats     []string    `yaml:"formats"`
-	Binding     Binding     `yaml:"binding"`
-	GoType      string      `yaml:"goType"`
-	Description string      `yaml:"description"`
-	Source      string      `yaml:"source"`
-	Note        string      `yaml:"note"`
-	NamedType   bool        `yaml:"namedType"`
-	Values      []ItemValue `yaml:"values"`
+	Formats      []string    `yaml:"formats"`
+	Binding      Binding     `yaml:"binding"`
+	GoType       string      `yaml:"goType"`
+	Description  string      `yaml:"description"`
+	Source       string      `yaml:"source"`
+	Note         string      `yaml:"note"`
+	NamedType    bool        `yaml:"namedType"`
+	CustomString bool        `yaml:"customString"`
+	Values       []ItemValue `yaml:"values"`
 }
 
 // ItemValue is one named enumerated value for an item with a `values:` table.
@@ -327,4 +331,17 @@ func (v EnumValue) fitsInteger(lo int64, hi uint64) bool {
 	}
 
 	return v.kind == enumInt && v.i >= lo && (v.i < 0 || uint64(v.i) <= hi)
+}
+
+// uintValue returns the value as an unsigned integer,
+// or false when it is a string, unset, or negative.
+func (v EnumValue) uintValue() (uint64, bool) {
+	switch {
+	case v.kind == enumUint:
+		return v.u, true
+	case v.kind == enumInt && v.i >= 0:
+		return uint64(v.i), true
+	default:
+		return 0, false
+	}
 }

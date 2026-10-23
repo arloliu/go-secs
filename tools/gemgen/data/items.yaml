@@ -133,6 +133,7 @@ ALCD:
   goType: byte
   description: Alarm code byte.
   source: e5
+  customString: true
   note: "A code ORs a category in bits 7 to 1 with the set bit; categories above 8 are reserved or equipment-defined and decode as is."
   values:
     - {name: PersonalSafety, value: 1}

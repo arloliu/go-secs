@@ -23,7 +23,7 @@ func main() {
 }
 
 // run loads the items dictionary, the groups file, and every stream's messages file under msgsDir,
-// validates them, renders items.go, groups.go, decode.go, each stream's files,
+// validates them, renders items.go and its String test, groups.go, decode.go, each stream's files,
 // and the catalog with its test, and writes the results under outDir.
 // An empty groupsPath means no groups, and no groups.go is written.
 // It is the whole CLI's orchestration,
@@ -72,6 +72,17 @@ func run(itemsPath, groupsPath, msgsDir, outDir string) error {
 
 	if err := os.WriteFile(filepath.Join(outDir, "items.go"), itemsSrc, 0o600); err != nil {
 		return fmt.Errorf("write items.go: %w", err)
+	}
+
+	itemsStringTestSrc, err := renderItemStringTests(items)
+	if err != nil {
+		return fmt.Errorf("render items_string_test.go: %w", err)
+	}
+
+	if itemsStringTestSrc != nil {
+		if err := os.WriteFile(filepath.Join(outDir, "items_string_test.go"), itemsStringTestSrc, 0o600); err != nil {
+			return fmt.Errorf("write items_string_test.go: %w", err)
+		}
 	}
 
 	if len(groups) > 0 {

@@ -358,3 +358,45 @@ func TestNamedTypeItems(t *testing.T) {
 		})
 	}
 }
+
+// TestCustomStringItems proves which items customString may mark:
+// only an item that would otherwise get a generated String method,
+// a fixed item over byte or uint8 with a values table.
+func TestCustomStringItems(t *testing.T) {
+	const custom = "X:\n  formats: %s\n  binding: fixed\n  goType: %s\n  source: e5\n  customString: true\n"
+	const oneValue = "  values:\n    - {name: One, value: 1}\n"
+	const wantErr = "customString needs a fixed item with a byte or uint8 goType and a values table"
+
+	tests := []struct {
+		name    string
+		yml     string
+		wantErr string
+	}{
+		{"byte with values", fmt.Sprintf(custom, "[B]", "byte") + oneValue, ""},
+		{"uint8 with values", fmt.Sprintf(custom, "[U1]", "uint8") + oneValue, ""},
+		{"byte without values", fmt.Sprintf(custom, "[B]", "byte"), wantErr},
+		{"named type without values", fmt.Sprintf(custom, "[B]", "byte") + "  namedType: true\n", wantErr},
+		{"uint16 with values", fmt.Sprintf(custom, "[U2]", "uint16") + oneValue, wantErr},
+		{"string with values", fmt.Sprintf(custom, "[A]", "string") + "  values:\n    - {name: One, value: One}\n", wantErr},
+		{"open item with values", "X:\n  formats: [U1, U2]\n  binding: open\n  source: e5\n  customString: true\n" + oneValue, wantErr},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			items, err := LoadItems([]byte(tt.yml))
+			require.NoError(t, err)
+
+			err = ValidateItems(items)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				require.True(t, items["X"].CustomString)
+				require.True(t, stringerEligible(items["X"]))
+				require.False(t, hasStringer(items["X"]))
+
+				return
+			}
+
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}

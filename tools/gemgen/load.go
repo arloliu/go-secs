@@ -144,6 +144,10 @@ func ValidateItems(items map[string]Item) error {
 		if err := checkNamedType(name, it); err != nil {
 			return err
 		}
+
+		if err := checkCustomString(name, it); err != nil {
+			return err
+		}
 	}
 
 	return checkValueNames(items)
@@ -255,6 +259,21 @@ func checkNamedType(name string, it Item) error {
 
 	if _, ok := integerRanges[it.GoType]; !ok && (it.GoType != "string" || it.Formats[0] != "A") {
 		return fmt.Errorf("item %s: namedType needs an integer or float goType, or string on format A, got %s on %v", name, it.GoType, it.Formats)
+	}
+
+	return nil
+}
+
+// checkCustomString checks an item marked customString:
+// only an item the generator would otherwise write a String method for may have one by hand,
+// so the mark never stands on an item where it changes nothing.
+func checkCustomString(name string, it Item) error {
+	if !it.CustomString {
+		return nil
+	}
+
+	if !stringerEligible(it) {
+		return fmt.Errorf("item %s: customString needs a fixed item with a byte or uint8 goType and a values table, which would otherwise get a generated String method", name)
 	}
 
 	return nil

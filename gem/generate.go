@@ -1,7 +1,7 @@
 package gem
 
 // The tools/gemgen generator writes every stream file in this package from YAML under tools/gemgen/data:
-// items.go from data/items.yaml, groups.go from data/groups.yaml,
+// items.go and its String test, items_string_test.go, from data/items.yaml, groups.go from data/groups.yaml,
 // and for each stream N the four files sN.go, sN_test.go, sN_decode.go and sN_decode_test.go
 // from data/messages/sN.yaml.
 // The generated streams are 1 to 10 and 12 to 19
@@ -12,7 +12,7 @@ package gem
 // catalog.go holds the catalog of every stream's messages, behind Lookup and AcceptReply,
 // and catalog_lookup_test.go its test over every form.
 // Everything else here is hand-written:
-// doc.go, this file, alcd.go, and the test files outside the per-stream set and catalog_lookup_test.go.
+// doc.go, this file, alcd.go, and the test files outside the per-stream set, items_string_test.go, and catalog_lookup_test.go.
 // Run `go generate ./...` from the repository root (or `go generate .` from this directory)
 // to regenerate the files after editing the YAML.
 //
