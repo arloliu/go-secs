@@ -1,6 +1,9 @@
 package hsms
 
 import (
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -251,5 +254,185 @@ func TestReplyRegistry_ControlExemption_ResultLeg(t *testing.T) {
 		require.ErrorAs(t, res.err, &rejectErr)
 	default:
 		t.Fatal("the RejectError result must reach the sender channel")
+	}
+}
+
+// claimByS9 does to key's wait what an S9 error message correlated to the transaction does:
+// it claims the open wait with replyClaimedByS9 and, on winning, sends s9 to the sender.
+// It reports whether the claim won.
+func claimByS9(r replyRegistry, key [4]byte, s9 replyResult) bool {
+	w, ok := r.m.Load(key)
+	if !ok || !w.state.CompareAndSwap(replyOpen, replyClaimedByS9) {
+		return false
+	}
+
+	select {
+	case w.ch <- s9:
+	default:
+	}
+
+	return true
+}
+
+// requireOneResult receives the one result buffered on ch and fails if there is none.
+func requireOneResult(t *testing.T, ch chan replyResult) replyResult {
+	t.Helper()
+
+	select {
+	case res := <-ch:
+		return res
+	default:
+		t.Fatal("no result reached the sender channel")
+
+		return replyResult{}
+	}
+}
+
+// requireNoResult fails if a result is buffered on ch.
+func requireNoResult(t *testing.T, ch chan replyResult) {
+	t.Helper()
+
+	select {
+	case res := <-ch:
+		t.Fatalf("unexpected result on the sender channel: %+v", res)
+	default:
+	}
+}
+
+// TestReplyRegistry_StrictMismatchThenConformingReply proves a strict-mode mismatch does not claim the wait:
+// it misses before the claim,
+// so the conforming reply that follows still completes the transaction.
+func TestReplyRegistry_StrictMismatchThenConformingReply(t *testing.T) {
+	r := newReplyRegistry()
+	key := [4]byte{0, 0, 0, 40}
+	ch := r.register(key, 1, 1, true)
+	defer r.deregister(key)
+
+	delivered, mismatched := r.route(key, replyResult{msg: replyDM(2, 2)}, true)
+	require.False(t, delivered, "strict mode misses a mismatched candidate")
+	require.True(t, mismatched)
+	requireNoResult(t, ch)
+
+	reply := replyDM(1, 2)
+	delivered, mismatched = r.route(key, replyResult{msg: reply}, true)
+	require.True(t, delivered, "the strict miss must leave the wait open for the conforming reply")
+	require.False(t, mismatched)
+	require.Same(t, reply, requireOneResult(t, ch).msg)
+}
+
+// TestReplyRegistry_CandidateAfterClaim is the matrix for a candidate that arrives after the wait already has its result,
+// won either by a reply or by an S9 error message.
+//
+// Only the winner ever reaches the sender channel.
+// After a reply win the candidate is a duplicate: reported delivered and dropped, as before the claim existed.
+// After an S9 win it misses, so a genuine reply falls through to the data handlers rather than vanishing.
+// A strict-mode mismatch misses before the claim is even consulted.
+// mismatched is reported in every case, so the caller still counts the mismatch.
+//
+// Each case runs with the winner still buffered and with the sender having drained it but not yet deregistered:
+// the outcome must not depend on the buffer, because the claim alone records that the wait is over.
+//
+// TEETH: report every lost claim as delivered (the shape before the claim existed) and every S9 row fails;
+// drop the claim entirely and the drained rows deliver the candidate to the sender.
+func TestReplyRegistry_CandidateAfterClaim(t *testing.T) {
+	candidates := []struct {
+		name           string
+		res            replyResult
+		wantMismatched bool
+	}{
+		{"conforming reply", replyResult{msg: replyDM(1, 2)}, false},
+		{"mismatched reply", replyResult{msg: replyDM(2, 4)}, true},
+		{"peer Reject.req", replyResult{err: &RejectError{Reason: 3}}, false},
+	}
+
+	for _, winner := range []string{"reply", "S9"} {
+		for _, strict := range []bool{false, true} {
+			for _, drained := range []bool{false, true} {
+				for _, cand := range candidates {
+					name := fmt.Sprintf("%s won/strict=%t/drained=%t/%s", winner, strict, drained, cand.name)
+					t.Run(name, func(t *testing.T) {
+						r := newReplyRegistry()
+						key := [4]byte{0, 0, 0, 41}
+						ch := r.register(key, 1, 1, true)
+						defer r.deregister(key)
+
+						var won replyResult
+						if winner == "reply" {
+							won = replyResult{msg: replyDM(1, 2)}
+							delivered, mismatched := r.route(key, won, strict)
+							require.True(t, delivered)
+							require.False(t, mismatched)
+						} else {
+							won = replyResult{err: errors.New("S9 for this transaction")}
+							require.True(t, claimByS9(r, key, won))
+						}
+
+						if drained {
+							requireOneResult(t, ch)
+						}
+
+						delivered, mismatched := r.route(key, cand.res, strict)
+
+						wantDelivered := winner == "reply"
+						if cand.wantMismatched && strict {
+							wantDelivered = false
+						}
+						require.Equal(t, wantDelivered, delivered)
+						require.Equal(t, cand.wantMismatched, mismatched, "the claim must never clear mismatched")
+
+						if !drained {
+							got := requireOneResult(t, ch)
+							require.Equal(t, won, got, "only the winner reaches the sender channel")
+						}
+						requireNoResult(t, ch)
+						require.Equal(t, 1, r.len(), "cleanup stays with the sender's deregister")
+					})
+				}
+			}
+		}
+	}
+}
+
+// TestReplyRegistry_ConcurrentCandidatesSendOnce races many conforming replies and one S9 claim at a single open wait.
+// Exactly one of them must reach the sender channel,
+// and every reply must agree with the claim's winner:
+// all delivered when a reply won, all missed when the S9 won.
+func TestReplyRegistry_ConcurrentCandidatesSendOnce(t *testing.T) {
+	const replies = 16
+
+	r := newReplyRegistry()
+	key := [4]byte{0, 0, 0, 42}
+	ch := r.register(key, 1, 1, true)
+	defer r.deregister(key)
+
+	start := make(chan struct{})
+	delivered := make([]bool, replies)
+	var s9Won bool
+
+	var wg sync.WaitGroup
+	for i := range replies {
+		wg.Go(func() {
+			<-start
+			delivered[i], _ = r.route(key, replyResult{msg: replyDM(1, 2)}, false)
+		})
+	}
+	wg.Go(func() {
+		<-start
+		s9Won = claimByS9(r, key, replyResult{err: errors.New("S9 for this transaction")})
+	})
+
+	close(start)
+	wg.Wait()
+
+	got := requireOneResult(t, ch)
+	requireNoResult(t, ch)
+
+	if s9Won {
+		require.Error(t, got.err, "the S9 won, so its result is the one sent")
+	} else {
+		require.NotNil(t, got.msg, "a reply won, so it is the one sent")
+	}
+	for i, d := range delivered {
+		require.Equal(t, !s9Won, d, "reply %d disagrees with the claim's winner", i)
 	}
 }
