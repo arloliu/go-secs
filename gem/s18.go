@@ -12,7 +12,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Exception: If n = 0, then all attributes of the target component are requested.
 func S18F1(targetid string, attrids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 1, true, secs2.L(secs2.A(targetid), secs2.L(attrids...)))
+	return secs2.NewMessage(18, 1, true, secs2.L(secs2.A(targetid), secs2.L(presentEach(attrids, "S18F1 ATTRIDS")...)))
 }
 
 // S18F2 creates the S18F2 (Read Attribute Data) message, direction: equipment-to-host.
@@ -24,7 +24,7 @@ func S18F1(targetid string, attrids ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: Both n = 0 and s = 0 if the target component is unknown.
 func S18F2(targetid string, ssack string, values ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 2, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.L(values...)))
+	return secs2.NewMessage(18, 2, false, secs2.L(secs2.A(targetid), secs2.A(ssack), secs2.L(presentEach(values, "S18F2 VALUES")...)))
 }
 
 // S18F3 creates the S18F3 (Write Attribute Request) message, direction: host-to-equipment.
@@ -60,7 +60,7 @@ func S18F4(targetid string, ssack string, statuses ...string) secs2.SECS2Message
 // Exception: If DATASEG and DATALENGTH are both omitted (are zero-length items) then all data is requested.
 // If DATALENGTH only is omitted, then all data within the indicated section is requested.
 func S18F5(targetid string, dataseg string, datalength secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 5, true, secs2.L(secs2.A(targetid), secs2.A(dataseg), datalength))
+	return secs2.NewMessage(18, 5, true, secs2.L(secs2.A(targetid), secs2.A(dataseg), present(datalength, "S18F5 DATALENGTH")))
 }
 
 // S18F6 creates the S18F6 (Read Data) message, direction: equipment-to-host.
@@ -84,7 +84,7 @@ func S18F6(targetid string, ssack string, data string, statuses ...string) secs2
 // Exception: If DATASEG and DATALENGTH are both omitted (are zero-length items) then all data is to be overwritten.
 // If only DATALENGTH is omitted, then all data within the indicated section is to be written.
 func S18F7(targetid string, dataseg string, datalength secs2.Item, data string) secs2.SECS2Message {
-	return secs2.NewMessage(18, 7, true, secs2.L(secs2.A(targetid), secs2.A(dataseg), datalength, secs2.A(data)))
+	return secs2.NewMessage(18, 7, true, secs2.L(secs2.A(targetid), secs2.A(dataseg), present(datalength, "S18F7 DATALENGTH"), secs2.A(data)))
 }
 
 // S18F8 creates the S18F8 (Write Data Acknowledge) message, direction: equipment-to-host.
@@ -117,7 +117,7 @@ func S18F9(targetid string) secs2.SECS2Message {
 //
 // Exception: s = 0 (an empty STATUSLIST) if and only if TARGETID is unknown.
 func S18F10(targetid string, ssack string, mid secs2.Item, statuses ...string) secs2.SECS2Message {
-	return secs2.NewMessage(18, 10, false, secs2.L(secs2.A(targetid), secs2.A(ssack), mid, secs2.L(valueItems(statuses, secs2.A)...)))
+	return secs2.NewMessage(18, 10, false, secs2.L(secs2.A(targetid), secs2.A(ssack), present(mid, "S18F10 MID"), secs2.L(valueItems(statuses, secs2.A)...)))
 }
 
 // S18F11 creates the S18F11 (Write ID Request) message, direction: host-to-equipment.
@@ -128,7 +128,7 @@ func S18F10(targetid string, ssack string, mid secs2.Item, statuses ...string) s
 //
 // Exception: None.
 func S18F11(targetid string, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 11, true, secs2.L(secs2.A(targetid), mid))
+	return secs2.NewMessage(18, 11, true, secs2.L(secs2.A(targetid), present(mid, "S18F11 MID")))
 }
 
 // S18F12 creates the S18F12 (Write ID Acknowledge) message, direction: equipment-to-host.
@@ -150,7 +150,7 @@ func S18F12(targetid string, ssack string, statuses ...string) secs2.SECS2Messag
 //
 // Exception: If n = 0, no parameters are provided.
 func S18F13(targetid string, sscmd string, params ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(18, 13, true, secs2.L(secs2.A(targetid), secs2.A(sscmd), secs2.L(params...)))
+	return secs2.NewMessage(18, 13, true, secs2.L(secs2.A(targetid), secs2.A(sscmd), secs2.L(presentEach(params, "S18F13 PARAMS")...)))
 }
 
 // S18F14 creates the S18F14 (Subsystem Command Acknowledge) message, direction: equipment-to-host.
@@ -183,5 +183,5 @@ func S18F15(targetid string) secs2.SECS2Message {
 //
 // Exception: If SSACK is failure, the length of CONDITIONLIST must be zero.
 func S18F16(targetid string, ssack string, mid secs2.Item, statuses []string, conditions ...string) secs2.SECS2Message {
-	return secs2.NewMessage(18, 16, false, secs2.L(secs2.A(targetid), secs2.A(ssack), mid, secs2.L(valueItems(statuses, secs2.A)...), secs2.L(valueItems(conditions, secs2.A)...)))
+	return secs2.NewMessage(18, 16, false, secs2.L(secs2.A(targetid), secs2.A(ssack), present(mid, "S18F16 MID"), secs2.L(valueItems(statuses, secs2.A)...), secs2.L(valueItems(conditions, secs2.A)...)))
 }

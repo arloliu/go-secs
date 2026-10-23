@@ -163,6 +163,31 @@ func TestS7F6(t *testing.T) {
 	}
 }
 
+func TestS7F6Denied(t *testing.T) {
+	msg := gem.S7F6Denied()
+
+	assertS7Header(t, msg, 6, false)
+
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+	list1, err := decoded.ToList()
+	if err != nil {
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 0 {
+		t.Fatalf("list length: got %d, want 0", len(list1))
+	}
+
+	got, err := gem.DecodeS7F6(decoded)
+	if err != nil {
+		t.Fatalf("DecodeS7F6: %v", err)
+	}
+
+	assertDecoded(t, got, gem.S7F6Reply{})
+}
+
 func TestS7F7(t *testing.T) {
 	msg := gem.S7F7(secs2.A("mid"))
 
@@ -205,6 +230,31 @@ func TestS7F8(t *testing.T) {
 	if !bytes.Equal(got3, want3) {
 		t.Errorf("mid: got %x, want %x", got3, want3)
 	}
+}
+
+func TestS7F8NoSuchMID(t *testing.T) {
+	msg := gem.S7F8NoSuchMID()
+
+	assertS7Header(t, msg, 8, false)
+
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+	list1, err := decoded.ToList()
+	if err != nil {
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 0 {
+		t.Fatalf("list length: got %d, want 0", len(list1))
+	}
+
+	got, err := gem.DecodeS7F8(decoded)
+	if err != nil {
+		t.Fatalf("DecodeS7F8: %v", err)
+	}
+
+	assertDecoded(t, got, gem.S7F8Reply{})
 }
 
 func TestS7F9(t *testing.T) {
@@ -1071,6 +1121,31 @@ func TestS7F36(t *testing.T) {
 	if !bytes.Equal(got4, want4) {
 		t.Errorf("ppbody: got %x, want %x", got4, want4)
 	}
+}
+
+func TestS7F36NoSuchMID(t *testing.T) {
+	msg := gem.S7F36NoSuchMID()
+
+	assertS7Header(t, msg, 36, false)
+
+	decoded, err := secs2.Decode(msg.Item().ToBytes())
+	if err != nil {
+		t.Fatalf("secs2.Decode: %v", err)
+	}
+	list1, err := decoded.ToList()
+	if err != nil {
+		t.Fatalf("decoded.ToList: %v", err)
+	}
+	if len(list1) != 0 {
+		t.Fatalf("list length: got %d, want 0", len(list1))
+	}
+
+	got, err := gem.DecodeS7F36(decoded)
+	if err != nil {
+		t.Fatalf("DecodeS7F36: %v", err)
+	}
+
+	assertDecoded(t, got, gem.S7F36Reply{})
 }
 
 func TestS7F37(t *testing.T) {

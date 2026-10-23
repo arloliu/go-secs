@@ -78,7 +78,7 @@ func TestRenderMessagesBareLeaf(t *testing.T) {
 // TestRenderMessagesOpenRepeat proves the open-binding repeat body path: a
 // top-level list with Repeat set (and no Items) renders S1F3's signature as
 // a caller-supplied variadic secs2.Item slice, with the body forwarding it
-// unwrapped into secs2.L(svids...).
+// into secs2.L through presentEach, which replaces a nil element.
 func TestRenderMessagesOpenRepeat(t *testing.T) {
 	items := paramsItems()
 	mf := MessageFile{Stream: 1, Messages: []Message{{
@@ -96,7 +96,7 @@ func TestRenderMessagesOpenRepeat(t *testing.T) {
 	require.NoError(t, err)
 	src := string(out)
 
-	require.Contains(t, src, "func S1F3(svids ...secs2.Item) secs2.SECS2Message {\n\treturn secs2.NewMessage(1, 3, true, secs2.L(svids...))\n}")
+	require.Contains(t, src, "func S1F3(svids ...secs2.Item) secs2.SECS2Message {\n\treturn secs2.NewMessage(1, 3, true, secs2.L(presentEach(svids, \"S1F3 SVIDS\")...))\n}")
 }
 
 // TestRenderMessagesNestedListEnumLeaf proves the nested-list + enum-leaf
@@ -158,7 +158,7 @@ func TestRenderMessagesOpaqueBody(t *testing.T) {
 	require.NoError(t, err)
 	src := string(out)
 
-	require.Contains(t, src, "func S1F6(body secs2.Item) secs2.SECS2Message {\n\treturn secs2.NewMessage(1, 6, false, body)\n}")
+	require.Contains(t, src, "func S1F6(body secs2.Item) secs2.SECS2Message {\n\treturn secs2.NewMessage(1, 6, false, present(body, \"S1F6 body\"))\n}")
 	require.NotContains(t, src, "secs2.L(body)")
 }
 
@@ -191,7 +191,7 @@ func TestRenderMessagesFixedLeafSiblingRepeats(t *testing.T) {
 	src := string(out)
 
 	require.Contains(t, src, "func S1F19(objtype secs2.Item, objids []secs2.Item, attrids ...secs2.Item) secs2.SECS2Message {\n"+
-		"\treturn secs2.NewMessage(1, 19, true, secs2.L(objtype, secs2.L(objids...), secs2.L(attrids...)))\n}")
+		"\treturn secs2.NewMessage(1, 19, true, secs2.L(present(objtype, \"S1F19 OBJTYPE\"), secs2.L(presentEach(objids, \"S1F19 OBJIDS\")...), secs2.L(presentEach(attrids, \"S1F19 ATTRIDS\")...)))\n}")
 }
 
 // TestRenderMessagesSiblingRepeatsOfLists proves two sibling repeat groups
@@ -222,7 +222,7 @@ func TestRenderMessagesSiblingRepeatsOfLists(t *testing.T) {
 	src := string(out)
 
 	require.Contains(t, src, "func S1F20(objects []secs2.Item, errors ...secs2.Item) secs2.SECS2Message {\n"+
-		"\treturn secs2.NewMessage(1, 20, false, secs2.L(secs2.L(objects...), secs2.L(errors...)))\n}")
+		"\treturn secs2.NewMessage(1, 20, false, secs2.L(secs2.L(presentEach(objects, \"S1F20 OBJECTS\")...), secs2.L(presentEach(errors, \"S1F20 ERRORS\")...)))\n}")
 }
 
 // TestRenderMessagesNestedRepeatOfList proves a top-level repeat whose every
@@ -267,9 +267,9 @@ func TestRenderMessagesNestedRepeatOfList(t *testing.T) {
 	src := string(out)
 
 	require.Contains(t, src, "func S1F22(vids ...secs2.Item) secs2.SECS2Message {\n"+
-		"\treturn secs2.NewMessage(1, 22, false, secs2.L(vids...))\n}")
+		"\treturn secs2.NewMessage(1, 22, false, secs2.L(presentEach(vids, \"S1F22 VIDS\")...))\n}")
 	require.Contains(t, src, "func S1F24(ceids ...secs2.Item) secs2.SECS2Message {\n"+
-		"\treturn secs2.NewMessage(1, 24, false, secs2.L(ceids...))\n}")
+		"\treturn secs2.NewMessage(1, 24, false, secs2.L(presentEach(ceids, \"S1F24 CEIDS\")...))\n}")
 }
 
 // TestRenderMessagesPackedGroups proves E5's packed multi-value single item

@@ -35,7 +35,7 @@ func S13F2(dsname string, ackc13 ACKC13) secs2.SECS2Message {
 //
 // Exception: None.
 func S13F3(handle secs2.Item, dsname string, ckpnt uint32) secs2.SECS2Message {
-	return secs2.NewMessage(13, 3, true, secs2.L(handle, secs2.A(dsname), secs2.U4(ckpnt)))
+	return secs2.NewMessage(13, 3, true, secs2.L(present(handle, "S13F3 HANDLE"), secs2.A(dsname), secs2.U4(ckpnt)))
 }
 
 // S13F4 creates the S13F4 (Open Data Set Data) message, direction: bidirectional.
@@ -47,7 +47,7 @@ func S13F3(handle secs2.Item, dsname string, ckpnt uint32) secs2.SECS2Message {
 // Exception: The possible ACKC13 codes for this message are 0 (O.K.), 1 (ERROR: Try later), 2 (ERROR:
 // Unknown Data Set Name), 3 (ERROR: Illegal Checkpoint value), 4 (ERROR: Too many open Data Sets), 5 (ERROR: Data set open too many times), 9 (ERROR: Handle in Use) and 10 (ERROR: Pending Transaction).
 func S13F4(handle secs2.Item, dsname string, ackc13 ACKC13, rtype secs2.Item, reclen secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 4, false, secs2.L(handle, secs2.A(dsname), secs2.B(byte(ackc13)), rtype, reclen))
+	return secs2.NewMessage(13, 4, false, secs2.L(present(handle, "S13F4 HANDLE"), secs2.A(dsname), secs2.B(byte(ackc13)), present(rtype, "S13F4 RTYPE"), present(reclen, "S13F4 RECLEN")))
 }
 
 // S13F5 creates the S13F5 (Read Data Set Request) message, direction: bidirectional.
@@ -58,7 +58,7 @@ func S13F4(handle secs2.Item, dsname string, ackc13 ACKC13, rtype secs2.Item, re
 //
 // Exception: None.
 func S13F5(handle secs2.Item, readln secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 5, true, secs2.L(handle, readln))
+	return secs2.NewMessage(13, 5, true, secs2.L(present(handle, "S13F5 HANDLE"), present(readln, "S13F5 READLN")))
 }
 
 // S13F6 creates the S13F6 (Read Data Set Data) message, direction: bidirectional.
@@ -75,7 +75,7 @@ func S13F5(handle secs2.Item, readln secs2.Item) secs2.SECS2Message {
 // The possible ACKC13 codes for this message are 0 (O.K.), 6 (ERROR: No open Data Set), 7 (ERROR:
 // Cannot Continue), 8 (ERROR: End of Data) and 10 (ERROR: Pending Transaction).
 func S13F6(handle secs2.Item, ackc13 ACKC13, ckpnt uint32, fildats ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 6, false, secs2.L(handle, secs2.B(byte(ackc13)), secs2.U4(ckpnt), secs2.L(fildats...)))
+	return secs2.NewMessage(13, 6, false, secs2.L(present(handle, "S13F6 HANDLE"), secs2.B(byte(ackc13)), secs2.U4(ckpnt), secs2.L(presentEach(fildats, "S13F6 FILDATS")...)))
 }
 
 // S13F7 creates the S13F7 (Close Data Set Send) message, direction: bidirectional.
@@ -86,7 +86,7 @@ func S13F6(handle secs2.Item, ackc13 ACKC13, ckpnt uint32, fildats ...secs2.Item
 //
 // Exception: None.
 func S13F7(handle secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 7, true, secs2.L(handle))
+	return secs2.NewMessage(13, 7, true, secs2.L(present(handle, "S13F7 HANDLE")))
 }
 
 // S13F8 creates the S13F8 (Close Data Set Acknowledge) message, direction: bidirectional.
@@ -98,7 +98,7 @@ func S13F7(handle secs2.Item) secs2.SECS2Message {
 // Exception: The possible ACKC13 codes for this message are 0 (O.K.), 6 (ERROR: No open Data Set)
 // and 10 (ERROR: Pending Transaction).
 func S13F8(handle secs2.Item, ackc13 ACKC13) secs2.SECS2Message {
-	return secs2.NewMessage(13, 8, false, secs2.L(handle, secs2.B(byte(ackc13))))
+	return secs2.NewMessage(13, 8, false, secs2.L(present(handle, "S13F8 HANDLE"), secs2.B(byte(ackc13))))
 }
 
 // S13F9 creates the S13F9 (Reset Data Set Send) message, direction: bidirectional.
@@ -134,7 +134,7 @@ func S13F10() secs2.SECS2Message {
 //
 // Exception: None.
 func S13F11(dataid secs2.Item, objspec string, datalength secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 11, true, secs2.L(dataid, secs2.A(objspec), datalength))
+	return secs2.NewMessage(13, 11, true, secs2.L(present(dataid, "S13F11 DATAID"), secs2.A(objspec), present(datalength, "S13F11 DATALENGTH")))
 }
 
 // S13F12 creates the S13F12 (Data Set Object Multi-Block Grant) message, direction: bidirectional.
@@ -160,7 +160,7 @@ func S13F12(grant GRANT) secs2.SECS2Message {
 // If r = 0, any existing table definition of the given type and id is to be deleted.
 // Otherwise, the element count of a row (E5's c1) may not be zero and shall be less than or equal to the value of c.
 func S13F13(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblcmd TBLCMD, attrs []Attribute, colhdrs []string, rows ...[]secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 13, true, secs2.L(dataid, secs2.A(objspec), secs2.A(string(tbltyp)), secs2.A(tblid), secs2.U1(uint8(tblcmd)), secs2.L(groupItems(attrs)...), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(valueItems(rows, func(v []secs2.Item) secs2.Item { return secs2.L(v...) })...)))
+	return secs2.NewMessage(13, 13, true, secs2.L(present(dataid, "S13F13 DATAID"), secs2.A(objspec), secs2.A(string(tbltyp)), secs2.A(tblid), secs2.U1(uint8(tblcmd)), secs2.L(groupItems(attrs)...), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(indexedItems(rows, func(i0 int, v []secs2.Item) secs2.Item { return secs2.L(presentEach(v, "S13F13 ROWS", i0)...) })...)))
 }
 
 // S13F14 creates the S13F14 (Table Data Acknowledge) message, direction: bidirectional.
@@ -186,7 +186,7 @@ func S13F14(tblack TBLACK, errors ...ErrorInfo) secs2.SECS2Message {
 // Either p or q, or both, must be zero.
 // If p = 0 and q = 0, all rows are requested; otherwise, only the specified columns, or the rows referenced by TBLELT, are requested.
 func S13F15(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblcmd TBLCMD, colhdrs []string, tblelts ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(13, 15, true, secs2.L(dataid, secs2.A(objspec), secs2.A(string(tbltyp)), secs2.A(tblid), secs2.U1(uint8(tblcmd)), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(tblelts...)))
+	return secs2.NewMessage(13, 15, true, secs2.L(present(dataid, "S13F15 DATAID"), secs2.A(objspec), secs2.A(string(tbltyp)), secs2.A(tblid), secs2.U1(uint8(tblcmd)), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(presentEach(tblelts, "S13F15 TBLELTS")...)))
 }
 
 // S13F16 creates the S13F16 (Table Data) message, direction: bidirectional.
@@ -199,5 +199,5 @@ func S13F15(dataid secs2.Item, objspec string, tbltyp TBLTYP, tblid string, tblc
 // Exception: p = 0 if, and only if, TBLACK indicates no errors.
 // The length of a table row may not exceed the value of c.
 func S13F16(tbltyp TBLTYP, tblid string, attrs []Attribute, colhdrs []string, rows [][]secs2.Item, tblack TBLACK, errors ...ErrorInfo) secs2.SECS2Message {
-	return secs2.NewMessage(13, 16, false, secs2.L(secs2.A(string(tbltyp)), secs2.A(tblid), secs2.L(groupItems(attrs)...), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(valueItems(rows, func(v []secs2.Item) secs2.Item { return secs2.L(v...) })...), secs2.L(secs2.U1(uint8(tblack)), secs2.L(groupItems(errors)...))))
+	return secs2.NewMessage(13, 16, false, secs2.L(secs2.A(string(tbltyp)), secs2.A(tblid), secs2.L(groupItems(attrs)...), secs2.L(valueItems(colhdrs, secs2.A)...), secs2.L(indexedItems(rows, func(i0 int, v []secs2.Item) secs2.Item { return secs2.L(presentEach(v, "S13F16 ROWS", i0)...) })...), secs2.L(secs2.U1(uint8(tblack)), secs2.L(groupItems(errors)...))))
 }

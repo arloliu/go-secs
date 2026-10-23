@@ -10,7 +10,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 {{end}}}
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g {{.Name}}) Item() secs2.Item {
 	return {{.ItemExpr}}
 }

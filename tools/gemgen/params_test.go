@@ -148,11 +148,11 @@ func TestBodyExpr(t *testing.T) {
 			"secs2.L(secs2.B(byte(commack)), secs2.L(secs2.A(mdln), secs2.A(softrev)))",
 		},
 		{"bare fixed leaf S1F5", &StructureNode{Item: "SFCD"}, "secs2.B(sfcd)"},
-		{"opaque S1F6", &StructureNode{Type: "opaque"}, "body"},
+		{"opaque S1F6", &StructureNode{Type: "opaque"}, `present(body, "S1F1 body")`},
 		{
 			"open repeat final variadic S1F3",
 			&StructureNode{Type: "list", Repeat: "svids", Of: &StructureNode{Item: "SVID"}},
-			"secs2.L(svids...)",
+			`secs2.L(presentEach(svids, "S1F1 SVIDS")...)`,
 		},
 		{
 			"sibling packed groups S1F10",
@@ -169,7 +169,7 @@ func TestBodyExpr(t *testing.T) {
 				{Type: "list", Repeat: "objids", Of: &StructureNode{Item: "OBJID"}},
 				{Type: "list", Repeat: "attrids", Of: &StructureNode{Item: "ATTRID"}},
 			}},
-			"secs2.L(objtype, secs2.L(objids...), secs2.L(attrids...))",
+			`secs2.L(present(objtype, "S1F1 OBJTYPE"), secs2.L(presentEach(objids, "S1F1 OBJIDS")...), secs2.L(presentEach(attrids, "S1F1 ATTRIDS")...))`,
 		},
 		{
 			"sibling repeats of lists S1F20",
@@ -177,7 +177,7 @@ func TestBodyExpr(t *testing.T) {
 				{Type: "list", Repeat: "objects", Of: &StructureNode{Type: "list", Items: []StructureNode{{Item: "OBJTYPE"}}}},
 				{Type: "list", Repeat: "errors", Of: &StructureNode{Type: "list", Items: []StructureNode{{Item: "OBJID"}}}},
 			}},
-			"secs2.L(secs2.L(objects...), secs2.L(errors...))",
+			`secs2.L(secs2.L(presentEach(objects, "S1F1 OBJECTS")...), secs2.L(presentEach(errors, "S1F1 ERRORS")...))`,
 		},
 		{
 			"bounded-arity list",
@@ -188,20 +188,20 @@ func TestBodyExpr(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, BodyExpr(tt.node, items))
+			require.Equal(t, tt.want, BodyExpr(tt.node, items, "S1F1"))
 		})
 	}
 }
 
 func TestBodyExpr_FixedByteArray(t *testing.T) {
 	items := map[string]Item{"MHEAD": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[10]byte"}}
-	got := BodyExpr(&StructureNode{Item: "MHEAD"}, items)
+	got := BodyExpr(&StructureNode{Item: "MHEAD"}, items, "S9F1")
 	require.Equal(t, "secs2.B(mhead[:])", got)
 }
 
 func TestBodyExpr_ByteSlice(t *testing.T) {
 	items := map[string]Item{"ABS": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[]byte"}}
-	got := BodyExpr(&StructureNode{Item: "ABS"}, items)
+	got := BodyExpr(&StructureNode{Item: "ABS"}, items, "S9F1")
 	require.Equal(t, "secs2.B(abs)", got)
 }
 

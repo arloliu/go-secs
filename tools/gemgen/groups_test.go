@@ -215,7 +215,7 @@ func TestRenderGroups(t *testing.T) {
 
 	for _, want := range []string{
 		"type Holder struct {\n\tTSIP  *byte\n\tBAND  *Band\n\tMDLN  string\n\tEXTRA secs2.Item\n\tPAIRS []Pair\n\tTSIPS []byte\n}",
-		"func (g Holder) Item() secs2.Item {\n\treturn secs2.L(optionalItem(g.TSIP, func(v byte) secs2.Item { return secs2.B(v) }, secs2.B), optionalGroupItem(g.BAND), secs2.L(secs2.A(g.MDLN), g.EXTRA), " +
+		"func (g Holder) Item() secs2.Item {\n\treturn secs2.L(optionalItem(g.TSIP, func(v byte) secs2.Item { return secs2.B(v) }, secs2.B), optionalGroupItem(g.BAND), secs2.L(secs2.A(g.MDLN), present(g.EXTRA, \"Holder.extra\")), " +
 			"secs2.L(groupItems(g.PAIRS)...), secs2.L(valueItems(g.TSIPS, func(v byte) secs2.Item { return secs2.B(v) })...))\n}",
 		"func decodeHolder(c secs2.Cursor, field string, cfg *decodeConfig) (Holder, error) {",
 		"if err = requireArity(c, field, 5, cfg); err != nil {\n\t\treturn g, err",

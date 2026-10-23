@@ -52,7 +52,7 @@ func renderGroups(groups []Group, items map[string]Item) ([]byte, error) {
 			Name:     g.Name,
 			Doc:      groupDoc(g, items),
 			Fields:   e.fields,
-			ItemExpr: nodeExpr(g.Structure, items, func(n *StructureNode) string { return "g." + nodeNames(n).Field }),
+			ItemExpr: groupItemExpr(g, items),
 			Lines:    e.lines,
 		})
 	}
@@ -68,6 +68,16 @@ func renderGroups(groups []Group, items map[string]Item) ([]byte, error) {
 	}
 
 	return out, nil
+}
+
+// groupItemExpr renders the expression a group's Item method returns,
+// reading each value from the field g.FIELD
+// and naming a nil secs2.Item after the group and the field's label, such as "Report.VALUES",
+// so the name matches the one the field's decode errors report.
+func groupItemExpr(g *Group, items map[string]Item) string {
+	return nodeExpr(g.Structure, items,
+		func(n *StructureNode) string { return "g." + nodeNames(n).Field },
+		func(n *StructureNode) string { return g.Name + "." + nodeNames(n).Label })
 }
 
 // groupDoc renders the godoc lines of a group's struct:

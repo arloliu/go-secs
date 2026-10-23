@@ -37,7 +37,7 @@ func TestStringEnumBuilder(t *testing.T) {
 		{Name: "objtype", Type: "secs2.Item"},
 	}, BuildParams(enumStructure(), items))
 
-	require.Equal(t, "secs2.L(secs2.A(string(carrieraction)), secs2.A(string(next)), objtype)", BodyExpr(enumStructure(), items))
+	require.Equal(t, `secs2.L(secs2.A(string(carrieraction)), secs2.A(string(next)), present(objtype, "S3F17 OBJTYPE"))`, BodyExpr(enumStructure(), items, "S3F17"))
 }
 
 // TestStringEnumDecoder proves a fixed string enumeration decodes into a field of the named type,

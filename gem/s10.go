@@ -13,7 +13,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Exception: None.
 func S10F1(tid TID, text secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(10, 1, true, secs2.L(secs2.B(byte(tid)), text))
+	return secs2.NewMessage(10, 1, true, secs2.L(secs2.B(byte(tid)), present(text, "S10F1 TEXT")))
 }
 
 // S10F2 creates the S10F2 (Terminal Request Acknowledge) message, direction: host-to-equipment.
@@ -36,7 +36,7 @@ func S10F2(ackc10 ACKC10) secs2.SECS2Message {
 //
 // Exception: None.
 func S10F3(tid TID, text secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(10, 3, true, secs2.L(secs2.B(byte(tid)), text))
+	return secs2.NewMessage(10, 3, true, secs2.L(secs2.B(byte(tid)), present(text, "S10F3 TEXT")))
 }
 
 // S10F4 creates the S10F4 (Terminal Display, Single Acknowledge) message, direction: equipment-to-host.
@@ -59,7 +59,7 @@ func S10F4(ackc10 ACKC10) secs2.SECS2Message {
 //
 // Exception: None.
 func S10F5(tid TID, texts ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(10, 5, true, secs2.L(secs2.B(byte(tid)), secs2.L(texts...)))
+	return secs2.NewMessage(10, 5, true, secs2.L(secs2.B(byte(tid)), secs2.L(presentEach(texts, "S10F5 TEXTS")...)))
 }
 
 // S10F6 creates the S10F6 (Terminal Display, Multi-block Acknowledge) message, direction: equipment-to-host.
@@ -95,7 +95,7 @@ func S10F7(tid TID) secs2.SECS2Message {
 //
 // Exception: None.
 func S10F9(text secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(10, 9, true, text)
+	return secs2.NewMessage(10, 9, true, present(text, "S10F9 TEXT"))
 }
 
 // S10F10 creates the S10F10 (Broadcast Acknowledge) message, direction: equipment-to-host.

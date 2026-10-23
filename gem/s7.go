@@ -13,7 +13,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Exception: None.
 func S7F1(ppid secs2.Item, length secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 1, true, secs2.L(ppid, length))
+	return secs2.NewMessage(7, 1, true, secs2.L(present(ppid, "S7F1 PPID"), present(length, "S7F1 LENGTH")))
 }
 
 // S7F2 creates the S7F2 (Process Program Load Grant) message, direction: bidirectional.
@@ -36,7 +36,7 @@ func S7F2(ppgnt PPGNT) secs2.SECS2Message {
 //
 // Exception: None.
 func S7F3(ppid secs2.Item, ppbody secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 3, true, secs2.L(ppid, ppbody))
+	return secs2.NewMessage(7, 3, true, secs2.L(present(ppid, "S7F3 PPID"), present(ppbody, "S7F3 PPBODY")))
 }
 
 // S7F4 creates the S7F4 (Process Program Acknowledge) message, direction: bidirectional.
@@ -58,7 +58,7 @@ func S7F4(ackc7 ACKC7) secs2.SECS2Message {
 //
 // Exception: None.
 func S7F5(ppid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 5, true, ppid)
+	return secs2.NewMessage(7, 5, true, present(ppid, "S7F5 PPID"))
 }
 
 // S7F6 creates the S7F6 (Process Program Data) message, direction: bidirectional.
@@ -69,7 +69,17 @@ func S7F5(ppid secs2.Item) secs2.SECS2Message {
 //
 // Exception: A zero-length list means request denied.
 func S7F6(ppid secs2.Item, ppbody secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 6, false, secs2.L(ppid, ppbody))
+	return secs2.NewMessage(7, 6, false, secs2.L(present(ppid, "S7F6 PPID"), present(ppbody, "S7F6 PPBODY")))
+}
+
+// S7F6Denied creates the short form of an S7F6 (Process Program Data) message, direction: bidirectional.
+//
+// [S7F6] creates the full form,
+// and [DecodeS7F6] decodes both.
+//
+// Body: L[0]{}.
+func S7F6Denied() secs2.SECS2Message {
+	return secs2.NewMessage(7, 6, false, secs2.L())
 }
 
 // S7F7 creates the S7F7 (Process Program ID Request) message, direction: equipment-to-host.
@@ -80,7 +90,7 @@ func S7F6(ppid secs2.Item, ppbody secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S7F7(mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 7, true, mid)
+	return secs2.NewMessage(7, 7, true, present(mid, "S7F7 MID"))
 }
 
 // S7F8 creates the S7F8 (Process Program ID Data) message, direction: host-to-equipment.
@@ -91,7 +101,17 @@ func S7F7(mid secs2.Item) secs2.SECS2Message {
 //
 // Exception: A zero-length list returned means no such MID or other error.
 func S7F8(ppid secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 8, false, secs2.L(ppid, mid))
+	return secs2.NewMessage(7, 8, false, secs2.L(present(ppid, "S7F8 PPID"), present(mid, "S7F8 MID")))
+}
+
+// S7F8NoSuchMID creates the short form of an S7F8 (Process Program ID Data) message, direction: host-to-equipment.
+//
+// [S7F8] creates the full form,
+// and [DecodeS7F8] decodes both.
+//
+// Body: L[0]{}.
+func S7F8NoSuchMID() secs2.SECS2Message {
+	return secs2.NewMessage(7, 8, false, secs2.L())
 }
 
 // S7F9 creates the S7F9 (M/P M Request) message, direction: bidirectional.
@@ -202,7 +222,7 @@ func S7F16(ackc7 ACKC7) secs2.SECS2Message {
 //
 // Exception: If n = 0, then delete all.
 func S7F17(ppids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 17, true, secs2.L(ppids...))
+	return secs2.NewMessage(7, 17, true, secs2.L(presentEach(ppids, "S7F17 PPIDS")...))
 }
 
 // S7F18 creates the S7F18 (Delete Process Program Acknowledge) message, direction: equipment-to-host.
@@ -236,7 +256,7 @@ func S7F19() secs2.SECS2Message {
 //
 // Exception: None.
 func S7F20(ppids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 20, false, secs2.L(ppids...))
+	return secs2.NewMessage(7, 20, false, secs2.L(presentEach(ppids, "S7F20 PPIDS")...))
 }
 
 // S7F21 creates the S7F21 (Equipment Process Capabilities Request) message, direction: host-to-equipment.
@@ -262,7 +282,7 @@ func S7F21() secs2.SECS2Message {
 //
 // Exception: None.
 func S7F22(mdln string, softrev string, cmdmax secs2.Item, bytmax secs2.Item, commands ...ProcessCommandDefinition) secs2.SECS2Message {
-	return secs2.NewMessage(7, 22, false, secs2.L(secs2.A(mdln), secs2.A(softrev), cmdmax, bytmax, secs2.L(groupItems(commands)...)))
+	return secs2.NewMessage(7, 22, false, secs2.L(secs2.A(mdln), secs2.A(softrev), present(cmdmax, "S7F22 CMDMAX"), present(bytmax, "S7F22 BYTMAX"), secs2.L(groupItems(commands)...)))
 }
 
 // S7F23 creates the S7F23 (Formatted Process Program Send) message, direction: bidirectional.
@@ -275,7 +295,7 @@ func S7F22(mdln string, softrev string, cmdmax secs2.Item, bytmax secs2.Item, co
 //
 // Exception: None.
 func S7F23(ppid secs2.Item, mdln string, softrev string, commands ...ProcessCommand) secs2.SECS2Message {
-	return secs2.NewMessage(7, 23, true, secs2.L(ppid, secs2.A(mdln), secs2.A(softrev), secs2.L(groupItems(commands)...)))
+	return secs2.NewMessage(7, 23, true, secs2.L(present(ppid, "S7F23 PPID"), secs2.A(mdln), secs2.A(softrev), secs2.L(groupItems(commands)...)))
 }
 
 // S7F24 creates the S7F24 (Formatted Process Program Acknowledge) message, direction: bidirectional.
@@ -299,7 +319,7 @@ func S7F24(ackc7 ACKC7) secs2.SECS2Message {
 //
 // Exception: None.
 func S7F25(ppid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 25, true, ppid)
+	return secs2.NewMessage(7, 25, true, present(ppid, "S7F25 PPID"))
 }
 
 // S7F26 creates the S7F26 (Formatted Process Program Data) message, direction: bidirectional.
@@ -311,7 +331,7 @@ func S7F25(ppid secs2.Item) secs2.SECS2Message {
 //
 // Exception: A zero length list indicates the request was denied.
 func S7F26(ppid secs2.Item, mdln string, softrev string, commands ...ProcessCommand) secs2.SECS2Message {
-	return secs2.NewMessage(7, 26, false, secs2.L(ppid, secs2.A(mdln), secs2.A(softrev), secs2.L(groupItems(commands)...)))
+	return secs2.NewMessage(7, 26, false, secs2.L(present(ppid, "S7F26 PPID"), secs2.A(mdln), secs2.A(softrev), secs2.L(groupItems(commands)...)))
 }
 
 // S7F27 creates the S7F27 (Process Program Verification Send) message, direction: equipment-to-host.
@@ -330,7 +350,7 @@ func S7F26(ppid secs2.Item, mdln string, softrev string, commands ...ProcessComm
 //
 // Exception: None.
 func S7F27(ppid secs2.Item, errors ...ProgramError) secs2.SECS2Message {
-	return secs2.NewMessage(7, 27, true, secs2.L(ppid, secs2.L(groupItems(errors)...)))
+	return secs2.NewMessage(7, 27, true, secs2.L(present(ppid, "S7F27 PPID"), secs2.L(groupItems(errors)...)))
 }
 
 // S7F28 creates the S7F28 (Process Program Verification Acknowledge) message, direction: host-to-equipment.
@@ -352,7 +372,7 @@ func S7F28() secs2.SECS2Message {
 //
 // Exception: None.
 func S7F29(length secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 29, true, length)
+	return secs2.NewMessage(7, 29, true, present(length, "S7F29 LENGTH"))
 }
 
 // S7F30 creates the S7F30 (Process Program Verification Grant) message, direction: host-to-equipment.
@@ -377,7 +397,7 @@ func S7F30(ppgnt PPGNT) secs2.SECS2Message {
 //
 // Exception: None.
 func S7F31(ppid secs2.Item, mdln string, softrev string, commands ...ProcessCommand) secs2.SECS2Message {
-	return secs2.NewMessage(7, 31, true, secs2.L(ppid, secs2.A(mdln), secs2.A(softrev), secs2.L(groupItems(commands)...)))
+	return secs2.NewMessage(7, 31, true, secs2.L(present(ppid, "S7F31 PPID"), secs2.A(mdln), secs2.A(softrev), secs2.L(groupItems(commands)...)))
 }
 
 // S7F32 creates the S7F32 (Verification Request Acknowledge) message, direction: equipment-to-host.
@@ -403,7 +423,7 @@ func S7F32(ackc7 ACKC7) secs2.SECS2Message {
 //
 // Exception: None.
 func S7F33(ppid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 33, true, ppid)
+	return secs2.NewMessage(7, 33, true, present(ppid, "S7F33 PPID"))
 }
 
 // S7F34 creates the S7F34 (Process Program Availability Data) message, direction: bidirectional.
@@ -415,7 +435,7 @@ func S7F33(ppid secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S7F34(ppid secs2.Item, unflen secs2.Item, frmlen secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 34, false, secs2.L(ppid, unflen, frmlen))
+	return secs2.NewMessage(7, 34, false, secs2.L(present(ppid, "S7F34 PPID"), present(unflen, "S7F34 UNFLEN"), present(frmlen, "S7F34 FRMLEN")))
 }
 
 // S7F35 creates the S7F35 (Process Program for MID Request) message, direction: bidirectional.
@@ -426,7 +446,7 @@ func S7F34(ppid secs2.Item, unflen secs2.Item, frmlen secs2.Item) secs2.SECS2Mes
 //
 // Exception: None.
 func S7F35(mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 35, true, mid)
+	return secs2.NewMessage(7, 35, true, present(mid, "S7F35 MID"))
 }
 
 // S7F36 creates the S7F36 (Process Program for MID Data) message, direction: bidirectional.
@@ -437,7 +457,17 @@ func S7F35(mid secs2.Item) secs2.SECS2Message {
 //
 // Exception: A zero-length list returned means no such MID or other error.
 func S7F36(mid secs2.Item, ppid secs2.Item, ppbody secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(7, 36, false, secs2.L(mid, ppid, ppbody))
+	return secs2.NewMessage(7, 36, false, secs2.L(present(mid, "S7F36 MID"), present(ppid, "S7F36 PPID"), present(ppbody, "S7F36 PPBODY")))
+}
+
+// S7F36NoSuchMID creates the short form of an S7F36 (Process Program for MID Data) message, direction: bidirectional.
+//
+// [S7F36] creates the full form,
+// and [DecodeS7F36] decodes both.
+//
+// Body: L[0]{}.
+func S7F36NoSuchMID() secs2.SECS2Message {
+	return secs2.NewMessage(7, 36, false, secs2.L())
 }
 
 // S7F37 creates the S7F37 (Large Process Program Send) message, direction: bidirectional.

@@ -15,7 +15,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Exception: None.
 func S5F1(alcd ALCD, alid secs2.Item, altx string) secs2.SECS2Message {
-	return secs2.NewMessage(5, 1, true, secs2.L(secs2.B(byte(alcd)), alid, secs2.A(altx)))
+	return secs2.NewMessage(5, 1, true, secs2.L(secs2.B(byte(alcd)), present(alid, "S5F1 ALID"), secs2.A(altx)))
 }
 
 // S5F2 creates the S5F2 (Alarm Report Acknowledge) message, direction: host-to-equipment.
@@ -40,7 +40,7 @@ func S5F2(ackc5 ACKC5) secs2.SECS2Message {
 //
 // Exception: A zero-length item for ALID means all alarms.
 func S5F3(aled byte, alid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(5, 3, true, secs2.L(secs2.B(aled), alid))
+	return secs2.NewMessage(5, 3, true, secs2.L(secs2.B(aled), present(alid, "S5F3 ALID")))
 }
 
 // S5F4 creates the S5F4 (Enable/Disable Alarm Acknowledge) message, direction: equipment-to-host.
@@ -62,7 +62,7 @@ func S5F4(ackc5 ACKC5) secs2.SECS2Message {
 //
 // Exception: A zero-length item means send all possible alarms regardless of the state of ALED.
 func S5F5(alids secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(5, 5, true, alids)
+	return secs2.NewMessage(5, 5, true, present(alids, "S5F5 ALIDS"))
 }
 
 // S5F6 creates the S5F6 (List Alarm Data) message, direction: equipment-to-host.
@@ -167,7 +167,7 @@ func S5F13(exid string, exrecvra string) secs2.SECS2Message {
 //
 // Exception: The inner list may be zero length if the recovery request was accepted.
 func S5F14(exid string, acka bool, errcode secs2.Item, errtext string) secs2.SECS2Message {
-	return secs2.NewMessage(5, 14, false, secs2.L(secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L(errcode, secs2.A(errtext)))))
+	return secs2.NewMessage(5, 14, false, secs2.L(secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L(present(errcode, "S5F14 ERRCODE"), secs2.A(errtext)))))
 }
 
 // S5F14Accepted creates the short form of an S5F14 (Exception Recover Acknowledge) message, direction: equipment-to-host.
@@ -189,7 +189,7 @@ func S5F14Accepted(exid string, acka bool) secs2.SECS2Message {
 //
 // Exception: The inner list may be zero length if the recovery was successful.
 func S5F15(timestamp string, exid string, acka bool, errcode secs2.Item, errtext string) secs2.SECS2Message {
-	return secs2.NewMessage(5, 15, true, secs2.L(secs2.A(timestamp), secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L(errcode, secs2.A(errtext)))))
+	return secs2.NewMessage(5, 15, true, secs2.L(secs2.A(timestamp), secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L(present(errcode, "S5F15 ERRCODE"), secs2.A(errtext)))))
 }
 
 // S5F15Success creates the short form of an S5F15 (Exception Recovery Complete Notify) message, direction: equipment-to-host.
@@ -232,7 +232,7 @@ func S5F17(exid string) secs2.SECS2Message {
 //
 // Exception: The inner list may be zero length if the abort was successful.
 func S5F18(exid string, acka bool, errcode secs2.Item, errtext string) secs2.SECS2Message {
-	return secs2.NewMessage(5, 18, false, secs2.L(secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L(errcode, secs2.A(errtext)))))
+	return secs2.NewMessage(5, 18, false, secs2.L(secs2.A(exid), secs2.L(secs2.BOOLEAN(acka), secs2.L(present(errcode, "S5F18 ERRCODE"), secs2.A(errtext)))))
 }
 
 // S5F18Success creates the short form of an S5F18 (Exception Recovery Abort Acknowledge) message, direction: equipment-to-host.

@@ -12,7 +12,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Exception: None.
 func S4F1(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 1, true, secs2.L(ptn, mid))
+	return secs2.NewMessage(4, 1, true, secs2.L(present(ptn, "S4F1 PTN"), present(mid, "S4F1 MID")))
 }
 
 // S4F2 creates the S4F2 (Ready to Send Acknowledge) message, direction: bidirectional.
@@ -34,7 +34,7 @@ func S4F2(rsack RSACK) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F3(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 3, false, secs2.L(ptn, mid))
+	return secs2.NewMessage(4, 3, false, secs2.L(present(ptn, "S4F3 PTN"), present(mid, "S4F3 MID")))
 }
 
 // S4F5 creates the S4F5 (Handshake Complete) message, direction: bidirectional.
@@ -46,7 +46,7 @@ func S4F3(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F5(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 5, false, secs2.L(ptn, mid))
+	return secs2.NewMessage(4, 5, false, secs2.L(present(ptn, "S4F5 PTN"), present(mid, "S4F5 MID")))
 }
 
 // S4F7 creates the S4F7 (Not Ready to Send) message, direction: bidirectional.
@@ -58,7 +58,7 @@ func S4F5(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F7(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 7, false, secs2.L(ptn, mid))
+	return secs2.NewMessage(4, 7, false, secs2.L(present(ptn, "S4F7 PTN"), present(mid, "S4F7 MID")))
 }
 
 // S4F9 creates the S4F9 (Stuck in Sender) message, direction: equipment-to-host.
@@ -71,7 +71,7 @@ func S4F7(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F9(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 9, false, secs2.L(ptn, mid))
+	return secs2.NewMessage(4, 9, false, secs2.L(present(ptn, "S4F9 PTN"), present(mid, "S4F9 MID")))
 }
 
 // S4F11 creates the S4F11 (Stuck in Receiver) message, direction: equipment-to-host.
@@ -84,7 +84,7 @@ func S4F9(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F11(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 11, false, secs2.L(ptn, mid))
+	return secs2.NewMessage(4, 11, false, secs2.L(present(ptn, "S4F11 PTN"), present(mid, "S4F11 MID")))
 }
 
 // S4F13 creates the S4F13 (Send Incomplete Timeout) message, direction: equipment-to-host.
@@ -97,7 +97,7 @@ func S4F11(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F13(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 13, false, secs2.L(ptn, mid))
+	return secs2.NewMessage(4, 13, false, secs2.L(present(ptn, "S4F13 PTN"), present(mid, "S4F13 MID")))
 }
 
 // S4F15 creates the S4F15 (Material Received) message, direction: equipment-to-host.
@@ -109,7 +109,7 @@ func S4F13(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F15(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 15, false, secs2.L(ptn, mid))
+	return secs2.NewMessage(4, 15, false, secs2.L(present(ptn, "S4F15 PTN"), present(mid, "S4F15 MID")))
 }
 
 // S4F17 creates the S4F17 (Request to Receive) message, direction: bidirectional.
@@ -120,7 +120,7 @@ func S4F15(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
 //
 // Exception: A zero-length MID means equipment doesn't know MID.
 func S4F17(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 17, true, secs2.L(ptn, mid))
+	return secs2.NewMessage(4, 17, true, secs2.L(present(ptn, "S4F17 PTN"), present(mid, "S4F17 MID")))
 }
 
 // S4F18 creates the S4F18 (Request to Receive Acknowledge) message, direction: bidirectional.
@@ -147,7 +147,7 @@ func S4F18(rrack RRACK) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F19(dataid secs2.Item, trjobname string, transfers ...TransferJob) secs2.SECS2Message {
-	return secs2.NewMessage(4, 19, true, secs2.L(dataid, secs2.L(secs2.A(trjobname), secs2.L(groupItems(transfers)...))))
+	return secs2.NewMessage(4, 19, true, secs2.L(present(dataid, "S4F19 DATAID"), secs2.L(secs2.A(trjobname), secs2.L(groupItems(transfers)...))))
 }
 
 // S4F20 creates the S4F20 (Transfer Job Acknowledge) message, direction: equipment-to-host.
@@ -159,7 +159,7 @@ func S4F19(dataid secs2.Item, trjobname string, transfers ...TransferJob) secs2.
 // Exception: A zero-length list (m = 0) is sent if the transfer job is rejected.
 // A zero-length list (n = 0) is sent if the transfer job is accepted.
 func S4F20(trjobid []byte, atomicids []secs2.Item, track bool, errors ...ErrorInfo) secs2.SECS2Message {
-	return secs2.NewMessage(4, 20, false, secs2.L(secs2.B(trjobid), secs2.L(atomicids...), secs2.L(secs2.BOOLEAN(track), secs2.L(groupItems(errors)...))))
+	return secs2.NewMessage(4, 20, false, secs2.L(secs2.B(trjobid), secs2.L(presentEach(atomicids, "S4F20 ATOMICIDS")...), secs2.L(secs2.BOOLEAN(track), secs2.L(groupItems(errors)...))))
 }
 
 // S4F21 creates the S4F21 (Transfer Job Command) message, direction: host-to-equipment.
@@ -216,7 +216,7 @@ func S4F24() secs2.SECS2Message {
 //
 // Exception: None.
 func S4F25(dataid secs2.Item, datalength secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 25, true, secs2.L(dataid, datalength))
+	return secs2.NewMessage(4, 25, true, secs2.L(present(dataid, "S4F25 DATAID"), present(datalength, "S4F25 DATALENGTH")))
 }
 
 // S4F26 creates the S4F26 (Multi-block Grant) message, direction: equipment-to-host.
@@ -243,7 +243,7 @@ func S4F26(grant GRANT) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F27(eqname string, trlink secs2.Item, trport secs2.Item, trobjname string, trobjtype secs2.Item, trrole TRROLE, trptnr string, trptport secs2.Item, trdir TRDIR, trtype TRTYPE, trlocation secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 27, false, secs2.L(secs2.A(eqname), secs2.L(trlink, trport, secs2.A(trobjname), trobjtype, secs2.U1(uint8(trrole)), secs2.A(trptnr), trptport, secs2.U1(uint8(trdir)), secs2.U1(uint8(trtype)), trlocation)))
+	return secs2.NewMessage(4, 27, false, secs2.L(secs2.A(eqname), secs2.L(present(trlink, "S4F27 TRLINK"), present(trport, "S4F27 TRPORT"), secs2.A(trobjname), present(trobjtype, "S4F27 TROBJTYPE"), secs2.U1(uint8(trrole)), secs2.A(trptnr), present(trptport, "S4F27 TRPTPORT"), secs2.U1(uint8(trdir)), secs2.U1(uint8(trtype)), present(trlocation, "S4F27 TRLOCATION"))))
 }
 
 // S4F29 creates the S4F29 (Handoff Command) message, direction: bidirectional.
@@ -256,7 +256,7 @@ func S4F27(eqname string, trlink secs2.Item, trport secs2.Item, trobjname string
 //
 // Exception: N = 0 if no parameters are used.
 func S4F29(trlink secs2.Item, mcindex secs2.Item, hocmdname string, params ...CommandParam) secs2.SECS2Message {
-	return secs2.NewMessage(4, 29, false, secs2.L(trlink, mcindex, secs2.A(hocmdname), secs2.L(groupItems(params)...)))
+	return secs2.NewMessage(4, 29, false, secs2.L(present(trlink, "S4F29 TRLINK"), present(mcindex, "S4F29 MCINDEX"), secs2.A(hocmdname), secs2.L(groupItems(params)...)))
 }
 
 // S4F31 creates the S4F31 (Handoff Command Complete) message, direction: bidirectional.
@@ -270,7 +270,7 @@ func S4F29(trlink secs2.Item, mcindex secs2.Item, hocmdname string, params ...Co
 //
 // Exception: None.
 func S4F31(trlink secs2.Item, mcindex secs2.Item, hoack bool, errors ...ErrorInfo) secs2.SECS2Message {
-	return secs2.NewMessage(4, 31, false, secs2.L(trlink, mcindex, secs2.L(secs2.BOOLEAN(hoack), secs2.L(groupItems(errors)...))))
+	return secs2.NewMessage(4, 31, false, secs2.L(present(trlink, "S4F31 TRLINK"), present(mcindex, "S4F31 MCINDEX"), secs2.L(secs2.BOOLEAN(hoack), secs2.L(groupItems(errors)...))))
 }
 
 // S4F33 creates the S4F33 (Handoff Verified) message, direction: bidirectional.
@@ -286,7 +286,7 @@ func S4F31(trlink secs2.Item, mcindex secs2.Item, hoack bool, errors ...ErrorInf
 //
 // Exception: None.
 func S4F33(trlink secs2.Item, hoack bool, errors ...ErrorInfo) secs2.SECS2Message {
-	return secs2.NewMessage(4, 33, false, secs2.L(trlink, secs2.L(secs2.BOOLEAN(hoack), secs2.L(groupItems(errors)...))))
+	return secs2.NewMessage(4, 33, false, secs2.L(present(trlink, "S4F33 TRLINK"), secs2.L(secs2.BOOLEAN(hoack), secs2.L(groupItems(errors)...))))
 }
 
 // S4F35 creates the S4F35 (Handoff Cancel Ready) message, direction: bidirectional.
@@ -299,7 +299,7 @@ func S4F33(trlink secs2.Item, hoack bool, errors ...ErrorInfo) secs2.SECS2Messag
 //
 // Exception: None.
 func S4F35(trlink secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 35, false, trlink)
+	return secs2.NewMessage(4, 35, false, present(trlink, "S4F35 TRLINK"))
 }
 
 // S4F37 creates the S4F37 (Handoff Cancel Ready Acknowledge) message, direction: bidirectional.
@@ -313,7 +313,7 @@ func S4F35(trlink secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F37(trlink secs2.Item, hocancelack HOCANCELACK) secs2.SECS2Message {
-	return secs2.NewMessage(4, 37, false, secs2.L(trlink, secs2.U1(uint8(hocancelack))))
+	return secs2.NewMessage(4, 37, false, secs2.L(present(trlink, "S4F37 TRLINK"), secs2.U1(uint8(hocancelack))))
 }
 
 // S4F39 creates the S4F39 (Handoff Halt) message, direction: bidirectional.
@@ -326,7 +326,7 @@ func S4F37(trlink secs2.Item, hocancelack HOCANCELACK) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F39(trlink secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(4, 39, false, trlink)
+	return secs2.NewMessage(4, 39, false, present(trlink, "S4F39 TRLINK"))
 }
 
 // S4F41 creates the S4F41 (Handoff Halt Acknowledge) message, direction: bidirectional.
@@ -339,5 +339,5 @@ func S4F39(trlink secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S4F41(trlink secs2.Item, hohaltack HOHALTACK) secs2.SECS2Message {
-	return secs2.NewMessage(4, 41, false, secs2.L(trlink, secs2.U1(uint8(hohaltack))))
+	return secs2.NewMessage(4, 41, false, secs2.L(present(trlink, "S4F41 TRLINK"), secs2.U1(uint8(hohaltack))))
 }
