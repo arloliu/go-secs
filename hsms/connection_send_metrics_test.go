@@ -80,8 +80,8 @@ func TestSendMetrics_DataMsgErr_OnT3Timeout(t *testing.T) {
 	require.Equal(t, uint64(1), c.metrics.DataMsgSendCount(), "the primary reached the wire before T3 fired")
 }
 
-// TestSendMetrics_DataMsgErr_OnWriteError proves a data send that fails before the wire (transport
-// write error) bumps DataMsgErrCount and not DataMsgSendCount.
+// TestSendMetrics_DataMsgErr_OnWriteError proves that a data send whose transport write fails bumps DataMsgErrCount and not DataMsgSendCount.
+// The mock transport writes nothing on failure; a real transport may have sent part of the frame.
 func TestSendMetrics_DataMsgErr_OnWriteError(t *testing.T) {
 	c, tr := newTestSendConn(t, SelectedState)
 	tr.writeErr = errors.New("boom")
@@ -95,8 +95,8 @@ func TestSendMetrics_DataMsgErr_OnWriteError(t *testing.T) {
 // TestSendMetrics_DataMsgErr_OnWriteError_FireAndForget proves the write-error → DataMsgErrCount
 // increment in sendWaitReply is NOT W-bit-conditional: a fire-and-forget (!W) data send whose
 // transport write fails is counted exactly like a W-bit send that fails the same way — because the
-// increment sits on the writeFrame-failure branch, guarded on isData alone, before fireAndForget's
-// short-circuit is ever reached.
+// increment sits on the writeFrame-failure branch, guarded on isData && isCountedSendErr(err),
+// before fireAndForget's short-circuit is ever reached.
 // A regression that gated the increment on the W bit would let a !W write failure vanish from the
 // counter; this pins the intersection TestSendMetrics_DataMsgErr_OnWriteError (W-bit set) and
 // TestSendMetrics_FireAndForget_SendPlusOne_ErrZero (!W, no write error) each leave uncovered.

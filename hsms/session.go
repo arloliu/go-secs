@@ -399,11 +399,11 @@ func (s *session) callDecodeErrorHandler(gen uint64, h DecodeErrorHandler, msg *
 // AddDataMessageChan implements the SECS2Endpoint method of the same name.
 // See that interface method's godoc for the full consumer contract.
 //
-// The session delivers each inbound message to ch via a select that includes rt.Done(),
-// so a full channel can never block the fan-out past connection teardown.
+// The session delivers each inbound message to ch through a select on the done channel of the generation that admitted it,
+// so a full channel can never block the fan-out past that generation's teardown.
 //
 // Panics if ch is nil: a nil channel would make every delivery select wait only on
-// rt.Done(), wedging the connection from the first inbound message.
+// that done channel, wedging the connection from the first inbound message.
 func (s *session) AddDataMessageChan(ch chan *DataMessage) {
 	if ch == nil {
 		panic("hsms: AddDataMessageChan: ch must not be nil")

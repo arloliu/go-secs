@@ -354,9 +354,9 @@ func (c *connection) correlateS9On(e *epoch, dm *DataMessage) {
 // The host role sends nothing:
 // Stream 9 error messages travel from equipment to host (SEMI E5 §10.13).
 // An inbound S9F1 is exempted from the check entirely, regardless of its own SessionID:
-// checkSessionID returns nil immediately, so the caller proceeds to route dm normally
-// (delivered to DataMessageHandlers, or reply-correlated if it matches a pending transaction) —
+// checkSessionID returns nil immediately, so the caller continues through S9 correlation and data routing —
 // it is NOT dropped.
+// An S9F1 is a primary, so it is never offered to secondary-reply routing.
 // This both avoids an S9F1-answers-S9F1 notification loop
 // and preserves visibility into a diagnostic message the peer sent us.
 //
@@ -368,9 +368,8 @@ func (c *connection) correlateS9On(e *epoch, dm *DataMessage) {
 // The equipment role's S9F1 is enqueued via enqueueAsync bound to e,
 // so it can never land on a successor generation's send queue:
 // a mismatch admitted by a generation that ends before the enqueue runs drops the S9F1 along with the rest of that generation's stranded queue (see SendAsyncFromGeneration).
-// A nil e (no live epoch) skips the enqueue entirely —
-// there is nowhere to send it —
-// matching the outcome the old unconditional SendAsync call already had (ErrNotOpen, ignored).
+// A nil e (no live epoch) skips the enqueue entirely:
+// there is nowhere to send it.
 func (c *connection) checkSessionID(e *epoch, dm *DataMessage) error {
 	isS9F1 := dm.Stream() == 9 && dm.Function() == 1
 	if isS9F1 || dm.SessionID() == c.SessionID() {
@@ -414,15 +413,16 @@ func isSecondaryReply(dm *DataMessage) bool {
 // It returns true on a registry hit, false on a miss.
 // A hit does not prove the waiter received the value:
 // replyRegistry.route still reports a hit, and discards the result,
-// when a duplicate reply finds the sender's one-slot buffer already full.
-// A miss has three causes: the registry has no open transaction for these System Bytes;
+// when a duplicate reply finds the wait already claimed by an earlier reply.
+// A miss has four causes: the registry has no open transaction for these System Bytes;
 // (WithStrictReplyMatching only) the candidate's stream/function diverged from the registered primary (E37 §9.4.1);
 // or a control response (Select.rsp/Deselect.rsp/Linktest.rsp) answering an open DATA transaction,
 // which is always a miss regardless of strict —
-// a control response has no stream/function to validate against a data primary in the first place.
+// a control response has no stream/function to validate against a data primary in the first place;
+// or an S9 error message already ended the wait (WithS9Correlation).
 // Each miss kind is handled differently by the caller — see the §8.3.20 paragraph below;
-// a miss never consumes the registration,
-// so a later conforming reply can still complete the transaction.
+// a miss leaves the registration and its claim state unchanged,
+// so a later conforming reply can complete the transaction only while its waiter is still registered and open.
 // It never touches the inflight gauge.
 // With no live epoch it reports a miss.
 //

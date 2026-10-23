@@ -418,8 +418,9 @@ func TestTransactionObserver_ControlTransaction_NoEvent(t *testing.T) {
 	waitSelected(t, active)
 
 	// Wait for several completed auto-linktest round trips on each side — both sides configured
-	// WithLinktestInterval and WithTransactionObserver, so this exercises the gate on both the
-	// active and passive connection's own WriteMessage(Linktest.req) calls.
+	// WithLinktestInterval and WithTransactionObserver.
+	// The transport sends Linktest.req through WriteMessageFromGeneration, which bypasses the observer,
+	// so this checks the combined exclusion, not WriteMessage's isData gate on its own.
 	require.Eventually(t, func() bool {
 		return controlMetrics(t, active).LinktestRecvCount() >= 3 && controlMetrics(t, passive).LinktestRecvCount() >= 3
 	}, 20*linktestInterval, 5*time.Millisecond, "expected several completed auto-linktest round trips on both sides")

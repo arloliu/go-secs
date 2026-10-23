@@ -14,9 +14,10 @@ type replyResult struct {
 }
 
 // The claim states of a replyWaiter.
-// Exactly one result completes a reply wait:
+// At most one result is sent to a reply wait:
 // the first to move the state away from replyOpen sends on the waiter's channel,
 // and every later candidate finds the wait already claimed and sends nothing.
+// The sender may still leave without it, through its timer, teardown, or caller-context arm.
 const (
 	// replyOpen means no result has completed the wait yet.
 	replyOpen uint32 = iota
@@ -70,7 +71,7 @@ type replyWaiter struct {
 // it never creates, closes, or deletes the channel.
 // The claim makes that send happen at most once per registration,
 // so the one-slot buffer always has room for it.
-// A late reply that arrives after deregister finds no entry (miss → dropped);
+// A late reply that arrives after deregister finds no entry (a miss: a data secondary falls through to the data handlers);
 // one that arrives after another result claimed the wait, but before deregister, sends nothing.
 // A receiver that loaded the waiter just before deregister can still claim the open wait
 // and send into the buffer the sender has abandoned:
@@ -142,7 +143,7 @@ func (r replyRegistry) deregister(key [4]byte) {
 // Select/Deselect/Linktest responses register with isData false (a *ControlMessage has no Stream()/Function() to compare),
 // and an inbound Reject.req answering a data primary routes as a field-less *RejectError (res.msg == nil), never a *DataMessage —
 // a terminal rejection (E37 §8.3.11), not a reply to validate.
-// Both always deliver uncompared.
+// Both bypass comparison and go on to the claim below; only an open wait receives them.
 //
 // A third combination looks similar but is NOT uncompared delivery:
 // a DATA registration (want.isData) answered by a *ControlMessage result.

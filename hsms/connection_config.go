@@ -768,8 +768,10 @@ func WithAsyncSendErrorHandler(fn func(msg Message, err error)) ConnOption {
 // returns its error directly and reports no TxEvent.
 //
 // The hook runs SYNCHRONOUSLY on the CALLING goroutine, after the send's own outcome is known and before the call returns to its caller —
-// a slow fn slows that one send call and nothing else;
-// it never runs on a protocol goroutine.
+// a slow fn delays the send's return and any later work on the calling goroutine.
+// It runs on a protocol goroutine only when the send itself does,
+// such as a synchronous send from a DataMessageHandler, which runs on the receive goroutine;
+// a slow fn there also delays inbound processing.
 // Async sends are out of scope for this hook:
 // SendDataMessageAsync, ForwardDataMessageAsync, SendAsync, ReplyDataMessage, and ReplyAbort
 // (the last two are themselves built on SendAsync, not a synchronous write)

@@ -1,26 +1,23 @@
 package hsmsss
 
-// integration_reply_matching_test.go is Task 6's REQUIRED control-transaction guard (E37 §9.4.1
-// reply matching, hsms.WithStrictReplyMatching).
-// It proves a real Select handshake and linktest
-// round trip still work under both postures — the failure mode a broken control exemption would
-// produce here is an end-to-end failure to reach Selected (strict mode) or a polluted
-// ReplyMismatchCount (default mode), exactly as it would against real equipment.
+// integration_reply_matching_test.go guards the control-transaction exemption of E37 §9.4.1 reply matching
+// (hsms.WithStrictReplyMatching).
+// It verifies a real Select handshake under strict and default matching, and a linktest round trip under default matching.
+// A broken control exemption shows here as a failure to reach Selected (strict mode)
+// or a polluted ReplyMismatchCount (default mode), exactly as it would against real equipment.
 //
-// TEETH (recorded in the Task 6 commit body — verified empirically, not merely asserted):
-// replyRegistry.route compares a candidate only when BOTH legs hold — the entry was registered
-// for a data primary (isData) AND the routed result is itself a *DataMessage.
-// The Task 6 mutant replaced that exemption with an unconditional comparison, where a result that
-// cannot supply a stream/function — a *ControlMessage, or a field-less RejectError — is itself
-// treated as a mismatch rather than passing through uncompared: under that revert,
-// TestReplyMatching_StrictMode_SelectReachesSelected fails (every Select.rsp is unconditionally
-// a mismatch, so every Select transaction misses under strict mode, CommitSelected never runs,
-// and waitSelected below times out — the same NotSelected -> NotConnected loop shape as the
-// v2.0.1 field bug this task fixes), and TestReplyMatching_DefaultMode_LinktestRoundTripZeroMismatch
-// fails (ReplyMismatchCount climbs on every successful Linktest.rsp instead of staying 0).
-// That specific outcome depends both on the unconditional-mismatch classification AND on
-// bypassing route's separate control-result miss gate (below); it does not mean these two tests
-// only bite when both legs are removed together.
+// TEETH: replyRegistry.route compares a candidate only when BOTH legs hold:
+// the entry was registered for a data primary (isData), AND the routed result is itself a *DataMessage.
+// Replace that exemption with a classification that treats every result lacking stream/function fields as a mismatch
+// (a *ControlMessage, or a field-less RejectError),
+// and also bypass route's separate control-result miss gate (below), and both tests fail:
+// TestReplyMatching_StrictMode_SelectReachesSelected, because under strict mode every Select.rsp misses,
+// so the active side cannot commit Selected through it, its Select procedure fails,
+// and waitSelected below times out (the passive side still commits Selected when it handles Select.req);
+// and TestReplyMatching_DefaultMode_LinktestRoundTripZeroMismatch,
+// because ReplyMismatchCount climbs on every successful Linktest.rsp instead of staying 0.
+// That outcome depends on both the mismatch classification and the bypassed miss gate;
+// it does not mean these two tests only bite when both legs are removed together.
 //
 // Removing a single leg behaves differently for each leg:
 //   - Leg 1 (isData) alone: these two tests DO bite.
