@@ -352,9 +352,10 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 	// Synchronous writev == on-wire (§9.4.1.2). writeFrame runs the B2 write-boundary
 	// re-check under writeMu; ErrNotSelectedState from B2 is counted, non-fatal.
 	if err := c.writeFrame(callerCtx, e, msg); err != nil {
-		// The frame never reached the wire. A NotSelected drop (B2) has its own counter, and
-		// teardown/caller-cancel are lifecycle/caller events — none count as a transaction
-		// error; a genuine transport write failure does.
+		// The write did not complete; part of the frame may already have reached the peer.
+		// Only a data send increments DataMsgErrCount here,
+		// and isCountedSendErr excludes ErrNotSelectedState (a B2 drop has its own counter), ErrConnClosed,
+		// ErrMessageTooLarge, and caller cancellation or deadline: none of those is a transport write failure.
 		if isData && isCountedSendErr(err) {
 			c.metrics.incDataMsgErr()
 		}
@@ -590,15 +591,20 @@ func newTxEvent(dm *DataMessage, e *epoch, replyWaited bool, start time.Time, er
 //	  wait-select: callerCtx.Done()                  -> context.Canceled /
 //	                                                    DeadlineExceeded    -> TxCanceled
 //
+//	The writeFrame rows show the usual error for each path;
+//	a raw or teardown-wrapped write error that matches the *RejectError, *S9Error, ErrT3Timeout,
+//	or ErrTransactionAborted check takes that outcome instead, since those checks run first.
+//
 //	sendNoReply (dm != nil):
 //	  e == nil                                    -> ErrNotOpen            -> TxSendError
 //	  B1 gate (!IsSelected)                        -> ErrNotSelectedState  -> TxSendError
 //	  writeFrame: same sub-cases as above           -> (same as above)      -> (same as above)
 //	  success (on wire, no local reply awaited)     -> nil                 -> TxSent
 //
-// ReplyDataMessage and ReplyAbort are deliberately NOT in this table: session.reply enqueues via
-// rt.SendAsync (the async fire-and-forget primitive shared with SendDataMessageAsync and
-// ForwardDataMessageAsync), not sendWaitReply/sendNoReply, so it never reaches this classifier —
+// ReplyDataMessage and ReplyAbort are deliberately NOT in this table:
+// session.reply enqueues via rt.SendAsync or SendAsyncFromGeneration,
+// the async fire-and-forget primitives shared with SendDataMessageAsync and ForwardDataMessageAsync,
+// not sendWaitReply/sendNoReply, so it never reaches this classifier —
 // see WithTransactionObserver's godoc.
 func classifyTxOutcome(replyWaited bool, err error) TxOutcome {
 	if err == nil {

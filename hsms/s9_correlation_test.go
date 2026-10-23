@@ -137,6 +137,8 @@ func requireS9Error(t *testing.T, err error, f byte, sent [10]byte) {
 // No auto S9F9 is attempted: the send did not time out.
 //
 // TEETH: drop correlateS9On's call and every row waits out T3;
+// key failS9's lookup on the S9 envelope's System Bytes instead of the MHEAD's and every row waits out T3,
+// since s9Envelope differs from the sent System Bytes;
 // return before routeDataOn on a match and the handler assertion fails.
 func TestS9Correlation_EachFunctionEndsSend(t *testing.T) {
 	for _, sf := range abortSendFuncs {
@@ -205,7 +207,9 @@ func TestS9Error_Error(t *testing.T) {
 // TestS9Correlation_NoMatch delivers an S9 that must not end the send, followed by the genuine reply.
 // The send returns the reply, and the data handlers receive the S9.
 //
-// TEETH: key failS9 on the S9 envelope's System Bytes instead of the MHEAD's and the "envelope" row ends the send;
+// TEETH: key failS9's lookup on the S9 envelope's System Bytes and also skip its header comparison,
+// and the "envelope" row ends the send (the lookup change alone is caught by TestS9Correlation_EachFunctionEndsSend);
+// skip the header comparison alone and the stream, function, W-bit, and session-ID rows end it;
 // drop the function filter and the S9F9/S9F13 rows end it.
 func TestS9Correlation_NoMatch(t *testing.T) {
 	withByte := func(i int, b byte) func([10]byte) [10]byte {

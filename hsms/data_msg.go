@@ -43,19 +43,21 @@ type DataMessage struct {
 	body   wire.Body
 	dec    *decodeState
 
-	// originIdent/originGen record which connection and generation admitted this message as an inbound PRIMARY,
-	// so [SECS2Endpoint.ReplyDataMessage] and [ReplyAbort] can bind their reply to that same generation
-	// and refuse it once that generation has ended.
+	// originIdent/originGen record which connection and generation admitted this inbound message, primary or secondary.
+	// [SECS2Endpoint.ReplyDataMessage] and [ReplyAbort] use them to bind the reply to a primary to that same generation,
+	// and to refuse it once that generation has ended.
 	//
 	// originIdent is an opaque per-connection identity token ([connIdentity]), not a pointer to the connection itself:
 	// a connection carries its whole handler/channel registration and its current epoch,
 	// so a DataMessage that retained a *connection would keep that entire graph alive for as long as an application holds the message.
 	// The token is compared by pointer identity only; it is never dereferenced.
 	//
-	// Stamped in deliverOwnedFrameOn for every inbound data message that a live generation admitted,
-	// including the plain (gen-less) DeliverOwnedFrame path SECS-I uses.
-	// A message admitted with no live generation (before the first Open, or after a full Close)
-	// carries no origin: neither field is stamped.
+	// Stamped in deliverOwnedFrameOn whenever its resolved epoch is non-nil,
+	// including on the plain (gen-less) DeliverOwnedFrame path SECS-I uses.
+	// For a nonzero generation, the generation-aware entry point checks liveness before admission;
+	// generation zero delegates to the unchecked plain entry point.
+	// A message admitted with a nil epoch (before the first Open) carries no origin: neither field is stamped.
+	// Close retains the ended epoch, so plain ingress after Close still stamps that epoch.
 	// [DataMessage.WithSessionID], [DataMessage.WithSystemBytes], and [DataMessage.WithID] copy both fields onto their derived value,
 	// since they preserve the message's identity.
 	// [DataMessage.Derive] and [DataMessageBuilder.Build] deliberately do NOT carry the origin forward:

@@ -54,7 +54,7 @@ type TxEvent struct {
 	Stream      uint8         // the data message's SECS-II stream code
 	Function    uint8         // the data message's SECS-II function code
 	ID          uint32        // System Bytes as uint32 (matches DataMessage.ID)
-	ReplyWaited bool          // true when the message's W-bit asked the peer for a reply
+	ReplyWaited bool          // the message's W-bit for SendDataMessage/SendSECS2Message, even on a failure before waiting; always false for ForwardDataMessage
 	Duration    time.Duration // wall-clock time from the call's start to its outcome
 	Outcome     TxOutcome
 	Err         error // nil on TxReplied / TxSent; the classifying error otherwise
