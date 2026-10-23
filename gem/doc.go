@@ -148,4 +148,41 @@
 // The reply asserts what E5 says its acknowledge value means, which for some messages is more than receipt:
 // HCACK 0 in S2F42 says the command has been performed.
 // Where completion comes later, build the reply with the message's builder instead.
+//
+// # Refusing a message
+//
+// The equipment's control state comes first (SEMI E30, OFF-LINE state).
+// While OFF-LINE, the equipment answers every primary from the host except S1F13 and S1F17 with SxF0,
+// the [Abort] message of the primary's stream,
+// and it sends Stream 9 errors only about those two messages.
+// A primary without the W-bit gets no SxF0:
+// function 0 is sent in lieu of an expected reply (E5 §10.4.1),
+// and this package reads E30's "any primary message" within that limit.
+//
+// A message the equipment cannot process is a message fault, answered on Stream 9 (E5 §8.3, §10.13).
+// The Stream 9 error primaries, the odd functions S9F1 through S9F13, go from the equipment to the host;
+// only S9F0, like every function 0, goes both ways.
+// The equipment answers an unrecognized stream with [S9F3],
+// an unrecognized function with [S9F5], including a message E5 defines only in the other direction,
+// illegal data with [S9F7], and more data than it can handle with [S9F11].
+// While ON-LINE, E30 allows SxF0 only to close the open transaction of a message fault,
+// and discourages even that (E30, ON-LINE state);
+// the equipment may then close the faulty message's W-bit transaction with hsms.ReplyAbort.
+//
+// "Unrecognized" is relative to the messages the equipment supports, which its documentation lists;
+// any other message it receives causes an error message (E5 §11.2.2).
+// [Lookup] says whether E5 defines a message, not whether this equipment supports it.
+//
+// The MHEAD of S9F1, S9F3, S9F5, S9F7, and S9F11 is the header of the message in error.
+// Under HSMS it is the received message's 10-byte header, hsms.DataMessage.HeaderBytes (E37 §9.4.2.1).
+// Under SECS-I it is the header of the offending block, which a received hsms.DataMessage does not carry:
+// its header holds zero in bytes 4 and 5, where a block header carries the E-bit and block number, and it has no R-bit.
+// The secs1 package sends the block-level S9F1 and S9F7 itself, in the equipment role.
+//
+// The host has no Stream 9 error to send, so it refuses a message only with hsms.ReplyAbort.
+// E30 names one such refusal: the host denies the equipment's request to go ON-LINE by answering S1F1 with S1F0.
+// This package advises the host to keep to the equipment's ON-LINE limit on SxF0 as well.
+//
+// An unknown ID inside a well-formed message, such as a CEID that does not exist, is no message fault:
+// the message's own acknowledge reports it, as [DRACK], [LRACK], [ERACK], and [HCACK] do, rather than Stream 9.
 package gem

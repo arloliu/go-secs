@@ -43,9 +43,9 @@ type DataMessage struct {
 	body   wire.Body
 	dec    *decodeState
 
-	// originIdent/originGen record which connection and generation admitted this message as an
-	// inbound PRIMARY, so [SECS2Endpoint.ReplyDataMessage] can bind its reply to that same
-	// generation and refuse it once that generation has ended.
+	// originIdent/originGen record which connection and generation admitted this message as an inbound PRIMARY,
+	// so [SECS2Endpoint.ReplyDataMessage] and [ReplyAbort] can bind their reply to that same generation
+	// and refuse it once that generation has ended.
 	//
 	// originIdent is an opaque per-connection identity token ([connIdentity]), not a pointer to the connection itself:
 	// a connection carries its whole handler/channel registration and its current epoch,
@@ -60,7 +60,7 @@ type DataMessage struct {
 	// since they preserve the message's identity.
 	// [DataMessage.Derive] and [DataMessageBuilder.Build] deliberately do NOT carry the origin forward:
 	// a derived message is a NEW message the caller assembled by hand,
-	// and [SECS2Endpoint.ReplyDataMessage] must not apply the generation check to it.
+	// and neither [SECS2Endpoint.ReplyDataMessage] nor [ReplyAbort] may apply the generation check to it.
 	originIdent *connIdentity
 	originGen   uint64
 }

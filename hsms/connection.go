@@ -467,7 +467,7 @@ func (c *connection) Done() <-chan struct{} {
 }
 
 // originIdentity returns c's own identity token, compared by pointer identity in
-// session.ReplyDataMessage's same-connection check (see [connIdentity]).
+// the same-connection check that session.ReplyDataMessage and session.ReplyAbort share (see [connIdentity]).
 //
 // It never returns nil: ident is allocated once in NewConnection and never mutated afterward.
 func (c *connection) originIdentity() *connIdentity {

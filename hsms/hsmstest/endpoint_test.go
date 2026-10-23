@@ -620,6 +620,65 @@ func TestFakeEndpoint_ReplyDataMessage_RejectsNilPrimary(t *testing.T) {
 	assert.Empty(t, ep.Sent(), "a nil primary must not be recorded")
 }
 
+// TestFakeEndpoint_HandlerAbortsDuringDeliver proves a handler can refuse a primary with hsms.ReplyAbort through the fake,
+// which records the SxF0 that answers it: the primary's stream and System Bytes, function 0, no W-bit, and no body.
+func TestFakeEndpoint_HandlerAbortsDuringDeliver(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint(hsmstest.WithSessionID(7))
+	ep.AddDataMessageHandler(func(msg *hsms.DataMessage, e hsms.SECS2Endpoint) {
+		require.NoError(t, hsms.ReplyAbort(context.Background(), e, msg))
+	})
+
+	primary, err := hsms.NewDataMessage(6, 11, true, 7, [4]byte{0, 0, 1, 2}, secs2.A("event"))
+	require.NoError(t, err)
+
+	ep.Deliver(primary)
+
+	sent := ep.Sent()
+	require.Len(t, sent, 1)
+	assert.Equal(t, "ReplyAbort", sent[0].Method)
+	assert.Equal(t, primary, sent[0].Primary)
+
+	abort := sent[0].Message
+	assert.Equal(t, byte(6), abort.Stream())
+	assert.Zero(t, abort.Function())
+	assert.False(t, abort.WaitBit())
+	assert.Equal(t, uint16(7), abort.SessionID())
+	assert.Equal(t, primary.SystemBytes(), abort.SystemBytes())
+	assert.Zero(t, abort.BodyLen())
+}
+
+// TestFakeEndpoint_ReplyAbort_Refuses proves the fake refuses what the real session refuses, in the same order,
+// recording nothing: a nil primary with hsms.ErrNilMessage, then a primary without the W-bit with hsms.ErrNoReplyExpected.
+func TestFakeEndpoint_ReplyAbort_Refuses(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil primary", func(t *testing.T) {
+		t.Parallel()
+
+		ep := hsmstest.NewFakeEndpoint()
+
+		var err error
+		require.NotPanics(t, func() {
+			err = ep.ReplyAbort(context.Background(), nil)
+		})
+		require.ErrorIs(t, err, hsms.ErrNilMessage)
+		assert.Empty(t, ep.Sent(), "a nil primary must not be recorded")
+	})
+
+	t.Run("no reply expected", func(t *testing.T) {
+		t.Parallel()
+
+		primary, err := hsms.NewDataMessage(6, 11, false, 0, [4]byte{0, 0, 1, 3}, secs2.A("event"))
+		require.NoError(t, err)
+
+		ep := hsmstest.NewFakeEndpoint()
+		require.ErrorIs(t, ep.ReplyAbort(context.Background(), primary), hsms.ErrNoReplyExpected)
+		assert.Empty(t, ep.Sent(), "a primary without the W-bit must not be answered")
+	})
+}
+
 func TestFakeEndpoint_ForwardDataMessage_RecordsVerbatim(t *testing.T) {
 	t.Parallel()
 
