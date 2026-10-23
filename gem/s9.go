@@ -81,5 +81,5 @@ func S9F11(mhead [10]byte) secs2.SECS2Message {
 //
 // Exception: None.
 func S9F13(mexp string, edid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(9, 13, false, secs2.L(secs2.A(mexp), edid))
+	return secs2.NewMessage(9, 13, false, secs2.L(secs2.A(mexp), present(edid, "S9F13 EDID")))
 }

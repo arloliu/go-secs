@@ -12,7 +12,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Exception: None.
 func S2F1(spid string, length secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 1, true, secs2.L(secs2.A(spid), length))
+	return secs2.NewMessage(2, 1, true, secs2.L(secs2.A(spid), present(length, "S2F1 LENGTH")))
 }
 
 // S2F2 creates the S2F2 (Service Program Load Grant) message, direction: bidirectional.
@@ -112,7 +112,7 @@ func S2F9(spid string) secs2.SECS2Message {
 //
 // Exception: A zero-length item means SPR does not exist.
 func S2F10(spr secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 10, false, spr)
+	return secs2.NewMessage(2, 10, false, present(spr, "S2F10 SPR"))
 }
 
 // S2F11 creates the S2F11 (Service Program Directory Request) message, direction: bidirectional.
@@ -146,7 +146,7 @@ func S2F12(spids ...string) secs2.SECS2Message {
 //
 // Exception: A zero-length list means report all ECVs according to a predefined order.
 func S2F13(ecids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 13, true, secs2.L(ecids...))
+	return secs2.NewMessage(2, 13, true, secs2.L(presentEach(ecids, "S2F13 ECIDS")...))
 }
 
 // S2F14 creates the S2F14 (Equipment Constant Data) message, direction: equipment-to-host.
@@ -158,7 +158,7 @@ func S2F13(ecids ...secs2.Item) secs2.SECS2Message {
 // Exception: A zero-length list item for ECVi means that ECIDi does not exist.
 // The list format for this data item is not allowed, except in this case.
 func S2F14(ecvs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 14, false, secs2.L(ecvs...))
+	return secs2.NewMessage(2, 14, false, secs2.L(presentEach(ecvs, "S2F14 ECVS")...))
 }
 
 // S2F15 creates the S2F15 (New Equipment Constant Send) message, direction: host-to-equipment.
@@ -214,7 +214,7 @@ func S2F18(time string) secs2.SECS2Message {
 //
 // Exception: None.
 func S2F19(ric secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 19, true, ric)
+	return secs2.NewMessage(2, 19, true, present(ric, "S2F19 RIC"))
 }
 
 // S2F20 creates the S2F20 (Reset Acknowledge) message, direction: equipment-to-host.
@@ -225,7 +225,7 @@ func S2F19(ric secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S2F20(rac secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 20, false, rac)
+	return secs2.NewMessage(2, 20, false, present(rac, "S2F20 RAC"))
 }
 
 // S2F21 creates the S2F21 (Remote Command Send) message, direction: host-to-equipment.
@@ -237,7 +237,7 @@ func S2F20(rac secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S2F21(rcmd secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 21, true, rcmd)
+	return secs2.NewMessage(2, 21, true, present(rcmd, "S2F21 RCMD"))
 }
 
 // S2F22 creates the S2F22 (Remote Command Acknowledge) message, direction: equipment-to-host.
@@ -248,7 +248,7 @@ func S2F21(rcmd secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S2F22(cmda secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 22, false, cmda)
+	return secs2.NewMessage(2, 22, false, present(cmda, "S2F22 CMDA"))
 }
 
 // S2F23 creates the S2F23 (Trace Initialize Send) message, direction: host-to-equipment.
@@ -265,7 +265,7 @@ func S2F22(cmda secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S2F23(trid secs2.Item, dsper string, totsmp secs2.Item, repgsz secs2.Item, svids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 23, true, secs2.L(trid, secs2.A(dsper), totsmp, repgsz, secs2.L(svids...)))
+	return secs2.NewMessage(2, 23, true, secs2.L(present(trid, "S2F23 TRID"), secs2.A(dsper), present(totsmp, "S2F23 TOTSMP"), present(repgsz, "S2F23 REPGSZ"), secs2.L(presentEach(svids, "S2F23 SVIDS")...)))
 }
 
 // S2F24 creates the S2F24 (Trace Initialize Acknowledge) message, direction: equipment-to-host.
@@ -311,7 +311,7 @@ func S2F26(abs []byte) secs2.SECS2Message {
 // Exception: A zero-length PPID indicates no process program is being specified and the equipment is to take whatever action is appropriate for it to determine the proper program to use.
 // A zero-length MID list indicates no MID is to be associated with the material to be processed.
 func S2F27(loc byte, ppid secs2.Item, mids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 27, true, secs2.L(secs2.B(loc), ppid, secs2.L(mids...)))
+	return secs2.NewMessage(2, 27, true, secs2.L(secs2.B(loc), present(ppid, "S2F27 PPID"), secs2.L(presentEach(mids, "S2F27 MIDS")...)))
 }
 
 // S2F28 creates the S2F28 (Initiate Processing Acknowledge) message, direction: equipment-to-host.
@@ -323,7 +323,7 @@ func S2F27(loc byte, ppid secs2.Item, mids ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S2F28(cmda secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 28, false, cmda)
+	return secs2.NewMessage(2, 28, false, present(cmda, "S2F28 CMDA"))
 }
 
 // S2F29 creates the S2F29 (Equipment Constant Namelist Request) message, direction: host-to-equipment.
@@ -334,7 +334,7 @@ func S2F28(cmda secs2.Item) secs2.SECS2Message {
 //
 // Exception: A zero-length list means send information for all ECIDs.
 func S2F29(ecids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 29, true, secs2.L(ecids...))
+	return secs2.NewMessage(2, 29, true, secs2.L(presentEach(ecids, "S2F29 ECIDS")...))
 }
 
 // S2F30 creates the S2F30 (Equipment Constant Namelist) message, direction: equipment-to-host.
@@ -383,7 +383,7 @@ func S2F32(tiack TIACK) secs2.SECS2Message {
 // Exception: A list of zero length following DATAID deletes all report definitions and associated links (see S2F35).
 // A list of zero length following a RPTID deletes that report type; all CEID links to that RPTID are also deleted.
 func S2F33(dataid secs2.Item, reports ...ReportDefinition) secs2.SECS2Message {
-	return secs2.NewMessage(2, 33, true, secs2.L(dataid, secs2.L(groupItems(reports)...)))
+	return secs2.NewMessage(2, 33, true, secs2.L(present(dataid, "S2F33 DATAID"), secs2.L(groupItems(reports)...)))
 }
 
 // S2F34 creates the S2F34 (Define Report Acknowledge) message, direction: equipment-to-host.
@@ -408,7 +408,7 @@ func S2F34(drack DRACK) secs2.SECS2Message {
 //
 // Exception: A list of zero length following a CEID deletes all report links to that event.
 func S2F35(dataid secs2.Item, events ...EventLink) secs2.SECS2Message {
-	return secs2.NewMessage(2, 35, true, secs2.L(dataid, secs2.L(groupItems(events)...)))
+	return secs2.NewMessage(2, 35, true, secs2.L(present(dataid, "S2F35 DATAID"), secs2.L(groupItems(events)...)))
 }
 
 // S2F36 creates the S2F36 (Link Event Report Acknowledge) message, direction: equipment-to-host.
@@ -432,7 +432,7 @@ func S2F36(lrack LRACK) secs2.SECS2Message {
 //
 // Exception: A list of zero length following CEED means all CEIDs.
 func S2F37(ceed bool, ceids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 37, true, secs2.L(secs2.BOOLEAN(ceed), secs2.L(ceids...)))
+	return secs2.NewMessage(2, 37, true, secs2.L(secs2.BOOLEAN(ceed), secs2.L(presentEach(ceids, "S2F37 CEIDS")...)))
 }
 
 // S2F38 creates the S2F38 (Enable/Disable Event Report Acknowledge) message, direction: equipment-to-host.
@@ -455,7 +455,7 @@ func S2F38(erack ERACK) secs2.SECS2Message {
 //
 // Exception: None.
 func S2F39(dataid secs2.Item, datalength secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 39, true, secs2.L(dataid, datalength))
+	return secs2.NewMessage(2, 39, true, secs2.L(present(dataid, "S2F39 DATAID"), present(datalength, "S2F39 DATALENGTH")))
 }
 
 // S2F40 creates the S2F40 (Multi-block Grant) message, direction: equipment-to-host.
@@ -477,7 +477,7 @@ func S2F40(grant GRANT) secs2.SECS2Message {
 //
 // Exception: None.
 func S2F41(rcmd secs2.Item, params ...CommandParam) secs2.SECS2Message {
-	return secs2.NewMessage(2, 41, true, secs2.L(rcmd, secs2.L(groupItems(params)...)))
+	return secs2.NewMessage(2, 41, true, secs2.L(present(rcmd, "S2F41 RCMD"), secs2.L(groupItems(params)...)))
 }
 
 // S2F42 creates the S2F42 (Host Command Acknowledge) message, direction: equipment-to-host.
@@ -531,7 +531,7 @@ func S2F44(rspack RSPACK, streams ...SpoolStreamAck) secs2.SECS2Message {
 // A zero-length list, n = 0, sets all limit values for that VID to undefined.
 // A zero-length list, p = 0, sets that limit to undefined.
 func S2F45(dataid secs2.Item, variables ...VariableLimits) secs2.SECS2Message {
-	return secs2.NewMessage(2, 45, true, secs2.L(dataid, secs2.L(groupItems(variables)...)))
+	return secs2.NewMessage(2, 45, true, secs2.L(present(dataid, "S2F45 DATAID"), secs2.L(groupItems(variables)...)))
 }
 
 // S2F46 creates the S2F46 (Variable Limit Attribute Acknowledge) message, direction: equipment-to-host.
@@ -557,7 +557,7 @@ func S2F46(vlaack VLAACK, variables ...VariableLimitAck) secs2.SECS2Message {
 //
 // Exception: A zero-length list, m = 0, requests a list of all VID values that can have variable limit attributes.
 func S2F47(vids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 47, true, secs2.L(vids...))
+	return secs2.NewMessage(2, 47, true, secs2.L(presentEach(vids, "S2F47 VIDS")...))
 }
 
 // S2F48 creates the S2F48 (Variable Limit Attributes Send) message, direction: equipment-to-host.
@@ -586,7 +586,7 @@ func S2F48(variables ...VariableLimitAttributes) secs2.SECS2Message {
 // Exception: A zero-length list, m = 0, indicates that no parameter groups are sent with the command.
 // OBJSPEC may be a null-length item.
 func S2F49(body secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 49, true, body)
+	return secs2.NewMessage(2, 49, true, present(body, "S2F49 body"))
 }
 
 // S2F50 creates the S2F50 (Enhanced Remote Command Acknowledge) message, direction: equipment-to-host.
@@ -602,5 +602,5 @@ func S2F49(body secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S2F50(body secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(2, 50, false, body)
+	return secs2.NewMessage(2, 50, false, present(body, "S2F50 body"))
 }

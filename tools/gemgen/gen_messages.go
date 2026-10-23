@@ -94,7 +94,7 @@ func newFuncView(stream int, m Message, b Body, items map[string]Item) funcView 
 	return funcView{
 		Name:    name,
 		Params:  BuildParams(b.Structure, items),
-		Body:    BodyExpr(b.Structure, items),
+		Body:    BodyExpr(b.Structure, items, code),
 		Stream:  stream,
 		Func:    m.Function,
 		WaitBit: b.ReplyExpected,

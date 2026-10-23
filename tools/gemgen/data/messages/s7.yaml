@@ -67,6 +67,7 @@ messages:
         replyExpected: true
         structure: {item: PPID}
 
+  # The Denied variant builds the zero-length list that denies the request.
   - function: 6
     name: Process Program Data
     mnemonic: PPD
@@ -83,6 +84,10 @@ messages:
           minItems: 0
           maxItems: 2
           items: [{item: PPID}, {item: PPBODY}]
+      - actor: both
+        replyExpected: false
+        variant: Denied
+        structure: {type: list, items: []}
 
   - function: 7
     name: Process Program ID Request
@@ -96,6 +101,7 @@ messages:
         replyExpected: true
         structure: {item: MID}
 
+  # The NoSuchMID variant builds the zero-length list that reports no such MID or another error.
   - function: 8
     name: Process Program ID Data
     mnemonic: PID
@@ -112,6 +118,10 @@ messages:
           minItems: 0
           maxItems: 2
           items: [{item: PPID}, {item: MID}]
+      - actor: both
+        replyExpected: false
+        variant: NoSuchMID
+        structure: {type: list, items: []}
 
   - function: 9
     name: M/P M Request
@@ -574,6 +584,7 @@ messages:
         replyExpected: true
         structure: {item: MID}
 
+  # The NoSuchMID variant builds the zero-length list that reports no such MID or another error.
   - function: 36
     name: Process Program for MID Data
     mnemonic: PPMD
@@ -590,6 +601,10 @@ messages:
           minItems: 0
           maxItems: 3
           items: [{item: MID}, {item: PPID}, {item: PPBODY}]
+      - actor: both
+        replyExpected: false
+        variant: NoSuchMID
+        structure: {type: list, items: []}
 
   - function: 37
     name: Large Process Program Send

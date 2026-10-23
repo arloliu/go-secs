@@ -259,7 +259,7 @@ func S19F18(verifysuccess bool, results ...PDEVerifyResult) secs2.SECS2Message {
 //
 // Exception: None.
 func S19F19(datalength secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(19, 19, true, datalength)
+	return secs2.NewMessage(19, 19, true, present(datalength, "S19F19 DATALENGTH"))
 }
 
 // S19F20 creates the S19F20 (RaP Multi-block Grant) message, direction: bidirectional.

@@ -141,7 +141,7 @@ func TestBuildFieldsOptionalLeaves(t *testing.T) {
 		"secs2.L(optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), secs2.A(mdln), "+
 			"secs2.L(secs2.A(softrev), optionalItem(commack, func(v COMMACK) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.B(tsip)), "+
 			"secs2.BOOLEAN(acka))",
-		BodyExpr(structure, items))
+		BodyExpr(structure, items, "S1F1"))
 }
 
 // TestBuildFieldsRejectsUnvalidatedOptional proves the decoder walk refuses an optional leaf validation would have rejected,

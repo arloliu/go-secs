@@ -15,7 +15,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 // If RPTID is a zero-length item, then the equipment shall return a value in RPTID by which the host can then reference the report definition.
 // If RPTID has a value, then the equipment shall retain this value by which the host can then reference the report definition.
 func S17F1(dataid secs2.Item, rptid secs2.Item, datasrc string, vids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 1, true, secs2.L(dataid, rptid, secs2.A(datasrc), secs2.L(vids...)))
+	return secs2.NewMessage(17, 1, true, secs2.L(present(dataid, "S17F1 DATAID"), present(rptid, "S17F1 RPTID"), secs2.A(datasrc), secs2.L(presentEach(vids, "S17F1 VIDS")...)))
 }
 
 // S17F2 creates the S17F2 (Data Report Create Acknowledge) message, direction: equipment-to-host.
@@ -26,7 +26,7 @@ func S17F1(dataid secs2.Item, rptid secs2.Item, datasrc string, vids ...secs2.It
 //
 // Exception: If ERRCODE is a zero-length item, then no error occurred.
 func S17F2(rptid secs2.Item, errcode secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 2, false, secs2.L(rptid, errcode))
+	return secs2.NewMessage(17, 2, false, secs2.L(present(rptid, "S17F2 RPTID"), present(errcode, "S17F2 ERRCODE")))
 }
 
 // S17F3 creates the S17F3 (Data Report Delete Request) message, direction: host-to-equipment.
@@ -39,7 +39,7 @@ func S17F2(rptid secs2.Item, errcode secs2.Item) secs2.SECS2Message {
 //
 // Exception: If this message is sent with a zero-length list, then all reports shall be deleted.
 func S17F3(rptids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 3, true, secs2.L(rptids...))
+	return secs2.NewMessage(17, 3, true, secs2.L(presentEach(rptids, "S17F3 RPTIDS")...))
 }
 
 // S17F4 creates the S17F4 (Data Report Delete Acknowledge) message, direction: equipment-to-host.
@@ -70,7 +70,7 @@ func S17F4(acka bool, errors ...ReportError) secs2.SECS2Message {
 // If the item is zero-length, the format of the item shall be the same format used in other instances of the S17F5 message
 // where the value is not zero-length.
 func S17F5(dataid secs2.Item, trid secs2.Item, ceed bool, rptids []secs2.Item, trsper secs2.Item, totsmp secs2.Item, repgsz secs2.Item, startevntsrc string, startceid secs2.Item, stopevntsrc string, stopceid secs2.Item, trautod *bool, rptoc *bool) secs2.SECS2Message {
-	return secs2.NewMessage(17, 5, true, secs2.L(dataid, trid, secs2.BOOLEAN(ceed), secs2.L(rptids...), trsper, secs2.L(totsmp, repgsz, secs2.A(startevntsrc), startceid, secs2.A(stopevntsrc), stopceid, optionalItem(trautod, func(v bool) secs2.Item { return secs2.BOOLEAN(v) }, secs2.BOOLEAN), optionalItem(rptoc, func(v bool) secs2.Item { return secs2.BOOLEAN(v) }, secs2.BOOLEAN))))
+	return secs2.NewMessage(17, 5, true, secs2.L(present(dataid, "S17F5 DATAID"), present(trid, "S17F5 TRID"), secs2.BOOLEAN(ceed), secs2.L(presentEach(rptids, "S17F5 RPTIDS")...), present(trsper, "S17F5 TRSPER"), secs2.L(present(totsmp, "S17F5 TOTSMP"), present(repgsz, "S17F5 REPGSZ"), secs2.A(startevntsrc), present(startceid, "S17F5 STARTCEID"), secs2.A(stopevntsrc), present(stopceid, "S17F5 STOPCEID"), optionalItem(trautod, func(v bool) secs2.Item { return secs2.BOOLEAN(v) }, secs2.BOOLEAN), optionalItem(rptoc, func(v bool) secs2.Item { return secs2.BOOLEAN(v) }, secs2.BOOLEAN))))
 }
 
 // S17F5Untriggered creates the short form of an S17F5 (Trace Create Request) message, direction: host-to-equipment.
@@ -80,7 +80,7 @@ func S17F5(dataid secs2.Item, trid secs2.Item, ceed bool, rptids []secs2.Item, t
 //
 // Body: L[6]{ <dataid> <trid> BOOLEAN[ceed] L[n]{ <rptids>... } <trsper> L[0]{} }.
 func S17F5Untriggered(dataid secs2.Item, trid secs2.Item, ceed bool, rptids []secs2.Item, trsper secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 5, true, secs2.L(dataid, trid, secs2.BOOLEAN(ceed), secs2.L(rptids...), trsper, secs2.L()))
+	return secs2.NewMessage(17, 5, true, secs2.L(present(dataid, "S17F5 DATAID"), present(trid, "S17F5 TRID"), secs2.BOOLEAN(ceed), secs2.L(presentEach(rptids, "S17F5 RPTIDS")...), present(trsper, "S17F5 TRSPER"), secs2.L()))
 }
 
 // S17F6 creates the S17F6 (Trace Create Acknowledge) message, direction: equipment-to-host.
@@ -91,7 +91,7 @@ func S17F5Untriggered(dataid secs2.Item, trid secs2.Item, ceed bool, rptids []se
 //
 // Exception: If ERRCODE is a zero-length item, then no error occurred.
 func S17F6(trid secs2.Item, errcode secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 6, false, secs2.L(trid, errcode))
+	return secs2.NewMessage(17, 6, false, secs2.L(present(trid, "S17F6 TRID"), present(errcode, "S17F6 ERRCODE")))
 }
 
 // S17F7 creates the S17F7 (Trace Delete Request) message, direction: host-to-equipment.
@@ -102,7 +102,7 @@ func S17F6(trid secs2.Item, errcode secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S17F7(trids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 7, true, secs2.L(trids...))
+	return secs2.NewMessage(17, 7, true, secs2.L(presentEach(trids, "S17F7 TRIDS")...))
 }
 
 // S17F8 creates the S17F8 (Trace Delete Acknowledge) message, direction: equipment-to-host.
@@ -128,7 +128,7 @@ func S17F8(acka bool, errors ...TraceError) secs2.SECS2Message {
 //
 // Exception: None.
 func S17F9(dataid secs2.Item, evntsrc string, ceid secs2.Item, rptids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 9, true, secs2.L(dataid, secs2.A(evntsrc), ceid, secs2.L(rptids...)))
+	return secs2.NewMessage(17, 9, true, secs2.L(present(dataid, "S17F9 DATAID"), secs2.A(evntsrc), present(ceid, "S17F9 CEID"), secs2.L(presentEach(rptids, "S17F9 RPTIDS")...)))
 }
 
 // S17F10 creates the S17F10 (Collection Event Link Acknowledge) message, direction: equipment-to-host.
@@ -139,7 +139,7 @@ func S17F9(dataid secs2.Item, evntsrc string, ceid secs2.Item, rptids ...secs2.I
 //
 // Exception: Item 3 (ERRCODE) should be set to zero length to indicate success.
 func S17F10(evntsrc string, ceid secs2.Item, errcode secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 10, false, secs2.L(secs2.A(evntsrc), ceid, errcode))
+	return secs2.NewMessage(17, 10, false, secs2.L(secs2.A(evntsrc), present(ceid, "S17F10 CEID"), present(errcode, "S17F10 ERRCODE")))
 }
 
 // S17F11 creates the S17F11 (Collection Event Unlink Request) message, direction: host-to-equipment.
@@ -150,7 +150,7 @@ func S17F10(evntsrc string, ceid secs2.Item, errcode secs2.Item) secs2.SECS2Mess
 //
 // Exception: Item one (EVNTSRC) can be zero length, in which case the default event source is assumed.
 func S17F11(evntsrc string, ceid secs2.Item, rptid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 11, true, secs2.L(secs2.A(evntsrc), ceid, rptid))
+	return secs2.NewMessage(17, 11, true, secs2.L(secs2.A(evntsrc), present(ceid, "S17F11 CEID"), present(rptid, "S17F11 RPTID")))
 }
 
 // S17F12 creates the S17F12 (Collection Event Unlink Acknowledge) message, direction: equipment-to-host.
@@ -162,7 +162,7 @@ func S17F11(evntsrc string, ceid secs2.Item, rptid secs2.Item) secs2.SECS2Messag
 // Exception: Item one (EVNTSRC) can be zero length to indicate the default event source.
 // Item 4 (ERRCODE) is set to zero length if the primary request was successful.
 func S17F12(evntsrc string, ceid secs2.Item, rptid secs2.Item, errcode secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 12, false, secs2.L(secs2.A(evntsrc), ceid, rptid, errcode))
+	return secs2.NewMessage(17, 12, false, secs2.L(secs2.A(evntsrc), present(ceid, "S17F12 CEID"), present(rptid, "S17F12 RPTID"), present(errcode, "S17F12 ERRCODE")))
 }
 
 // S17F13 creates the S17F13 (Trace Reset Request) message, direction: host-to-equipment.
@@ -174,7 +174,7 @@ func S17F12(evntsrc string, ceid secs2.Item, rptid secs2.Item, errcode secs2.Ite
 //
 // Exception: None.
 func S17F13(trids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(17, 13, true, secs2.L(trids...))
+	return secs2.NewMessage(17, 13, true, secs2.L(presentEach(trids, "S17F13 TRIDS")...))
 }
 
 // S17F14 creates the S17F14 (Trace Report Reset Acknowledge) message, direction: equipment-to-host.

@@ -27,7 +27,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 // If both i and q = 0, information for all instances of the objects are requested.
 // If a = 0, all attributes are requested.
 func S14F1(objspec string, objtype secs2.Item, objids []secs2.Item, qualifiers []AttributeQualifier, attrids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 1, true, secs2.L(secs2.A(objspec), objtype, secs2.L(objids...), secs2.L(groupItems(qualifiers)...), secs2.L(attrids...)))
+	return secs2.NewMessage(14, 1, true, secs2.L(secs2.A(objspec), present(objtype, "S14F1 OBJTYPE"), secs2.L(presentEach(objids, "S14F1 OBJIDS")...), secs2.L(groupItems(qualifiers)...), secs2.L(presentEach(attrids, "S14F1 ATTRIDS")...)))
 }
 
 // S14F2 creates the S14F2 (GetAttr Data) message, direction: bidirectional.
@@ -54,7 +54,7 @@ func S14F2(objects []ObjectAttributes, objack OBJACK, errors ...ErrorInfo) secs2
 //
 // Exception: If OBJSPEC is a zero-length item, no object specifier is provided.
 func S14F3(objspec string, objtype secs2.Item, objids []secs2.Item, attrs ...Attribute) secs2.SECS2Message {
-	return secs2.NewMessage(14, 3, true, secs2.L(secs2.A(objspec), objtype, secs2.L(objids...), secs2.L(groupItems(attrs)...)))
+	return secs2.NewMessage(14, 3, true, secs2.L(secs2.A(objspec), present(objtype, "S14F3 OBJTYPE"), secs2.L(presentEach(objids, "S14F3 OBJIDS")...), secs2.L(groupItems(attrs)...)))
 }
 
 // S14F4 creates the S14F4 (SetAttr Data) message, direction: bidirectional.
@@ -94,7 +94,7 @@ func S14F5(objspec string) secs2.SECS2Message {
 // Exception: If n = 0, there are no owned object types.
 // If p = 0, no errors were detected.
 func S14F6(objtypes []secs2.Item, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Message {
-	return secs2.NewMessage(14, 6, false, secs2.L(secs2.L(objtypes...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
+	return secs2.NewMessage(14, 6, false, secs2.L(secs2.L(presentEach(objtypes, "S14F6 OBJTYPES")...), secs2.L(secs2.U1(uint8(objack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F7 creates the S14F7 (GetAttrName Request) message, direction: bidirectional.
@@ -107,7 +107,7 @@ func S14F6(objtypes []secs2.Item, objack OBJACK, errors ...ErrorInfo) secs2.SECS
 //
 // Exception: If OBJSPEC is a zero-length item, no object specifier is provided.
 func S14F7(objspec string, objtypes ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 7, true, secs2.L(secs2.A(objspec), secs2.L(objtypes...)))
+	return secs2.NewMessage(14, 7, true, secs2.L(secs2.A(objspec), secs2.L(presentEach(objtypes, "S14F7 OBJTYPES")...)))
 }
 
 // S14F8 creates the S14F8 (GetAttrName Data) message, direction: bidirectional.
@@ -132,7 +132,7 @@ func S14F8(objtypes []ObjectTypeAttributes, objack OBJACK, errors ...ErrorInfo) 
 // Exception: If OBJSPEC is a null-length item, no object specifier is provided.
 // If a = 0, no specific attribute settings are requested for the new object.
 func S14F9(objspec string, objtype secs2.Item, attrs ...Attribute) secs2.SECS2Message {
-	return secs2.NewMessage(14, 9, true, secs2.L(secs2.A(objspec), objtype, secs2.L(groupItems(attrs)...)))
+	return secs2.NewMessage(14, 9, true, secs2.L(secs2.A(objspec), present(objtype, "S14F9 OBJTYPE"), secs2.L(groupItems(attrs)...)))
 }
 
 // S14F10 creates the S14F10 (Create Object Acknowledge) message, direction: bidirectional.
@@ -263,7 +263,7 @@ func S14F18(attrs []Attribute, objack OBJACK, errors ...ErrorInfo) secs2.SECS2Me
 // OBJSPEC can be a null length item if no object providing the service is defined in the referring standards;
 // the "Service Provider" is then handled as if it is an object.
 func S14F19(dataid secs2.Item, opid secs2.Item, objspec string, svcname SVCNAME, params ...ServiceParam) secs2.SECS2Message {
-	return secs2.NewMessage(14, 19, true, secs2.L(dataid, opid, secs2.A(objspec), secs2.A(string(svcname)), secs2.L(groupItems(params)...)))
+	return secs2.NewMessage(14, 19, true, secs2.L(present(dataid, "S14F19 DATAID"), present(opid, "S14F19 OPID"), secs2.A(objspec), secs2.A(string(svcname)), secs2.L(groupItems(params)...)))
 }
 
 // S14F20 creates the S14F20 (Generic Service Acknowledge) message, direction: bidirectional.
@@ -300,7 +300,7 @@ func S14F20(svcack SVCACK, linkid uint32, params []ServiceParam, errsvcack SVCAC
 // Exception: If p = 0, no errors were detected.
 // If n = 0, no parameters are returned.
 func S14F21(dataid secs2.Item, opid secs2.Item, linkid uint32, params []ServiceParam, svcack SVCACK, errors ...ErrorInfo) secs2.SECS2Message {
-	return secs2.NewMessage(14, 21, true, secs2.L(dataid, opid, secs2.U4(linkid), secs2.L(groupItems(params)...), secs2.L(secs2.B(byte(svcack)), secs2.L(groupItems(errors)...))))
+	return secs2.NewMessage(14, 21, true, secs2.L(present(dataid, "S14F21 DATAID"), present(opid, "S14F21 OPID"), secs2.U4(linkid), secs2.L(groupItems(params)...), secs2.L(secs2.B(byte(svcack)), secs2.L(groupItems(errors)...))))
 }
 
 // S14F22 creates the S14F22 (Generic Service Completion Acknowledge) message, direction: bidirectional.
@@ -322,7 +322,7 @@ func S14F22(dataack DATAACK) secs2.SECS2Message {
 //
 // Exception: None.
 func S14F23(dataid secs2.Item, datalength secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 23, true, secs2.L(dataid, datalength))
+	return secs2.NewMessage(14, 23, true, secs2.L(present(dataid, "S14F23 DATAID"), present(datalength, "S14F23 DATALENGTH")))
 }
 
 // S14F24 creates the S14F24 (Multi-block Generic Service Data Grant) message, direction: bidirectional.
@@ -346,7 +346,7 @@ func S14F24(grant GRANT) secs2.SECS2Message {
 //
 // Exception: If OBJSPEC is a zero-length item, no object specifier is provided.
 func S14F25(objspec string, objtypes ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(14, 25, true, secs2.L(secs2.A(objspec), secs2.L(objtypes...)))
+	return secs2.NewMessage(14, 25, true, secs2.L(secs2.A(objspec), secs2.L(presentEach(objtypes, "S14F25 OBJTYPES")...)))
 }
 
 // S14F26 creates the S14F26 (Get Service Name Data) message, direction: bidirectional.
@@ -370,7 +370,7 @@ func S14F26(objtypes []ObjectTypeServices, objack OBJACK, errors ...ErrorInfo) s
 //
 // Exception: If OBJSPEC is a zero-length item, no object specifier is provided.
 func S14F27(objspec string, objtype secs2.Item, svcnames ...SVCNAME) secs2.SECS2Message {
-	return secs2.NewMessage(14, 27, true, secs2.L(secs2.A(objspec), objtype, secs2.L(valueItems(svcnames, func(v SVCNAME) secs2.Item { return secs2.A(string(v)) })...)))
+	return secs2.NewMessage(14, 27, true, secs2.L(secs2.A(objspec), present(objtype, "S14F27 OBJTYPE"), secs2.L(valueItems(svcnames, func(v SVCNAME) secs2.Item { return secs2.A(string(v)) })...)))
 }
 
 // S14F28 creates the S14F28 (Get Service Parameter Name Data) message, direction: bidirectional.

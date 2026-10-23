@@ -143,7 +143,7 @@ func TestRenamedAndNestedOpaqueNodes(t *testing.T) {
 		{Name: "body", Type: "secs2.Item"},
 	}, BuildParams(structure, items))
 
-	require.Equal(t, "secs2.L(secs2.A(mdln), secs2.A(mdlnb), params, secs2.L(body))", BodyExpr(structure, items))
+	require.Equal(t, `secs2.L(secs2.A(mdln), secs2.A(mdlnb), present(params, "S1F2 params"), secs2.L(present(body, "S1F2 body")))`, BodyExpr(structure, items, "S1F2"))
 	require.Equal(t, "L[4]{ A[mdln] A[mdlnb] <params> L[1]{ <body> } }", BodyDoc(structure, items))
 	require.Equal(t, "form-dependent (see description)", BodyDoc(&StructureNode{Type: "opaque"}, items))
 
@@ -210,7 +210,7 @@ func TestAsInsideRepeatIsInert(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, BuildParams(tt.structure, items))
-			require.NotContains(t, BodyExpr(tt.structure, items), "renamed")
+			require.NotContains(t, BodyExpr(tt.structure, items, "S1F1"), "renamed")
 			require.NotContains(t, BodyDoc(tt.structure, items), "renamed")
 
 			fields, err := BuildFields(tt.structure, items)

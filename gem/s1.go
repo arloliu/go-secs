@@ -45,7 +45,7 @@ func S1F2Host() secs2.SECS2Message {
 //
 // Exception: A zero-length list means report all SVIDs.
 func S1F3(svids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 3, true, secs2.L(svids...))
+	return secs2.NewMessage(1, 3, true, secs2.L(presentEach(svids, "S1F3 SVIDS")...))
 }
 
 // S1F4 creates the S1F4 (Selected Equipment Status Data) message, direction: equipment-to-host.
@@ -56,7 +56,7 @@ func S1F3(svids ...secs2.Item) secs2.SECS2Message {
 //
 // Exception: A zero-length list item for an SV means the corresponding SVID does not exist.
 func S1F4(svs ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 4, false, secs2.L(svs...))
+	return secs2.NewMessage(1, 4, false, secs2.L(presentEach(svs, "S1F4 SVS")...))
 }
 
 // S1F5 creates the S1F5 (Formatted Status Request) message, direction: host-to-equipment.
@@ -78,7 +78,7 @@ func S1F5(sfcd byte) secs2.SECS2Message {
 //
 // Exception: A zero-length item means that no report can be made.
 func S1F6(body secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 6, false, body)
+	return secs2.NewMessage(1, 6, false, present(body, "S1F6 body"))
 }
 
 // S1F7 creates the S1F7 (Fixed Form Request) message, direction: host-to-equipment.
@@ -100,7 +100,7 @@ func S1F7(sfcd byte) secs2.SECS2Message {
 //
 // Exception: A zero-length item means the form is unavailable.
 func S1F8(body secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 8, false, body)
+	return secs2.NewMessage(1, 8, false, present(body, "S1F8 body"))
 }
 
 // S1F9 creates the S1F9 (Material Transfer Status Request) message, direction: host-to-equipment.
@@ -134,7 +134,7 @@ func S1F10(tsips []byte, tsops ...byte) secs2.SECS2Message {
 //
 // Exception: A zero-length list means report all SVIDs.
 func S1F11(svids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 11, true, secs2.L(svids...))
+	return secs2.NewMessage(1, 11, true, secs2.L(presentEach(svids, "S1F11 SVIDS")...))
 }
 
 // S1F12 creates the S1F12 (Status Variable Namelist Reply) message, direction: equipment-to-host.
@@ -249,7 +249,7 @@ func S1F18(onlack ONLACK) secs2.SECS2Message {
 // Exception: A zero-length object list (m = 0) requests all objects of the type.
 // A zero-length attribute list (n = 0) requests all attributes.
 func S1F19(objtype secs2.Item, objids []secs2.Item, attrids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 19, true, secs2.L(objtype, secs2.L(objids...), secs2.L(attrids...)))
+	return secs2.NewMessage(1, 19, true, secs2.L(present(objtype, "S1F19 OBJTYPE"), secs2.L(presentEach(objids, "S1F19 OBJIDS")...), secs2.L(presentEach(attrids, "S1F19 ATTRIDS")...)))
 }
 
 // S1F20 creates the S1F20 (Attribute Data) message, direction: bidirectional.
@@ -263,7 +263,7 @@ func S1F19(objtype secs2.Item, objids []secs2.Item, attrids ...secs2.Item) secs2
 // A zero-length ATTRDATA means the attribute does not exist.
 // p = 0 means no errors.
 func S1F20(objects [][]secs2.Item, errors ...ErrorInfo) secs2.SECS2Message {
-	return secs2.NewMessage(1, 20, false, secs2.L(secs2.L(valueItems(objects, func(v []secs2.Item) secs2.Item { return secs2.L(v...) })...), secs2.L(groupItems(errors)...)))
+	return secs2.NewMessage(1, 20, false, secs2.L(secs2.L(indexedItems(objects, func(i0 int, v []secs2.Item) secs2.Item { return secs2.L(presentEach(v, "S1F20 OBJECTS", i0)...) })...), secs2.L(groupItems(errors)...)))
 }
 
 // S1F21 creates the S1F21 (Data Variable Namelist Request) message, direction: host-to-equipment.
@@ -274,7 +274,7 @@ func S1F20(objects [][]secs2.Item, errors ...ErrorInfo) secs2.SECS2Message {
 //
 // Exception: A zero-length list means send information for all data variables.
 func S1F21(vids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 21, true, secs2.L(vids...))
+	return secs2.NewMessage(1, 21, true, secs2.L(presentEach(vids, "S1F21 VIDS")...))
 }
 
 // S1F22 creates the S1F22 (Data Variable Namelist) message, direction: equipment-to-host.
@@ -296,7 +296,7 @@ func S1F22(variables ...DataVariableName) secs2.SECS2Message {
 //
 // Exception: A zero-length list means send information for all CEIDs.
 func S1F23(ceids ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(1, 23, true, secs2.L(ceids...))
+	return secs2.NewMessage(1, 23, true, secs2.L(presentEach(ceids, "S1F23 CEIDS")...))
 }
 
 // S1F24 creates the S1F24 (Collection Event Namelist) message, direction: equipment-to-host.

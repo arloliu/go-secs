@@ -3,8 +3,11 @@
 package gem
 
 import (
+	"errors"
 	"fmt"
 	"math"
+	"reflect"
+	"slices"
 	"strconv"
 
 	"github.com/arloliu/go-secs/v2/secs2"
@@ -494,4 +497,91 @@ func optionalGroupItem[T interface{ Item() secs2.Item }](g *T) secs2.Item {
 	}
 
 	return (*g).Item()
+}
+
+// ErrNilItem is wrapped by the error a builder or a group's Item method puts in place of a nil [secs2.Item],
+// typed nil included.
+// That error names where the nil was, such as "gem: nil item at S6F11 CEID",
+// and the message carries it, so sending the message fails instead of sending a body of the wrong shape.
+// Match it with errors.Is.
+var ErrNilItem = errors.New("gem: nil item")
+
+// isNilLike reports whether item is nil or holds a nil value of a nil-capable kind,
+// such as a typed nil pointer, as secs2 itself treats one.
+func isNilLike(item secs2.Item) bool {
+	if item == nil {
+		return true
+	}
+
+	v := reflect.ValueOf(item)
+	switch v.Kind() { //nolint:exhaustive // only nil-capable kinds may call Value.IsNil
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+// nilItem returns the item sent in place of a nil item:
+// one carrying an error that wraps [ErrNilItem] and names where,
+// followed by an index for each of at.
+func nilItem(where string, at ...int) secs2.Item {
+	buf := []byte(where)
+	for _, i := range at {
+		buf = append(buf, '[')
+		buf = strconv.AppendInt(buf, int64(i), 10)
+		buf = append(buf, ']')
+	}
+
+	return secs2.NewErrorItem(fmt.Errorf("%w at %s", ErrNilItem, buf))
+}
+
+// present returns item, or an item carrying an error that wraps [ErrNilItem] when item is nil,
+// so a nil caller-supplied item fails the send instead of vanishing from its list.
+// where names the item in that error, such as "S6F11 CEID".
+func present(item secs2.Item, where string) secs2.Item {
+	if isNilLike(item) {
+		return nilItem(where)
+	}
+
+	return item
+}
+
+// presentEach returns items with each nil item replaced as [present] replaces it,
+// naming it where followed by its index, after an index for each of at,
+// the indices of the repeats that hold items.
+// It never modifies items:
+// it returns items itself when none is nil, and a copy otherwise.
+func presentEach(items []secs2.Item, where string, at ...int) []secs2.Item {
+	var out []secs2.Item
+
+	for i, item := range items {
+		if !isNilLike(item) {
+			continue
+		}
+
+		if out == nil {
+			out = slices.Clone(items)
+		}
+
+		out[i] = nilItem(where, append(slices.Clone(at), i)...)
+	}
+
+	if out == nil {
+		return items
+	}
+
+	return out
+}
+
+// indexedItems builds one item per value with item, as [valueItems] does,
+// passing item each value's index as well,
+// for a repeat of repeats whose items name their place in errors.
+func indexedItems[T any](values []T, item func(int, T) secs2.Item) []secs2.Item {
+	items := make([]secs2.Item, len(values))
+	for i, v := range values {
+		items[i] = item(i, v)
+	}
+
+	return items
 }

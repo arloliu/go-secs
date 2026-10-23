@@ -17,7 +17,7 @@ import "github.com/arloliu/go-secs/v2/secs2"
 //
 // Exception: None.
 func S12F1(mid secs2.Item, idtyp IDTYP, fnloc *uint16, ffrot *uint16, orloc *ORLOC, rpsel uint8, refps []secs2.Item, dutms string, xdies secs2.Item, ydies secs2.Item, rowct secs2.Item, colct secs2.Item, nulbc secs2.Item, prdct secs2.Item, praxi PRAXI) secs2.SECS2Message {
-	return secs2.NewMessage(12, 1, true, secs2.L(mid, secs2.B(byte(idtyp)), optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(ffrot, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(orloc, func(v ORLOC) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.U1(rpsel), secs2.L(refps...), secs2.A(dutms), xdies, ydies, rowct, colct, nulbc, prdct, secs2.B(byte(praxi))))
+	return secs2.NewMessage(12, 1, true, secs2.L(present(mid, "S12F1 MID"), secs2.B(byte(idtyp)), optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(ffrot, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(orloc, func(v ORLOC) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.U1(rpsel), secs2.L(presentEach(refps, "S12F1 REFPS")...), secs2.A(dutms), present(xdies, "S12F1 XDIES"), present(ydies, "S12F1 YDIES"), present(rowct, "S12F1 ROWCT"), present(colct, "S12F1 COLCT"), present(nulbc, "S12F1 NULBC"), present(prdct, "S12F1 PRDCT"), secs2.B(byte(praxi))))
 }
 
 // S12F2 creates the S12F2 (Map Set-up Data Acknowledge) message, direction: host-to-equipment.
@@ -44,7 +44,7 @@ func S12F2(sdack SDACK) secs2.SECS2Message {
 //
 // Exception: None.
 func S12F3(mid secs2.Item, idtyp IDTYP, mapft MAPFT, fnloc *uint16, ffrot *uint16, orloc *ORLOC, praxi PRAXI, bcequ secs2.Item, nulbc secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 3, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.B(byte(mapft)), optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(ffrot, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(orloc, func(v ORLOC) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.B(byte(praxi)), bcequ, nulbc))
+	return secs2.NewMessage(12, 3, true, secs2.L(present(mid, "S12F3 MID"), secs2.B(byte(idtyp)), secs2.B(byte(mapft)), optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(ffrot, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(orloc, func(v ORLOC) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.B(byte(praxi)), present(bcequ, "S12F3 BCEQU"), present(nulbc, "S12F3 NULBC")))
 }
 
 // S12F4 creates the S12F4 (Map Set-up Data) message, direction: host-to-equipment.
@@ -58,7 +58,7 @@ func S12F3(mid secs2.Item, idtyp IDTYP, mapft MAPFT, fnloc *uint16, ffrot *uint1
 //
 // Exception: A zero-length list returned means no such MID.
 func S12F4(mid secs2.Item, idtyp IDTYP, fnloc *uint16, orloc *ORLOC, rpsel uint8, refps []secs2.Item, dutms string, xdies secs2.Item, ydies secs2.Item, rowct secs2.Item, colct secs2.Item, prdct secs2.Item, bcequ secs2.Item, nulbc secs2.Item, mlcl secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 4, false, secs2.L(mid, secs2.B(byte(idtyp)), optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(orloc, func(v ORLOC) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.U1(rpsel), secs2.L(refps...), secs2.A(dutms), xdies, ydies, rowct, colct, prdct, bcequ, nulbc, mlcl))
+	return secs2.NewMessage(12, 4, false, secs2.L(present(mid, "S12F4 MID"), secs2.B(byte(idtyp)), optionalItem(fnloc, func(v uint16) secs2.Item { return secs2.U2(v) }, secs2.U2), optionalItem(orloc, func(v ORLOC) secs2.Item { return secs2.B(byte(v)) }, secs2.B), secs2.U1(rpsel), secs2.L(presentEach(refps, "S12F4 REFPS")...), secs2.A(dutms), present(xdies, "S12F4 XDIES"), present(ydies, "S12F4 YDIES"), present(rowct, "S12F4 ROWCT"), present(colct, "S12F4 COLCT"), present(prdct, "S12F4 PRDCT"), present(bcequ, "S12F4 BCEQU"), present(nulbc, "S12F4 NULBC"), present(mlcl, "S12F4 MLCL")))
 }
 
 // S12F5 creates the S12F5 (Map Transmit Inquire) message, direction: equipment-to-host.
@@ -70,7 +70,7 @@ func S12F4(mid secs2.Item, idtyp IDTYP, fnloc *uint16, orloc *ORLOC, rpsel uint8
 //
 // Exception: None.
 func S12F5(mid secs2.Item, idtyp IDTYP, mapft MAPFT, mlcl secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 5, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.B(byte(mapft)), mlcl))
+	return secs2.NewMessage(12, 5, true, secs2.L(present(mid, "S12F5 MID"), secs2.B(byte(idtyp)), secs2.B(byte(mapft)), present(mlcl, "S12F5 MLCL")))
 }
 
 // S12F6 creates the S12F6 (Map Transmit Grant) message, direction: host-to-equipment.
@@ -93,7 +93,7 @@ func S12F6(grnt1 GRNT1) secs2.SECS2Message {
 //
 // Exception: None.
 func S12F7(mid secs2.Item, idtyp IDTYP, rows ...MapRow) secs2.SECS2Message {
-	return secs2.NewMessage(12, 7, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(groupItems(rows)...)))
+	return secs2.NewMessage(12, 7, true, secs2.L(present(mid, "S12F7 MID"), secs2.B(byte(idtyp)), secs2.L(groupItems(rows)...)))
 }
 
 // S12F8 creates the S12F8 (Map Data Acknowledge Type 1) message, direction: host-to-equipment.
@@ -116,7 +116,7 @@ func S12F8(mdack MDACK) secs2.SECS2Message {
 //
 // Exception: None.
 func S12F9(mid secs2.Item, idtyp IDTYP, strp secs2.Item, binlt secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 9, true, secs2.L(mid, secs2.B(byte(idtyp)), strp, binlt))
+	return secs2.NewMessage(12, 9, true, secs2.L(present(mid, "S12F9 MID"), secs2.B(byte(idtyp)), present(strp, "S12F9 STRP"), present(binlt, "S12F9 BINLT")))
 }
 
 // S12F10 creates the S12F10 (Map Data Acknowledge Type 2) message, direction: host-to-equipment.
@@ -140,7 +140,7 @@ func S12F10(mdack MDACK) secs2.SECS2Message {
 //
 // Exception: None.
 func S12F11(mid secs2.Item, idtyp IDTYP, positions ...MapPosition) secs2.SECS2Message {
-	return secs2.NewMessage(12, 11, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(groupItems(positions)...)))
+	return secs2.NewMessage(12, 11, true, secs2.L(present(mid, "S12F11 MID"), secs2.B(byte(idtyp)), secs2.L(groupItems(positions)...)))
 }
 
 // S12F12 creates the S12F12 (Map Data Acknowledge Type 3) message, direction: host-to-equipment.
@@ -162,7 +162,7 @@ func S12F12(mdack MDACK) secs2.SECS2Message {
 //
 // Exception: None.
 func S12F13(mid secs2.Item, idtyp IDTYP) secs2.SECS2Message {
-	return secs2.NewMessage(12, 13, true, secs2.L(mid, secs2.B(byte(idtyp))))
+	return secs2.NewMessage(12, 13, true, secs2.L(present(mid, "S12F13 MID"), secs2.B(byte(idtyp))))
 }
 
 // S12F14 creates the S12F14 (Map Data Type 1) message, direction: host-to-equipment.
@@ -173,7 +173,7 @@ func S12F13(mid secs2.Item, idtyp IDTYP) secs2.SECS2Message {
 //
 // Exception: None.
 func S12F14(mid secs2.Item, idtyp IDTYP, rows ...MapRow) secs2.SECS2Message {
-	return secs2.NewMessage(12, 14, false, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(groupItems(rows)...)))
+	return secs2.NewMessage(12, 14, false, secs2.L(present(mid, "S12F14 MID"), secs2.B(byte(idtyp)), secs2.L(groupItems(rows)...)))
 }
 
 // S12F15 creates the S12F15 (Map Data Request Type 2) message, direction: equipment-to-host.
@@ -184,7 +184,7 @@ func S12F14(mid secs2.Item, idtyp IDTYP, rows ...MapRow) secs2.SECS2Message {
 //
 // Exception: None.
 func S12F15(mid secs2.Item, idtyp IDTYP) secs2.SECS2Message {
-	return secs2.NewMessage(12, 15, true, secs2.L(mid, secs2.B(byte(idtyp))))
+	return secs2.NewMessage(12, 15, true, secs2.L(present(mid, "S12F15 MID"), secs2.B(byte(idtyp))))
 }
 
 // S12F16 creates the S12F16 (Map Data Type 2) message, direction: host-to-equipment.
@@ -195,7 +195,7 @@ func S12F15(mid secs2.Item, idtyp IDTYP) secs2.SECS2Message {
 //
 // Exception: A zero-length list returned means no such MID.
 func S12F16(mid secs2.Item, idtyp IDTYP, strp secs2.Item, binlt secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(12, 16, false, secs2.L(mid, secs2.B(byte(idtyp)), strp, binlt))
+	return secs2.NewMessage(12, 16, false, secs2.L(present(mid, "S12F16 MID"), secs2.B(byte(idtyp)), present(strp, "S12F16 STRP"), present(binlt, "S12F16 BINLT")))
 }
 
 // S12F17 creates the S12F17 (Map Data Request Type 3) message, direction: equipment-to-host.
@@ -206,7 +206,7 @@ func S12F16(mid secs2.Item, idtyp IDTYP, strp secs2.Item, binlt secs2.Item) secs
 //
 // Exception: None.
 func S12F17(mid secs2.Item, idtyp IDTYP, sdbin SDBIN) secs2.SECS2Message {
-	return secs2.NewMessage(12, 17, true, secs2.L(mid, secs2.B(byte(idtyp)), secs2.B(byte(sdbin))))
+	return secs2.NewMessage(12, 17, true, secs2.L(present(mid, "S12F17 MID"), secs2.B(byte(idtyp)), secs2.B(byte(sdbin))))
 }
 
 // S12F18 creates the S12F18 (Map Data Type 3) message, direction: host-to-equipment.
@@ -218,7 +218,7 @@ func S12F17(mid secs2.Item, idtyp IDTYP, sdbin SDBIN) secs2.SECS2Message {
 //
 // Exception: A zero-length list returned means no such MID.
 func S12F18(mid secs2.Item, idtyp IDTYP, positions ...MapPosition) secs2.SECS2Message {
-	return secs2.NewMessage(12, 18, false, secs2.L(mid, secs2.B(byte(idtyp)), secs2.L(groupItems(positions)...)))
+	return secs2.NewMessage(12, 18, false, secs2.L(present(mid, "S12F18 MID"), secs2.B(byte(idtyp)), secs2.L(groupItems(positions)...)))
 }
 
 // S12F19 creates the S12F19 (Map Error Report Send) message, direction: bidirectional.

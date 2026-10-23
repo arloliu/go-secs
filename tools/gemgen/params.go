@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -47,20 +49,8 @@ func BuildParams(n *StructureNode, items map[string]Item) []Param {
 		}
 
 		switch n.Kind() {
-		case "leaf":
-			it := items[n.Item]
-			typ := "secs2.Item"
-			if it.Binding == BindingFixed {
-				typ = fixedGoType(n.Item, it)
-			}
-			if n.Optional {
-				typ = "*" + typ // nil sends the zero-length item
-			}
-			out = append(out, Param{Name: nodeNames(n).Param, Type: typ})
-		case "opaque":
-			out = append(out, Param{Name: nodeNames(n).Param, Type: "secs2.Item"})
-		case "group":
-			out = append(out, Param{Name: nodeNames(n).Param, Type: elemType(n, items)})
+		case "leaf", "opaque", "group":
+			out = append(out, Param{Name: nodeNames(n).Param, Type: paramType(n, items)})
 		default: // list
 			if n.Repeat != "" {
 				out = append(out, Param{Name: nodeNames(n).Param, Type: elemType(n.Of, items), Repeat: true})
@@ -89,44 +79,53 @@ func BuildParams(n *StructureNode, items map[string]Item) []Param {
 	return out
 }
 
-// BodyExpr renders the secs2 expression that builds a message body from the
-// generated parameters. A bare leaf or opaque top-level node is used directly
-// (not wrapped in secs2.L). Enum-typed fixed leaves are converted back to their
-// underlying goType at the constructor call site so the value satisfies the
-// exact-type switch inside the secs2 combiners.
-func BodyExpr(n *StructureNode, items map[string]Item) string {
+// BodyExpr renders the secs2 expression that builds a message body from the generated parameters.
+// A bare leaf or opaque top-level node is used directly (not wrapped in secs2.L).
+// Enum-typed fixed leaves are converted back to their underlying goType at the constructor call site,
+// so the value satisfies the exact-type switch inside the secs2 combiners.
+// Each caller-supplied secs2.Item goes through present or presentEach,
+// which name it after code, the message's SxFy, and its decode label, such as "S6F11 CEID".
+func BodyExpr(n *StructureNode, items map[string]Item, code string) string {
 	if n == nil {
 		return "secs2.NewEmptyItem()"
 	}
 
-	return nodeExpr(n, items, func(n *StructureNode) string { return nodeNames(n).Param })
+	return nodeExpr(n, items,
+		func(n *StructureNode) string { return nodeNames(n).Param },
+		func(n *StructureNode) string { return code + " " + nodeNames(n).Label })
 }
+
+// itemType is the Go type of a caller-supplied item that the generated code sends as given,
+// and so must check for nil.
+const itemType = "secs2.Item"
 
 // nodeExpr renders the secs2 expression that builds the node n,
 // reading the value of each leaf, opaque node, repeat, packed group, and group reference from ref(node):
 // a builder parameter for a message body, a struct field for a group.
-func nodeExpr(n *StructureNode, items map[string]Item, ref func(*StructureNode) string) string {
+// A value of type secs2.Item, or a slice of them, goes through present or presentEach,
+// which replace a nil item with one carrying an error that names it where(node).
+func nodeExpr(n *StructureNode, items map[string]Item, ref func(*StructureNode) string, where func(*StructureNode) string) string {
 	switch n.Kind() {
 	case "leaf":
+		if paramType(n, items) == itemType {
+			return fmt.Sprintf("present(%s, %q)", ref(n), where(n))
+		}
+
 		it := items[n.Item]
 		if n.Optional {
 			// Nil is sent as the zero-length item of the leaf's format, e.g. secs2.U4().
 			return fmt.Sprintf("optionalItem(%s, %s, secs2.%s)", ref(n), valueItemFunc(n.Item, it), it.Formats[0])
 		}
 
-		if it.Binding == BindingFixed {
-			return fixedItemExpr(it, ref(n))
-		}
-
-		return ref(n)
+		return fixedItemExpr(it, ref(n))
 	case "opaque":
-		return ref(n)
+		return fmt.Sprintf("present(%s, %q)", ref(n), where(n))
 	case "group":
 		// Only an optional reference sits outside a repeat: nil is sent as L[0].
 		return fmt.Sprintf("optionalGroupItem(%s)", ref(n))
 	default: // list
 		if n.Repeat != "" {
-			return fmt.Sprintf("secs2.L(%s...)", elemItems(n.Of, items, ref(n)))
+			return fmt.Sprintf("secs2.L(%s...)", elemItems(n.Of, items, ref(n), where(n), nil))
 		}
 		if n.Packed != "" {
 			// Packed group: call the underlying item's own constructor directly -- NEVER
@@ -137,7 +136,7 @@ func nodeExpr(n *StructureNode, items map[string]Item, ref func(*StructureNode) 
 
 		parts := make([]string, len(n.Items))
 		for i := range n.Items {
-			parts[i] = nodeExpr(&n.Items[i], items, ref)
+			parts[i] = nodeExpr(&n.Items[i], items, ref, where)
 		}
 
 		return "secs2.L(" + strings.Join(parts, ", ") + ")"
@@ -150,31 +149,47 @@ func nodeExpr(n *StructureNode, items map[string]Item, ref func(*StructureNode) 
 // groups through their Item methods,
 // optional groups through optionalGroupItem,
 // and a repeat's slices each into a list of their own.
-// A slice of secs2 items is already that.
-func elemItems(of *StructureNode, items map[string]Item, arg string) string {
+// A slice of secs2 items is already that,
+// but goes through presentEach, which replaces each nil item with one carrying an error
+// that names it where, followed by the indices at of the enclosing repeats' elements and its own index.
+// A repeat of repeats that holds secs2 items passes each element's index on through indexedItems.
+func elemItems(of *StructureNode, items map[string]Item, arg string, where string, at []string) string {
+	if elemType(of, items) == itemType {
+		return fmt.Sprintf("presentEach(%s)", strings.Join(slices.Concat([]string{arg, strconv.Quote(where)}, at), ", "))
+	}
+
 	switch of.Kind() {
 	case "leaf":
-		if it, ok := valueLeafItem(of, items); ok {
-			return fmt.Sprintf("valueItems(%s, %s)", arg, valueItemFunc(of.Item, it))
-		}
+		it, _ := valueLeafItem(of, items) // elemType is secs2.Item for any other leaf
 
-		return arg
-	case "opaque":
-		return arg
+		return fmt.Sprintf("valueItems(%s, %s)", arg, valueItemFunc(of.Item, it))
 	case "group":
 		if of.Optional {
 			return fmt.Sprintf("valueItems(%s, optionalGroupItem[%s])", arg, of.Group)
 		}
 
 		return fmt.Sprintf("groupItems(%s)", arg)
-	default: // list
-		if of.Repeat == "" {
-			return arg // elemType makes any other list a secs2.Item
+	default: // list: elemType makes an opaque node or any list but a repeat a secs2.Item
+		if holdsItems(of.Of, items) {
+			index := fmt.Sprintf("i%d", len(at))
+
+			return fmt.Sprintf("indexedItems(%s, func(%s int, v %s) secs2.Item { return secs2.L(%s...) })",
+				arg, index, elemType(of, items), elemItems(of.Of, items, "v", where, slices.Concat(at, []string{index})))
 		}
 
 		return fmt.Sprintf("valueItems(%s, func(v %s) secs2.Item { return secs2.L(%s...) })",
-			arg, elemType(of, items), elemItems(of.Of, items, "v"))
+			arg, elemType(of, items), elemItems(of.Of, items, "v", where, at))
 	}
+}
+
+// holdsItems reports whether the elements of a repeat whose of is of are secs2 items,
+// directly or through repeats of repeats.
+func holdsItems(of *StructureNode, items map[string]Item) bool {
+	if elemType(of, items) == itemType {
+		return true
+	}
+
+	return of.Kind() == "list" && of.Repeat != "" && holdsItems(of.Of, items)
 }
 
 // fixedItemExpr renders the secs2 expression that builds one item of the fixed item it
@@ -290,7 +305,8 @@ func nodeDoc(n *StructureNode, items map[string]Item) string {
 // A repeat or packed node keeps its repeat:/packed: name as the parameter,
 // verbatim, and upper-cases it for the field.
 // A group reference is named after its group, unless it sets as:.
-// Decode errors report the field name, except for an opaque node,
+// Decode errors and the errors a nil secs2.Item makes a send fail with report the label:
+// the field name, except for an opaque node,
 // which has no E5 item name and reports its parameter name.
 func nodeNames(n *StructureNode) emittedName {
 	var param, field string
@@ -342,6 +358,31 @@ func valueLeafItem(n *StructureNode, items map[string]Item) (Item, bool) {
 	}
 
 	return it, true
+}
+
+// paramType returns the Go type of a leaf, opaque node, or group reference outside a repeat,
+// as a builder parameter or a group field:
+// a fixed leaf's [fixedGoType], secs2.Item for an open leaf or an opaque node,
+// a pointer to the fixed type for an optional leaf, always a fixed one, which nil sends as the zero-length item,
+// and [elemType] for a group reference.
+func paramType(n *StructureNode, items map[string]Item) string {
+	switch n.Kind() {
+	case "leaf":
+		typ := itemType
+		if it := items[n.Item]; it.Binding == BindingFixed {
+			typ = fixedGoType(n.Item, it)
+		}
+
+		if n.Optional {
+			typ = "*" + typ
+		}
+
+		return typ
+	case "group":
+		return elemType(n, items)
+	default: // opaque
+		return itemType
+	}
 }
 
 // elemType returns the Go type of one element of a repeat whose of is n,

@@ -13,9 +13,9 @@ type ErrorInfo struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ErrorInfo) Item() secs2.Item {
-	return secs2.L(g.ERRCODE, secs2.A(g.ERRTEXT))
+	return secs2.L(present(g.ERRCODE, "ErrorInfo.ERRCODE"), secs2.A(g.ERRTEXT))
 }
 
 // decodeErrorInfo decodes one [ErrorInfo] from the list at c, with the decode options cfg, naming field in its errors.
@@ -48,9 +48,9 @@ type Attribute struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g Attribute) Item() secs2.Item {
-	return secs2.L(g.ATTRID, g.ATTRDATA)
+	return secs2.L(present(g.ATTRID, "Attribute.ATTRID"), present(g.ATTRDATA, "Attribute.ATTRDATA"))
 }
 
 // decodeAttribute decodes one [Attribute] from the list at c, with the decode options cfg, naming field in its errors.
@@ -83,9 +83,9 @@ type RecipeAttribute struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g RecipeAttribute) Item() secs2.Item {
-	return secs2.L(secs2.A(g.RCPATTRID), g.RCPATTRDATA)
+	return secs2.L(secs2.A(g.RCPATTRID), present(g.RCPATTRDATA, "RecipeAttribute.RCPATTRDATA"))
 }
 
 // decodeRecipeAttribute decodes one [RecipeAttribute] from the list at c, with the decode options cfg, naming field in its errors.
@@ -118,9 +118,9 @@ type CommandParam struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g CommandParam) Item() secs2.Item {
-	return secs2.L(g.CPNAME, g.CPVAL)
+	return secs2.L(present(g.CPNAME, "CommandParam.CPNAME"), present(g.CPVAL, "CommandParam.CPVAL"))
 }
 
 // decodeCommandParam decodes one [CommandParam] from the list at c, with the decode options cfg, naming field in its errors.
@@ -153,9 +153,9 @@ type Report struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g Report) Item() secs2.Item {
-	return secs2.L(g.RPTID, secs2.L(g.VALUES...))
+	return secs2.L(present(g.RPTID, "Report.RPTID"), secs2.L(presentEach(g.VALUES, "Report.VALUES")...))
 }
 
 // decodeReport decodes one [Report] from the list at c, with the decode options cfg, naming field in its errors.
@@ -190,9 +190,9 @@ type ProgramMaterials struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ProgramMaterials) Item() secs2.Item {
-	return secs2.L(g.PPID, secs2.L(g.MIDS...))
+	return secs2.L(present(g.PPID, "ProgramMaterials.PPID"), secs2.L(presentEach(g.MIDS, "ProgramMaterials.MIDS")...))
 }
 
 // decodeProgramMaterials decodes one [ProgramMaterials] from the list at c, with the decode options cfg, naming field in its errors.
@@ -227,9 +227,9 @@ type ProcessCommand struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ProcessCommand) Item() secs2.Item {
-	return secs2.L(g.CCODE, secs2.L(g.PARAMETERS...))
+	return secs2.L(present(g.CCODE, "ProcessCommand.CCODE"), secs2.L(presentEach(g.PARAMETERS, "ProcessCommand.PARAMETERS")...))
 }
 
 // decodeProcessCommand decodes one [ProcessCommand] from the list at c, with the decode options cfg, naming field in its errors.
@@ -264,9 +264,9 @@ type ServiceParam struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ServiceParam) Item() secs2.Item {
-	return secs2.L(secs2.A(g.SPNAME), g.SPVAL)
+	return secs2.L(secs2.A(g.SPNAME), present(g.SPVAL, "ServiceParam.SPVAL"))
 }
 
 // decodeServiceParam decodes one [ServiceParam] from the list at c, with the decode options cfg, naming field in its errors.
@@ -299,9 +299,9 @@ type RecipeParam struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g RecipeParam) Item() secs2.Item {
-	return secs2.L(secs2.A(g.RCPPARNM), g.RCPPARVAL)
+	return secs2.L(secs2.A(g.RCPPARNM), present(g.RCPPARVAL, "RecipeParam.RCPPARVAL"))
 }
 
 // decodeRecipeParam decodes one [RecipeParam] from the list at c, with the decode options cfg, naming field in its errors.
@@ -336,7 +336,7 @@ type PDEReference struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PDEReference) Item() secs2.Item {
 	return secs2.L(secs2.A(g.PDEREF), secs2.A(g.RESOLUTION))
 }
@@ -373,9 +373,9 @@ type PortActionParam struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PortActionParam) Item() secs2.Item {
-	return secs2.L(secs2.A(g.PARAMNAME), g.PARAMVAL)
+	return secs2.L(secs2.A(g.PARAMNAME), present(g.PARAMVAL, "PortActionParam.PARAMVAL"))
 }
 
 // decodePortActionParam decodes one [PortActionParam] from the list at c, with the decode options cfg, naming field in its errors.
@@ -412,9 +412,9 @@ type Alarm struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g Alarm) Item() secs2.Item {
-	return secs2.L(optionalItem(g.ALCD, func(v ALCD) secs2.Item { return secs2.B(byte(v)) }, secs2.B), g.ALID, secs2.A(g.ALTX))
+	return secs2.L(optionalItem(g.ALCD, func(v ALCD) secs2.Item { return secs2.B(byte(v)) }, secs2.B), present(g.ALID, "Alarm.ALID"), secs2.A(g.ALTX))
 }
 
 // decodeAlarm decodes one [Alarm] from the list at c, with the decode options cfg, naming field in its errors.
@@ -453,9 +453,9 @@ type DataValue struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g DataValue) Item() secs2.Item {
-	return secs2.L(g.DVNAME, g.DVVAL)
+	return secs2.L(present(g.DVNAME, "DataValue.DVNAME"), present(g.DVVAL, "DataValue.DVVAL"))
 }
 
 // decodeDataValue decodes one [DataValue] from the list at c, with the decode options cfg, naming field in its errors.
@@ -490,9 +490,9 @@ type DataSet struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g DataSet) Item() secs2.Item {
-	return secs2.L(g.DSID, secs2.L(groupItems(g.VALUES)...))
+	return secs2.L(present(g.DSID, "DataSet.DSID"), secs2.L(groupItems(g.VALUES)...))
 }
 
 // decodeDataSet decodes one [DataSet] from the list at c, with the decode options cfg, naming field in its errors.
@@ -527,9 +527,9 @@ type DataSetValues struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g DataSetValues) Item() secs2.Item {
-	return secs2.L(g.DSID, secs2.L(g.VALUES...))
+	return secs2.L(present(g.DSID, "DataSetValues.DSID"), secs2.L(presentEach(g.VALUES, "DataSetValues.VALUES")...))
 }
 
 // decodeDataSetValues decodes one [DataSetValues] from the list at c, with the decode options cfg, naming field in its errors.
@@ -564,9 +564,9 @@ type VariableValue struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g VariableValue) Item() secs2.Item {
-	return secs2.L(g.VID, g.V)
+	return secs2.L(present(g.VID, "VariableValue.VID"), present(g.V, "VariableValue.V"))
 }
 
 // decodeVariableValue decodes one [VariableValue] from the list at c, with the decode options cfg, naming field in its errors.
@@ -601,9 +601,9 @@ type AnnotatedReport struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g AnnotatedReport) Item() secs2.Item {
-	return secs2.L(g.RPTID, secs2.L(groupItems(g.VALUES)...))
+	return secs2.L(present(g.RPTID, "AnnotatedReport.RPTID"), secs2.L(groupItems(g.VALUES)...))
 }
 
 // decodeAnnotatedReport decodes one [AnnotatedReport] from the list at c, with the decode options cfg, naming field in its errors.
@@ -638,9 +638,9 @@ type MapRow struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g MapRow) Item() secs2.Item {
-	return secs2.L(g.RSINF, g.BINLT)
+	return secs2.L(present(g.RSINF, "MapRow.RSINF"), present(g.BINLT, "MapRow.BINLT"))
 }
 
 // decodeMapRow decodes one [MapRow] from the list at c, with the decode options cfg, naming field in its errors.
@@ -675,9 +675,9 @@ type MapPosition struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g MapPosition) Item() secs2.Item {
-	return secs2.L(g.XYPOS, g.BINLT)
+	return secs2.L(present(g.XYPOS, "MapPosition.XYPOS"), present(g.BINLT, "MapPosition.BINLT"))
 }
 
 // decodeMapPosition decodes one [MapPosition] from the list at c, with the decode options cfg, naming field in its errors.
@@ -712,9 +712,9 @@ type ObjectAttributes struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ObjectAttributes) Item() secs2.Item {
-	return secs2.L(g.OBJID, secs2.L(groupItems(g.ATTRS)...))
+	return secs2.L(present(g.OBJID, "ObjectAttributes.OBJID"), secs2.L(groupItems(g.ATTRS)...))
 }
 
 // decodeObjectAttributes decodes one [ObjectAttributes] from the list at c, with the decode options cfg, naming field in its errors.
@@ -750,9 +750,9 @@ type TraceError struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g TraceError) Item() secs2.Item {
-	return secs2.L(g.TRID, g.ERRCODE, secs2.A(g.ERRTEXT))
+	return secs2.L(present(g.TRID, "TraceError.TRID"), present(g.ERRCODE, "TraceError.ERRCODE"), secs2.A(g.ERRTEXT))
 }
 
 // decodeTraceError decodes one [TraceError] from the list at c, with the decode options cfg, naming field in its errors.
@@ -792,9 +792,9 @@ type ReportError struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ReportError) Item() secs2.Item {
-	return secs2.L(g.RPTID, g.ERRCODE, secs2.A(g.ERRTEXT))
+	return secs2.L(present(g.RPTID, "ReportError.RPTID"), present(g.ERRCODE, "ReportError.ERRCODE"), secs2.A(g.ERRTEXT))
 }
 
 // decodeReportError decodes one [ReportError] from the list at c, with the decode options cfg, naming field in its errors.
@@ -834,9 +834,9 @@ type PortError struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PortError) Item() secs2.Item {
-	return secs2.L(g.PTN, g.ERRCODE, secs2.A(g.ERRTEXT))
+	return secs2.L(present(g.PTN, "PortError.PTN"), present(g.ERRCODE, "PortError.ERRCODE"), secs2.A(g.ERRTEXT))
 }
 
 // decodePortError decodes one [PortError] from the list at c, with the decode options cfg, naming field in its errors.
@@ -876,9 +876,9 @@ type StatusVariableName struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g StatusVariableName) Item() secs2.Item {
-	return secs2.L(g.SVID, secs2.A(g.SVNAME), secs2.A(g.UNITS))
+	return secs2.L(present(g.SVID, "StatusVariableName.SVID"), secs2.A(g.SVNAME), secs2.A(g.UNITS))
 }
 
 // decodeStatusVariableName decodes one [StatusVariableName] from the list at c, with the decode options cfg, naming field in its errors.
@@ -918,9 +918,9 @@ type DataVariableName struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g DataVariableName) Item() secs2.Item {
-	return secs2.L(g.VID, secs2.A(g.DVVALNAME), secs2.A(g.UNITS))
+	return secs2.L(present(g.VID, "DataVariableName.VID"), secs2.A(g.DVVALNAME), secs2.A(g.UNITS))
 }
 
 // decodeDataVariableName decodes one [DataVariableName] from the list at c, with the decode options cfg, naming field in its errors.
@@ -960,9 +960,9 @@ type CollectionEventName struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g CollectionEventName) Item() secs2.Item {
-	return secs2.L(g.CEID, secs2.A(g.CENAME), secs2.L(g.VIDS...))
+	return secs2.L(present(g.CEID, "CollectionEventName.CEID"), secs2.A(g.CENAME), secs2.L(presentEach(g.VIDS, "CollectionEventName.VIDS")...))
 }
 
 // decodeCollectionEventName decodes one [CollectionEventName] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1001,9 +1001,9 @@ type ConstantValue struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ConstantValue) Item() secs2.Item {
-	return secs2.L(g.ECID, g.ECV)
+	return secs2.L(present(g.ECID, "ConstantValue.ECID"), present(g.ECV, "ConstantValue.ECV"))
 }
 
 // decodeConstantValue decodes one [ConstantValue] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1042,9 +1042,9 @@ type ConstantName struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ConstantName) Item() secs2.Item {
-	return secs2.L(g.ECID, secs2.A(g.ECNAME), g.ECMIN, g.ECMAX, g.ECDEF, secs2.A(g.UNITS))
+	return secs2.L(present(g.ECID, "ConstantName.ECID"), secs2.A(g.ECNAME), present(g.ECMIN, "ConstantName.ECMIN"), present(g.ECMAX, "ConstantName.ECMAX"), present(g.ECDEF, "ConstantName.ECDEF"), secs2.A(g.UNITS))
 }
 
 // decodeConstantName decodes one [ConstantName] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1095,9 +1095,9 @@ type ReportDefinition struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ReportDefinition) Item() secs2.Item {
-	return secs2.L(g.RPTID, secs2.L(g.VIDS...))
+	return secs2.L(present(g.RPTID, "ReportDefinition.RPTID"), secs2.L(presentEach(g.VIDS, "ReportDefinition.VIDS")...))
 }
 
 // decodeReportDefinition decodes one [ReportDefinition] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1132,9 +1132,9 @@ type EventLink struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g EventLink) Item() secs2.Item {
-	return secs2.L(g.CEID, secs2.L(g.RPTIDS...))
+	return secs2.L(present(g.CEID, "EventLink.CEID"), secs2.L(presentEach(g.RPTIDS, "EventLink.RPTIDS")...))
 }
 
 // decodeEventLink decodes one [EventLink] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1169,9 +1169,9 @@ type CommandParamAck struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g CommandParamAck) Item() secs2.Item {
-	return secs2.L(g.CPNAME, secs2.B(byte(g.CPACK)))
+	return secs2.L(present(g.CPNAME, "CommandParamAck.CPNAME"), secs2.B(byte(g.CPACK)))
 }
 
 // decodeCommandParamAck decodes one [CommandParamAck] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1206,7 +1206,7 @@ type SpoolStream struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g SpoolStream) Item() secs2.Item {
 	return secs2.L(secs2.U1(g.STRID), secs2.L(valueItems(g.FCNIDS, func(v uint8) secs2.Item { return secs2.U1(v) })...))
 }
@@ -1244,7 +1244,7 @@ type SpoolStreamAck struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g SpoolStreamAck) Item() secs2.Item {
 	return secs2.L(secs2.U1(g.STRID), secs2.B(byte(g.STRACK)), secs2.L(valueItems(g.FCNIDS, func(v uint8) secs2.Item { return secs2.U1(v) })...))
 }
@@ -1285,9 +1285,9 @@ type Deadband struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g Deadband) Item() secs2.Item {
-	return secs2.L(g.UPPERDB, g.LOWERDB)
+	return secs2.L(present(g.UPPERDB, "Deadband.UPPERDB"), present(g.LOWERDB, "Deadband.LOWERDB"))
 }
 
 // decodeDeadband decodes one [Deadband] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1323,7 +1323,7 @@ type Limit struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g Limit) Item() secs2.Item {
 	return secs2.L(secs2.B(g.LIMITID), optionalGroupItem(g.DEADBAND))
 }
@@ -1360,9 +1360,9 @@ type VariableLimits struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g VariableLimits) Item() secs2.Item {
-	return secs2.L(g.VID, secs2.L(groupItems(g.LIMITS)...))
+	return secs2.L(present(g.VID, "VariableLimits.VID"), secs2.L(groupItems(g.LIMITS)...))
 }
 
 // decodeVariableLimits decodes one [VariableLimits] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1397,7 +1397,7 @@ type LimitAck struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g LimitAck) Item() secs2.Item {
 	return secs2.L(secs2.B(g.LIMITID), secs2.B(byte(g.LIMITACK)))
 }
@@ -1436,9 +1436,9 @@ type VariableLimitAck struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g VariableLimitAck) Item() secs2.Item {
-	return secs2.L(g.VID, secs2.B(byte(g.LVACK)), optionalGroupItem(g.LIMIT))
+	return secs2.L(present(g.VID, "VariableLimitAck.VID"), secs2.B(byte(g.LVACK)), optionalGroupItem(g.LIMIT))
 }
 
 // decodeVariableLimitAck decodes one [VariableLimitAck] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1478,9 +1478,9 @@ type LimitValues struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g LimitValues) Item() secs2.Item {
-	return secs2.L(secs2.B(g.LIMITID), g.UPPERDB, g.LOWERDB)
+	return secs2.L(secs2.B(g.LIMITID), present(g.UPPERDB, "LimitValues.UPPERDB"), present(g.LOWERDB, "LimitValues.LOWERDB"))
 }
 
 // decodeLimitValues decodes one [LimitValues] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1522,9 +1522,9 @@ type LimitAttributes struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g LimitAttributes) Item() secs2.Item {
-	return secs2.L(secs2.A(g.UNITS), g.LIMITMIN, g.LIMITMAX, secs2.L(groupItems(g.LIMITS)...))
+	return secs2.L(secs2.A(g.UNITS), present(g.LIMITMIN, "LimitAttributes.LIMITMIN"), present(g.LIMITMAX, "LimitAttributes.LIMITMAX"), secs2.L(groupItems(g.LIMITS)...))
 }
 
 // decodeLimitAttributes decodes one [LimitAttributes] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1568,9 +1568,9 @@ type VariableLimitAttributes struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g VariableLimitAttributes) Item() secs2.Item {
-	return secs2.L(g.VID, optionalGroupItem(g.ATTRIBUTES))
+	return secs2.L(present(g.VID, "VariableLimitAttributes.VID"), optionalGroupItem(g.ATTRIBUTES))
 }
 
 // decodeVariableLimitAttributes decodes one [VariableLimitAttributes] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1606,9 +1606,9 @@ type MaterialLocation struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g MaterialLocation) Item() secs2.Item {
-	return secs2.L(secs2.B(g.LOC), secs2.B(g.QUA), g.MID)
+	return secs2.L(secs2.B(g.LOC), secs2.B(g.QUA), present(g.MID, "MaterialLocation.MID"))
 }
 
 // decodeMaterialLocation decodes one [MaterialLocation] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1649,9 +1649,9 @@ type MaterialTimeToCompletion struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g MaterialTimeToCompletion) Item() secs2.Item {
-	return secs2.L(g.TTC, secs2.B(g.QUA), g.MID)
+	return secs2.L(present(g.TTC, "MaterialTimeToCompletion.TTC"), secs2.B(g.QUA), present(g.MID, "MaterialTimeToCompletion.MID"))
 }
 
 // decodeMaterialTimeToCompletion decodes one [MaterialTimeToCompletion] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1690,9 +1690,9 @@ type CarrierAttribute struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g CarrierAttribute) Item() secs2.Item {
-	return secs2.L(secs2.A(g.CATTRID), g.CATTRDATA)
+	return secs2.L(secs2.A(g.CATTRID), present(g.CATTRDATA, "CarrierAttribute.CATTRDATA"))
 }
 
 // decodeCarrierAttribute decodes one [CarrierAttribute] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1728,7 +1728,7 @@ type ReticleRemoval struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ReticleRemoval) Item() secs2.Item {
 	return secs2.L(secs2.A(g.RETICLEID), secs2.U1(uint8(g.RETREMOVEINSTR)), secs2.L(groupItems(g.RETICLEATTRIBUTES)...))
 }
@@ -1769,7 +1769,7 @@ type ReticlePlacement struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ReticlePlacement) Item() secs2.Item {
 	return secs2.L(secs2.A(g.RETICLEID), secs2.U1(uint8(g.RETPLACEINSTR)))
 }
@@ -1816,9 +1816,9 @@ type TransferJob struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g TransferJob) Item() secs2.Item {
-	return secs2.L(g.TRLINK, g.TRPORT, secs2.A(g.TROBJNAME), g.TROBJTYPE, secs2.U1(uint8(g.TRROLE)), secs2.A(g.TRRCP), secs2.A(g.TRPTNR), g.TRPTPORT, secs2.U1(uint8(g.TRDIR)), secs2.U1(uint8(g.TRTYPE)), g.TRLOCATION, secs2.BOOLEAN(g.TRAUTOSTART))
+	return secs2.L(present(g.TRLINK, "TransferJob.TRLINK"), present(g.TRPORT, "TransferJob.TRPORT"), secs2.A(g.TROBJNAME), present(g.TROBJTYPE, "TransferJob.TROBJTYPE"), secs2.U1(uint8(g.TRROLE)), secs2.A(g.TRRCP), secs2.A(g.TRPTNR), present(g.TRPTPORT, "TransferJob.TRPTPORT"), secs2.U1(uint8(g.TRDIR)), secs2.U1(uint8(g.TRTYPE)), present(g.TRLOCATION, "TransferJob.TRLOCATION"), secs2.BOOLEAN(g.TRAUTOSTART))
 }
 
 // decodeTransferJob decodes one [TransferJob] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1902,9 +1902,9 @@ type ProcessCommandDefinition struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ProcessCommandDefinition) Item() secs2.Item {
-	return secs2.L(g.CCODE, secs2.A(g.CNAME), secs2.BOOLEAN(g.RQCMD), g.BLKDEF, g.BCDS, g.IBCDS, g.NBCDS, g.ACDS, g.IACDS, g.NACDS, secs2.L(g.PARAMETERS...))
+	return secs2.L(present(g.CCODE, "ProcessCommandDefinition.CCODE"), secs2.A(g.CNAME), secs2.BOOLEAN(g.RQCMD), present(g.BLKDEF, "ProcessCommandDefinition.BLKDEF"), present(g.BCDS, "ProcessCommandDefinition.BCDS"), present(g.IBCDS, "ProcessCommandDefinition.IBCDS"), present(g.NBCDS, "ProcessCommandDefinition.NBCDS"), present(g.ACDS, "ProcessCommandDefinition.ACDS"), present(g.IACDS, "ProcessCommandDefinition.IACDS"), present(g.NACDS, "ProcessCommandDefinition.NACDS"), secs2.L(presentEach(g.PARAMETERS, "ProcessCommandDefinition.PARAMETERS")...))
 }
 
 // decodeProcessCommandDefinition decodes one [ProcessCommandDefinition] from the list at c, with the decode options cfg, naming field in its errors.
@@ -1976,9 +1976,9 @@ type ProgramError struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ProgramError) Item() secs2.Item {
-	return secs2.L(g.ACKC7A, g.SEQNUM, secs2.A(g.ERRW7))
+	return secs2.L(present(g.ACKC7A, "ProgramError.ACKC7A"), present(g.SEQNUM, "ProgramError.SEQNUM"), secs2.A(g.ERRW7))
 }
 
 // decodeProgramError decodes one [ProgramError] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2018,9 +2018,9 @@ type AttributeQualifier struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g AttributeQualifier) Item() secs2.Item {
-	return secs2.L(g.ATTRID, g.ATTRDATA, secs2.U1(uint8(g.ATTRRELN)))
+	return secs2.L(present(g.ATTRID, "AttributeQualifier.ATTRID"), present(g.ATTRDATA, "AttributeQualifier.ATTRDATA"), secs2.U1(uint8(g.ATTRRELN)))
 }
 
 // decodeAttributeQualifier decodes one [AttributeQualifier] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2059,9 +2059,9 @@ type ObjectTypeAttributes struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ObjectTypeAttributes) Item() secs2.Item {
-	return secs2.L(g.OBJTYPE, secs2.L(g.ATTRIDS...))
+	return secs2.L(present(g.OBJTYPE, "ObjectTypeAttributes.OBJTYPE"), secs2.L(presentEach(g.ATTRIDS, "ObjectTypeAttributes.ATTRIDS")...))
 }
 
 // decodeObjectTypeAttributes decodes one [ObjectTypeAttributes] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2096,9 +2096,9 @@ type ObjectTypeServices struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ObjectTypeServices) Item() secs2.Item {
-	return secs2.L(g.OBJTYPE, secs2.L(valueItems(g.SVCNAMES, func(v SVCNAME) secs2.Item { return secs2.A(string(v)) })...))
+	return secs2.L(present(g.OBJTYPE, "ObjectTypeServices.OBJTYPE"), secs2.L(valueItems(g.SVCNAMES, func(v SVCNAME) secs2.Item { return secs2.A(string(v)) })...))
 }
 
 // decodeObjectTypeServices decodes one [ObjectTypeServices] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2133,7 +2133,7 @@ type ServiceParams struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ServiceParams) Item() secs2.Item {
 	return secs2.L(secs2.A(string(g.SVCNAME)), secs2.L(valueItems(g.SPNAMES, secs2.A)...))
 }
@@ -2174,9 +2174,9 @@ type RecipeDescriptor struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g RecipeDescriptor) Item() secs2.Item {
-	return secs2.L(secs2.A(string(g.RCPDESCNM)), secs2.A(g.RCPDESCTIME), g.RCPDESCLTH)
+	return secs2.L(secs2.A(string(g.RCPDESCNM)), secs2.A(g.RCPDESCTIME), present(g.RCPDESCLTH, "RecipeDescriptor.RCPDESCLTH"))
 }
 
 // decodeRecipeDescriptor decodes one [RecipeDescriptor] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2219,9 +2219,9 @@ type RecipeParamRule struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g RecipeParamRule) Item() secs2.Item {
-	return secs2.L(secs2.A(g.RCPPARNM), g.RCPPARVAL, secs2.A(g.RCPPARRULE))
+	return secs2.L(secs2.A(g.RCPPARNM), present(g.RCPPARVAL, "RecipeParamRule.RCPPARVAL"), secs2.A(g.RCPPARRULE))
 }
 
 // decodeRecipeParamRule decodes one [RecipeParamRule] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2260,7 +2260,7 @@ type RecipeSelection struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g RecipeSelection) Item() secs2.Item {
 	return secs2.L(secs2.A(g.RCPID), secs2.L(groupItems(g.PARAMETERS)...))
 }
@@ -2302,9 +2302,9 @@ type RecipeChange struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g RecipeChange) Item() secs2.Item {
-	return secs2.L(secs2.A(g.RCPID), secs2.A(g.RCPNEWID), secs2.A(g.RMSEGSPEC), g.RMCHGTYPE, g.OPID, secs2.A(g.TIMESTAMP), secs2.BOOLEAN(g.RMREQUESTOR))
+	return secs2.L(secs2.A(g.RCPID), secs2.A(g.RCPNEWID), secs2.A(g.RMSEGSPEC), present(g.RMCHGTYPE, "RecipeChange.RMCHGTYPE"), present(g.OPID, "RecipeChange.OPID"), secs2.A(g.TIMESTAMP), secs2.BOOLEAN(g.RMREQUESTOR))
 }
 
 // decodeRecipeChange decodes one [RecipeChange] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2366,9 +2366,9 @@ type ProcessJob struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ProcessJob) Item() secs2.Item {
-	return secs2.L(secs2.A(g.PRJOBID), g.MF, g.MATERIAL, secs2.L(secs2.U1(uint8(g.PRRECIPEMETHOD)), secs2.A(g.RCPSPEC), secs2.L(groupItems(g.RECIPEPARAMS)...)), secs2.BOOLEAN(g.PRPROCESSSTART), g.PRPAUSEEVENT)
+	return secs2.L(secs2.A(g.PRJOBID), present(g.MF, "ProcessJob.MF"), present(g.MATERIAL, "ProcessJob.material"), secs2.L(secs2.U1(uint8(g.PRRECIPEMETHOD)), secs2.A(g.RCPSPEC), secs2.L(groupItems(g.RECIPEPARAMS)...)), secs2.BOOLEAN(g.PRPROCESSSTART), present(g.PRPAUSEEVENT, "ProcessJob.PRPAUSEEVENT"))
 }
 
 // decodeProcessJob decodes one [ProcessJob] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2431,7 +2431,7 @@ type ProcessJobState struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g ProcessJobState) Item() secs2.Item {
 	return secs2.L(secs2.A(g.PRJOBID), secs2.U1(uint8(g.PRSTATE)))
 }
@@ -2469,9 +2469,9 @@ type PDEFilter struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PDEFilter) Item() secs2.Item {
-	return secs2.L(secs2.U1(uint8(g.PDEATTRIBUTENAME)), secs2.U1(uint8(g.COMPARISONOPERATOR)), g.PDEATTRIBUTEVALUE)
+	return secs2.L(secs2.U1(uint8(g.PDEATTRIBUTENAME)), secs2.U1(uint8(g.COMPARISONOPERATOR)), present(g.PDEATTRIBUTEVALUE, "PDEFilter.PDEATTRIBUTEVALUE"))
 }
 
 // decodePDEFilter decodes one [PDEFilter] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2510,9 +2510,9 @@ type PDEAttributeValue struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PDEAttributeValue) Item() secs2.Item {
-	return secs2.L(secs2.U1(uint8(g.PDEATTRIBUTE)), g.PDEATTRIBUTEVALUE)
+	return secs2.L(secs2.U1(uint8(g.PDEATTRIBUTE)), present(g.PDEATTRIBUTEVALUE, "PDEAttributeValue.PDEATTRIBUTEVALUE"))
 }
 
 // decodePDEAttributeValue decodes one [PDEAttributeValue] from the list at c, with the decode options cfg, naming field in its errors.
@@ -2547,7 +2547,7 @@ type PDEAttributes struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PDEAttributes) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.L(groupItems(g.ATTRIBUTES)...))
 }
@@ -2585,7 +2585,7 @@ type PDEGetResult struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PDEGetResult) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.GETRSPSTAT)), secs2.A(g.STATUSTXT))
 }
@@ -2627,7 +2627,7 @@ type PDEDeleteResult struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PDEDeleteResult) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.DELRSPSTAT)), secs2.A(g.STATUSTXT))
 }
@@ -2671,7 +2671,7 @@ type PDESendResult struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PDESendResult) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.SENDRSPSTAT)), optionalItem(g.VERIFYRSPSTAT, func(v VERIFYRSPSTAT) secs2.Item { return secs2.U1(uint8(v)) }, secs2.U1), secs2.A(g.STATUSTXT))
 }
@@ -2717,7 +2717,7 @@ type PDEResolveResult struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PDEResolveResult) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.RESPDESTAT)), secs2.A(g.STATUSTXT))
 }
@@ -2759,7 +2759,7 @@ type PDEVerifyResult struct {
 }
 
 // Item returns the list item g is sent as.
-// Set every secs2.Item field: a nil one is dropped, which shortens the list.
+// A nil secs2.Item field or element makes the item carry an error wrapping [ErrNilItem].
 func (g PDEVerifyResult) Item() secs2.Item {
 	return secs2.L(secs2.A(g.UID), secs2.U1(uint8(g.VERIFYRSPSTAT)), secs2.A(g.STATUSTXT))
 }

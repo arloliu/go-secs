@@ -24,7 +24,7 @@ func S3F1() secs2.SECS2Message {
 //
 // Exception: A zero-length list returned means no such data exists.
 func S3F2(mf secs2.Item, locations ...MaterialLocation) secs2.SECS2Message {
-	return secs2.NewMessage(3, 2, false, secs2.L(mf, secs2.L(groupItems(locations)...)))
+	return secs2.NewMessage(3, 2, false, secs2.L(present(mf, "S3F2 MF"), secs2.L(groupItems(locations)...)))
 }
 
 // S3F3 creates the S3F3 (Time to Completion Request) message, direction: host-to-equipment.
@@ -46,7 +46,7 @@ func S3F3() secs2.SECS2Message {
 //
 // Exception: A zero-length list header returned means no such data exists.
 func S3F4(mf secs2.Item, materials ...MaterialTimeToCompletion) secs2.SECS2Message {
-	return secs2.NewMessage(3, 4, false, secs2.L(mf, secs2.L(groupItems(materials)...)))
+	return secs2.NewMessage(3, 4, false, secs2.L(present(mf, "S3F4 MF"), secs2.L(groupItems(materials)...)))
 }
 
 // S3F5 creates the S3F5 (Material Found Send) message, direction: equipment-to-host.
@@ -58,7 +58,7 @@ func S3F4(mf secs2.Item, materials ...MaterialTimeToCompletion) secs2.SECS2Messa
 //
 // Exception: None.
 func S3F5(mf secs2.Item, qua byte) secs2.SECS2Message {
-	return secs2.NewMessage(3, 5, true, secs2.L(mf, secs2.B(qua)))
+	return secs2.NewMessage(3, 5, true, secs2.L(present(mf, "S3F5 MF"), secs2.B(qua)))
 }
 
 // S3F6 creates the S3F6 (Material Found Acknowledge) message, direction: host-to-equipment.
@@ -81,7 +81,7 @@ func S3F6(ackc3 ACKC3) secs2.SECS2Message {
 //
 // Exception: None.
 func S3F7(mf secs2.Item, qua byte, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 7, true, secs2.L(mf, secs2.B(qua), mid))
+	return secs2.NewMessage(3, 7, true, secs2.L(present(mf, "S3F7 MF"), secs2.B(qua), present(mid, "S3F7 MID")))
 }
 
 // S3F8 creates the S3F8 (Material Lost Acknowledge) message, direction: host-to-equipment.
@@ -103,7 +103,7 @@ func S3F8(ackc3 ACKC3) secs2.SECS2Message {
 //
 // Exception: None.
 func S3F9(mid secs2.Item, emid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 9, true, secs2.L(mid, emid))
+	return secs2.NewMessage(3, 9, true, secs2.L(present(mid, "S3F9 MID"), present(emid, "S3F9 EMID")))
 }
 
 // S3F10 creates the S3F10 (Material ID Equate Acknowledge) message, direction: host-to-equipment.
@@ -125,7 +125,7 @@ func S3F10(ackc3 ACKC3) secs2.SECS2Message {
 //
 // Exception: None.
 func S3F11(ptn secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 11, true, ptn)
+	return secs2.NewMessage(3, 11, true, present(ptn, "S3F11 PTN"))
 }
 
 // S3F12 creates the S3F12 (Material ID Request Acknowledge) message, direction: host-to-equipment.
@@ -141,7 +141,7 @@ func S3F11(ptn secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S3F12(ptn secs2.Item, midra MIDRA, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 12, false, secs2.L(ptn, secs2.B(byte(midra)), mid))
+	return secs2.NewMessage(3, 12, false, secs2.L(present(ptn, "S3F12 PTN"), secs2.B(byte(midra)), present(mid, "S3F12 MID")))
 }
 
 // S3F13 creates the S3F13 (Material ID Send) message, direction: host-to-equipment.
@@ -153,7 +153,7 @@ func S3F12(ptn secs2.Item, midra MIDRA, mid secs2.Item) secs2.SECS2Message {
 //
 // Exception: None.
 func S3F13(ptn secs2.Item, mid secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 13, true, secs2.L(ptn, mid))
+	return secs2.NewMessage(3, 13, true, secs2.L(present(ptn, "S3F13 PTN"), present(mid, "S3F13 MID")))
 }
 
 // S3F14 creates the S3F14 (Material ID Acknowledge) message, direction: equipment-to-host.
@@ -176,7 +176,7 @@ func S3F14(midac MIDAC) secs2.SECS2Message {
 //
 // Exception: None.
 func S3F15(dataid secs2.Item, datalength secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 15, true, secs2.L(dataid, datalength))
+	return secs2.NewMessage(3, 15, true, secs2.L(present(dataid, "S3F15 DATAID"), present(datalength, "S3F15 DATALENGTH")))
 }
 
 // S3F16 creates the S3F16 (Materials Multi-Block Grant) message, direction: equipment-to-host.
@@ -202,7 +202,7 @@ func S3F16(grant GRANT) secs2.SECS2Message {
 // ATTRID and ATTRDATA may be substituted for CATTRID and CATTRDATA respectively.
 // ReticlePodLocationID may be used as one of CATTRID when the CARRIERACTION is PodRelease and the carrier is not at a Load Port.
 func S3F17(dataid secs2.Item, carrieraction CARRIERACTION, carrierid string, ptn secs2.Item, attributes ...CarrierAttribute) secs2.SECS2Message {
-	return secs2.NewMessage(3, 17, true, secs2.L(dataid, secs2.A(string(carrieraction)), secs2.A(carrierid), ptn, secs2.L(groupItems(attributes)...)))
+	return secs2.NewMessage(3, 17, true, secs2.L(present(dataid, "S3F17 DATAID"), secs2.A(string(carrieraction)), secs2.A(carrierid), present(ptn, "S3F17 PTN"), secs2.L(groupItems(attributes)...)))
 }
 
 // S3F18 creates the S3F18 (Carrier Action Acknowledge) message, direction: equipment-to-host.
@@ -246,7 +246,7 @@ func S3F20(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
 //
 // Exception: None.
 func S3F21(portgrpname string, accessmode ACCESSMODE, ports ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 21, true, secs2.L(secs2.A(portgrpname), secs2.U1(uint8(accessmode)), secs2.L(ports...)))
+	return secs2.NewMessage(3, 21, true, secs2.L(secs2.A(portgrpname), secs2.U1(uint8(accessmode)), secs2.L(presentEach(ports, "S3F21 PORTS")...)))
 }
 
 // S3F22 creates the S3F22 (Port Group Definition Acknowledge) message, direction: equipment-to-host.
@@ -291,7 +291,7 @@ func S3F24(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
 //
 // Exception: If m = 0, then no parameters are provided.
 func S3F25(portaction PORTACTION, ptn secs2.Item, params ...PortActionParam) secs2.SECS2Message {
-	return secs2.NewMessage(3, 25, true, secs2.L(secs2.A(string(portaction)), ptn, secs2.L(groupItems(params)...)))
+	return secs2.NewMessage(3, 25, true, secs2.L(secs2.A(string(portaction)), present(ptn, "S3F25 PTN"), secs2.L(groupItems(params)...)))
 }
 
 // S3F26 creates the S3F26 (Port Action Acknowledge) message, direction: equipment-to-host.
@@ -319,7 +319,7 @@ func S3F26(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
 // If the Equipment is unable to change one or more of specified Port(s) to the specified Access Mode, then the Equipment shall accept the command (with appropriate response acknowledgement),
 // and shall change only the Access Mode of those Port(s) allowed by the equipment, supplying the host with an indication that not all ports were successfully changed.
 func S3F27(accessmode ACCESSMODE, ports ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 27, true, secs2.L(secs2.U1(uint8(accessmode)), secs2.L(ports...)))
+	return secs2.NewMessage(3, 27, true, secs2.L(secs2.U1(uint8(accessmode)), secs2.L(presentEach(ports, "S3F27 PORTS")...)))
 }
 
 // S3F28 creates the S3F28 (Change Access Acknowledge) message, direction: equipment-to-host.
@@ -347,7 +347,7 @@ func S3F28(caack CAACK, errors ...PortError) secs2.SECS2Message {
 // If DATASEG and DATALENGTH are both omitted (are zero-length items) then all data is requested.
 // If DATALENGTH only is omitted, then all data within the indicated section is requested.
 func S3F29(locid string, carrierspec string, dataseg string, datalength secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(3, 29, true, secs2.L(secs2.A(locid), secs2.A(carrierspec), secs2.A(dataseg), datalength))
+	return secs2.NewMessage(3, 29, true, secs2.L(secs2.A(locid), secs2.A(carrierspec), secs2.A(dataseg), present(datalength, "S3F29 DATALENGTH")))
 }
 
 // S3F30 creates the S3F30 (Carrier Tag Read Data) message, direction: equipment-to-host.
@@ -376,7 +376,7 @@ func S3F30(data string, caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
 // If DATASEG and DATALENGTH are both omitted (are zero-length items) then all data is to be overwritten.
 // If only DATALENGTH is omitted, then all data within the indicated section is to be written.
 func S3F31(locid string, carrierspec string, dataseg string, datalength secs2.Item, data string) secs2.SECS2Message {
-	return secs2.NewMessage(3, 31, true, secs2.L(secs2.A(locid), secs2.A(carrierspec), secs2.A(dataseg), datalength, secs2.A(data)))
+	return secs2.NewMessage(3, 31, true, secs2.L(secs2.A(locid), secs2.A(carrierspec), secs2.A(dataseg), present(datalength, "S3F31 DATALENGTH"), secs2.A(data)))
 }
 
 // S3F32 creates the S3F32 (Carrier Tag Write Data Acknowledge) message, direction: equipment-to-host.
@@ -420,7 +420,7 @@ func S3F34(caack CAACK, errors ...ErrorInfo) secs2.SECS2Message {
 //
 // Exception: If JOBACTION = CancelReticleTransferJob, m and n may = 0.
 func S3F35(jobaction string, podid string, inptn secs2.Item, outptn secs2.Item, attributes []Attribute, removals []ReticleRemoval, placements ...ReticlePlacement) secs2.SECS2Message {
-	return secs2.NewMessage(3, 35, true, secs2.L(secs2.A(jobaction), secs2.A(podid), inptn, outptn, secs2.L(groupItems(attributes)...), secs2.L(groupItems(removals)...), secs2.L(groupItems(placements)...)))
+	return secs2.NewMessage(3, 35, true, secs2.L(secs2.A(jobaction), secs2.A(podid), present(inptn, "S3F35 INPTN"), present(outptn, "S3F35 OUTPTN"), secs2.L(groupItems(attributes)...), secs2.L(groupItems(removals)...), secs2.L(groupItems(placements)...)))
 }
 
 // S3F36 creates the S3F36 (Reticle Transfer Job Request Acknowledgement) message, direction: equipment-to-host.

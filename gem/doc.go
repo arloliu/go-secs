@@ -10,10 +10,14 @@
 // Equipment-defined identifiers are passed as [secs2.Item] values so callers control the SECS-II type (ASCII, integer, binary, …) without coupling to gem.
 //
 // Set every [secs2.Item] argument and field a builder or a group takes.
-// [secs2.L] drops a nil child, so a nil item shortens the list that holds it,
-// and the peer receives a body of the wrong shape.
+// A nil item, a typed nil such as (*secs2.ListItem)(nil) included,
+// makes the message carry an error wrapping [ErrNilItem] that names where,
+// such as "gem: nil item at Report.VALUES[1]",
+// so sending it fails instead of sending a body of the wrong shape.
+// The error surfaces from Error() on the message's item,
+// and hsms.NewDataMessage rejects the message with it.
 // A pointer to a group whose fields are all nil is no exception:
-// &Deadband{} sends L[0], as a nil *Deadband does.
+// &Deadband{} carries that error, and nil, not &Deadband{}, sends L[0].
 //
 // # Item values
 //

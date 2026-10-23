@@ -130,7 +130,7 @@ func TestRenderValueRepeatBuilder(t *testing.T) {
 	require.Contains(t, got, "func S12F1(locs []uint16, mdln string, acks []COMMACK, svids []secs2.Item, actions []CARRIERACTION, names []string, flags ...bool) secs2.SECS2Message {")
 	require.Contains(t, got, "secs2.L(valueItems(locs, func(v uint16) secs2.Item { return secs2.U2(v) })...)")
 	require.Contains(t, got, "secs2.L(valueItems(acks, func(v COMMACK) secs2.Item { return secs2.B(byte(v)) })...)")
-	require.Contains(t, got, "secs2.L(svids...)")
+	require.Contains(t, got, `secs2.L(presentEach(svids, "S12F1 SVIDS")...)`)
 	require.Contains(t, got, "secs2.L(valueItems(actions, func(v CARRIERACTION) secs2.Item { return secs2.A(string(v)) })...)")
 	require.Contains(t, got, "secs2.L(valueItems(names, secs2.A)...)")
 	require.Contains(t, got, "secs2.L(valueItems(flags, func(v bool) secs2.Item { return secs2.BOOLEAN(v) })...)")
