@@ -2,6 +2,8 @@
 
 package gem
 
+import "strconv"
+
 // ACCESSMODE enumerates the defined values of the ACCESSMODE item.
 type ACCESSMODE uint8
 
@@ -9,6 +11,19 @@ const (
 	ACCESSMODEManual ACCESSMODE = 0
 	ACCESSMODEAuto   ACCESSMODE = 1
 )
+
+// String returns the name of v's constant, such as "ACCESSMODEManual",
+// or "ACCESSMODE(n)" for a value with no constant.
+func (v ACCESSMODE) String() string {
+	switch v {
+	case ACCESSMODEManual:
+		return "ACCESSMODEManual"
+	case ACCESSMODEAuto:
+		return "ACCESSMODEAuto"
+	default:
+		return "ACCESSMODE(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // ACKC10 enumerates the defined values of the ACKC10 item.
 type ACKC10 byte
@@ -18,6 +33,21 @@ const (
 	ACKC10WillNotBeDisplayed   ACKC10 = 1
 	ACKC10TerminalNotAvailable ACKC10 = 2
 )
+
+// String returns the name of v's constant, such as "ACKC10AcceptedForDisplay",
+// or "ACKC10(n)" for a value with no constant.
+func (v ACKC10) String() string {
+	switch v {
+	case ACKC10AcceptedForDisplay:
+		return "ACKC10AcceptedForDisplay"
+	case ACKC10WillNotBeDisplayed:
+		return "ACKC10WillNotBeDisplayed"
+	case ACKC10TerminalNotAvailable:
+		return "ACKC10TerminalNotAvailable"
+	default:
+		return "ACKC10(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // ACKC13 enumerates the defined values of the ACKC13 item.
 type ACKC13 byte
@@ -36,6 +66,37 @@ const (
 	ACKC13PendingTransaction      ACKC13 = 10
 )
 
+// String returns the name of v's constant, such as "ACKC13OK",
+// or "ACKC13(n)" for a value with no constant.
+func (v ACKC13) String() string {
+	switch v {
+	case ACKC13OK:
+		return "ACKC13OK"
+	case ACKC13TryLater:
+		return "ACKC13TryLater"
+	case ACKC13UnknownDataSetName:
+		return "ACKC13UnknownDataSetName"
+	case ACKC13IllegalCheckpointValue:
+		return "ACKC13IllegalCheckpointValue"
+	case ACKC13TooManyOpenDataSets:
+		return "ACKC13TooManyOpenDataSets"
+	case ACKC13DataSetOpenTooManyTimes:
+		return "ACKC13DataSetOpenTooManyTimes"
+	case ACKC13NoOpenDataSet:
+		return "ACKC13NoOpenDataSet"
+	case ACKC13CannotContinue:
+		return "ACKC13CannotContinue"
+	case ACKC13EndOfData:
+		return "ACKC13EndOfData"
+	case ACKC13HandleInUse:
+		return "ACKC13HandleInUse"
+	case ACKC13PendingTransaction:
+		return "ACKC13PendingTransaction"
+	default:
+		return "ACKC13(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // ACKC15 enumerates the defined values of the ACKC15 item.
 type ACKC15 byte
 
@@ -47,12 +108,42 @@ const (
 	ACKC15OtherError              ACKC15 = 4
 )
 
+// String returns the name of v's constant, such as "ACKC15Accepted",
+// or "ACKC15(n)" for a value with no constant.
+func (v ACKC15) String() string {
+	switch v {
+	case ACKC15Accepted:
+		return "ACKC15Accepted"
+	case ACKC15CompletionSignaledLater:
+		return "ACKC15CompletionSignaledLater"
+	case ACKC15DSNAMENotFound:
+		return "ACKC15DSNAMENotFound"
+	case ACKC15PermissionNotGranted:
+		return "ACKC15PermissionNotGranted"
+	case ACKC15OtherError:
+		return "ACKC15OtherError"
+	default:
+		return "ACKC15(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // ACKC3 enumerates the defined values of the ACKC3 item.
 type ACKC3 byte
 
 const (
 	ACKC3Accepted ACKC3 = 0
 )
+
+// String returns the name of v's constant, such as "ACKC3Accepted",
+// or "ACKC3(n)" for a value with no constant.
+func (v ACKC3) String() string {
+	switch v {
+	case ACKC3Accepted:
+		return "ACKC3Accepted"
+	default:
+		return "ACKC3(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // ACKC5 enumerates the defined values of the ACKC5 item.
 type ACKC5 byte
@@ -61,12 +152,34 @@ const (
 	ACKC5Accepted ACKC5 = 0
 )
 
+// String returns the name of v's constant, such as "ACKC5Accepted",
+// or "ACKC5(n)" for a value with no constant.
+func (v ACKC5) String() string {
+	switch v {
+	case ACKC5Accepted:
+		return "ACKC5Accepted"
+	default:
+		return "ACKC5(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // ACKC6 enumerates the defined values of the ACKC6 item.
 type ACKC6 byte
 
 const (
 	ACKC6Accepted ACKC6 = 0
 )
+
+// String returns the name of v's constant, such as "ACKC6Accepted",
+// or "ACKC6(n)" for a value with no constant.
+func (v ACKC6) String() string {
+	switch v {
+	case ACKC6Accepted:
+		return "ACKC6Accepted"
+	default:
+		return "ACKC6(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // ACKC7 enumerates the defined values of the ACKC7 item.
 type ACKC7 byte
@@ -80,6 +193,29 @@ const (
 	ACKC7ModeUnsupported         ACKC7 = 5
 	ACKC7CompletionSignaledLater ACKC7 = 6
 )
+
+// String returns the name of v's constant, such as "ACKC7Accepted",
+// or "ACKC7(n)" for a value with no constant.
+func (v ACKC7) String() string {
+	switch v {
+	case ACKC7Accepted:
+		return "ACKC7Accepted"
+	case ACKC7PermissionNotGranted:
+		return "ACKC7PermissionNotGranted"
+	case ACKC7LengthError:
+		return "ACKC7LengthError"
+	case ACKC7MatrixOverflow:
+		return "ACKC7MatrixOverflow"
+	case ACKC7PPIDNotFound:
+		return "ACKC7PPIDNotFound"
+	case ACKC7ModeUnsupported:
+		return "ACKC7ModeUnsupported"
+	case ACKC7CompletionSignaledLater:
+		return "ACKC7CompletionSignaledLater"
+	default:
+		return "ACKC7(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // Defined values of the ACKC7A item, which may be sent as I1 or U1.
 // They are untyped constants:
@@ -124,6 +260,31 @@ const (
 	ATTRRELNAbsent             ATTRRELN = 7
 )
 
+// String returns the name of v's constant, such as "ATTRRELNEqual",
+// or "ATTRRELN(n)" for a value with no constant.
+func (v ATTRRELN) String() string {
+	switch v {
+	case ATTRRELNEqual:
+		return "ATTRRELNEqual"
+	case ATTRRELNNotEqual:
+		return "ATTRRELNNotEqual"
+	case ATTRRELNLessThan:
+		return "ATTRRELNLessThan"
+	case ATTRRELNLessThanOrEqual:
+		return "ATTRRELNLessThanOrEqual"
+	case ATTRRELNGreaterThan:
+		return "ATTRRELNGreaterThan"
+	case ATTRRELNGreaterThanOrEqual:
+		return "ATTRRELNGreaterThanOrEqual"
+	case ATTRRELNPresent:
+		return "ATTRRELNPresent"
+	case ATTRRELNAbsent:
+		return "ATTRRELNAbsent"
+	default:
+		return "ATTRRELN(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // Defined values of the BLKDEF item, which may be sent as I1 or U1.
 // They are untyped constants:
 // pass one to the secs2 constructor of the format to send, e.g. secs2.I1(BLKDEFStartBlock).
@@ -145,6 +306,29 @@ const (
 	CAACKRejectedInvalidState        CAACK = 5
 	CAACKCommandPerformedWithErrors  CAACK = 6
 )
+
+// String returns the name of v's constant, such as "CAACKAcknowledgeCommandPerformed",
+// or "CAACK(n)" for a value with no constant.
+func (v CAACK) String() string {
+	switch v {
+	case CAACKAcknowledgeCommandPerformed:
+		return "CAACKAcknowledgeCommandPerformed"
+	case CAACKInvalidCommand:
+		return "CAACKInvalidCommand"
+	case CAACKCannotPerformNow:
+		return "CAACKCannotPerformNow"
+	case CAACKInvalidDataOrArgument:
+		return "CAACKInvalidDataOrArgument"
+	case CAACKAcknowledgeCompletionLater:
+		return "CAACKAcknowledgeCompletionLater"
+	case CAACKRejectedInvalidState:
+		return "CAACKRejectedInvalidState"
+	case CAACKCommandPerformedWithErrors:
+		return "CAACKCommandPerformedWithErrors"
+	default:
+		return "CAACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // CARRIERACTION enumerates the defined values of the CARRIERACTION item.
 type CARRIERACTION string
@@ -205,6 +389,19 @@ const (
 	COMMACKDenied   COMMACK = 1
 )
 
+// String returns the name of v's constant, such as "COMMACKAccepted",
+// or "COMMACK(n)" for a value with no constant.
+func (v COMMACK) String() string {
+	switch v {
+	case COMMACKAccepted:
+		return "COMMACKAccepted"
+	case COMMACKDenied:
+		return "COMMACKDenied"
+	default:
+		return "COMMACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // COMPARISONOPERATOR enumerates the defined values of the COMPARISONOPERATOR item.
 type COMPARISONOPERATOR uint8
 
@@ -219,6 +416,31 @@ const (
 	COMPARISONOPERATORNotLike COMPARISONOPERATOR = 7
 )
 
+// String returns the name of v's constant, such as "COMPARISONOPERATOREQ",
+// or "COMPARISONOPERATOR(n)" for a value with no constant.
+func (v COMPARISONOPERATOR) String() string {
+	switch v {
+	case COMPARISONOPERATOREQ:
+		return "COMPARISONOPERATOREQ"
+	case COMPARISONOPERATORNotEQ:
+		return "COMPARISONOPERATORNotEQ"
+	case COMPARISONOPERATORLT:
+		return "COMPARISONOPERATORLT"
+	case COMPARISONOPERATORLE:
+		return "COMPARISONOPERATORLE"
+	case COMPARISONOPERATORGT:
+		return "COMPARISONOPERATORGT"
+	case COMPARISONOPERATORGE:
+		return "COMPARISONOPERATORGE"
+	case COMPARISONOPERATORLike:
+		return "COMPARISONOPERATORLike"
+	case COMPARISONOPERATORNotLike:
+		return "COMPARISONOPERATORNotLike"
+	default:
+		return "COMPARISONOPERATOR(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // CPACK enumerates the defined values of the CPACK item.
 type CPACK byte
 
@@ -227,6 +449,21 @@ const (
 	CPACKIllegalValue       CPACK = 2
 	CPACKIllegalFormat      CPACK = 3
 )
+
+// String returns the name of v's constant, such as "CPACKCPNAMEDoesNotExist",
+// or "CPACK(n)" for a value with no constant.
+func (v CPACK) String() string {
+	switch v {
+	case CPACKCPNAMEDoesNotExist:
+		return "CPACKCPNAMEDoesNotExist"
+	case CPACKIllegalValue:
+		return "CPACKIllegalValue"
+	case CPACKIllegalFormat:
+		return "CPACKIllegalFormat"
+	default:
+		return "CPACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // Defined values of the CPNAME item, which may be sent as A, I1, I2, I4, I8, U1, U2, U4, or U8.
 // They are untyped constants:
@@ -253,6 +490,23 @@ const (
 	CSAACKInvalidData       CSAACK = 3
 )
 
+// String returns the name of v's constant, such as "CSAACKEverythingCorrect",
+// or "CSAACK(n)" for a value with no constant.
+func (v CSAACK) String() string {
+	switch v {
+	case CSAACKEverythingCorrect:
+		return "CSAACKEverythingCorrect"
+	case CSAACKBusy:
+		return "CSAACKBusy"
+	case CSAACKInvalidSPID:
+		return "CSAACKInvalidSPID"
+	case CSAACKInvalidData:
+		return "CSAACKInvalidData"
+	default:
+		return "CSAACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // CTLJOBCMD enumerates the defined values of the CTLJOBCMD item.
 type CTLJOBCMD uint8
 
@@ -267,6 +521,31 @@ const (
 	CTLJOBCMDCJHOQ      CTLJOBCMD = 8
 )
 
+// String returns the name of v's constant, such as "CTLJOBCMDCJStart",
+// or "CTLJOBCMD(n)" for a value with no constant.
+func (v CTLJOBCMD) String() string {
+	switch v {
+	case CTLJOBCMDCJStart:
+		return "CTLJOBCMDCJStart"
+	case CTLJOBCMDCJPause:
+		return "CTLJOBCMDCJPause"
+	case CTLJOBCMDCJResume:
+		return "CTLJOBCMDCJResume"
+	case CTLJOBCMDCJCancel:
+		return "CTLJOBCMDCJCancel"
+	case CTLJOBCMDCJDeselect:
+		return "CTLJOBCMDCJDeselect"
+	case CTLJOBCMDCJStop:
+		return "CTLJOBCMDCJStop"
+	case CTLJOBCMDCJAbort:
+		return "CTLJOBCMDCJAbort"
+	case CTLJOBCMDCJHOQ:
+		return "CTLJOBCMDCJHOQ"
+	default:
+		return "CTLJOBCMD(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // DATAACK enumerates the defined values of the DATAACK item.
 type DATAACK byte
 
@@ -275,6 +554,21 @@ const (
 	DATAACKUnknownDATAID    DATAACK = 1
 	DATAACKParameterInvalid DATAACK = 2
 )
+
+// String returns the name of v's constant, such as "DATAACKAcknowledge",
+// or "DATAACK(n)" for a value with no constant.
+func (v DATAACK) String() string {
+	switch v {
+	case DATAACKAcknowledge:
+		return "DATAACKAcknowledge"
+	case DATAACKUnknownDATAID:
+		return "DATAACKUnknownDATAID"
+	case DATAACKParameterInvalid:
+		return "DATAACKParameterInvalid"
+	default:
+		return "DATAACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // DELRSPSTAT enumerates the defined values of the DELRSPSTAT item.
 type DELRSPSTAT uint8
@@ -285,6 +579,23 @@ const (
 	DELRSPSTATPDELocked   DELRSPSTAT = 2
 	DELRSPSTATOther       DELRSPSTAT = 255
 )
+
+// String returns the name of v's constant, such as "DELRSPSTATOK",
+// or "DELRSPSTAT(n)" for a value with no constant.
+func (v DELRSPSTAT) String() string {
+	switch v {
+	case DELRSPSTATOK:
+		return "DELRSPSTATOK"
+	case DELRSPSTATPDENotFound:
+		return "DELRSPSTATPDENotFound"
+	case DELRSPSTATPDELocked:
+		return "DELRSPSTATPDELocked"
+	case DELRSPSTATOther:
+		return "DELRSPSTATOther"
+	default:
+		return "DELRSPSTAT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // DIRRSPSTAT enumerates the defined values of the DIRRSPSTAT item.
 type DIRRSPSTAT uint8
@@ -297,6 +608,25 @@ const (
 	DIRRSPSTATOther                 DIRRSPSTAT = 255
 )
 
+// String returns the name of v's constant, such as "DIRRSPSTATOK",
+// or "DIRRSPSTAT(n)" for a value with no constant.
+func (v DIRRSPSTAT) String() string {
+	switch v {
+	case DIRRSPSTATOK:
+		return "DIRRSPSTATOK"
+	case DIRRSPSTATBadFilter:
+		return "DIRRSPSTATBadFilter"
+	case DIRRSPSTATBadAttribute:
+		return "DIRRSPSTATBadAttribute"
+	case DIRRSPSTATDateTimeCompareFailed:
+		return "DIRRSPSTATDateTimeCompareFailed"
+	case DIRRSPSTATOther:
+		return "DIRRSPSTATOther"
+	default:
+		return "DIRRSPSTAT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // DRACK enumerates the defined values of the DRACK item.
 type DRACK byte
 
@@ -308,6 +638,25 @@ const (
 	DRACKDeniedVIDDoesNotExist     DRACK = 4
 )
 
+// String returns the name of v's constant, such as "DRACKAccept",
+// or "DRACK(n)" for a value with no constant.
+func (v DRACK) String() string {
+	switch v {
+	case DRACKAccept:
+		return "DRACKAccept"
+	case DRACKDeniedInsufficientSpace:
+		return "DRACKDeniedInsufficientSpace"
+	case DRACKDeniedInvalidFormat:
+		return "DRACKDeniedInvalidFormat"
+	case DRACKDeniedRPTIDAlreadyDefined:
+		return "DRACKDeniedRPTIDAlreadyDefined"
+	case DRACKDeniedVIDDoesNotExist:
+		return "DRACKDeniedVIDDoesNotExist"
+	default:
+		return "DRACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // EAC enumerates the defined values of the EAC item.
 type EAC byte
 
@@ -318,6 +667,23 @@ const (
 	EACDeniedConstantOutOfRange   EAC = 3
 )
 
+// String returns the name of v's constant, such as "EACAcknowledge",
+// or "EAC(n)" for a value with no constant.
+func (v EAC) String() string {
+	switch v {
+	case EACAcknowledge:
+		return "EACAcknowledge"
+	case EACDeniedConstantDoesNotExist:
+		return "EACDeniedConstantDoesNotExist"
+	case EACDeniedBusy:
+		return "EACDeniedBusy"
+	case EACDeniedConstantOutOfRange:
+		return "EACDeniedConstantOutOfRange"
+	default:
+		return "EAC(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // ERACK enumerates the defined values of the ERACK item.
 type ERACK byte
 
@@ -325,6 +691,19 @@ const (
 	ERACKAccepted               ERACK = 0
 	ERACKDeniedCEIDDoesNotExist ERACK = 1
 )
+
+// String returns the name of v's constant, such as "ERACKAccepted",
+// or "ERACK(n)" for a value with no constant.
+func (v ERACK) String() string {
+	switch v {
+	case ERACKAccepted:
+		return "ERACKAccepted"
+	case ERACKDeniedCEIDDoesNotExist:
+		return "ERACKDeniedCEIDDoesNotExist"
+	default:
+		return "ERACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // Defined values of the ERRCODE item, which may be sent as U1, U2, U4, or U8.
 // They are untyped constants:
@@ -410,6 +789,25 @@ const (
 	GETRSPSTATOther              GETRSPSTAT = 255
 )
 
+// String returns the name of v's constant, such as "GETRSPSTATOK",
+// or "GETRSPSTAT(n)" for a value with no constant.
+func (v GETRSPSTAT) String() string {
+	switch v {
+	case GETRSPSTATOK:
+		return "GETRSPSTATOK"
+	case GETRSPSTATPDENotFound:
+		return "GETRSPSTATPDENotFound"
+	case GETRSPSTATPDELocked:
+		return "GETRSPSTATPDELocked"
+	case GETRSPSTATTransferNotAllowed:
+		return "GETRSPSTATTransferNotAllowed"
+	case GETRSPSTATOther:
+		return "GETRSPSTATOther"
+	default:
+		return "GETRSPSTAT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // GRANT enumerates the defined values of the GRANT item.
 type GRANT byte
 
@@ -420,6 +818,23 @@ const (
 	GRANTDuplicateDATAID   GRANT = 3
 )
 
+// String returns the name of v's constant, such as "GRANTPermissionGranted",
+// or "GRANT(n)" for a value with no constant.
+func (v GRANT) String() string {
+	switch v {
+	case GRANTPermissionGranted:
+		return "GRANTPermissionGranted"
+	case GRANTBusyTryAgain:
+		return "GRANTBusyTryAgain"
+	case GRANTNoSpaceAvailable:
+		return "GRANTNoSpaceAvailable"
+	case GRANTDuplicateDATAID:
+		return "GRANTDuplicateDATAID"
+	default:
+		return "GRANT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // GRANT6 enumerates the defined values of the GRANT6 item.
 type GRANT6 byte
 
@@ -428,6 +843,21 @@ const (
 	GRANT6BusyTryAgain      GRANT6 = 1
 	GRANT6NotInterested     GRANT6 = 2
 )
+
+// String returns the name of v's constant, such as "GRANT6PermissionGranted",
+// or "GRANT6(n)" for a value with no constant.
+func (v GRANT6) String() string {
+	switch v {
+	case GRANT6PermissionGranted:
+		return "GRANT6PermissionGranted"
+	case GRANT6BusyTryAgain:
+		return "GRANT6BusyTryAgain"
+	case GRANT6NotInterested:
+		return "GRANT6NotInterested"
+	default:
+		return "GRANT6(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // GRNT1 enumerates the defined values of the GRNT1 item.
 type GRNT1 byte
@@ -442,6 +872,29 @@ const (
 	GRNT1UnknownMapFormat           GRNT1 = 6
 )
 
+// String returns the name of v's constant, such as "GRNT1PositiveResponseTransferOK",
+// or "GRNT1(n)" for a value with no constant.
+func (v GRNT1) String() string {
+	switch v {
+	case GRNT1PositiveResponseTransferOK:
+		return "GRNT1PositiveResponseTransferOK"
+	case GRNT1BusyTryAgain:
+		return "GRNT1BusyTryAgain"
+	case GRNT1NoSpace:
+		return "GRNT1NoSpace"
+	case GRNT1MapTooLarge:
+		return "GRNT1MapTooLarge"
+	case GRNT1DuplicateID:
+		return "GRNT1DuplicateID"
+	case GRNT1MaterialIDNotFound:
+		return "GRNT1MaterialIDNotFound"
+	case GRNT1UnknownMapFormat:
+		return "GRNT1UnknownMapFormat"
+	default:
+		return "GRNT1(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // HCACK enumerates the defined values of the HCACK item.
 type HCACK byte
 
@@ -455,6 +908,29 @@ const (
 	HCACKNoSuchObjectExists                HCACK = 6
 )
 
+// String returns the name of v's constant, such as "HCACKAcknowledgeCommandPerformed",
+// or "HCACK(n)" for a value with no constant.
+func (v HCACK) String() string {
+	switch v {
+	case HCACKAcknowledgeCommandPerformed:
+		return "HCACKAcknowledgeCommandPerformed"
+	case HCACKCommandDoesNotExist:
+		return "HCACKCommandDoesNotExist"
+	case HCACKCannotPerformNow:
+		return "HCACKCannotPerformNow"
+	case HCACKParameterInvalid:
+		return "HCACKParameterInvalid"
+	case HCACKAcknowledgeCompletionLater:
+		return "HCACKAcknowledgeCompletionLater"
+	case HCACKRejectedAlreadyInDesiredCondition:
+		return "HCACKRejectedAlreadyInDesiredCondition"
+	case HCACKNoSuchObjectExists:
+		return "HCACKNoSuchObjectExists"
+	default:
+		return "HCACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // HOCANCELACK enumerates the defined values of the HOCANCELACK item.
 type HOCANCELACK uint8
 
@@ -464,6 +940,21 @@ const (
 	HOCANCELACKCancelReadyRejectedHandoffBegun HOCANCELACK = 2
 )
 
+// String returns the name of v's constant, such as "HOCANCELACKCancelReadyAccepted",
+// or "HOCANCELACK(n)" for a value with no constant.
+func (v HOCANCELACK) String() string {
+	switch v {
+	case HOCANCELACKCancelReadyAccepted:
+		return "HOCANCELACKCancelReadyAccepted"
+	case HOCANCELACKAtomicTransferUnknown:
+		return "HOCANCELACKAtomicTransferUnknown"
+	case HOCANCELACKCancelReadyRejectedHandoffBegun:
+		return "HOCANCELACKCancelReadyRejectedHandoffBegun"
+	default:
+		return "HOCANCELACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // HOHALTACK enumerates the defined values of the HOHALTACK item.
 type HOHALTACK uint8
 
@@ -471,6 +962,19 @@ const (
 	HOHALTACKHaltAccepted          HOHALTACK = 0
 	HOHALTACKAtomicTransferUnknown HOHALTACK = 1
 )
+
+// String returns the name of v's constant, such as "HOHALTACKHaltAccepted",
+// or "HOHALTACK(n)" for a value with no constant.
+func (v HOHALTACK) String() string {
+	switch v {
+	case HOHALTACKHaltAccepted:
+		return "HOHALTACKHaltAccepted"
+	case HOHALTACKAtomicTransferUnknown:
+		return "HOHALTACKAtomicTransferUnknown"
+	default:
+		return "HOHALTACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // IDTYP enumerates the defined values of the IDTYP item.
 type IDTYP byte
@@ -480,6 +984,21 @@ const (
 	IDTYPWaferCassetteID IDTYP = 1
 	IDTYPFilmFrameID     IDTYP = 2
 )
+
+// String returns the name of v's constant, such as "IDTYPWaferID",
+// or "IDTYP(n)" for a value with no constant.
+func (v IDTYP) String() string {
+	switch v {
+	case IDTYPWaferID:
+		return "IDTYPWaferID"
+	case IDTYPWaferCassetteID:
+		return "IDTYPWaferCassetteID"
+	case IDTYPFilmFrameID:
+		return "IDTYPFilmFrameID"
+	default:
+		return "IDTYP(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // LIMITACK enumerates the defined values of the LIMITACK item.
 type LIMITACK byte
@@ -494,6 +1013,29 @@ const (
 	LIMITACKDuplicateLimitDefinition   LIMITACK = 7
 )
 
+// String returns the name of v's constant, such as "LIMITACKLIMITIDDoesNotExist",
+// or "LIMITACK(n)" for a value with no constant.
+func (v LIMITACK) String() string {
+	switch v {
+	case LIMITACKLIMITIDDoesNotExist:
+		return "LIMITACKLIMITIDDoesNotExist"
+	case LIMITACKUpperdbGreaterThanLimitmax:
+		return "LIMITACKUpperdbGreaterThanLimitmax"
+	case LIMITACKLowerdbLessThanLimitmin:
+		return "LIMITACKLowerdbLessThanLimitmin"
+	case LIMITACKUpperdbLessThanLowerdb:
+		return "LIMITACKUpperdbLessThanLowerdb"
+	case LIMITACKIllegalFormat:
+		return "LIMITACKIllegalFormat"
+	case LIMITACKASCIICannotBeTranslated:
+		return "LIMITACKASCIICannotBeTranslated"
+	case LIMITACKDuplicateLimitDefinition:
+		return "LIMITACKDuplicateLimitDefinition"
+	default:
+		return "LIMITACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // LRACK enumerates the defined values of the LRACK item.
 type LRACK byte
 
@@ -506,6 +1048,27 @@ const (
 	LRACKDeniedRPTIDDoesNotExist      LRACK = 5
 )
 
+// String returns the name of v's constant, such as "LRACKAccepted",
+// or "LRACK(n)" for a value with no constant.
+func (v LRACK) String() string {
+	switch v {
+	case LRACKAccepted:
+		return "LRACKAccepted"
+	case LRACKDeniedInsufficientSpace:
+		return "LRACKDeniedInsufficientSpace"
+	case LRACKDeniedInvalidFormat:
+		return "LRACKDeniedInvalidFormat"
+	case LRACKDeniedCEIDLinkAlreadyDefined:
+		return "LRACKDeniedCEIDLinkAlreadyDefined"
+	case LRACKDeniedCEIDDoesNotExist:
+		return "LRACKDeniedCEIDDoesNotExist"
+	case LRACKDeniedRPTIDDoesNotExist:
+		return "LRACKDeniedRPTIDDoesNotExist"
+	default:
+		return "LRACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // LVACK enumerates the defined values of the LVACK item.
 type LVACK byte
 
@@ -516,6 +1079,23 @@ const (
 	LVACKLimitValueError               LVACK = 4
 )
 
+// String returns the name of v's constant, such as "LVACKVariableDoesNotExist",
+// or "LVACK(n)" for a value with no constant.
+func (v LVACK) String() string {
+	switch v {
+	case LVACKVariableDoesNotExist:
+		return "LVACKVariableDoesNotExist"
+	case LVACKVariableHasNoLimitsCapability:
+		return "LVACKVariableHasNoLimitsCapability"
+	case LVACKVariableRepeatedInMessage:
+		return "LVACKVariableRepeatedInMessage"
+	case LVACKLimitValueError:
+		return "LVACKLimitValueError"
+	default:
+		return "LVACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // MAPER enumerates the defined values of the MAPER item.
 type MAPER byte
 
@@ -524,6 +1104,21 @@ const (
 	MAPERInvalidData MAPER = 1
 	MAPERFormatError MAPER = 2
 )
+
+// String returns the name of v's constant, such as "MAPERIDNotFound",
+// or "MAPER(n)" for a value with no constant.
+func (v MAPER) String() string {
+	switch v {
+	case MAPERIDNotFound:
+		return "MAPERIDNotFound"
+	case MAPERInvalidData:
+		return "MAPERInvalidData"
+	case MAPERFormatError:
+		return "MAPERFormatError"
+	default:
+		return "MAPER(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // MAPFT enumerates the defined values of the MAPFT item.
 type MAPFT byte
@@ -534,6 +1129,21 @@ const (
 	MAPFTCoordinateFormat MAPFT = 2
 )
 
+// String returns the name of v's constant, such as "MAPFTRowFormat",
+// or "MAPFT(n)" for a value with no constant.
+func (v MAPFT) String() string {
+	switch v {
+	case MAPFTRowFormat:
+		return "MAPFTRowFormat"
+	case MAPFTArrayFormat:
+		return "MAPFTArrayFormat"
+	case MAPFTCoordinateFormat:
+		return "MAPFTCoordinateFormat"
+	default:
+		return "MAPFT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // MDACK enumerates the defined values of the MDACK item.
 type MDACK byte
 
@@ -543,6 +1153,23 @@ const (
 	MDACKNoIDMatch       MDACK = 2
 	MDACKAbortDiscardMap MDACK = 3
 )
+
+// String returns the name of v's constant, such as "MDACKMapReceived",
+// or "MDACK(n)" for a value with no constant.
+func (v MDACK) String() string {
+	switch v {
+	case MDACKMapReceived:
+		return "MDACKMapReceived"
+	case MDACKFormatError:
+		return "MDACKFormatError"
+	case MDACKNoIDMatch:
+		return "MDACKNoIDMatch"
+	case MDACKAbortDiscardMap:
+		return "MDACKAbortDiscardMap"
+	default:
+		return "MDACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // Defined values of the MF item, which may be sent as B or A.
 // They are untyped constants:
@@ -573,6 +1200,21 @@ const (
 	MIDACMaterialNotPresentAtPort MIDAC = 2
 )
 
+// String returns the name of v's constant, such as "MIDACAccepted",
+// or "MIDAC(n)" for a value with no constant.
+func (v MIDAC) String() string {
+	switch v {
+	case MIDACAccepted:
+		return "MIDACAccepted"
+	case MIDACInvalidPortNumber:
+		return "MIDACInvalidPortNumber"
+	case MIDACMaterialNotPresentAtPort:
+		return "MIDACMaterialNotPresentAtPort"
+	default:
+		return "MIDAC(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // MIDRA enumerates the defined values of the MIDRA item.
 type MIDRA byte
 
@@ -581,6 +1223,21 @@ const (
 	MIDRAAcknowledgeWillNotSendMID   MIDRA = 1
 	MIDRAAcknowledgeWillSendMIDLater MIDRA = 2
 )
+
+// String returns the name of v's constant, such as "MIDRAAcknowledgeMIDFollows",
+// or "MIDRA(n)" for a value with no constant.
+func (v MIDRA) String() string {
+	switch v {
+	case MIDRAAcknowledgeMIDFollows:
+		return "MIDRAAcknowledgeMIDFollows"
+	case MIDRAAcknowledgeWillNotSendMID:
+		return "MIDRAAcknowledgeWillNotSendMID"
+	case MIDRAAcknowledgeWillSendMIDLater:
+		return "MIDRAAcknowledgeWillSendMIDLater"
+	default:
+		return "MIDRA(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // MMODE enumerates the defined values of the MMODE item.
 type MMODE byte
@@ -591,6 +1248,21 @@ const (
 	MMODEHostImmediateMode MMODE = 3
 )
 
+// String returns the name of v's constant, such as "MMODEHostSourceMode",
+// or "MMODE(n)" for a value with no constant.
+func (v MMODE) String() string {
+	switch v {
+	case MMODEHostSourceMode:
+		return "MMODEHostSourceMode"
+	case MMODELocalSourceMode:
+		return "MMODELocalSourceMode"
+	case MMODEHostImmediateMode:
+		return "MMODEHostImmediateMode"
+	default:
+		return "MMODE(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // OBJACK enumerates the defined values of the OBJACK item.
 type OBJACK uint8
 
@@ -598,6 +1270,19 @@ const (
 	OBJACKSuccess OBJACK = 0
 	OBJACKError   OBJACK = 1
 )
+
+// String returns the name of v's constant, such as "OBJACKSuccess",
+// or "OBJACK(n)" for a value with no constant.
+func (v OBJACK) String() string {
+	switch v {
+	case OBJACKSuccess:
+		return "OBJACKSuccess"
+	case OBJACKError:
+		return "OBJACKError"
+	default:
+		return "OBJACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // OBJCMD enumerates the defined values of the OBJCMD item.
 type OBJCMD uint8
@@ -608,6 +1293,23 @@ const (
 	OBJCMDReattachToRequestor OBJCMD = 3
 	OBJCMDSetAttributes       OBJCMD = 4
 )
+
+// String returns the name of v's constant, such as "OBJCMDAttachToRequestor",
+// or "OBJCMD(n)" for a value with no constant.
+func (v OBJCMD) String() string {
+	switch v {
+	case OBJCMDAttachToRequestor:
+		return "OBJCMDAttachToRequestor"
+	case OBJCMDDetachFromRequestor:
+		return "OBJCMDDetachFromRequestor"
+	case OBJCMDReattachToRequestor:
+		return "OBJCMDReattachToRequestor"
+	case OBJCMDSetAttributes:
+		return "OBJCMDSetAttributes"
+	default:
+		return "OBJCMD(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // Defined values of the OBJTYPE item, which may be sent as A, U1, U2, U4, or U8.
 // They are untyped constants:
@@ -639,6 +1341,17 @@ const (
 	OFLACKAcknowledge OFLACK = 0
 )
 
+// String returns the name of v's constant, such as "OFLACKAcknowledge",
+// or "OFLACK(n)" for a value with no constant.
+func (v OFLACK) String() string {
+	switch v {
+	case OFLACKAcknowledge:
+		return "OFLACKAcknowledge"
+	default:
+		return "OFLACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // ONLACK enumerates the defined values of the ONLACK item.
 type ONLACK byte
 
@@ -647,6 +1360,21 @@ const (
 	ONLACKNotAllowed    ONLACK = 1
 	ONLACKAlreadyOnLine ONLACK = 2
 )
+
+// String returns the name of v's constant, such as "ONLACKAccepted",
+// or "ONLACK(n)" for a value with no constant.
+func (v ONLACK) String() string {
+	switch v {
+	case ONLACKAccepted:
+		return "ONLACKAccepted"
+	case ONLACKNotAllowed:
+		return "ONLACKNotAllowed"
+	case ONLACKAlreadyOnLine:
+		return "ONLACKAlreadyOnLine"
+	default:
+		return "ONLACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // ORLOC enumerates the defined values of the ORLOC item.
 type ORLOC byte
@@ -658,6 +1386,25 @@ const (
 	ORLOCLowerLeft  ORLOC = 3
 	ORLOCLowerRight ORLOC = 4
 )
+
+// String returns the name of v's constant, such as "ORLOCCenterDie",
+// or "ORLOC(n)" for a value with no constant.
+func (v ORLOC) String() string {
+	switch v {
+	case ORLOCCenterDie:
+		return "ORLOCCenterDie"
+	case ORLOCUpperRight:
+		return "ORLOCUpperRight"
+	case ORLOCUpperLeft:
+		return "ORLOCUpperLeft"
+	case ORLOCLowerLeft:
+		return "ORLOCLowerLeft"
+	case ORLOCLowerRight:
+		return "ORLOCLowerRight"
+	default:
+		return "ORLOC(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // PDEATTRIBUTE enumerates the defined values of the PDEATTRIBUTE item.
 type PDEATTRIBUTE uint8
@@ -678,6 +1425,41 @@ const (
 	PDEATTRIBUTEChecksum       PDEATTRIBUTE = 13
 )
 
+// String returns the name of v's constant, such as "PDEATTRIBUTEName",
+// or "PDEATTRIBUTE(n)" for a value with no constant.
+func (v PDEATTRIBUTE) String() string {
+	switch v {
+	case PDEATTRIBUTEName:
+		return "PDEATTRIBUTEName"
+	case PDEATTRIBUTEGID:
+		return "PDEATTRIBUTEGID"
+	case PDEATTRIBUTEGroupName:
+		return "PDEATTRIBUTEGroupName"
+	case PDEATTRIBUTEDescription:
+		return "PDEATTRIBUTEDescription"
+	case PDEATTRIBUTEType:
+		return "PDEATTRIBUTEType"
+	case PDEATTRIBUTEExecutable:
+		return "PDEATTRIBUTEExecutable"
+	case PDEATTRIBUTEMaxAntecedents:
+		return "PDEATTRIBUTEMaxAntecedents"
+	case PDEATTRIBUTECreateDate:
+		return "PDEATTRIBUTECreateDate"
+	case PDEATTRIBUTECreateNode:
+		return "PDEATTRIBUTECreateNode"
+	case PDEATTRIBUTEAuthor:
+		return "PDEATTRIBUTEAuthor"
+	case PDEATTRIBUTEUserInfo:
+		return "PDEATTRIBUTEUserInfo"
+	case PDEATTRIBUTESupplierInfo:
+		return "PDEATTRIBUTESupplierInfo"
+	case PDEATTRIBUTEChecksum:
+		return "PDEATTRIBUTEChecksum"
+	default:
+		return "PDEATTRIBUTE(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // PDEATTRIBUTENAME enumerates the defined values of the PDEATTRIBUTENAME item.
 type PDEATTRIBUTENAME uint8
 
@@ -695,6 +1477,39 @@ const (
 	PDEATTRIBUTENAMEUserInfo     PDEATTRIBUTENAME = 11
 	PDEATTRIBUTENAMESupplierInfo PDEATTRIBUTENAME = 12
 )
+
+// String returns the name of v's constant, such as "PDEATTRIBUTENAMEUID",
+// or "PDEATTRIBUTENAME(n)" for a value with no constant.
+func (v PDEATTRIBUTENAME) String() string {
+	switch v {
+	case PDEATTRIBUTENAMEUID:
+		return "PDEATTRIBUTENAMEUID"
+	case PDEATTRIBUTENAMEName:
+		return "PDEATTRIBUTENAMEName"
+	case PDEATTRIBUTENAMEGID:
+		return "PDEATTRIBUTENAMEGID"
+	case PDEATTRIBUTENAMEGroupName:
+		return "PDEATTRIBUTENAMEGroupName"
+	case PDEATTRIBUTENAMEDescription:
+		return "PDEATTRIBUTENAMEDescription"
+	case PDEATTRIBUTENAMEType:
+		return "PDEATTRIBUTENAMEType"
+	case PDEATTRIBUTENAMEExecutable:
+		return "PDEATTRIBUTENAMEExecutable"
+	case PDEATTRIBUTENAMECreateDate:
+		return "PDEATTRIBUTENAMECreateDate"
+	case PDEATTRIBUTENAMECreateNode:
+		return "PDEATTRIBUTENAMECreateNode"
+	case PDEATTRIBUTENAMEAuthor:
+		return "PDEATTRIBUTENAMEAuthor"
+	case PDEATTRIBUTENAMEUserInfo:
+		return "PDEATTRIBUTENAMEUserInfo"
+	case PDEATTRIBUTENAMESupplierInfo:
+		return "PDEATTRIBUTENAMESupplierInfo"
+	default:
+		return "PDEATTRIBUTENAME(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // PFCD is the type of the PFCD item.
 // Predefined form code, 1 byte.
@@ -722,6 +1537,27 @@ const (
 	PPGNTWillNotAccept PPGNT = 5
 )
 
+// String returns the name of v's constant, such as "PPGNTOK",
+// or "PPGNT(n)" for a value with no constant.
+func (v PPGNT) String() string {
+	switch v {
+	case PPGNTOK:
+		return "PPGNTOK"
+	case PPGNTAlreadyHave:
+		return "PPGNTAlreadyHave"
+	case PPGNTNoSpace:
+		return "PPGNTNoSpace"
+	case PPGNTInvalidPPID:
+		return "PPGNTInvalidPPID"
+	case PPGNTBusyTryLater:
+		return "PPGNTBusyTryLater"
+	case PPGNTWillNotAccept:
+		return "PPGNTWillNotAccept"
+	default:
+		return "PPGNT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // PRAXI enumerates the defined values of the PRAXI item.
 type PRAXI byte
 
@@ -735,6 +1571,31 @@ const (
 	PRAXIColumnsRightIncreasing PRAXI = 6
 	PRAXIColumnsRightDecreasing PRAXI = 7
 )
+
+// String returns the name of v's constant, such as "PRAXIRowsTopIncreasing",
+// or "PRAXI(n)" for a value with no constant.
+func (v PRAXI) String() string {
+	switch v {
+	case PRAXIRowsTopIncreasing:
+		return "PRAXIRowsTopIncreasing"
+	case PRAXIRowsTopDecreasing:
+		return "PRAXIRowsTopDecreasing"
+	case PRAXIRowsBottomIncreasing:
+		return "PRAXIRowsBottomIncreasing"
+	case PRAXIRowsBottomDecreasing:
+		return "PRAXIRowsBottomDecreasing"
+	case PRAXIColumnsLeftIncreasing:
+		return "PRAXIColumnsLeftIncreasing"
+	case PRAXIColumnsLeftDecreasing:
+		return "PRAXIColumnsLeftDecreasing"
+	case PRAXIColumnsRightIncreasing:
+		return "PRAXIColumnsRightIncreasing"
+	case PRAXIColumnsRightDecreasing:
+		return "PRAXIColumnsRightDecreasing"
+	default:
+		return "PRAXI(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // PRCMDNAME enumerates the defined values of the PRCMDNAME item.
 type PRCMDNAME string
@@ -780,6 +1641,21 @@ const (
 	PRMTRLORDERList     PRMTRLORDER = 3
 )
 
+// String returns the name of v's constant, such as "PRMTRLORDERArrival",
+// or "PRMTRLORDER(n)" for a value with no constant.
+func (v PRMTRLORDER) String() string {
+	switch v {
+	case PRMTRLORDERArrival:
+		return "PRMTRLORDERArrival"
+	case PRMTRLORDEROptimize:
+		return "PRMTRLORDEROptimize"
+	case PRMTRLORDERList:
+		return "PRMTRLORDERList"
+	default:
+		return "PRMTRLORDER(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // PRRECIPEMETHOD enumerates the defined values of the PRRECIPEMETHOD item.
 type PRRECIPEMETHOD uint8
 
@@ -787,6 +1663,19 @@ const (
 	PRRECIPEMETHODRecipeOnly               PRRECIPEMETHOD = 1
 	PRRECIPEMETHODRecipeWithVariableTuning PRRECIPEMETHOD = 2
 )
+
+// String returns the name of v's constant, such as "PRRECIPEMETHODRecipeOnly",
+// or "PRRECIPEMETHOD(n)" for a value with no constant.
+func (v PRRECIPEMETHOD) String() string {
+	switch v {
+	case PRRECIPEMETHODRecipeOnly:
+		return "PRRECIPEMETHODRecipeOnly"
+	case PRRECIPEMETHODRecipeWithVariableTuning:
+		return "PRRECIPEMETHODRecipeWithVariableTuning"
+	default:
+		return "PRRECIPEMETHOD(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // PRSTATE enumerates the defined values of the PRSTATE item.
 type PRSTATE uint8
@@ -811,6 +1700,33 @@ const (
 	// PRSTATEAborting is defined by SEMI E40.1.
 	PRSTATEAborting PRSTATE = 9
 )
+
+// String returns the name of v's constant, such as "PRSTATEQueuedPooled",
+// or "PRSTATE(n)" for a value with no constant.
+func (v PRSTATE) String() string {
+	switch v {
+	case PRSTATEQueuedPooled:
+		return "PRSTATEQueuedPooled"
+	case PRSTATESettingUp:
+		return "PRSTATESettingUp"
+	case PRSTATEWaitingForStart:
+		return "PRSTATEWaitingForStart"
+	case PRSTATEProcessing:
+		return "PRSTATEProcessing"
+	case PRSTATEProcessComplete:
+		return "PRSTATEProcessComplete"
+	case PRSTATEPausing:
+		return "PRSTATEPausing"
+	case PRSTATEPaused:
+		return "PRSTATEPaused"
+	case PRSTATEStopping:
+		return "PRSTATEStopping"
+	case PRSTATEAborting:
+		return "PRSTATEAborting"
+	default:
+		return "PRSTATE(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // Defined values of the RAC item, which may be sent as I1 or U1.
 // They are untyped constants:
@@ -847,6 +1763,35 @@ const (
 	RCPCMDUpload    RCPCMD = 16
 )
 
+// String returns the name of v's constant, such as "RCPCMDDelete",
+// or "RCPCMD(n)" for a value with no constant.
+func (v RCPCMD) String() string {
+	switch v {
+	case RCPCMDDelete:
+		return "RCPCMDDelete"
+	case RCPCMDUnprotect:
+		return "RCPCMDUnprotect"
+	case RCPCMDProtect:
+		return "RCPCMDProtect"
+	case RCPCMDVerify:
+		return "RCPCMDVerify"
+	case RCPCMDLink:
+		return "RCPCMDLink"
+	case RCPCMDUnlink:
+		return "RCPCMDUnlink"
+	case RCPCMDCertify:
+		return "RCPCMDCertify"
+	case RCPCMDDecertify:
+		return "RCPCMDDecertify"
+	case RCPCMDDownload:
+		return "RCPCMDDownload"
+	case RCPCMDUpload:
+		return "RCPCMDUpload"
+	default:
+		return "RCPCMD(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // RCPDEL enumerates the defined values of the RCPDEL item.
 type RCPDEL uint8
 
@@ -854,6 +1799,19 @@ const (
 	RCPDELDelete   RCPDEL = 0
 	RCPDELDeselect RCPDEL = 1
 )
+
+// String returns the name of v's constant, such as "RCPDELDelete",
+// or "RCPDEL(n)" for a value with no constant.
+func (v RCPDEL) String() string {
+	switch v {
+	case RCPDELDelete:
+		return "RCPDELDelete"
+	case RCPDELDeselect:
+		return "RCPDELDeselect"
+	default:
+		return "RCPDEL(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // RCPDESCNM enumerates the defined values of the RCPDESCNM item.
 type RCPDESCNM string
@@ -876,6 +1834,27 @@ const (
 	RCPSECCODEGenericBodyAndSingleAgentSpecificDataset RCPSECCODE = 11
 )
 
+// String returns the name of v's constant, such as "RCPSECCODEGenericAttributesOnly",
+// or "RCPSECCODE(n)" for a value with no constant.
+func (v RCPSECCODE) String() string {
+	switch v {
+	case RCPSECCODEGenericAttributesOnly:
+		return "RCPSECCODEGenericAttributesOnly"
+	case RCPSECCODEGenericAttributesAndBody:
+		return "RCPSECCODEGenericAttributesAndBody"
+	case RCPSECCODEAllAgentSpecificDatasets:
+		return "RCPSECCODEAllAgentSpecificDatasets"
+	case RCPSECCODEGenericBodyAndAllAgentSpecificDatasets:
+		return "RCPSECCODEGenericBodyAndAllAgentSpecificDatasets"
+	case RCPSECCODESingleAgentSpecificDataset:
+		return "RCPSECCODESingleAgentSpecificDataset"
+	case RCPSECCODEGenericBodyAndSingleAgentSpecificDataset:
+		return "RCPSECCODEGenericBodyAndSingleAgentSpecificDataset"
+	default:
+		return "RCPSECCODE(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // RCPSECNM enumerates the defined values of the RCPSECNM item.
 type RCPSECNM string
 
@@ -893,6 +1872,21 @@ const (
 	RCPSTATUnprotected  RCPSTAT = 8
 	RCPSTATProtected    RCPSTAT = 9
 )
+
+// String returns the name of v's constant, such as "RCPSTATDoesNotExist",
+// or "RCPSTAT(n)" for a value with no constant.
+func (v RCPSTAT) String() string {
+	switch v {
+	case RCPSTATDoesNotExist:
+		return "RCPSTATDoesNotExist"
+	case RCPSTATUnprotected:
+		return "RCPSTATUnprotected"
+	case RCPSTATProtected:
+		return "RCPSTATProtected"
+	default:
+		return "RCPSTAT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // Defined values of the RESC item, which may be sent as I1 or U1.
 // They are untyped constants:
@@ -916,6 +1910,31 @@ const (
 	RESPDESTATOther                 RESPDESTAT = 255
 )
 
+// String returns the name of v's constant, such as "RESPDESTATOK",
+// or "RESPDESTAT(n)" for a value with no constant.
+func (v RESPDESTAT) String() string {
+	switch v {
+	case RESPDESTATOK:
+		return "RESPDESTATOK"
+	case RESPDESTATInvalidInputMap:
+		return "RESPDESTATInvalidInputMap"
+	case RESPDESTATMapPDENotFound:
+		return "RESPDESTATMapPDENotFound"
+	case RESPDESTATResolveDenied:
+		return "RESPDESTATResolveDenied"
+	case RESPDESTATReferencedPDENotFound:
+		return "RESPDESTATReferencedPDENotFound"
+	case RESPDESTATPDENotFound:
+		return "RESPDESTATPDENotFound"
+	case RESPDESTATDateTimeCompareFailed:
+		return "RESPDESTATDateTimeCompareFailed"
+	case RESPDESTATOther:
+		return "RESPDESTATOther"
+	default:
+		return "RESPDESTAT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // RETPLACEINSTR enumerates the defined values of the RETPLACEINSTR item.
 type RETPLACEINSTR uint8
 
@@ -925,6 +1944,21 @@ const (
 	RETPLACEINSTRCurrentlyOccupied RETPLACEINSTR = 2
 )
 
+// String returns the name of v's constant, such as "RETPLACEINSTRPlace",
+// or "RETPLACEINSTR(n)" for a value with no constant.
+func (v RETPLACEINSTR) String() string {
+	switch v {
+	case RETPLACEINSTRPlace:
+		return "RETPLACEINSTRPlace"
+	case RETPLACEINSTRPassBy:
+		return "RETPLACEINSTRPassBy"
+	case RETPLACEINSTRCurrentlyOccupied:
+		return "RETPLACEINSTRCurrentlyOccupied"
+	default:
+		return "RETPLACEINSTR(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // RETREMOVEINSTR enumerates the defined values of the RETREMOVEINSTR item.
 type RETREMOVEINSTR uint8
 
@@ -932,6 +1966,19 @@ const (
 	RETREMOVEINSTRRemove RETREMOVEINSTR = 0
 	RETREMOVEINSTRPassBy RETREMOVEINSTR = 1
 )
+
+// String returns the name of v's constant, such as "RETREMOVEINSTRRemove",
+// or "RETREMOVEINSTR(n)" for a value with no constant.
+func (v RETREMOVEINSTR) String() string {
+	switch v {
+	case RETREMOVEINSTRRemove:
+		return "RETREMOVEINSTRRemove"
+	case RETREMOVEINSTRPassBy:
+		return "RETREMOVEINSTRPassBy"
+	default:
+		return "RETREMOVEINSTR(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // Defined values of the RIC item, which may be sent as I1 or U1.
 // They are untyped constants:
@@ -951,6 +1998,25 @@ const (
 	RMACKActionWillBeCompleted RMACK = 3
 	RMACKNoRequestExists       RMACK = 4
 )
+
+// String returns the name of v's constant, such as "RMACKSuccessfulCompletion",
+// or "RMACK(n)" for a value with no constant.
+func (v RMACK) String() string {
+	switch v {
+	case RMACKSuccessfulCompletion:
+		return "RMACKSuccessfulCompletion"
+	case RMACKCannotPerformAction:
+		return "RMACKCannotPerformAction"
+	case RMACKCompletedWithErrors:
+		return "RMACKCompletedWithErrors"
+	case RMACKActionWillBeCompleted:
+		return "RMACKActionWillBeCompleted"
+	case RMACKNoRequestExists:
+		return "RMACKNoRequestExists"
+	default:
+		return "RMACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // Defined values of the RMCHGSTAT item, which may be sent as U1, U2, U4, or U8.
 // They are untyped constants:
@@ -1007,6 +2073,23 @@ const (
 	RMGRNTRequestOnHold           RMGRNT = 3
 )
 
+// String returns the name of v's constant, such as "RMGRNTPermissionGranted",
+// or "RMGRNT(n)" for a value with no constant.
+func (v RMGRNT) String() string {
+	switch v {
+	case RMGRNTPermissionGranted:
+		return "RMGRNTPermissionGranted"
+	case RMGRNTCannotAcceptNowTryAgain:
+		return "RMGRNTCannotAcceptNowTryAgain"
+	case RMGRNTNoSpace:
+		return "RMGRNTNoSpace"
+	case RMGRNTRequestOnHold:
+		return "RMGRNTRequestOnHold"
+	default:
+		return "RMGRNT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // RMNSCMD enumerates the defined values of the RMNSCMD item.
 type RMNSCMD uint8
 
@@ -1014,6 +2097,19 @@ const (
 	RMNSCMDCreated RMNSCMD = 1
 	RMNSCMDDeleted RMNSCMD = 5
 )
+
+// String returns the name of v's constant, such as "RMNSCMDCreated",
+// or "RMNSCMD(n)" for a value with no constant.
+func (v RMNSCMD) String() string {
+	switch v {
+	case RMNSCMDCreated:
+		return "RMNSCMDCreated"
+	case RMNSCMDDeleted:
+		return "RMNSCMDDeleted"
+	default:
+		return "RMNSCMD(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // RPMACK enumerates the defined values of the RPMACK item.
 type RPMACK uint8
@@ -1028,6 +2124,29 @@ const (
 	RPMACKNoSuchObjectExists              RPMACK = 6
 )
 
+// String returns the name of v's constant, such as "RPMACKAcknowledgeServicePerformed",
+// or "RPMACK(n)" for a value with no constant.
+func (v RPMACK) String() string {
+	switch v {
+	case RPMACKAcknowledgeServicePerformed:
+		return "RPMACKAcknowledgeServicePerformed"
+	case RPMACKServiceDoesNotExist:
+		return "RPMACKServiceDoesNotExist"
+	case RPMACKCannotPerformNow:
+		return "RPMACKCannotPerformNow"
+	case RPMACKParameterDoesNotExist:
+		return "RPMACKParameterDoesNotExist"
+	case RPMACKAcknowledgeCompletionLater:
+		return "RPMACKAcknowledgeCompletionLater"
+	case RPMACKServiceNotCompletedOrProhibited:
+		return "RPMACKServiceNotCompletedOrProhibited"
+	case RPMACKNoSuchObjectExists:
+		return "RPMACKNoSuchObjectExists"
+	default:
+		return "RPMACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // RRACK enumerates the defined values of the RRACK item.
 type RRACK byte
 
@@ -1038,6 +2157,25 @@ const (
 	RRACKBusyTryAgain          RRACK = 3
 	RRACKSenderHasNoPermission RRACK = 4
 )
+
+// String returns the name of v's constant, such as "RRACKAcknowledgeOK",
+// or "RRACK(n)" for a value with no constant.
+func (v RRACK) String() string {
+	switch v {
+	case RRACKAcknowledgeOK:
+		return "RRACKAcknowledgeOK"
+	case RRACKInvalidPortNumber:
+		return "RRACKInvalidPortNumber"
+	case RRACKMaterialNotAtPort:
+		return "RRACKMaterialNotAtPort"
+	case RRACKBusyTryAgain:
+		return "RRACKBusyTryAgain"
+	case RRACKSenderHasNoPermission:
+		return "RRACKSenderHasNoPermission"
+	default:
+		return "RRACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // RSACK enumerates the defined values of the RSACK item.
 type RSACK byte
@@ -1050,6 +2188,25 @@ const (
 	RSACKReceiverHasNoPermission RSACK = 4
 )
 
+// String returns the name of v's constant, such as "RSACKAcknowledgeOK",
+// or "RSACK(n)" for a value with no constant.
+func (v RSACK) String() string {
+	switch v {
+	case RSACKAcknowledgeOK:
+		return "RSACKAcknowledgeOK"
+	case RSACKInvalidPortNumber:
+		return "RSACKInvalidPortNumber"
+	case RSACKPortAlreadyOccupied:
+		return "RSACKPortAlreadyOccupied"
+	case RSACKBusyTryAgain:
+		return "RSACKBusyTryAgain"
+	case RSACKReceiverHasNoPermission:
+		return "RSACKReceiverHasNoPermission"
+	default:
+		return "RSACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // RSDA enumerates the defined values of the RSDA item.
 type RSDA byte
 
@@ -1059,6 +2216,21 @@ const (
 	RSDADeniedSpooledDataDoesNotExist RSDA = 2
 )
 
+// String returns the name of v's constant, such as "RSDAOK",
+// or "RSDA(n)" for a value with no constant.
+func (v RSDA) String() string {
+	switch v {
+	case RSDAOK:
+		return "RSDAOK"
+	case RSDADeniedBusyTryLater:
+		return "RSDADeniedBusyTryLater"
+	case RSDADeniedSpooledDataDoesNotExist:
+		return "RSDADeniedSpooledDataDoesNotExist"
+	default:
+		return "RSDA(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // RSDC enumerates the defined values of the RSDC item.
 type RSDC uint8
 
@@ -1067,6 +2239,19 @@ const (
 	RSDCPurgeSpooledMessages    RSDC = 1
 )
 
+// String returns the name of v's constant, such as "RSDCTransmitSpooledMessages",
+// or "RSDC(n)" for a value with no constant.
+func (v RSDC) String() string {
+	switch v {
+	case RSDCTransmitSpooledMessages:
+		return "RSDCTransmitSpooledMessages"
+	case RSDCPurgeSpooledMessages:
+		return "RSDCPurgeSpooledMessages"
+	default:
+		return "RSDC(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // RSPACK enumerates the defined values of the RSPACK item.
 type RSPACK byte
 
@@ -1074,6 +2259,19 @@ const (
 	RSPACKSpoolingSetupAccepted RSPACK = 0
 	RSPACKSpoolingSetupRejected RSPACK = 1
 )
+
+// String returns the name of v's constant, such as "RSPACKSpoolingSetupAccepted",
+// or "RSPACK(n)" for a value with no constant.
+func (v RSPACK) String() string {
+	switch v {
+	case RSPACKSpoolingSetupAccepted:
+		return "RSPACKSpoolingSetupAccepted"
+	case RSPACKSpoolingSetupRejected:
+		return "RSPACKSpoolingSetupRejected"
+	default:
+		return "RSPACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // RTSRSPSTAT enumerates the defined values of the RTSRSPSTAT item.
 type RTSRSPSTAT uint8
@@ -1085,6 +2283,25 @@ const (
 	RTSRSPSTATNoStorageSpace            RTSRSPSTAT = 3
 	RTSRSPSTATOther                     RTSRSPSTAT = 255
 )
+
+// String returns the name of v's constant, such as "RTSRSPSTATOK",
+// or "RTSRSPSTAT(n)" for a value with no constant.
+func (v RTSRSPSTAT) String() string {
+	switch v {
+	case RTSRSPSTATOK:
+		return "RTSRSPSTATOK"
+	case RTSRSPSTATNoResources:
+		return "RTSRSPSTATNoResources"
+	case RTSRSPSTATTransferContainerTooLarge:
+		return "RTSRSPSTATTransferContainerTooLarge"
+	case RTSRSPSTATNoStorageSpace:
+		return "RTSRSPSTATNoStorageSpace"
+	case RTSRSPSTATOther:
+		return "RTSRSPSTATOther"
+	default:
+		return "RTSRSPSTAT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // Defined values of the RTYPE item, which may be sent as I1, I2, I4, I8, U1, U2, U4, or U8.
 // They are untyped constants:
@@ -1101,6 +2318,17 @@ const (
 	SDACKReceivedData SDACK = 0
 )
 
+// String returns the name of v's constant, such as "SDACKReceivedData",
+// or "SDACK(n)" for a value with no constant.
+func (v SDACK) String() string {
+	switch v {
+	case SDACKReceivedData:
+		return "SDACKReceivedData"
+	default:
+		return "SDACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // SDBIN enumerates the defined values of the SDBIN item.
 type SDBIN byte
 
@@ -1108,6 +2336,19 @@ const (
 	SDBINSendBinInformation     SDBIN = 0
 	SDBINDontSendBinInformation SDBIN = 1
 )
+
+// String returns the name of v's constant, such as "SDBINSendBinInformation",
+// or "SDBIN(n)" for a value with no constant.
+func (v SDBIN) String() string {
+	switch v {
+	case SDBINSendBinInformation:
+		return "SDBINSendBinInformation"
+	case SDBINDontSendBinInformation:
+		return "SDBINDontSendBinInformation"
+	default:
+		return "SDBIN(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // SENDRESULT enumerates the defined values of the SENDRESULT item.
 type SENDRESULT uint8
@@ -1120,6 +2361,27 @@ const (
 	SENDRESULTTCMissingFiles      SENDRESULT = 4
 	SENDRESULTTCFormatError       SENDRESULT = 5
 )
+
+// String returns the name of v's constant, such as "SENDRESULTOK",
+// or "SENDRESULT(n)" for a value with no constant.
+func (v SENDRESULT) String() string {
+	switch v {
+	case SENDRESULTOK:
+		return "SENDRESULTOK"
+	case SENDRESULTSendRspError:
+		return "SENDRESULTSendRspError"
+	case SENDRESULTTCManifestError:
+		return "SENDRESULTTCManifestError"
+	case SENDRESULTTCUnexpectedContent:
+		return "SENDRESULTTCUnexpectedContent"
+	case SENDRESULTTCMissingFiles:
+		return "SENDRESULTTCMissingFiles"
+	case SENDRESULTTCFormatError:
+		return "SENDRESULTTCFormatError"
+	default:
+		return "SENDRESULT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // SENDRSPSTAT enumerates the defined values of the SENDRSPSTAT item.
 type SENDRSPSTAT uint8
@@ -1134,6 +2396,29 @@ const (
 	SENDRSPSTATOther              SENDRSPSTAT = 255
 )
 
+// String returns the name of v's constant, such as "SENDRSPSTATOK",
+// or "SENDRSPSTAT(n)" for a value with no constant.
+func (v SENDRSPSTAT) String() string {
+	switch v {
+	case SENDRSPSTATOK:
+		return "SENDRSPSTATOK"
+	case SENDRSPSTATNoResources:
+		return "SENDRSPSTATNoResources"
+	case SENDRSPSTATNoExecutionTarget:
+		return "SENDRSPSTATNoExecutionTarget"
+	case SENDRSPSTATPDELocked:
+		return "SENDRSPSTATPDELocked"
+	case SENDRSPSTATVerificationFailed:
+		return "SENDRSPSTATVerificationFailed"
+	case SENDRSPSTATTransferNotAllowed:
+		return "SENDRSPSTATTransferNotAllowed"
+	case SENDRSPSTATOther:
+		return "SENDRSPSTATOther"
+	default:
+		return "SENDRSPSTAT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // SPAACK enumerates the defined values of the SPAACK item.
 type SPAACK byte
 
@@ -1141,6 +2426,19 @@ const (
 	SPAACKEverythingCorrect SPAACK = 0
 	SPAACKInvalidData       SPAACK = 1
 )
+
+// String returns the name of v's constant, such as "SPAACKEverythingCorrect",
+// or "SPAACK(n)" for a value with no constant.
+func (v SPAACK) String() string {
+	switch v {
+	case SPAACKEverythingCorrect:
+		return "SPAACKEverythingCorrect"
+	case SPAACKInvalidData:
+		return "SPAACKInvalidData"
+	default:
+		return "SPAACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // STRACK enumerates the defined values of the STRACK item.
 type STRACK byte
@@ -1151,6 +2449,23 @@ const (
 	STRACKUnknownFunction             STRACK = 3
 	STRACKSecondaryFunction           STRACK = 4
 )
+
+// String returns the name of v's constant, such as "STRACKSpoolingNotAllowedForStream",
+// or "STRACK(n)" for a value with no constant.
+func (v STRACK) String() string {
+	switch v {
+	case STRACKSpoolingNotAllowedForStream:
+		return "STRACKSpoolingNotAllowedForStream"
+	case STRACKStreamUnknown:
+		return "STRACKStreamUnknown"
+	case STRACKUnknownFunction:
+		return "STRACKUnknownFunction"
+	case STRACKSecondaryFunction:
+		return "STRACKSecondaryFunction"
+	default:
+		return "STRACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // SVCACK enumerates the defined values of the SVCACK item.
 type SVCACK byte
@@ -1164,6 +2479,29 @@ const (
 	SVCACKServiceNotCompletedOrProhibited SVCACK = 5
 	SVCACKNoSuchObjectExists              SVCACK = 6
 )
+
+// String returns the name of v's constant, such as "SVCACKAcknowledgeServicePerformed",
+// or "SVCACK(n)" for a value with no constant.
+func (v SVCACK) String() string {
+	switch v {
+	case SVCACKAcknowledgeServicePerformed:
+		return "SVCACKAcknowledgeServicePerformed"
+	case SVCACKServiceDoesNotExist:
+		return "SVCACKServiceDoesNotExist"
+	case SVCACKCannotPerformNow:
+		return "SVCACKCannotPerformNow"
+	case SVCACKParameterInvalid:
+		return "SVCACKParameterInvalid"
+	case SVCACKAcknowledgeCompletionLater:
+		return "SVCACKAcknowledgeCompletionLater"
+	case SVCACKServiceNotCompletedOrProhibited:
+		return "SVCACKServiceNotCompletedOrProhibited"
+	case SVCACKNoSuchObjectExists:
+		return "SVCACKNoSuchObjectExists"
+	default:
+		return "SVCACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // SVCNAME enumerates the defined values of the SVCNAME item.
 type SVCNAME string
@@ -1181,6 +2519,19 @@ const (
 	TBLACKFailure TBLACK = 1
 )
 
+// String returns the name of v's constant, such as "TBLACKSuccess",
+// or "TBLACK(n)" for a value with no constant.
+func (v TBLACK) String() string {
+	switch v {
+	case TBLACKSuccess:
+		return "TBLACKSuccess"
+	case TBLACKFailure:
+		return "TBLACKFailure"
+	default:
+		return "TBLACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // TBLCMD enumerates the defined values of the TBLCMD item.
 type TBLCMD uint8
 
@@ -1191,6 +2542,25 @@ const (
 	TBLCMDReplaceExistingRows    TBLCMD = 3
 	TBLCMDReplaceExistingColumns TBLCMD = 4
 )
+
+// String returns the name of v's constant, such as "TBLCMDCompleteTable",
+// or "TBLCMD(n)" for a value with no constant.
+func (v TBLCMD) String() string {
+	switch v {
+	case TBLCMDCompleteTable:
+		return "TBLCMDCompleteTable"
+	case TBLCMDNewRows:
+		return "TBLCMDNewRows"
+	case TBLCMDNewColumns:
+		return "TBLCMDNewColumns"
+	case TBLCMDReplaceExistingRows:
+		return "TBLCMDReplaceExistingRows"
+	case TBLCMDReplaceExistingColumns:
+		return "TBLCMDReplaceExistingColumns"
+	default:
+		return "TBLCMD(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // TBLTYP enumerates the defined values of the TBLTYP item.
 type TBLTYP string
@@ -1214,6 +2584,27 @@ const (
 	TIAACKInvalidREPGSZ       TIAACK = 5
 )
 
+// String returns the name of v's constant, such as "TIAACKEverythingCorrect",
+// or "TIAACK(n)" for a value with no constant.
+func (v TIAACK) String() string {
+	switch v {
+	case TIAACKEverythingCorrect:
+		return "TIAACKEverythingCorrect"
+	case TIAACKTooManySVIDs:
+		return "TIAACKTooManySVIDs"
+	case TIAACKNoMoreTracesAllowed:
+		return "TIAACKNoMoreTracesAllowed"
+	case TIAACKInvalidPeriod:
+		return "TIAACKInvalidPeriod"
+	case TIAACKUnknownSVID:
+		return "TIAACKUnknownSVID"
+	case TIAACKInvalidREPGSZ:
+		return "TIAACKInvalidREPGSZ"
+	default:
+		return "TIAACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // TIACK enumerates the defined values of the TIACK item.
 type TIACK byte
 
@@ -1222,12 +2613,36 @@ const (
 	TIACKErrorNotDone TIACK = 1
 )
 
+// String returns the name of v's constant, such as "TIACKOK",
+// or "TIACK(n)" for a value with no constant.
+func (v TIACK) String() string {
+	switch v {
+	case TIACKOK:
+		return "TIACKOK"
+	case TIACKErrorNotDone:
+		return "TIACKErrorNotDone"
+	default:
+		return "TIACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // TID enumerates the defined values of the TID item.
 type TID byte
 
 const (
 	TIDSingleOrMain TID = 0
 )
+
+// String returns the name of v's constant, such as "TIDSingleOrMain",
+// or "TID(n)" for a value with no constant.
+func (v TID) String() string {
+	switch v {
+	case TIDSingleOrMain:
+		return "TIDSingleOrMain"
+	default:
+		return "TID(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // TRCMDNAME enumerates the defined values of the TRCMDNAME item.
 type TRCMDNAME string
@@ -1249,6 +2664,19 @@ const (
 	TRDIRReceiveMaterial TRDIR = 2
 )
 
+// String returns the name of v's constant, such as "TRDIRSendMaterial",
+// or "TRDIR(n)" for a value with no constant.
+func (v TRDIR) String() string {
+	switch v {
+	case TRDIRSendMaterial:
+		return "TRDIRSendMaterial"
+	case TRDIRReceiveMaterial:
+		return "TRDIRReceiveMaterial"
+	default:
+		return "TRDIR(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // TRJOBMS enumerates the defined values of the TRJOBMS item.
 type TRJOBMS uint8
 
@@ -1256,6 +2684,19 @@ const (
 	TRJOBMSTransferJobStarted  TRJOBMS = 1
 	TRJOBMSTransferJobComplete TRJOBMS = 2
 )
+
+// String returns the name of v's constant, such as "TRJOBMSTransferJobStarted",
+// or "TRJOBMS(n)" for a value with no constant.
+func (v TRJOBMS) String() string {
+	switch v {
+	case TRJOBMSTransferJobStarted:
+		return "TRJOBMSTransferJobStarted"
+	case TRJOBMSTransferJobComplete:
+		return "TRJOBMSTransferJobComplete"
+	default:
+		return "TRJOBMS(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // TRROLE enumerates the defined values of the TRROLE item.
 type TRROLE uint8
@@ -1265,6 +2706,19 @@ const (
 	TRROLESecondaryTransferPartner TRROLE = 2
 )
 
+// String returns the name of v's constant, such as "TRROLEPrimaryTransferPartner",
+// or "TRROLE(n)" for a value with no constant.
+func (v TRROLE) String() string {
+	switch v {
+	case TRROLEPrimaryTransferPartner:
+		return "TRROLEPrimaryTransferPartner"
+	case TRROLESecondaryTransferPartner:
+		return "TRROLESecondaryTransferPartner"
+	default:
+		return "TRROLE(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // TRTYPE enumerates the defined values of the TRTYPE item.
 type TRTYPE uint8
 
@@ -1272,6 +2726,19 @@ const (
 	TRTYPEActive  TRTYPE = 1
 	TRTYPEPassive TRTYPE = 2
 )
+
+// String returns the name of v's constant, such as "TRTYPEActive",
+// or "TRTYPE(n)" for a value with no constant.
+func (v TRTYPE) String() string {
+	switch v {
+	case TRTYPEActive:
+		return "TRTYPEActive"
+	case TRTYPEPassive:
+		return "TRTYPEPassive"
+	default:
+		return "TRTYPE(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // TSIP enumerates the defined values of the TSIP item.
 type TSIP byte
@@ -1282,6 +2749,23 @@ const (
 	TSIPTrackOn         TSIP = 3
 	TSIPStuckInReceiver TSIP = 4
 )
+
+// String returns the name of v's constant, such as "TSIPIdle",
+// or "TSIP(n)" for a value with no constant.
+func (v TSIP) String() string {
+	switch v {
+	case TSIPIdle:
+		return "TSIPIdle"
+	case TSIPPrep:
+		return "TSIPPrep"
+	case TSIPTrackOn:
+		return "TSIPTrackOn"
+	case TSIPStuckInReceiver:
+		return "TSIPStuckInReceiver"
+	default:
+		return "TSIP(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // TSOP enumerates the defined values of the TSOP item.
 type TSOP byte
@@ -1294,6 +2778,25 @@ const (
 	TSOPCompletion    TSOP = 5
 )
 
+// String returns the name of v's constant, such as "TSOPIdle",
+// or "TSOP(n)" for a value with no constant.
+func (v TSOP) String() string {
+	switch v {
+	case TSOPIdle:
+		return "TSOPIdle"
+	case TSOPPrep:
+		return "TSOPPrep"
+	case TSOPTrackOn:
+		return "TSOPTrackOn"
+	case TSOPStuckInSender:
+		return "TSOPStuckInSender"
+	case TSOPCompletion:
+		return "TSOPCompletion"
+	default:
+		return "TSOP(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // VERIFYDEPTH enumerates the defined values of the VERIFYDEPTH item.
 type VERIFYDEPTH uint8
 
@@ -1301,6 +2804,19 @@ const (
 	VERIFYDEPTHSingle VERIFYDEPTH = 0
 	VERIFYDEPTHAll    VERIFYDEPTH = 1
 )
+
+// String returns the name of v's constant, such as "VERIFYDEPTHSingle",
+// or "VERIFYDEPTH(n)" for a value with no constant.
+func (v VERIFYDEPTH) String() string {
+	switch v {
+	case VERIFYDEPTHSingle:
+		return "VERIFYDEPTHSingle"
+	case VERIFYDEPTHAll:
+		return "VERIFYDEPTHAll"
+	default:
+		return "VERIFYDEPTH(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // VERIFYRSPSTAT enumerates the defined values of the VERIFYRSPSTAT item.
 type VERIFYRSPSTAT uint8
@@ -1322,6 +2838,43 @@ const (
 	VERIFYRSPSTATOther                 VERIFYRSPSTAT = 255
 )
 
+// String returns the name of v's constant, such as "VERIFYRSPSTATOK",
+// or "VERIFYRSPSTAT(n)" for a value with no constant.
+func (v VERIFYRSPSTAT) String() string {
+	switch v {
+	case VERIFYRSPSTATOK:
+		return "VERIFYRSPSTATOK"
+	case VERIFYRSPSTATInvalidInputMap:
+		return "VERIFYRSPSTATInvalidInputMap"
+	case VERIFYRSPSTATMapPDENotFound:
+		return "VERIFYRSPSTATMapPDENotFound"
+	case VERIFYRSPSTATResolveDenied:
+		return "VERIFYRSPSTATResolveDenied"
+	case VERIFYRSPSTATReferencedPDENotFound:
+		return "VERIFYRSPSTATReferencedPDENotFound"
+	case VERIFYRSPSTATDateTimeCompareFailed:
+		return "VERIFYRSPSTATDateTimeCompareFailed"
+	case VERIFYRSPSTATPDENotFound:
+		return "VERIFYRSPSTATPDENotFound"
+	case VERIFYRSPSTATChecksumFail:
+		return "VERIFYRSPSTATChecksumFail"
+	case VERIFYRSPSTATSyntaxError:
+		return "VERIFYRSPSTATSyntaxError"
+	case VERIFYRSPSTATContentError:
+		return "VERIFYRSPSTATContentError"
+	case VERIFYRSPSTATNoExecutionTarget:
+		return "VERIFYRSPSTATNoExecutionTarget"
+	case VERIFYRSPSTATOutputParameterError:
+		return "VERIFYRSPSTATOutputParameterError"
+	case VERIFYRSPSTATNoVerification:
+		return "VERIFYRSPSTATNoVerification"
+	case VERIFYRSPSTATOther:
+		return "VERIFYRSPSTATOther"
+	default:
+		return "VERIFYRSPSTAT(" + strconv.Itoa(int(v)) + ")"
+	}
+}
+
 // VERIFYTYPE enumerates the defined values of the VERIFYTYPE item.
 type VERIFYTYPE uint8
 
@@ -1329,6 +2882,19 @@ const (
 	VERIFYTYPEChecksum VERIFYTYPE = 0
 	VERIFYTYPEValidity VERIFYTYPE = 1
 )
+
+// String returns the name of v's constant, such as "VERIFYTYPEChecksum",
+// or "VERIFYTYPE(n)" for a value with no constant.
+func (v VERIFYTYPE) String() string {
+	switch v {
+	case VERIFYTYPEChecksum:
+		return "VERIFYTYPEChecksum"
+	case VERIFYTYPEValidity:
+		return "VERIFYTYPEValidity"
+	default:
+		return "VERIFYTYPE(" + strconv.Itoa(int(v)) + ")"
+	}
+}
 
 // VLAACK enumerates the defined values of the VLAACK item.
 type VLAACK byte
@@ -1338,3 +2904,18 @@ const (
 	VLAACKLimitAttributeDefinitionError     VLAACK = 1
 	VLAACKCannotPerformNow                  VLAACK = 2
 )
+
+// String returns the name of v's constant, such as "VLAACKAcknowledgeCommandWillBePerformed",
+// or "VLAACK(n)" for a value with no constant.
+func (v VLAACK) String() string {
+	switch v {
+	case VLAACKAcknowledgeCommandWillBePerformed:
+		return "VLAACKAcknowledgeCommandWillBePerformed"
+	case VLAACKLimitAttributeDefinitionError:
+		return "VLAACKLimitAttributeDefinitionError"
+	case VLAACKCannotPerformNow:
+		return "VLAACKCannotPerformNow"
+	default:
+		return "VLAACK(" + strconv.Itoa(int(v)) + ")"
+	}
+}

@@ -75,3 +75,30 @@ func TestDecodeALCDUnknownCategory(t *testing.T) {
 		t.Errorf("ALARMS[0].ALCD %#x: Set() = %v, Category() = %d, want false, 125", byte(*alcd), alcd.Set(), alcd.Category())
 	}
 }
+
+func TestALCDString(t *testing.T) {
+	tests := []struct {
+		alcd gem.ALCD
+		want string
+	}{
+		{alcd: gem.ALCDAlarmSet | gem.ALCDPersonalSafety, want: "ALCDAlarmSet|ALCDPersonalSafety"},
+		{alcd: gem.ALCDPersonalSafety, want: "ALCDPersonalSafety"},
+		{alcd: gem.ALCDAlarmSet, want: "ALCDAlarmSet|ALCD(0)"},
+		{alcd: 9, want: "ALCD(9)"},
+		{alcd: 0, want: "ALCD(0)"},
+		{alcd: 0xFF, want: "ALCDAlarmSet|ALCD(127)"},
+		{alcd: gem.ALCDEquipmentSafety, want: "ALCDEquipmentSafety"},
+		{alcd: gem.ALCDParameterControlWarning, want: "ALCDParameterControlWarning"},
+		{alcd: gem.ALCDParameterControlError, want: "ALCDParameterControlError"},
+		{alcd: gem.ALCDIrrecoverableError, want: "ALCDIrrecoverableError"},
+		{alcd: gem.ALCDEquipmentStatusWarning, want: "ALCDEquipmentStatusWarning"},
+		{alcd: gem.ALCDAttentionFlags, want: "ALCDAttentionFlags"},
+		{alcd: gem.ALCDAlarmSet | gem.ALCDDataIntegrity, want: "ALCDAlarmSet|ALCDDataIntegrity"},
+	}
+
+	for _, tt := range tests {
+		if got := tt.alcd.String(); got != tt.want {
+			t.Errorf("ALCD %#x: String() = %q, want %q", byte(tt.alcd), got, tt.want)
+		}
+	}
+}

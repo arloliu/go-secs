@@ -15,7 +15,9 @@ import (
 // enumsItemsYAML is the item dictionary the enumeration fixture draws on:
 // a fixed string item with string values, one of them from another standard,
 // an open item with integer values, an open item with string values,
-// and a fixed byte item with a named type and no values.
+// a fixed byte item with a named type and no values,
+// fixed byte and uint8 items with values, which get a String method,
+// and a fixed byte item with values marked customString, which gets none.
 // Notes on items and values, one beside a value's own source, must render as godoc that compiles.
 const enumsItemsYAML = `
 CARRIERACTION:
@@ -50,6 +52,30 @@ FORMCODE:
   description: "Form code, 1 byte."
   source: e5
   namedType: true
+ACKC5:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  source: e5
+  values:
+    - {name: Accepted, value: 0}
+    - {name: Error, value: 1}
+ACCESSMODE:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  source: e5
+  values:
+    - {name: Manual, value: 1}
+    - {name: Auto, value: 2}
+ALARMCODE:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  source: e5
+  customString: true
+  values:
+    - {name: Set, value: 128}
 `
 
 // enumsS3YAML carries the string enumeration twice, the second time renamed,
@@ -83,9 +109,12 @@ messages:
 // untyped constants of the open items to the secs2 constructor of the format sent,
 // and a pointer to a value of the named type without constants to the builder.
 // The decoded fields must give back the same constants and value.
+// A type with a generated String method must print its constant's name, or its fallback,
+// and a customString type, which has no String method in the fixture, must print its number.
 const enumsConstantsTest = `package PKG
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/secs2"
@@ -147,6 +176,23 @@ func TestEnumConstantsRoundTrip(t *testing.T) {
 		t.Errorf("secs2.A(OBJTYPETen): got %q, %v", s, err)
 	}
 }
+
+func TestEnumString(t *testing.T) {
+	for _, tt := range []struct {
+		got  string
+		want string
+	}{
+		{got: fmt.Sprint(ACKC5Error), want: "ACKC5Error"},
+		{got: fmt.Sprintf("%v", ACKC5(7)), want: "ACKC5(7)"},
+		{got: fmt.Sprintf("%d", ACKC5Error), want: "1"},
+		{got: fmt.Sprintf("%s", ACCESSMODEAuto), want: "ACCESSMODEAuto"},
+		{got: fmt.Sprintf("%v", ALARMCODESet), want: "128"},
+	} {
+		if tt.got != tt.want {
+			t.Errorf("got %q, want %q", tt.got, tt.want)
+		}
+	}
+}
 `
 
 // TestEnumsCompileAndRunAgainstRealSecs2 is the real-compile guard for string enumerations
@@ -158,6 +204,7 @@ func TestEnumConstantsRoundTrip(t *testing.T) {
 // A decoder that assigned decodeASCII's string straight to a named string field would not compile,
 // and neither would a builder that passed the named type to secs2.A.
 // A named type without values must be declared, and taken and returned as itself.
+// The String methods and their generated test must compile, vet, and pass.
 //
 // It is gated behind the `integration` build tag,
 // because it shells out to the go toolchain and reaches across module boundaries;
@@ -199,6 +246,12 @@ func TestEnumsCompileAndRunAgainstRealSecs2(t *testing.T) {
 	require.Contains(t, string(enums), "// FORMCODE is the type of the FORMCODE item.\n// Form code, 1 byte.\ntype FORMCODE byte\n")
 	require.NotContains(t, string(enums), "FORMCODE enumerates")
 	require.NotContains(t, string(enums), " FORMCODE = ")
+	require.Contains(t, string(enums), "func (v ACKC5) String() string {")
+	require.Contains(t, string(enums), "func (v ACCESSMODE) String() string {")
+	require.NotContains(t, string(enums), "func (v ALARMCODE) String()")
+	require.NotContains(t, string(enums), "func (v FORMCODE) String()")
+	require.NotContains(t, string(enums), "func (v CARRIERACTION) String()")
+	require.FileExists(t, filepath.Join(checkDir, "items_string_test.go"))
 
 	builders, err := os.ReadFile(filepath.Join(checkDir, "s3.go"))
 	require.NoError(t, err)
@@ -250,6 +303,8 @@ func TestEnumsCompileAndRunAgainstRealSecs2(t *testing.T) {
 		"TestDecodeS3F17RoundTrip",
 		"TestDecodeS3F17FORMCODEAbsent",
 		"TestEnumConstantsRoundTrip",
+		"TestEnumString",
+		"TestItemTypeString",
 	} {
 		require.Containsf(t, string(out), "--- PASS: "+name+" ", "%s did not run and pass:\n%s", name, string(out))
 	}

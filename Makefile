@@ -99,7 +99,7 @@ docs-check: ## Check docs/ against .agents/rules/450-doc-lifecycle.md (Status li
 # one function per message makes duplication and complexity inherent there,
 # while every other finding is a generator or template fix.
 GEM_GENERATED_LINT_CONFIG := $(or $(TMPDIR),/tmp)/golangci-gem-generated.yaml
-GEM_GENERATED_FILES       := ^gem/(s[0-9]+(_decode)?(_test)?|items|groups|catalog(_lookup_test)?)\.go$$
+GEM_GENERATED_FILES       := ^gem/(s[0-9]+(_decode)?(_test)?|items(_string_test)?|groups|catalog(_lookup_test)?)\.go$$
 
 lint-gem-generated: ## Run golangci-lint on gem/ with generated files included
 	@printf "Run linter on generated gem code...\n"

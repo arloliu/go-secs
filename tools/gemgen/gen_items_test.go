@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"go/format"
 	"math"
 	"regexp"
 	"strings"
@@ -217,4 +219,138 @@ func TestRenderItemsNotes(t *testing.T) {
 		"const (\n"+
 		"\t// Open value note.\n"+
 		"\tRCMDReset = \"Reset\"\n")
+}
+
+// TestRenderItemsString proves that a fixed byte or uint8 item with a values table gets a String method after its const block.
+// The method has a case per constant in YAML order,
+// a fallback that prints the number,
+// and a doc comment that names the type's first constant;
+// items.go then imports strconv and is gofmt'd.
+func TestRenderItemsString(t *testing.T) {
+	items := map[string]Item{
+		"COMMACK": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte", Source: "e5",
+			Values: []ItemValue{{Name: "Accepted", Value: IntValue(0)}, {Name: "Denied", Value: IntValue(1)}}},
+		"ACCESSMODE": {Formats: []string{"U1"}, Binding: BindingFixed, GoType: "uint8", Source: "e5",
+			Values: []ItemValue{{Name: "Auto", Value: IntValue(2)}, {Name: "Manual", Value: IntValue(1)}}},
+	}
+
+	out, err := renderItems(items)
+	require.NoError(t, err)
+	src := string(out)
+
+	require.Contains(t, src, "\nimport \"strconv\"\n")
+	require.Contains(t, src, "COMMACKDenied   COMMACK = 1\n)\n\n"+
+		"// String returns the name of v's constant, such as \"COMMACKAccepted\",\n"+
+		"// or \"COMMACK(n)\" for a value with no constant.\n"+
+		"func (v COMMACK) String() string {\n"+
+		"\tswitch v {\n"+
+		"\tcase COMMACKAccepted:\n\t\treturn \"COMMACKAccepted\"\n"+
+		"\tcase COMMACKDenied:\n\t\treturn \"COMMACKDenied\"\n"+
+		"\tdefault:\n\t\treturn \"COMMACK(\" + strconv.Itoa(int(v)) + \")\"\n"+
+		"\t}\n}\n")
+	require.Contains(t, src, "such as \"ACCESSMODEAuto\",")
+	require.Regexp(t, regexp.MustCompile(`case ACCESSMODEAuto:\s+return "ACCESSMODEAuto"\s+case ACCESSMODEManual:`), src)
+
+	formatted, err := format.Source(out)
+	require.NoError(t, err)
+	require.Equal(t, src, string(formatted))
+}
+
+// TestRenderItemsNoString proves which items get no String method:
+// a string enumeration, the untyped constants of an open item, a named type without values,
+// and an item marked customString;
+// with none left, items.go does not import strconv.
+func TestRenderItemsNoString(t *testing.T) {
+	items := map[string]Item{
+		"CARRIERACTION": {Formats: []string{"A"}, Binding: BindingFixed, GoType: "string", Source: "e5",
+			Values: []ItemValue{{Name: "Proceed", Value: StringValue("Proceed")}}},
+		"ERRCODE": {Formats: []string{"U1", "U2"}, Binding: BindingOpen, Source: "e5",
+			Values: []ItemValue{{Name: "NoError", Value: IntValue(0)}}},
+		"PFCD": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte", Source: "e5", NamedType: true},
+		"ALCD": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte", Source: "e5", CustomString: true,
+			Values: []ItemValue{{Name: "PersonalSafety", Value: IntValue(1)}}},
+	}
+
+	out, err := renderItems(items)
+	require.NoError(t, err)
+	src := string(out)
+
+	require.NotContains(t, src, "String()")
+	require.NotContains(t, src, "strconv")
+	require.Contains(t, src, "type ALCD byte")
+
+	formatted, err := format.Source(out)
+	require.NoError(t, err)
+	require.Equal(t, src, string(formatted))
+
+	testSrc, err := renderItemStringTests(items)
+	require.NoError(t, err)
+	require.Nil(t, testSrc, "no String method, so no String test file")
+}
+
+// TestRenderItemsStringRejectsDuplicateValue proves two constants sharing a value are an error naming the item,
+// since a switch with both cases would not compile.
+func TestRenderItemsStringRejectsDuplicateValue(t *testing.T) {
+	items := map[string]Item{
+		"COMMACK": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte", Source: "e5",
+			Values: []ItemValue{{Name: "Accepted", Value: IntValue(0)}, {Name: "Ok", Value: IntValue(0)}}},
+	}
+
+	_, err := renderItems(items)
+	require.ErrorContains(t, err, "item COMMACK: values Accepted and Ok share the value 0")
+
+	_, err = renderItemStringTests(items)
+	require.ErrorContains(t, err, "item COMMACK: values Accepted and Ok share the value 0")
+
+	// The same table on a customString item renders, since no String switch is generated for it.
+	ci := items["COMMACK"]
+	ci.CustomString = true
+	_, err = renderItems(map[string]Item{"COMMACK": ci})
+	require.NoError(t, err)
+}
+
+// TestRenderItemsStringRejectsFullTable proves a values table taking all 256 byte values is an error,
+// since the String test then has no value without a constant to check the fallback with.
+func TestRenderItemsStringRejectsFullTable(t *testing.T) {
+	values := make([]ItemValue, 0, 256)
+	for n := range 256 {
+		values = append(values, ItemValue{Name: fmt.Sprintf("V%d", n), Value: IntValue(int64(n))})
+	}
+
+	items := map[string]Item{"FULL": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte", Source: "e5", Values: values}}
+
+	_, err := renderItems(items)
+	require.ErrorContains(t, err, "item FULL: the values table takes every byte value")
+}
+
+// TestRenderItemStringTests proves the generated String test lists every constant of every type with a String method,
+// in name order and then YAML order,
+// plus the smallest value of each type that has no constant,
+// and is gofmt'd.
+func TestRenderItemStringTests(t *testing.T) {
+	items := map[string]Item{
+		"COMMACK": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte", Source: "e5",
+			Values: []ItemValue{{Name: "Accepted", Value: IntValue(0)}, {Name: "Denied", Value: IntValue(1)}, {Name: "Other", Value: IntValue(3)}}},
+		"ACCESSMODE": {Formats: []string{"U1"}, Binding: BindingFixed, GoType: "uint8", Source: "e5",
+			Values: []ItemValue{{Name: "Manual", Value: IntValue(1)}}},
+		"CARRIERACTION": {Formats: []string{"A"}, Binding: BindingFixed, GoType: "string", Source: "e5",
+			Values: []ItemValue{{Name: "Proceed", Value: StringValue("Proceed")}}},
+	}
+
+	out, err := renderItemStringTests(items)
+	require.NoError(t, err)
+	src := string(out)
+
+	require.True(t, strings.HasPrefix(src, "// Code generated by gemgen; DO NOT EDIT.\n\npackage gem_test\n"))
+	require.Contains(t, src, "\t\t{value: gem.ACCESSMODEManual, want: \"ACCESSMODEManual\"},\n"+
+		"\t\t{value: gem.ACCESSMODE(0), want: \"ACCESSMODE(0)\"},\n"+
+		"\t\t{value: gem.COMMACKAccepted, want: \"COMMACKAccepted\"},\n"+
+		"\t\t{value: gem.COMMACKDenied, want: \"COMMACKDenied\"},\n"+
+		"\t\t{value: gem.COMMACKOther, want: \"COMMACKOther\"},\n"+
+		"\t\t{value: gem.COMMACK(2), want: \"COMMACK(2)\"},\n")
+	require.NotContains(t, src, "CARRIERACTION")
+
+	formatted, err := format.Source(out)
+	require.NoError(t, err)
+	require.Equal(t, src, string(formatted))
 }
