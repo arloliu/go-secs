@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-25) — v2.35, tracepack format 1.1.
+Status: current (2026-10-25) — v2.36, tracepack format 1.1.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for mergers, recorders, log converters and the service that deletes packs.
 
@@ -173,9 +173,11 @@ Which packs to give is the caller's choice; tracepack defines no view.
     and every publish attempt naming it that the producer may still make, until the producer's **retry horizon** (a deployment setting) has passed.
     **Already staged**, an exception to steps 3 and 4: a consumer that receives a message whose (`capture_id`, `seq`) it knows to be durably staged
     may acknowledge it without fetching or checking the object, the duplicate being harmless ([FMT I-12]); such a message no longer needs the object.
+    **Under a termination**, likewise: a consumer that receives a message of a version an operator has terminated (*Deferral*)
+    acknowledges it without fetching or checking the object; such a message no longer needs the object (G5-269).
     How the log service meets the invariant is its own (G5-217);
     for example, a sweeper deletes an acknowledged object only after a grace period longer than the producers' retry horizon,
-    and only when no unacknowledged message still names it or every such message will be acknowledged as already staged.
+    and only when no unacknowledged message still names it or every such message will be acknowledged as already staged or under a termination.
     Uploading the object again before a retry does not meet it, since an earlier consumer may delete the object meanwhile.
     A claim-check message whose `Tpk-Payload-Ref` or `Tpk-Payload-Digest` is missing, names another object, has another prefix, or does not decode to 32 bytes is malformed: it is never written (G5-241).
     A message whose `Tpk-Payload-Ref` is absent or empty and whose `Tpk-Payload-Digest` is not empty is malformed as well, the two headers travelling together (G5-258).
@@ -206,10 +208,17 @@ Which packs to give is the caller's choice; tracepack defines no view.
        its subject and the headers this section does not define are the deployment's;
     3. the consumer acknowledges the original only after the bus confirms the copy stored;
     4. the copy is never republished to the traffic stream; it is handled by the rules of a delivery from the traffic stream,
-       and acknowledged only once its record is durable in `staging/`, as *Durability* allows, or when an operator terminates it, never for its age or its delivery count;
+       and acknowledged only once its record is durable in `staging/`, as *Durability* allows, or under an operator's termination of its version (below), never for its age or its delivery count;
     5. a copy naming a claim-check object is a message the bus has accepted and that is not yet acknowledged, so the lifetime invariant of *Large records* keeps the object.
 
     A second copy, left by a stop between the confirmation and the acknowledgement of the original, is a harmless duplicate ([FMT I-12]).
+
+    **Termination** (G5-269): an operator terminates a record **version**, its `capture_id` and `seq` with one 44-byte record header and one payload digest
+    (for a claim-check message its `Tpk-Payload-Digest`, for an inline one the SHA-256 of its payload).
+    Every message of that version, an original on the traffic stream or a copy on a parking stream, delivered before or after the termination,
+    is then acknowledged under the termination without another act of the operator, and is never written;
+    a message of another version of the same seq is not covered, and stays deferred until its record is written or an operator terminates its version.
+    How the service records a termination and each acknowledgement under it is its own.
   - *Clear-text protection* (G5-207, G5-213).
     The traffic stream, a parking stream (*Deferral*) and the claim-check object bucket hold clear-text records,
     so the bus that carries them uses TLS for every connection of producers, consumers and the service, and JetStream encryption at rest for the streams and the bucket;

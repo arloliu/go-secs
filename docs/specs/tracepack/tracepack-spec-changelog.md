@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-25) — spec v2.35.
+Status: current (2026-10-25) — spec v2.36.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1590,3 +1590,26 @@ Review rounds:
 | apply consistency review P2 | *Durability*, the `start`'s registration and the staged-object sentence still required staging before any acknowledgement | each lets a move to a parking stream precede it |
 | apply consistency review P2 | the correction exception named only the spec changelog and omitted its [FMT I-12] consequence | both changelogs named; the conflict across a correction stated in [STO §4] *Masking* |
 | apply consistency review | — | fix-then-ready, applied |
+
+## Changes v2.35 → v2.36: termination of a record version (owner decision G5-269, 2026-10-25)
+
+Source: a question of the Virtual Equipment project's log service (tracekeep) design review, answered by the tracepack maintainers and ratified by the owner.
+Format 1.1 is unchanged: no tag, enum value, bit or byte changes, and no canonical export changes;
+the corpus goldens are unchanged and keep `spec_version` `"2.33"` ([CORPUS §3]).
+The ruling concerns the log service's consumer, which tracepack does not implement, so tracepack v0.7.0 already implements v2.36.
+
+Summary:
+- An operator terminates a record version, its `capture_id` and `seq` with one 44-byte record header and one payload digest;
+  every message of that version, an original or a parking copy, before or after the termination, is acknowledged under it without another act of the operator,
+  and a message of another version of the seq is not covered ([STO §4] *Deferral*, *Termination*, G5-269).
+  *Deferral* condition 4 acknowledges a parked copy under such a termination.
+- A message acknowledged under a termination no longer needs its claim-check object, as one acknowledged as already staged;
+  the sweeper example counts both ([STO §4] *Large records*, G5-269).
+- The overview's list of decisions reaches G5-269.
+
+Review rounds:
+
+| Round | Finding | Resolution |
+|---|---|---|
+| request review | condition 4 named an operator terminating a copy, so a later copy of a terminated version waited for another act | a termination names a version and covers every message of it |
+| ratification | — | G5-269 ratified by the owner (2026-10-25) |

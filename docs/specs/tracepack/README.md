@@ -2,7 +2,7 @@
 
 tracepack (`.tpk`) is an immutable, compressed, self-indexed container for recorded SECS-II traffic between one tool and its host,
 intended as a long-term archival format documented for any reader.
-The specification is at v2.35, format 1.1;
+The specification is at v2.36, format 1.1;
 the Go module `github.com/arloliu/go-secs/tracepack` in `tracepack/` is its only implementation, and the conformance corpus binds format-level reading only (G5-199).
 
 Read in this order: overview, format, JSONL, corpus, semantics, storage, then the Go mapping.

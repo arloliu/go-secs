@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-10-25) — v2.35, tracepack format 1.1.
+Status: current (2026-10-25) — v2.36, tracepack format 1.1.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, documented for any reader;
 the Go module is the only implementation (G5-199).

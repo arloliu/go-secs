@@ -1769,3 +1769,22 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rejected *(editorial)*: a masker identity fixed per capture;
   a writer clause binding other implementations through the corpus, which would need the source records in the vectors and a new corpus schema.
   Spec: [FMT §14], [STO §4] *Masking*, v2.35.
+
+## 2026-10-25 termination of a record version (owner accepted the recommendation)
+
+- G5-269 An operator's termination covers every message of the version it names (2026-10-25, the scope of G5-251 and G5-267):
+  an operator terminates a record **version**: its `capture_id` and `seq` with one 44-byte record header and one payload digest,
+  for a claim-check message its `Tpk-Payload-Digest` and for an inline one the SHA-256 of its payload.
+  Every message of that version — an original on the traffic stream or a copy on a parking stream, delivered before or after the termination —
+  is then acknowledged under the termination without another act of the operator, and is never written.
+  A message of another version of the same seq is not covered: it stays deferred until its record is written or an operator terminates its version.
+  A message acknowledged under a termination no longer needs its claim-check object, like one acknowledged as already staged,
+  so an object may go once every message still naming it will be acknowledged as already staged or under a termination.
+  How the service records a termination and each acknowledgement under it is its own.
+  Rationale *(editorial)*: a later copy of a terminated version carries the bytes the operator already decided about ([FMT I-12]);
+  G5-251 requires that an operator decide a record's loss, not that each copy be decided again,
+  as *Already staged* lets a duplicate of a staged record be acknowledged without another check.
+  The log service's design review raised it.
+  Rejected *(editorial)*: an operator act per copy, which leaves copies of a decided version parked indefinitely and keeps their objects;
+  a termination covering every version of the seq, which would declare lost bytes the operator never saw.
+  Spec: [STO §4] *Large records*, *Deferral*, v2.36.
