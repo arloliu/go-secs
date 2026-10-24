@@ -182,7 +182,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
     A claim-check message whose `Tpk-Payload-Ref` or `Tpk-Payload-Digest` is missing, names another object, has another prefix, or does not decode to 32 bytes is malformed: it is never written (G5-241).
     A message whose `Tpk-Payload-Ref` is absent or empty and whose `Tpk-Payload-Digest` is not empty is malformed as well, the two headers travelling together (G5-258).
     The object bucket has no `max_age`, `max_bytes` or `max_msgs` limit, as the traffic stream (G5-213), and *Clear-text protection* applies to it.
-    The seq of an object never published is a seq gap; the record of an object left after its acknowledgement is staged, unless the acknowledgement followed a move to a parking stream (*Deferral*);
+    The seq of an object never published is a seq gap; the record of an object left after its acknowledgement is staged, unless the acknowledgement followed a move to a parking stream or was under a termination (*Deferral*);
     removing either is the log service's.
     `max_payload` is a deployment setting, not a tracepack value.
   - *Durability.* The bus's acknowledgement is a record's durability point;
@@ -191,8 +191,8 @@ Which packs to give is the caller's choice; tracepack defines no view.
     F = `flush_interval_ns` is the consumer's maximum normal segment-flush interval, not the time from observation to acknowledgement;
     the consumer writes it into every segment ([FMT §5]).
     A consumer holds unflushed records in memory and acknowledges a record to the bus only after the segment holding it is durable in `staging/`,
-    or after it has moved the message to a parking stream (*Deferral*);
-    a consumer that stops before either acknowledges nothing, and the bus redelivers its records to another consumer.
+    after it has moved the message to a parking stream, or under an operator's termination of the record's version (*Deferral*);
+    a consumer that stops before any of these acknowledges nothing, and the bus redelivers its records to another consumer.
     A listing of `staging/` sees a record only once a segment holds it.
     A restart of the bus server loses the records the producer could not buffer meanwhile,
     and, with the server's default disk sync interval, acknowledged records not yet synced; both read as seq gaps (informative).
@@ -209,12 +209,15 @@ Which packs to give is the caller's choice; tracepack defines no view.
     3. the consumer acknowledges the original only after the bus confirms the copy stored;
     4. the copy is never republished to the traffic stream; it is handled by the rules of a delivery from the traffic stream,
        and acknowledged only once its record is durable in `staging/`, as *Durability* allows, or under an operator's termination of its version (below), never for its age or its delivery count;
-    5. a copy naming a claim-check object is a message the bus has accepted and that is not yet acknowledged, so the lifetime invariant of *Large records* keeps the object.
+    5. a copy naming a claim-check object is a message the bus has accepted and that is not yet acknowledged, so the lifetime invariant of *Large records* keeps the object,
+       unless the copy will be acknowledged as already staged or under a termination (*Large records*);
+       a message of another version naming the same object still keeps it.
 
     A second copy, left by a stop between the confirmation and the acknowledgement of the original, is a harmless duplicate ([FMT I-12]).
 
-    **Termination** (G5-269): an operator terminates a record **version**, its `capture_id` and `seq` with one 44-byte record header and one payload digest
-    (for a claim-check message its `Tpk-Payload-Digest`, for an inline one the SHA-256 of its payload).
+    **Termination** (G5-269): an operator terminates a record **version**: its `capture_id` and `seq`, the 44 record-header bytes as the message's body carries them, before any derivation,
+    and one payload digest (for a claim-check message the digest `Tpk-Payload-Digest` encodes, for an inline one the SHA-256 of its payload);
+    two messages are of one version only when all four agree.
     Every message of that version, an original on the traffic stream or a copy on a parking stream, delivered before or after the termination,
     is then acknowledged under the termination without another act of the operator, and is never written;
     a message of another version of the same seq is not covered, and stays deferred until its record is written or an operator terminates its version.
@@ -252,10 +255,11 @@ Which packs to give is the caller's choice; tracepack defines no view.
     a reader of a stored pack and a merge still skip an `hsms_timers` nested tag they do not know ([FMT §5], Merge).
     The consumer owns `writer`, `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`, `pack_role`, `compaction_level`, `scope_generation`, `flush_interval_ns` and `redaction_policy`.
     The traffic stream is configured so that an accepted message is removed only by acknowledgement, never by a size or age limit,
-    so an unacknowledged `start` stays available until its descriptor is registered and a deferred record until its descriptor exists.
-    The consumer that receives a capture's `start` record records the descriptor with the service (e.g. in its catalog) before acknowledging it, unless it moves the message to a parking stream (*Deferral*);
+    so an unacknowledged `start` stays available until its descriptor is registered and a deferred record until its descriptor exists,
+    unless either is acknowledged under a termination of its version (*Deferral*).
+    The consumer that receives a capture's `start` record records the descriptor with the service (e.g. in its catalog) before acknowledging it, unless it moves the message to a parking stream or acknowledges it under a termination of its version (*Deferral*);
     a consumer holding a record of a capture whose descriptor the service does not have yet defers the record (*Deferral*)
-    instead of writing a segment without the required metadata.
+    instead of writing a segment without the required metadata, unless it acknowledges the record under a termination of its version.
   - *Masking* (G5-207, G5-214, G5-222, G5-250, G5-268).
     The log service chooses one classifier configuration, masking policy, digest key and encryption key per capture, for example when it registers the descriptor,
     and every consumer writes the capture's records only with them; a new configuration, policy or key applies from the next capture.

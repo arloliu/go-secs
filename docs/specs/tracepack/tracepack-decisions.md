@@ -1773,8 +1773,9 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
 ## 2026-10-25 termination of a record version (owner accepted the recommendation)
 
 - G5-269 An operator's termination covers every message of the version it names (2026-10-25, the scope of G5-251 and G5-267):
-  an operator terminates a record **version**: its `capture_id` and `seq` with one 44-byte record header and one payload digest,
-  for a claim-check message its `Tpk-Payload-Digest` and for an inline one the SHA-256 of its payload.
+  an operator terminates a record **version**: its `capture_id` and `seq`, the 44 record-header bytes as the message's body carries them, before any derivation,
+  and one payload digest, for a claim-check message the digest `Tpk-Payload-Digest` encodes and for an inline one the SHA-256 of its payload;
+  two messages are of one version only when all four agree.
   Every message of that version — an original on the traffic stream or a copy on a parking stream, delivered before or after the termination —
   is then acknowledged under the termination without another act of the operator, and is never written.
   A message of another version of the same seq is not covered: it stays deferred until its record is written or an operator terminates its version.

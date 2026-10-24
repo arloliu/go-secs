@@ -1613,3 +1613,7 @@ Review rounds:
 |---|---|---|
 | request review | condition 4 named an operator terminating a copy, so a later copy of a terminated version waited for another act | a termination names a version and covers every message of it |
 | ratification | — | G5-269 ratified by the owner (2026-10-25) |
+| apply consistency review P2 | *Durability*, the staged-object sentence, the `start`'s registration and the deferral of a record without a descriptor still forbade an acknowledgement under a termination | each lets a termination acknowledge the message |
+| apply consistency review P2 | *Deferral* condition 5 kept the object for a copy a termination covers | it keeps the object unless the copy will be acknowledged as already staged or under a termination, and a message of another version still keeps it |
+| apply consistency review P3 | the version's record header could be read as the derived one | the 44 bytes as the message's body carries them, before any derivation; one version only when all four parts agree |
+| apply consistency review | — | fix-then-ready, applied |
