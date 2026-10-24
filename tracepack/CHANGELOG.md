@@ -5,6 +5,19 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-25
+
+This release implements spec v2.35 and changes no library API, no byte of a pack and no canonical export.
+Spec v2.35 needs no code change:
+it lets a consumer of a durable bus defer a message by moving it to a parking stream of the same bus (G5-267),
+and it states that the output of `redact.Mask` is fixed byte for byte by the format within format major 1 (G5-268),
+which the `redact-` corpus vectors already pin.
+A later correction that changes masking output will be stated in this changelog as such.
+
+### Changed
+
+- The module requires go-secs v2.8.0, up from v2.6.0.
+
 ## [0.6.0] - 2026-10-20
 
 This release implements spec v2.34, as v0.5.1, and changes no library API, no byte of a pack and no canonical export.

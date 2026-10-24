@@ -1,5 +1,5 @@
-github.com/arloliu/go-secs/v2 v2.6.0 h1:Tgqy+Oob1GQ9y3UR4r7/W2OqOZiOWFC1w/YJs5CK5dk=
-github.com/arloliu/go-secs/v2 v2.6.0/go.mod h1:SEbNIic8oZ6zb0EW/ldiw7gfQNPgePSDqpZITKHqiHA=
+github.com/arloliu/go-secs/v2 v2.8.0 h1:gkBY7QQsCBDNWqp98arnSCUdcjSFpRiKLZo6Vddl7iE=
+github.com/arloliu/go-secs/v2 v2.8.0/go.mod h1:SEbNIic8oZ6zb0EW/ldiw7gfQNPgePSDqpZITKHqiHA=
 github.com/c2sp/wycheproof v0.0.0-20260105152342-fca0d3ba9f12 h1:C34LW7dhWgjAaAOdNB8z2UCyJsXDjC6UTILljHuqOlI=
 github.com/c2sp/wycheproof v0.0.0-20260105152342-fca0d3ba9f12/go.mod h1:U1QjrC6KepOmtVmJn3QsKOTd9HliGr/da5afPEhLRnk=
 github.com/klauspost/compress v1.20.1 h1:T7kKElXUMXrUJ2E9QhQhxFtcK5rPyLdsGZvdbLMPdiQ=
