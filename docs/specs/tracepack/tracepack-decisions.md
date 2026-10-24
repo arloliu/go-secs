@@ -1,6 +1,6 @@
 # tracepack — decision log
 
-Status: current (2026-10-18)
+Status: current (2026-10-25)
 Owner decisions for tracepack; append-only under `.agents/rules/450-doc-lifecycle.md`.
 Entries up to G5-79 were recorded in the design notes before the repository became the source of truth;
 they are copied here verbatim under their original headings, and later entries are added only here.
@@ -1730,3 +1730,42 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rationale *(editorial)*: the minimal CLI reads local packs the caller names (G5-170), and the defaults are the ones the library documents.
   Rejected *(editorial)*: flags for budgets and limits in the minimal CLI; locating packs by the storage keys of a prefix.
   Spec: [GO §7].
+
+## 2026-10-25 deferral and masking stability for the log service (owner accepted the recommendation)
+
+- G5-267 A message moved to a parking stream of the same bus stays deferred on the bus (2026-10-25, the scope of G5-251):
+  a consumer defers a message by a negative acknowledgement with a delay or by moving it to a **parking stream**,
+  and a moved message is deferred on the bus in the sense of G5-251 and G5-257 when all of these hold:
+  the parking stream is on the same bus as the traffic stream, removes a message only by acknowledgement, has no age, size or count limit,
+  uses file storage with no fewer replicas than the traffic stream, and *Clear-text protection* applies to it;
+  the copy carries the original's body, its `Nats-Msg-Id` and every header [STO §4] defines unchanged, while its subject and the headers [STO §4] does not define are the deployment's;
+  the consumer acknowledges the original only after the bus confirms the copy stored;
+  the copy is never republished to the traffic stream, is handled by the rules of a delivery from the traffic stream,
+  and is acknowledged only once its record is durable in `staging/` or an operator terminates it, never for its age or its delivery count;
+  and a copy naming a claim-check object is a message the bus has accepted and that is not yet acknowledged, so the lifetime invariant of *Large records* keeps the object.
+  A second copy, left by a stop between the confirmation and the acknowledgement of the original, is a harmless duplicate ([FMT I-12]).
+  Rationale *(editorial)*: a confirmed copy before the acknowledgement is the hand-off *Durability* already allows into `staging/`:
+  at every instant one durable copy stays unacknowledged, so no seq reads as a gap and an operator still decides;
+  a negatively acknowledged message stays in the consumer's pending set, so one capture deferred indefinitely can fill `max_ack_pending` and stop delivery for every capture.
+  The log service's design review raised it.
+  Rejected *(editorial)*: the negative acknowledgement as the only way to defer; republishing a parked message to the traffic stream.
+  Spec: [STO §4] *Deferral*, v2.35.
+- G5-268 The bytes of a masked record are fixed by the format (2026-10-25, the scope of G5-214):
+  for one record as received, one policy, one digest key and one encryption key,
+  the masked record and its `redaction` entries are fixed byte for byte by [SEM §8] and [FMT §5] within format major 1;
+  so the masker is not a per-capture setting beside the classifier configuration, the policy and the keys, since every conforming masker writes the same bytes.
+  The Go module holds `redact.Mask` to it by the `redact-` corpus vectors, of codec `none`, which its tests regenerate and compare with the committed files byte for byte ([CORPUS §6.1]).
+  Outside the guarantee:
+  the record header's `decode_status` and `trailing_bytes`, which the classifier derives, a classifier change being a new classifier (G5-250, [FMT §14]);
+  a correction that brings a masker back to [SEM §8], which the spec changelog and the module's changelog state as a change of masking output,
+  since a capture masked partly before and partly after it can write a redelivered record twice with different bytes ([FMT I-12]);
+  a stricter validity of policies, as G5-236 and G5-262 brought, under which a newer version refuses a policy an older one accepted and defers the capture's records;
+  a resource limit or an internal error, which defers a record and never changes its bytes;
+  and the bytes of a pack file around its records: block layout, compression and footer.
+  Changing what [SEM §8] gives for the same inputs is a major change ([FMT §14]).
+  Rationale *(editorial)*: [SEM §8] leaves a masker no choice — target bytes by normative path rules and the whole-text fallback, HMAC-SHA-256 digests, AES-SIV-CMAC-512 under a fixed associated data —
+  and no randomness (G5-214), so the guarantee names what the format already fixes;
+  a masker fixed per capture would make every tracepack upgrade a breaking change for the log service.
+  Rejected *(editorial)*: a masker identity fixed per capture;
+  a writer clause binding other implementations through the corpus, which would need the source records in the vectors and a new corpus schema.
+  Spec: [FMT §14], [STO §4] *Masking*, v2.35.

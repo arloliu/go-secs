@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-20)
-Implements tracepack v2.34 (format 1.1): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Status: current (2026-10-25)
+Implements tracepack v2.35 (format 1.1): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -128,6 +128,7 @@ The query service, its catalog database and the live-tail interface are designed
   `(*Compiled).Mask(capture, r, unobserved, keys) (Record, []RedactionEntry, error)` masks one record and returns its `redaction` entries ([SEM §8]),
   refusing a record that already carries `redacted` and is not unobserved (`ErrRedacted`, the record deferred, G5-262),
   key access going through the `redact.Keys` interface, `DigestKey(keyID)` and `EncryptionKey(capture, keyID)`, so that custody stays with the caller.
+  Its output is the one [SEM §8] fixes (G5-268): the `redact-` corpus vectors, which the module's tests regenerate through `Mask`, pin it byte for byte.
   The caller says whether the record is unobserved, from the bus record's bit 7 or `Reader.Unobserved` for a record read back,
   since a stored bit 7 means nothing in a minor-0 pack;
   an unobserved record is never masked (G5-237).

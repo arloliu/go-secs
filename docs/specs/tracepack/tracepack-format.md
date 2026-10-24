@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-14) — v2.34, tracepack format 1.1.
+Status: current (2026-10-25) — v2.35, tracepack format 1.1.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -865,6 +865,8 @@ The object size is known before reading (file system stat, object listing, the s
   new F-3 / F-5 tags, a longer `f2_entry_len` (§10).
 - Major changes: changing any existing offset or type, and **new codec values** (§2), because an old reader cannot decode the content at all.
 - A new `classifier` is not a format change.
+- The masked record and the `redaction` entries [SEM §8] gives for one record as received, one policy and one key set are fixed within a major:
+  changing them is a major change; a correction that brings a masker back to [SEM §8] is not a format change, and the spec changelog states it (G5-268).
 - Spec v2.32 changes no byte of format 1.0 and no canonical export (§15):
   no tag, enum value or bit is retired, and no requirement of §5 changes.
   It changes only the meaning tracepack attaches to some tags

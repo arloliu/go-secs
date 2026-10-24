@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-20) — spec v2.34.
+Status: current (2026-10-25) — spec v2.35.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1558,3 +1558,32 @@ Review rounds (amendment plan, kept outside the repository):
 | apply consistency review P2 | the paired-header qualification missed [GO §3] and this summary | both state an absent or empty reference with a non-empty digest |
 | apply consistency review | — | fix-then-ready, applied |
 | ratification | — | spec v2.34 ratified by the owner (2026-10-14), after the Virtual Equipment project reported no conflict |
+
+## Changes v2.34 → v2.35: deferral to a parking stream and masking stability (owner decisions G5-267, G5-268, 2026-10-25)
+
+Source: two requests of the Virtual Equipment project's log service (tracekeep) design review, answered by the tracepack maintainers and ratified by the owner.
+Format 1.1 is unchanged: no tag, enum value, bit or byte changes, and no canonical export changes;
+the corpus goldens are unchanged and keep `spec_version` `"2.33"` ([CORPUS §3]).
+Neither ruling changes what tracepack v0.6.0 does:
+G5-267 concerns the log service's consumer, which tracepack does not implement,
+and G5-268 states as normative what [SEM §8] and the `redact-` corpus vectors already fix.
+
+Summary:
+- A consumer defers a message by a negative acknowledgement with a delay or by moving it to a parking stream of the same bus;
+  a moved message stays deferred on the bus under the conditions of [STO §4] *Deferral*: the traffic stream's retention and protection,
+  body, `Nats-Msg-Id` and the headers [STO §4] defines unchanged, the original acknowledged only after the copy is stored,
+  no republish to the traffic stream, no termination by age or delivery count, and the claim-check object kept while the copy needs it (G5-267).
+  *Large records* step 4, *Capture descriptor and pack metadata* and *Masking* refer to *Deferral* instead of naming the negative acknowledgement;
+  *Clear-text protection* covers a parking stream.
+- The masked record and the `redaction` entries [SEM §8] gives for one record, policy and key set are fixed byte for byte within format major 1,
+  so the masker is not a per-capture setting; a correction that brings a masker back to [SEM §8] is stated in this changelog as a change of masking output;
+  the classifier's fields, stricter policy validity, resource limits and pack-file bytes are outside the guarantee ([FMT §14], [STO §4] *Masking*, [GO §3], G5-268).
+- The overview's list of decisions reaches G5-268.
+
+Review rounds:
+
+| Round | Finding | Resolution |
+|---|---|---|
+| request review | parking needed the claim-check lifetime invariant to count a parked copy | condition 5 of *Deferral* |
+| request review | the log service's quiescence test and claim-object retention ignored a parking stream | fixed in the log service's design (seed v13), outside this spec |
+| ratification | — | G5-267 and G5-268 ratified by the owner (2026-10-25) |

@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-14) — v2.34, tracepack format 1.1.
+Status: current (2026-10-25) — v2.35, tracepack format 1.1.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for mergers, recorders, log converters and the service that deletes packs.
 
@@ -165,7 +165,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
     3. the consumer fetches the object (except as *Already staged* below allows), computes SHA-256 over the fetched bytes and compares it with the header,
        and compares their length with `payload_len`;
        it writes the record like an inline one only when both match, and never writes a record header without its payload;
-    4. it defers the message (a negative acknowledgement with a delay, and an alert) when the object is missing or fails either check;
+    4. it defers the message (*Deferral*) and raises an alert when the object is missing or fails either check;
     5. it deletes the object only after a confirmed acknowledgement of the message, and only once the lifetime invariant below allows it.
 
     **Lifetime invariant**: an object stays available while any message naming it may still need it:
@@ -192,10 +192,26 @@ Which packs to give is the caller's choice; tracepack defines no view.
     A listing of `staging/` sees a record only once a segment holds it.
     A restart of the bus server loses the records the producer could not buffer meanwhile,
     and, with the server's default disk sync interval, acknowledged records not yet synced; both read as seq gaps (informative).
+  - *Deferral* (G5-251, G5-267).
+    A consumer **defers** a message by leaving it unacknowledged on the bus, so the bus delivers it again later:
+    by a negative acknowledgement with a delay, or by moving it to a **parking stream**.
+    A negatively acknowledged message stays in the consumer's pending set, so many deferred at once can reach `max_ack_pending` and stop delivery for every capture;
+    a parking stream keeps a message deferred indefinitely out of that set.
+    A moved message stays deferred on the bus when all of these hold:
+    1. the parking stream is on the same bus as the traffic stream, removes a message only by acknowledgement, has no age, size or count limit,
+       and uses file storage with no fewer replicas than the traffic stream; *Clear-text protection* applies to it;
+    2. the copy carries the original's body, its `Nats-Msg-Id` and every header this section defines unchanged;
+       its subject and the headers this section does not define are the deployment's;
+    3. the consumer acknowledges the original only after the bus confirms the copy stored;
+    4. the copy is never republished to the traffic stream; it is handled by the rules of a delivery from the traffic stream,
+       and acknowledged only once its record is durable in `staging/`, as *Durability* allows, or when an operator terminates it, never for its age or its delivery count;
+    5. a copy naming a claim-check object is a message the bus has accepted and that is not yet acknowledged, so the lifetime invariant of *Large records* keeps the object.
+
+    A second copy, left by a stop between the confirmation and the acknowledgement of the original, is a harmless duplicate ([FMT I-12]).
   - *Clear-text protection* (G5-207, G5-213).
-    The traffic stream and the claim-check object bucket hold clear-text records,
-    so the bus that carries them uses TLS for every connection of producers, consumers and the service, and JetStream encryption at rest for the stream and the bucket;
-    neither has an age, size or count limit.
+    The traffic stream, a parking stream (*Deferral*) and the claim-check object bucket hold clear-text records,
+    so the bus that carries them uses TLS for every connection of producers, consumers and the service, and JetStream encryption at rest for the streams and the bucket;
+    none has an age, size or count limit.
     These are required deployment protections, apart from the tuning below.
   - *Stream settings* (informative).
     Work-queue retention, file storage, no `max_age`, `max_bytes` or `max_msgs` limit, and `compression: s2`;
@@ -227,13 +243,13 @@ Which packs to give is the caller's choice; tracepack defines no view.
     The traffic stream is configured so that an accepted message is removed only by acknowledgement, never by a size or age limit,
     so an unacknowledged `start` stays available until its descriptor is registered and a deferred record until its descriptor exists.
     The consumer that receives a capture's `start` record records the descriptor with the service (e.g. in its catalog) before acknowledging it;
-    a consumer holding a record of a capture whose descriptor the service does not have yet defers the record
-    (a negative acknowledgement with a delay, so the bus redelivers it later) instead of writing a segment without the required metadata.
-  - *Masking* (G5-207, G5-214, G5-222, G5-250).
+    a consumer holding a record of a capture whose descriptor the service does not have yet defers the record (*Deferral*)
+    instead of writing a segment without the required metadata.
+  - *Masking* (G5-207, G5-214, G5-222, G5-250, G5-268).
     The log service chooses one classifier configuration, masking policy, digest key and encryption key per capture, for example when it registers the descriptor,
     and every consumer writes the capture's records only with them; a new configuration, policy or key applies from the next capture.
     The **classifier configuration** is the classifier's implementation and every setting that changes its result, `max_frame_len` and the absence of a limit included (G5-250).
-    A consumer that cannot classify with it, apply the policy or keys, or write the format features they need defers the record (a negative acknowledgement with a delay),
+    A consumer that cannot classify with it, apply the policy or keys, or write the format features they need defers the record (*Deferral*),
     so a consumer of another version joins a capture only by applying the configuration the capture already has.
     A consumer classifies a record from its payload as received, then masks it ([SEM §8]), so `decode_status` and `trailing_bytes` describe the source bytes.
     Every pack of a capture masked at write — a pack whose role is not `extract` and that carries `redaction_policy`, the **masked-at-write profile** of format 1.1 —
@@ -241,6 +257,10 @@ Which packs to give is the caller's choice; tracepack defines no view.
     or no `max_frame_len` when the classifier has no limit, whether or not it holds a classified record;
     so no capture masked at write has an unmasked copy in storage, and every pack of it names the same configuration.
     Masking is deterministic, so a redelivered record is written with the bytes of its first write ([FMT I-12]).
+    The masker is not a per-capture setting: for one record as received, one policy and one key set,
+    [SEM §8] fixes the masked record and its `redaction` entries byte for byte within format major 1, whatever conforming masker writes them (G5-268).
+    A correction that brings a masker back to [SEM §8] changes its output and is stated as such in the spec changelog;
+    the record header's `decode_status` and `trailing_bytes` follow the classifier configuration, not the masker.
     A consumer that cannot finish screening a record defers it, and never writes it unscreened ([SEM §8]).
     A record carrying `quality.unobserved` is never masked (G5-237).
   - *Unobserved records* (G5-224, G5-225).
