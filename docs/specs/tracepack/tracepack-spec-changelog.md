@@ -1574,9 +1574,9 @@ Summary:
   body, `Nats-Msg-Id` and the headers [STO §4] defines unchanged, the original acknowledged only after the copy is stored,
   no republish to the traffic stream, no termination by age or delivery count, and the claim-check object kept while the copy needs it (G5-267).
   *Large records* step 4, *Capture descriptor and pack metadata* and *Masking* refer to *Deferral* instead of naming the negative acknowledgement;
-  *Clear-text protection* covers a parking stream.
+  *Clear-text protection* covers a parking stream, and *Durability*, *Large records* and *Capture descriptor and pack metadata* let a move to it precede the acknowledgement.
 - The masked record and the `redaction` entries [SEM §8] gives for one record, policy and key set are fixed byte for byte within format major 1,
-  so the masker is not a per-capture setting; a correction that brings a masker back to [SEM §8] is stated in this changelog as a change of masking output;
+  so the masker is not a per-capture setting; a correction that brings a masker back to [SEM §8] is stated in this changelog and the module's as a change of masking output;
   the classifier's fields, stricter policy validity, resource limits and pack-file bytes are outside the guarantee ([FMT §14], [STO §4] *Masking*, [GO §3], G5-268).
 - The overview's list of decisions reaches G5-268.
 
@@ -1587,3 +1587,6 @@ Review rounds:
 | request review | parking needed the claim-check lifetime invariant to count a parked copy | condition 5 of *Deferral* |
 | request review | the log service's quiescence test and claim-object retention ignored a parking stream | fixed in the log service's design (seed v13), outside this spec |
 | ratification | — | G5-267 and G5-268 ratified by the owner (2026-10-25) |
+| apply consistency review P2 | *Durability*, the `start`'s registration and the staged-object sentence still required staging before any acknowledgement | each lets a move to a parking stream precede it |
+| apply consistency review P2 | the correction exception named only the spec changelog and omitted its [FMT I-12] consequence | both changelogs named; the conflict across a correction stated in [STO §4] *Masking* |
+| apply consistency review | — | fix-then-ready, applied |

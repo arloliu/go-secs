@@ -866,7 +866,8 @@ The object size is known before reading (file system stat, object listing, the s
 - Major changes: changing any existing offset or type, and **new codec values** (§2), because an old reader cannot decode the content at all.
 - A new `classifier` is not a format change.
 - The masked record and the `redaction` entries [SEM §8] gives for one record as received, one policy and one key set are fixed within a major:
-  changing them is a major change; a correction that brings a masker back to [SEM §8] is not a format change, and the spec changelog states it (G5-268).
+  changing them is a major change; a correction that brings a masker back to [SEM §8] is not a format change,
+  and the spec changelog and the module's changelog state it as a change of masking output (G5-268).
 - Spec v2.32 changes no byte of format 1.0 and no canonical export (§15):
   no tag, enum value or bit is retired, and no requirement of §5 changes.
   It changes only the meaning tracepack attaches to some tags

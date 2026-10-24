@@ -180,15 +180,17 @@ Which packs to give is the caller's choice; tracepack defines no view.
     A claim-check message whose `Tpk-Payload-Ref` or `Tpk-Payload-Digest` is missing, names another object, has another prefix, or does not decode to 32 bytes is malformed: it is never written (G5-241).
     A message whose `Tpk-Payload-Ref` is absent or empty and whose `Tpk-Payload-Digest` is not empty is malformed as well, the two headers travelling together (G5-258).
     The object bucket has no `max_age`, `max_bytes` or `max_msgs` limit, as the traffic stream (G5-213), and *Clear-text protection* applies to it.
-    The seq of an object never published is a seq gap; the record of an object left after its acknowledgement is staged; removing either is the log service's.
+    The seq of an object never published is a seq gap; the record of an object left after its acknowledgement is staged, unless the acknowledgement followed a move to a parking stream (*Deferral*);
+    removing either is the log service's.
     `max_payload` is a deployment setting, not a tracepack value.
   - *Durability.* The bus's acknowledgement is a record's durability point;
     the producer decides how long it buffers an unacknowledged record and what it does when the bus is unreachable,
     and a record it drops is a seq gap: a lookup reports it inside its window ([SEM §7.2]); detecting gaps over a whole capture is the service's ([STO §5]).
     F = `flush_interval_ns` is the consumer's maximum normal segment-flush interval, not the time from observation to acknowledgement;
     the consumer writes it into every segment ([FMT §5]).
-    A consumer holds unflushed records in memory and acknowledges a record to the bus only after the segment holding it is durable in `staging/`;
-    a consumer that stops before that acknowledges nothing, and the bus redelivers its records to another consumer.
+    A consumer holds unflushed records in memory and acknowledges a record to the bus only after the segment holding it is durable in `staging/`,
+    or after it has moved the message to a parking stream (*Deferral*);
+    a consumer that stops before either acknowledges nothing, and the bus redelivers its records to another consumer.
     A listing of `staging/` sees a record only once a segment holds it.
     A restart of the bus server loses the records the producer could not buffer meanwhile,
     and, with the server's default disk sync interval, acknowledged records not yet synced; both read as seq gaps (informative).
@@ -242,7 +244,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
     The consumer owns `writer`, `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`, `pack_role`, `compaction_level`, `scope_generation`, `flush_interval_ns` and `redaction_policy`.
     The traffic stream is configured so that an accepted message is removed only by acknowledgement, never by a size or age limit,
     so an unacknowledged `start` stays available until its descriptor is registered and a deferred record until its descriptor exists.
-    The consumer that receives a capture's `start` record records the descriptor with the service (e.g. in its catalog) before acknowledging it;
+    The consumer that receives a capture's `start` record records the descriptor with the service (e.g. in its catalog) before acknowledging it, unless it moves the message to a parking stream (*Deferral*);
     a consumer holding a record of a capture whose descriptor the service does not have yet defers the record (*Deferral*)
     instead of writing a segment without the required metadata.
   - *Masking* (G5-207, G5-214, G5-222, G5-250, G5-268).
@@ -256,11 +258,12 @@ Which packs to give is the caller's choice; tracepack defines no view.
     carries the capture's `redaction_policy`, with the encryption tags (G5-243), and the capture's `classifier` and `max_frame_len` values,
     or no `max_frame_len` when the classifier has no limit, whether or not it holds a classified record;
     so no capture masked at write has an unmasked copy in storage, and every pack of it names the same configuration.
-    Masking is deterministic, so a redelivered record is written with the bytes of its first write ([FMT I-12]).
+    Masking is deterministic, so a redelivered record is written with the bytes of its first write ([FMT I-12]), except across a correction of the masker (below).
     The masker is not a per-capture setting: for one record as received, one policy and one key set,
     [SEM §8] fixes the masked record and its `redaction` entries byte for byte within format major 1, whatever conforming masker writes them (G5-268).
-    A correction that brings a masker back to [SEM §8] changes its output and is stated as such in the spec changelog;
-    the record header's `decode_status` and `trailing_bytes` follow the classifier configuration, not the masker.
+    A correction that brings a masker back to [SEM §8] changes its output, and the spec changelog and the module's changelog state it as a change of masking output;
+    a capture masked partly before and partly after it can write a redelivered record twice with different bytes, a conflict under [FMT I-12].
+    The record header's `decode_status` and `trailing_bytes` follow the classifier configuration, not the masker.
     A consumer that cannot finish screening a record defers it, and never writes it unscreened ([SEM §8]).
     A record carrying `quality.unobserved` is never masked (G5-237).
   - *Unobserved records* (G5-224, G5-225).
