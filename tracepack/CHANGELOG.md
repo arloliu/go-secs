@@ -5,6 +5,14 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-25
+
+This release implements spec v2.36 and changes no library API, no byte of a pack, no canonical export and no dependency.
+Spec v2.36 needs no code change:
+an operator's termination of a record version covers every message of that version on a durable bus,
+and such a message no longer needs its claim-check object (G5-269).
+The rule binds the log service's consumer, which tracepack does not implement.
+
 ## [0.7.0] - 2026-10-25
 
 This release implements spec v2.35 and changes no library API, no byte of a pack and no canonical export.
