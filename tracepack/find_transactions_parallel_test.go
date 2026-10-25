@@ -48,12 +48,18 @@ type txParOut struct {
 // txParRun runs FindTransactions with ctx over an hour of n primaries on txParWorkers workers, each lookup replaced by lookup,
 // into out, which it returns; fn, when set, is called with the index of each pairing passed.
 // Each pairing passed must be the k-th key with lookup's result for it; one that is not ends the call with an error.
+// A call that does not return within txParWatchdog ends the test binary.
 // out.batch is set before anything is read, so that a test whose call panics still has it.
 func txParRun(t *testing.T, ctx context.Context, out *txParOut, n int,
 	lookup func(ctx context.Context, i int, key TxKey) (TxResult, error), fn func(k int) error,
 ) *txParOut {
 	t.Helper()
 
+	// A protocol that blocks would hang the test until the binary's own timeout: the watchdog ends the binary sooner, saying why.
+	watchdog := time.AfterFunc(txParWatchdog, func() {
+		panic(fmt.Sprintf("%s: FindTransactions did not return within %v", t.Name(), txParWatchdog))
+	})
+	defer watchdog.Stop()
 	src, r := txParHour(t, n)
 	out.res, out.err = findTransactionsWith(ctx, src, r, TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}}, func(p *TxPairing) error {
 		k := len(out.passed)
@@ -234,7 +240,8 @@ func TestFindTransactionsParallelErrorOrder(t *testing.T) {
 	})
 }
 
-// Cancelled while the batch waits for the head key's lookup, the batch returns ctx's error, passing nothing more,
+// Cancelled while the batch waits for the head key's lookup, the batch returns ctx's error, wrapped by the batch or by that key,
+// passing nothing,
 // and every worker, running or waiting for its turn, has ended.
 func TestFindTransactionsParallelCancel(t *testing.T) {
 	t.Parallel()
@@ -256,7 +263,11 @@ func TestFindTransactionsParallelCancel(t *testing.T) {
 		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", ctx.Err())
 	}, nil)
 	require.ErrorIs(t, out.err, context.Canceled)
-	assert.Equal(t, "tracepack: find transactions: context canceled", out.err.Error())
+	// The batch's own check sees the cancellation, or the head key's lookup, ready at the same time, reports it first.
+	assert.Contains(t, []string{
+		"tracepack: find transactions: context canceled",
+		fmt.Sprintf("tracepack: find transactions: primary seq 10 of hour %d: tracepack: find transaction: context canceled", memTestHour),
+	}, out.err.Error())
 	requireParEnd(t, out, 0)
 }
 
