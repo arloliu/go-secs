@@ -194,43 +194,9 @@ func ExampleFindTransaction() {
 		return
 	}
 
-	// Open every committed segment, skipping the sink's temporary files under .partial/.
-	// Each Reader reads through its file, which stays open until the lookup is done.
-	var readers []*tracepack.Reader
-	var files []*os.File
-	defer func() {
-		for _, f := range files {
-			f.Close()
-		}
-	}()
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if d.Name() == ".partial" {
-				return filepath.SkipDir
-			}
-
-			return nil
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		files = append(files, f)
-		st, err := f.Stat()
-		if err != nil {
-			return err
-		}
-		r, err := tracepack.Open(ctx, f, st.Size(), tracepack.ReaderOptions{})
-		if err != nil {
-			return err
-		}
-		readers = append(readers, r)
-
-		return nil
-	})
+	// Open every committed segment; each Reader reads through its file, which stays open until the lookup is done.
+	readers, closeAll, err := openExampleSegments(ctx, root)
+	defer closeAll()
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -275,6 +241,106 @@ func ExampleFindTransaction() {
 	// Output:
 	// matched incomplete: 0
 	// reply S1F2, 1 hour after the primary
+}
+
+// openExampleSegments opens every committed segment under root, skipping the sink's temporary files under .partial/,
+// and returns the Readers with a function that closes their files.
+func openExampleSegments(ctx context.Context, root string) ([]*tracepack.Reader, func(), error) {
+	var readers []*tracepack.Reader
+	var files []*os.File
+	closeAll := func() {
+		for _, f := range files {
+			f.Close()
+		}
+	}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if d.Name() == ".partial" {
+				return filepath.SkipDir
+			}
+
+			return nil
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		files = append(files, f)
+		st, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		r, err := tracepack.Open(ctx, f, st.Size(), tracepack.ReaderOptions{})
+		if err != nil {
+			return err
+		}
+		readers = append(readers, r)
+
+		return nil
+	})
+
+	return readers, closeAll, err
+}
+
+// ExampleFindTransactions pairs every primary a recorder wrote in one hour, reading each hour once.
+func ExampleFindTransactions() {
+	ctx := context.Background()
+	root, err := os.MkdirTemp("", "tracepack-example-")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	defer os.RemoveAll(root)
+	capture, err := recordExampleCapture(ctx, root)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	readers, closeAll, err := openExampleSegments(ctx, root)
+	defer closeAll()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	src, err := tracepack.NewReaderSource(readers)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	// The hour of the first record: every primary of it, each with the result FindTransaction would give it.
+	var first int64
+	for _, r := range readers {
+		h := r.Header()
+		if first == 0 || h.Meta.PeriodStart < first {
+			first = h.Meta.PeriodStart
+		}
+	}
+	from := time.Unix(0, first).UTC().Truncate(time.Hour)
+	res, err := tracepack.FindTransactions(ctx, src, tracepack.TxRange{Capture: capture, From: from, To: from.Add(time.Hour)},
+		tracepack.TxRangeOptions{}, func(p *tracepack.TxPairing) error {
+			for _, v := range p.Result.Records {
+				if v.Class.Has(tracepack.TxPrimary) {
+					hdr := v.Record.HSMSHeader()
+					fmt.Printf("S%dF%d: %v\n", hdr.Stream, hdr.Function, p.Result.Outcome)
+
+					break
+				}
+			}
+
+			return nil
+		})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("hours read:", res.HoursRead, "primaries:", res.Primaries)
+	// Output:
+	// S1F1: matched
+	// hours read: 2 primaries: 1
 }
 
 // ExampleMergeIterate reads the segments of a recording as one read, in time order.

@@ -5,6 +5,16 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+This release implements spec v2.38 and keeps format 1.2, every pack and its canonical export unchanged.
+
+### Added
+
+- `FindTransactions` pairs every primary of one capture in a time range with its reply, reading each hour once (G5-271, G5-273).
+  Each `TxPairing` holds the primary's key and the `TxResult` that `FindTransaction` returns for it over the same packs,
+  passed to a callback in ascending hour, then seq, as the caller's own copy.
+  It holds at most `MaxScopes` hours, bounded by `TxRangeOptions.MaxCachedBytes` (default 256 MiB, `DefaultTxMaxCachedBytes`).
+  On the busy benchmark hour, its 6,202 primaries pair in about 3.3 s with 59 MB allocated, against about 36 s and 37 GB by one `FindTransaction` each.
+
 ### Changed
 
 - **Breaking:** `WriteClose` always writes the close segment's block and footer with `CodecNone`, and `CloseOptions.Uncompressed` is removed (G5-272).
