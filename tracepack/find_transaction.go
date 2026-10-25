@@ -386,7 +386,7 @@ func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts Tx
 		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", err)
 	}
 
-	l := newTxLookup(key, opts, src)
+	l := newTxLookup(key, opts, liveHours{src: src})
 	if prep != nil {
 		prep(l)
 	}

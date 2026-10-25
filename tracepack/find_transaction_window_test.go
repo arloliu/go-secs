@@ -116,7 +116,7 @@ func runTxLookup(t testing.TB, s *memSource, key TxKey, opts TxOptions) (*txLook
 	opts, err := checkFindTransaction(s, key, opts)
 	require.NoError(t, err)
 
-	l := newTxLookup(key, opts, s)
+	l := newTxLookup(key, opts, liveHours{src: s})
 	err = l.run(t.Context())
 	requireStateRecount(t, l)
 

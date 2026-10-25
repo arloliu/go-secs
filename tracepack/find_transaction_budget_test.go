@@ -760,7 +760,7 @@ func TestTxCosts(t *testing.T) {
 	}
 
 	// The charges that count toward the checks of ctx sum as the cost functions do.
-	l := newTxLookup(TxKey{}, TxOptions{}, nil)
+	l := newTxLookup(TxKey{}, TxOptions{}, liveHours{})
 	conflict := &Conflict{Versions: [][]UUID{{seg0}, {seg1, seg2, seg3}, {}}}
 	gap := &TxGap{Hours: []int64{1, 2}, Coverage: cov, Boundary: &Boundary{}}
 	for _, c := range []struct {
