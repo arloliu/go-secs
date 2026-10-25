@@ -15,6 +15,7 @@ package tracepack
 // one operation takes tens of seconds, so it runs with -benchtime 1x.
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"testing"
@@ -173,7 +174,8 @@ func BenchmarkFindTransactions(b *testing.B) {
 }
 
 // perfFindTransactions runs the sub-benchmark name of FindTransactions over packs for r and scopes,
-// reporting pair-ns/primary as the time per primary beyond fillNs, the time of a fill alone, and returns its ns/op.
+// reporting pair-ns/primary as the time per primary beyond fillNs, the time of a fill alone,
+// and visited, the items the lookups' replays pass on, counted in one more call outside the timing; it returns its ns/op.
 func perfFindTransactions(b *testing.B, name string, packs [][]byte, r TxRange, scopes int, fillNs float64) float64 {
 	want := 0
 	if r.Capture == perfCapture {
@@ -204,6 +206,7 @@ func perfFindTransactions(b *testing.B, name string, packs [][]byte, r TxRange, 
 		}
 		nsOp = float64(b.Elapsed().Nanoseconds()) / float64(b.N)
 		stats.report(b)
+		b.ReportMetric(float64(perfTxVisits(b, src, r, opts)), "visited")
 		b.ReportMetric(float64(res.Primaries), "primaries")
 		b.ReportMetric(float64(res.HoursRead), "hours")
 		b.ReportMetric(float64(records), "records")
@@ -213,4 +216,39 @@ func perfFindTransactions(b *testing.B, name string, packs [][]byte, r TxRange, 
 	})
 
 	return nsOp
+}
+
+// perfTxVisits runs FindTransactions over src for r with opts and returns the items its lookups' replays pass on, all lookups together.
+func perfTxVisits(b *testing.B, src PackSource, r TxRange, opts TxRangeOptions) int {
+	b.Helper()
+
+	n := 0
+	_, err := findTransactionsWith(b.Context(), src, r, opts, func(*TxPairing) error { return nil }, func(bt *txBatch) {
+		bt.lookupPrep = func(l *txLookup) { l.hours = txVisitCount{inner: l.hours, n: &n} }
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	return n
+}
+
+// txVisitCount is a txHourSource that counts the items its reads pass on.
+type txVisitCount struct {
+	inner txHourSource
+	n     *int
+}
+
+func (c txVisitCount) readers(ctx context.Context, hour int64) ([]*Reader, error) {
+	return c.inner.readers(ctx, hour)
+}
+
+func (c txVisitCount) read(ctx context.Context, hour int64, readers []*Reader, maxHeld int64,
+	reserveConflict func() error, flags *uint8, fn func(*Item) error,
+) (Result, error) {
+	return c.inner.read(ctx, hour, readers, maxHeld, reserveConflict, flags, func(it *Item) error {
+		*c.n++
+
+		return fn(it)
+	})
 }
