@@ -71,6 +71,9 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   `tracepack-go.md` §1 takes the plan's import rules;
   the corpus catalogue no longer refers to phases of the plan that would extend it.
   No rule changed.
+- 2026-10-25: the §3 `FindTransactions` bullet says that the lookups of an hour run on up to `runtime.GOMAXPROCS(0)` goroutines,
+  none when that is 1 or less, `fn` on the calling goroutine, and that up to that many lookups' `MaxStateBytes` are charged at once (G5-275).
+  No rule of [SEM §7.2] changed.
 
 ## Changes vs v1 (summary)
 
