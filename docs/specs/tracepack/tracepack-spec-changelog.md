@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-25) — spec v2.36.
+Status: current (2026-10-25) — spec v2.37.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1617,3 +1617,32 @@ Review rounds:
 | apply consistency review P2 | *Deferral* condition 5 kept the object for a copy a termination covers | it keeps the object unless the copy will be acknowledged as already staged or under a termination, and a message of another version still keeps it |
 | apply consistency review P3 | the version's record header could be read as the derived one | the 44 bytes as the message's body carries them, before any derivation; one version only when all four parts agree |
 | apply consistency review | — | fix-then-ready, applied |
+
+## Changes v2.36 → v2.37: format 1.2, `recorder_instance_name` (owner decision G5-270, 2026-10-25)
+
+Source: a request of the Virtual Equipment project's log service (tracekeep) for device selection, answered by the tracepack maintainers and ratified by the owner.
+Format 1.2 changes no byte of formats 1.0 and 1.1 and no export of their packs.
+Implemented by tracepack v0.8.0.
+
+Summary:
+- [FMT §5] gains the pack metadata tag 0x0034 `recorder_instance_name`, utf8, optional, from format 1.2:
+  the human-readable name of the deployment whose stable identity is `recorder_instance_id`, never interpreted by tracepack (G5-270).
+- [FMT §14] defines format 1.2: a writer writes `format_minor` 2 exactly when the pack holds the tag;
+  a merger of format 1.1 refuses a pack of format 1.2, and an informative note says what a reader of format 1.1 does with one.
+  [FMT §15] and [JSONL §3.1], [JSONL §5], [JSONL §9] add the export schema `tracepack-jsonl/3` for minor 2 and later; `/1` and `/2` keep their bytes.
+- [STO §4]: the tag is a producer-owned descriptor value and a capture-level tag of a merge;
+  the producer keeps it with its `recorder_instance_id`;
+  the descriptor counts toward the 4096-byte header block of a `start`.
+- [CORPUS]: schema `tracepack-corpus/5`, `spec_version` `"2.37"`, `format_version` `"1.2"`;
+  `basic-future-minor` moves to minor 3 and tag 0x0035; `basic-new-tags-segment-1-1` and `basic-recorder-instance-name` are added.
+- [GO]: `CaptureDescriptor.RecorderInstanceName` and `PackMeta.RecorderInstanceName`.
+- The overview's list of decisions reaches G5-270.
+
+Review rounds:
+
+| Round | Finding | Resolution |
+|---|---|---|
+| request review | a private tag or the service's catalog could carry the name | a registered tag, so a pack read without the catalog names its connection (G5-233's rationale) |
+| request review | the export schema rule "/2 for every other value" would label a minor-2 pack `/2` | `/2` for minor 1, `/3` for every later minor |
+| request update | the requester's value became a bare device name that may hold `/` | no character constraint; any valid UTF-8 value, the empty string included |
+| ratification | — | G5-270 ratified by the owner (2026-10-25) |

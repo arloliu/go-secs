@@ -1789,3 +1789,30 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rejected *(editorial)*: an operator act per copy, which leaves copies of a decided version parked indefinitely and keeps their objects;
   a termination covering every version of the seq, which would declare lost bytes the operator never saw.
   Spec: [STO §4] *Large records*, *Deferral*, v2.36.
+
+## 2026-10-25 a name beside the recorder deployment's identity (owner accepted the recommendation)
+
+- G5-270 A recorder deployment carries a name beside its identity: `recorder_instance_name`, format 1.2 (2026-10-25):
+  format 1.2 adds the pack metadata tag 0x0034 `recorder_instance_name`, utf8, optional:
+  the human-readable name of the recorder or converter deployment whose stable identity is `recorder_instance_id`.
+  tracepack never interprets it, never derives one value from the other, checks no relation between them and requires no uniqueness;
+  a producer that writes it keeps it with its `recorder_instance_id`, a producer rule tracepack does not check.
+  Any valid UTF-8 value is valid, the empty string included; a structure inside it is the producer's convention.
+  It is a producer-owned descriptor value, copied into every segment as decoded,
+  and a capture-level tag of a merge.
+  A writer writes `format_minor` 2 exactly when the pack holds it, else 1 for a format 1.1 feature, else 0;
+  a pack of minor 2 exports under a new schema, `tracepack-jsonl/3`, which names it, and `/1` and `/2` keep their bytes;
+  the corpus takes the schema `tracepack-corpus/5`.
+  Consumers and mergers upgrade before producers, and nothing is dropped silently:
+  a consumer of format 1.1 refuses a descriptor holding the tag (G5-252), a merger of format 1.1 refuses an input of minor 2,
+  and a reader of format 1.1 reads it as an unknown tag, exported under `unknown`.
+  Rationale *(editorial)*: one gateway serves one tool through several connections, and readers select traffic by tool and connection;
+  `tool_id` names the tool and `recorder_instance_id` identifies the connection's deployment, but only as a uuid,
+  and long-term storage is read by name (G5-233), also without the catalog of the service that wrote it.
+  One opaque name keeps the format out of the producer's naming scheme, as `thinning`'s `source` does.
+  The log service's device selection raised it.
+  Rejected *(editorial)*: no tag, the service mapping a name to the uuid in its catalog, which leaves a pack read without that catalog naming its connection only by uuid;
+  two tags (gateway and device), which fixes one deployment shape in the format;
+  a private tag, which a descriptor refuses and an export shows only as base64;
+  reusing `recorder` or `notes`, whose meanings differ.
+  Spec: [FMT §5], [FMT §14], [FMT §15], [STO §4], [JSONL §3.1], [JSONL §5], [JSONL §9], [CORPUS], [GO], v2.37.

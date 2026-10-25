@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-10-25)
-Implements tracepack v2.36 (format 1.1): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.37 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -86,7 +86,7 @@ The query service, its catalog database and the live-tail interface are designed
   `Continuation.Next() (seq uint64, ok bool)` gives the following segment's start seq, `ok` false after the capture's last seq (below).
 - `CaptureDescriptor` (G5-153): the pack metadata [STO §4] gives the producer of a capture, written unchanged into every pack of it:
   `ToolID`, `Transport`, `CaptureMethod`, `Vantage`, `Recorder`, `RecorderInstanceID` (required, never generated: it links the deployment's captures across restarts, [FMT I-7]),
-  `PreviousCaptureID`, `TimeSource`, `CaptureOrigin` (`time.Time`; zero takes the time `NewSegmentWriter` runs),
+  `RecorderInstanceName` (`*string`, from format 1.2: a segment carrying it is written as minor 2, G5-270), `PreviousCaptureID`, `TimeSource`, `CaptureOrigin` (`time.Time`; zero takes the time `NewSegmentWriter` runs),
   `ClockStepTolerance` (`time.Duration`; zero takes a documented default), `LifecycleCoverage`, `QualityEvaluated`,
   the log source fields and the optional site and equipment fields.
   `capture_origin_utc_ns` is `CaptureOrigin`'s wall clock and `capture_origin_mono_ns` is 0 ([SEM §4], G5-151).
@@ -404,7 +404,7 @@ The query service, its catalog database and the live-tail interface are designed
 - `Verify(ctx, ra, size, opts) (VerifyReport, error)`: the outcome, failed blocks, disagreements, writer defects and validated prefix of [FMT §13];
   a file header or pack metadata that cannot be read is an error, as for `Open`.
 - `ExportJSONL(ctx, r *Reader, w io.Writer) (Result, error)`: writes the canonical export of the pack `r` reads ([FMT §15], [JSONL]), a function of package `tracepack` (G5-168),
-  schema `tracepack-jsonl/1` for a pack of minor 0, so every format 1.0 export is unchanged, and `tracepack-jsonl/2` otherwise ([JSONL §5]).
+  schema `tracepack-jsonl/1` for a pack of minor 0, so every format 1.0 export is unchanged, `tracepack-jsonl/2` for minor 1, and `tracepack-jsonl/3` otherwise ([JSONL §5]).
   It exports the records `r.Iterate(ctx, Query{Payloads: true}, …)` yields, in the same order, and returns the `Result` that call returns:
   open defects, the `coverage` entries that intersect the query, the crash gaps ([SEM §7.4] Crash gaps), and every failed block and every block or footer value found disagreeing with its records ([SEM §7.4]) in `Incomplete`, whose records are exported;
   `FooterErr` and `FooterErrs` as `Iterate`, a footer error alone not making the result incomplete.

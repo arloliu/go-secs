@@ -1,6 +1,6 @@
 # tracepack — canonical JSONL export
 
-Status: current (2026-10-25) — v2.36, tracepack format 1.1, schemas `tracepack-jsonl/1` and `tracepack-jsonl/2` (drafts until tracepack v1.0.0).
+Status: current (2026-10-25) — v2.37, tracepack format 1.2, schemas `tracepack-jsonl/1`, `tracepack-jsonl/2` and `tracepack-jsonl/3` (drafts until tracepack v1.0.0).
 Normative, language-agnostic. [FMT §15] states what the export is for; this document defines its bytes.
 
 Depends on: [FMT §1] conventions, [FMT §2] portable encoding, [FMT §4] file header, [FMT §5] TLV encoding and registries,
@@ -50,10 +50,12 @@ every other code point is written as its UTF-8 bytes, `/`, `<`, `>`, `&`, U+007F
 ### 3.1 Names
 
 Schema `tracepack-jsonl/1` names exactly the enum values, bits, tags and nested tags that format 1.0 defines as of spec v2.26,
-and schema `tracepack-jsonl/2` exactly those that format 1.1 defines as of spec v2.33 (G5-233):
+schema `tracepack-jsonl/2` exactly those that format 1.1 defines as of spec v2.33 (G5-233),
+and schema `tracepack-jsonl/3` exactly those that format 1.2 defines as of spec v2.37 (G5-270):
 `/2` adds the tag `thinning` and its nested tags, the nested tags `encryption_algorithm` and `encryption_key_id` of `redaction_policy` and `siv` of `redaction`,
-the enum `encryption_algorithm`, and the `quality` bit 7 `unobserved` (§3.2).
-Under either schema:
+the enum `encryption_algorithm`, and the `quality` bit 7 `unobserved` (§3.2);
+`/3` adds the tag `recorder_instance_name` to the names of `/2`.
+Under every schema:
 - enum values: the names of [FMT §9]; `timer` values are named `none` and `T1` … `T8`;
   the retired `pack_role` 5 has no name, so it is written `unknown(5)`;
 - tags and nested tags: the names of the registries in [FMT §5] and [FMT §8];
@@ -81,7 +83,7 @@ Every other `u8` tag (`compaction_level`) is a number.
 | Bit set | Names by bit |
 |---|---|
 | header `flags` ([FMT §4]) | 0 `redaction-present` |
-| `quality` ([FMT §9]) | 0 `capture-boundary`, 1 `ordering-uncertain`, 2 `correlation-incomplete`, 4 `direction-inferred`, 5 `redacted`; under `/2` also 7 `unobserved` |
+| `quality` ([FMT §9]) | 0 `capture-boundary`, 1 `ordering-uncertain`, 2 `correlation-incomplete`, 4 `direction-inferred`, 5 `redacted`; under `/2` and `/3` also 7 `unobserved` |
 | `field_validity` ([FMT §7.2]) | 0 `session_id`, 1 `stream_and_w`, 2 `function`, 3 `ptype`, 4 `stype`, 5 `system_bytes` |
 | `record_flags` ([FMT §9]) | 1 `mono_present` |
 
@@ -109,7 +111,7 @@ Keys, in order:
 
 | Key | Value |
 |---|---|
-| `schema` | `"tracepack-jsonl/1"` for a pack whose `format_minor` is 0, `"tracepack-jsonl/2"` for every other value ([FMT §4]) |
+| `schema` | `"tracepack-jsonl/1"` for a pack whose `format_minor` is 0, `"tracepack-jsonl/2"` for 1, `"tracepack-jsonl/3"` for every other value ([FMT §4]) |
 | `format_major`, `format_minor` | numbers ([FMT §4]) |
 | `flags` | bit set (§3.2) |
 | `writer_start_utc_ns` | `i64` string |
@@ -167,11 +169,14 @@ The corpus records the expected rejection of such a vector instead of JSONL ([FM
 ## 9. Schema versions
 
 The `schema` value names the byte form.
-`tracepack-jsonl/1` and `tracepack-jsonl/2` are drafts until tracepack v1.0.0: a change to the bytes either defines before then bumps its value, and the change is recorded in the spec changelog.
+`tracepack-jsonl/1`, `tracepack-jsonl/2` and `tracepack-jsonl/3` are drafts until tracepack v1.0.0: a change to the bytes one defines before then bumps its value, and the change is recorded in the spec changelog.
 - `tracepack-jsonl/1` (spec v2.26): the export of format 1.0.
 - `tracepack-jsonl/2` (spec v2.33): names the format 1.1 additions (§3.1, §3.2) and otherwise writes the bytes of `/1`.
-  An exporter writes `/1` for a pack whose `format_minor` is 0 and `/2` for every other value (§5),
+  From spec v2.33 to v2.36 an exporter wrote `/1` for a pack whose `format_minor` is 0 and `/2` for every other value,
   so the export of a format 1.0 pack is unchanged, and the schema still follows from the pack's bytes alone.
+- `tracepack-jsonl/3` (spec v2.37): names the format 1.2 addition, `recorder_instance_name` (§3.1), and otherwise writes the bytes of `/2`.
+  An exporter writes `/1` for a pack whose `format_minor` is 0, `/2` for 1, and `/3` for every other value (§5),
+  so the exports of format 1.0 and 1.1 packs are unchanged (G5-270).
 Every later change to the output of a pack, naming a value the format adds (§3.1) included, takes a new schema value.
 
 ## 10. Example (informative)
