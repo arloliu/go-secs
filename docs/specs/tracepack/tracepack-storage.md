@@ -307,6 +307,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
     Its segment carries the capture's descriptor, and the consumer-owned values every segment of the capture carries
     (`flush_interval_ns`, and `redaction_policy`, `classifier` and `max_frame_len` as *Masking* requires);
     its `seq_start` is 2^63 − 1, and its `format_minor` follows [FMT §14].
+    Its block and footer are written with the none codec ([FMT §2], G5-272), so its bytes depend on no compressor's implementation or version.
     At most one close is written per capture: the log service records the close, its trigger time and its bounds (e.g. in its catalog) before writing it, and a retry writes the same bytes,
     so two closes of one capture never conflict ([FMT I-12]); how it keeps this record is the service's bookkeeping.
     A capture whose `start` never reached the bus has no descriptor and stays open.

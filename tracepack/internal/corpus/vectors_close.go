@@ -103,7 +103,7 @@ func closeMeta(seed string) *tracepack.PackMeta {
 func writeClose(seed string, packID tracepack.UUID, meta *tracepack.PackMeta, stagedMs *int) ([]byte, error) {
 	opts := tracepack.CloseOptions{
 		Meta: meta, CaptureID: IDFor(roleCaptureID, seed), Trigger: time.Unix(0, msAt(closeTriggerMs)).UTC(),
-		PackID: packID, Uncompressed: true, Now: corpusNow,
+		PackID: packID, Now: corpusNow,
 	}
 	if stagedMs != nil {
 		opts.HighestSeqTS = new(msAt(int64(*stagedMs)))
