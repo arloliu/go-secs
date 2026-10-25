@@ -262,6 +262,7 @@ type txEventLog struct {
 	events []string
 }
 
+// addf records one event, formatted as fmt.Sprintf formats it.
 func (l *txEventLog) addf(format string, a ...any) {
 	l.events = append(l.events, fmt.Sprintf(format, a...))
 }
