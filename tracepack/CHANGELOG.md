@@ -13,7 +13,7 @@ This release implements spec v2.38 and keeps format 1.2, every pack and its cano
   Each `TxPairing` holds the primary's key and the `TxResult` that `FindTransaction` returns for it over the same packs,
   passed to a callback in ascending hour, then seq, as the caller's own copy.
   It holds at most `MaxScopes` hours, bounded by `TxRangeOptions.MaxCachedBytes` (default 256 MiB, `DefaultTxMaxCachedBytes`).
-  On the busy benchmark hour, its 6,202 primaries pair in about 2.7 s with 60 MB allocated, against about 36 s and 37 GB by one `FindTransaction` each;
+  On the busy benchmark hour, its 6,202 primaries pair in about 2.2 s with 60 MB allocated, against about 36 s and 37 GB by one `FindTransaction` each;
   each item's HSMS header is decoded once when its hour is read, not again by every lookup replaying it.
 
 ### Changed

@@ -156,8 +156,13 @@ func (k *txPrimaryKey) classifyData(rec *Record, cached *HSMSHeader) TxClass {
 	if rec.Epoch != k.epoch {
 		return 0
 	}
-	h := headerOf(rec, cached)
-	equal, compatible := k.keyFields(&h)
+	h := cached
+	var decoded HSMSHeader
+	if h == nil {
+		decoded = rec.HSMSHeader()
+		h = &decoded
+	}
+	equal, compatible := k.keyFields(h)
 	if !compatible {
 		return 0
 	}
@@ -194,19 +199,15 @@ func (k *txPrimaryKey) isReject(rec *Record, cached *HSMSHeader) bool {
 	if rec.Epoch != k.epoch || rec.Dir != k.opp {
 		return false
 	}
-	h := headerOf(rec, cached)
-	equal, _ := k.keyFields(&h)
+	h := cached
+	var decoded HSMSHeader
+	if h == nil {
+		decoded = rec.HSMSHeader()
+		h = &decoded
+	}
+	equal, _ := k.keyFields(h)
 
 	return equal && h.Available&FieldValiditySType != 0 && h.SType == sTypeRejectReq
-}
-
-// headerOf returns rec's HSMS header: *cached when it is not nil, else as rec.HSMSHeader decodes it.
-func headerOf(rec *Record, cached *HSMSHeader) HSMSHeader {
-	if cached != nil {
-		return *cached
-	}
-
-	return rec.HSMSHeader()
 }
 
 // classifyEvent returns the roles of the transport-event record rec whose payload decodes to ev:
@@ -293,7 +294,11 @@ func (s *txRuns) insert(seq uint64, b *txBudget) error {
 }
 
 // contains reports whether seq lies in a run of the set.
+// A seq outside the bounds of the set, as a later hour's seqs almost always are, is answered without a search.
 func (s *txRuns) contains(seq uint64) bool {
+	if n := len(s.runs); n == 0 || seq < s.runs[0].first || seq > s.runs[n-1].last {
+		return false
+	}
 	i, _ := slices.BinarySearchFunc(s.runs, seq, func(r txRun, seq uint64) int { return cmp.Compare(r.last, seq) })
 
 	return i < len(s.runs) && s.runs[i].first <= seq
@@ -520,18 +525,21 @@ func (l *txLookup) localConflict(rd *txScopeRead, it *Item) error {
 //   - error: the error of the conflict reservation, wrapped with the seq and hours; the error of a charge, wrapping ErrReadLimit;
 //     ctx's error, as is.
 func (l *txLookup) crossConflict(ctx context.Context, rd *txScopeRead, seq uint64) error {
-	if c, ok := l.cross[seq]; ok {
-		if c.hours[len(c.hours)-1] != rd.hour {
-			if err := l.state.reserve(txHourCharge); err != nil {
-				return err
+	// Most lookups find no conflict across hours; their empty map is not searched.
+	if len(l.cross) > 0 {
+		if c, ok := l.cross[seq]; ok {
+			if c.hours[len(c.hours)-1] != rd.hour {
+				if err := l.state.reserve(txHourCharge); err != nil {
+					return err
+				}
+				c.hours = append(c.hours, rd.hour)
+				if c.gap >= 0 {
+					l.res.Incomplete[c.gap].Hours = c.hours
+				}
 			}
-			c.hours = append(c.hours, rd.hour)
-			if c.gap >= 0 {
-				l.res.Incomplete[c.gap].Hours = c.hours
-			}
-		}
 
-		return nil
+			return nil
+		}
 	}
 
 	earlier := l.reads[:len(l.reads)-1]

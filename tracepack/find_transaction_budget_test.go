@@ -687,6 +687,29 @@ func TestFindTransactionStateBudgetEarly(t *testing.T) {
 	}
 }
 
+// A lookup checks ctx once every step of its ticks, the count restarting at each check, as ctxCounter.add counts:
+// with a step of 3, ten ticks check ctx at the third, sixth and ninth, and leave a count of 1.
+func TestTxLookupTickStep(t *testing.T) {
+	t.Parallel()
+
+	l := newTxLookup(TxKey{Capture: captureLow, Hour: memTestHour}, TxOptions{}, nil)
+	l.ticks.step = 3
+	var at []int
+	n := 0
+	l.onTick = func() { at = append(at, n) }
+	for n = 1; n <= 10; n++ {
+		require.NoError(t, l.tick(t.Context()))
+	}
+	assert.Equal(t, []int{3, 6, 9}, at, "the ticks that check ctx")
+	assert.Equal(t, 1, l.ticks.n, "the count after the last check")
+
+	ref := ctxCounter{step: 3}
+	for range 10 {
+		ref.add(1)
+	}
+	assert.Equal(t, ref, l.ticks, "the count ctxCounter.add keeps")
+}
+
 // TestFindTransactionTicksEmptyScopes counts the checks of ctx in the probes of the hour reads for a seq:
 // a read whose run set is empty counts toward them as any other,
 // both when a later hour's seq is looked up in the earlier reads and when a window seq is looked up in every read.
