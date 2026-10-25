@@ -1866,3 +1866,18 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   pairing breached versions under the hour of their own timestamp, whose read does not hold them;
   an in-memory index or a decoded-block cache, which no consumer needs before tracepack v1.0.0 and can be added after it.
   Spec: [SEM §7.2], `tracepack-go.md` §3, v2.38.
+
+## 2026-10-25 the producer SDK's descriptor (owner's ruling, the log service's question)
+
+- G5-274 A gateway recording its own connection is a host vantage that evaluates quality (2026-10-25):
+  the gateway's producer SDK records the gateway's HSMS connection to the tool through the go-secs observers, as `raw-stream` captures,
+  with `vantage = host`, since the gateway is that connection's host endpoint and observes its frames at its own socket;
+  `intermediary` stays the vantage of a path that relays messages between the endpoints, such as the gateway's decoded-message path.
+  The SDK writes `quality_evaluated = true` and evaluates every stored condition:
+  `correlation-incomplete` exactly when it writes `epoch = 0`, never `direction-inferred`, since the wire observer reports the direction,
+  and `ordering-uncertain` on a record it cannot place in causal order.
+  Rationale *(editorial)*: [SEM §2] places host and equipment inside an endpoint, and [SEM §4] reads a frame the vantage sends itself as observed when it is handed to the socket, which holds for the gateway's own connection;
+  a pack with `quality_evaluated = false` makes every lookup over it `incomplete` ([SEM §7.2]), so a recorder that can evaluate the conditions does.
+  Rejected *(editorial)*: `intermediary` because the gateway is a hub, which misstates what `ts_utc_ns` and `dir` mean for the connection recorded;
+  `quality_evaluated = false`, which would leave every transaction lookup over gateway captures incomplete.
+  Spec: `tracepack-go.md` §2, v2.38.

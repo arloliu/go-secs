@@ -35,9 +35,17 @@ How each Go-side producer fills the spec's capture model ([SEM §2]):
 |---|---|---|---|---|
 | a go-secs application recording the frames `hsms.WithWireObserver` reports (go-secs v2.6.0 or later), before HSMS decoding | `raw-stream` | `host` or `equipment`, by the application's role | `wire-exact` | `<app>/<ver> go-secs/2.6.0` |
 | an equipment gateway, frames re-emitted via `ToBytes()`: today its HSMS device → message-encoding adapter → EAP bus adapter → JetStream path; a recorder device on the go-secs v2.6.0 observers is planned, not built; the gateway is the capture's producer over the durable bus (G5-200), publishing either wire frames through the observers (`raw-stream`) or its devices' decoded messages re-encoded (`decoded-message`, G5-249), and thinning the FDC service's polls (G5-225) | `decoded-message` | `intermediary` | `re-encoded` | `<gateway>/<ver> <bus-adapter>` |
+| the gateway recording its own HSMS connection to the tool through the go-secs v2.6.0 observers, with the log service's producer SDK (G5-274) | `raw-stream` | `host`: the gateway is that connection's host endpoint, and its frames are observed at its own socket | `wire-exact` | `tracekeep-producer/<ver> go-secs/<ver>` |
 | `eapconv` converting EAP SML logs | `log` | where the EAP ran (normally `host`) | `reconstructed` | `eapconv/<ver>` |
 | VE or test fixtures producing expected traffic | `generator` | `none` | `synthesized` | `veq/<ver>` |
 
+The `intermediary` vantage of the gateway row describes its decoded-message path through the bus adapter;
+a gateway recording the frames of its own connection to the tool is that connection's endpoint, so its vantage is `host` (G5-274).
+A recorder on the go-secs observers writes `quality_evaluated = true` and evaluates every stored condition (G5-274):
+`correlation-incomplete` exactly when it writes `epoch = 0`;
+never `direction-inferred`, since the wire observer reports each frame's direction;
+and `ordering-uncertain` on a record it cannot place in causal order among the capture's records.
+A recorder that cannot evaluate a condition writes `quality_evaluated = false`, and every lookup over its packs is then `incomplete` ([SEM §7.2]).
 A recorder on the go-secs observers also installs `hsms.WithSocketObserver`
 and assigns `epoch` ([FMT I-7]) from the `Socket` value every go-secs observer event carries (§5):
 a per-capture `u32` counter keyed by the connection and its `Socket` values, starting at 1,
