@@ -1651,7 +1651,7 @@ Review rounds:
 | apply consistency review P3 | [FMT §16] named only formats 1.0 and 1.1 | it names format 1.2 |
 | apply consistency review | — | fix-then-ready, applied; confirmation pass ready |
 
-## Changes v2.37 → v2.38: batch pairing and uncompressed close segments (owner decisions G5-271..G5-273, 2026-10-25)
+## Changes v2.37 → v2.38: batch pairing, uncompressed close segments and the producer SDK's descriptor (owner decisions G5-271..G5-274, 2026-10-25)
 
 Source: the tracepack maintainers' performance review and v1.0 shape review, with the Virtual Equipment project and its log service (tracekeep) consulted.
 Format 1.2, the canonical export and the corpus goldens are unchanged.
@@ -1662,7 +1662,8 @@ Summary:
   each pairing being the lookup's result over the hour observations the batch takes (G5-271, G5-273).
 - [STO §4] *Closing a capture left open*: a close segment's block and footer are written with the none codec, so its bytes depend on no compressor (G5-272).
 - [GO] §3: `FindTransactions` with `TxRange`, `TxRangeOptions`, `TxPairing` and `TxRangeResult`; `CloseOptions` loses `Uncompressed`.
-- The overview's list of decisions reaches G5-273.
+- [GO] §2: a gateway recording its own connection to the tool through the go-secs observers has `vantage = host` and writes `quality_evaluated = true`, with the condition each stored bit is set on (G5-274).
+- The overview's list of decisions reaches G5-274.
 
 Review rounds:
 
