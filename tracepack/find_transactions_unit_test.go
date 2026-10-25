@@ -1,12 +1,14 @@
 package tracepack
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math"
 	"runtime"
+	"strings"
 
 	"testing"
 	"time"
@@ -493,9 +495,11 @@ func TestFindTransactionsCancelEverywhere(t *testing.T) {
 
 	for at := 0; at <= total.calls; at++ {
 		ctx := &txCancelAfter{Context: t.Context(), at: at}
-		src := &txGuardedSource{src: g.src.view(), ctx: ctx, t: t}
+		src := &txGuardedSource{src: g.src.view(), cancelled: func() bool { return ctx.reported }, t: t}
+		paired := 0
 		res, err := findTransactionsWith(ctx, src, r, opts, func(*TxPairing) error {
 			require.False(t, ctx.reported, "at %d: no pairing after ctx reported its cancellation", at)
+			paired++
 			return nil
 		}, prep)
 		if at == total.calls {
@@ -503,22 +507,215 @@ func TestFindTransactionsCancelEverywhere(t *testing.T) {
 			continue
 		}
 		require.ErrorIs(t, err, context.Canceled, "at %d", at)
-		require.LessOrEqual(t, res.Primaries, full.Primaries, "at %d", at)
-		// An hour counts as read once its fill completes: the source was called for it, and maybe for one more hour cut short.
-		require.Contains(t, []int{src.calls, src.calls - 1}, res.HoursRead, "at %d: hours read against source calls", at)
+		require.Equal(t, paired, res.Primaries, "at %d: the pairings passed", at)
+		// An hour counts as read once its fill completes: an error wrapped with an hour cut that hour's fill short,
+		// after the source was called for it; any other error came after the last hour the source was called for was read.
+		read := src.calls
+		if strings.HasPrefix(err.Error(), "tracepack: find transactions: hour ") {
+			read--
+		}
+		require.Equal(t, read, res.HoursRead, "at %d: hours read against source calls (%v)", at, err)
 	}
 }
 
-// txGuardedSource fails its test when called after its ctx reported cancellation, and counts its calls.
+// txCancelOn is a context whose Err reports cancellation once on is set,
+// or, when countdown is set, from the countdown-th call of Err on, counting this one.
+type txCancelOn struct {
+	context.Context
+	on        bool
+	countdown int
+}
+
+func (c *txCancelOn) Err() error {
+	if c.countdown > 0 {
+		if c.countdown--; c.countdown == 0 {
+			c.on = true
+		}
+	}
+	if c.on {
+		return context.Canceled
+	}
+
+	return nil
+}
+
+// Cancelled at each check of ctx the batch makes for its own work while it reads an hour into its cache,
+// a batch returns ctx's error wrapped with the hour, having read no hour and passed no pairing,
+// and calls the source for no later hour;
+// those checks are exactly one for each item, conflict reservation, defect, coverage Unknown entry and conflict version of the hour's read
+// and one for each footer error and each key of the hour, counted from the fixture:
+// an hour of diagnostics only, packs whose footers are not valid, a conflict whose versions have many holders,
+// keys to enumerate and sort, and none selected by the range.
+func TestFindTransactionsCancelInFill(t *testing.T) {
+	t.Parallel()
+
+	later := [][]byte{txPackIn(t, seg0, 1, nil, txBlock(txReply(14, nil)))}
+	other := func(r *Record) {
+		r.Payload = bytes.Clone(r.Payload)
+		r.Payload[len(r.Payload)-1]++
+	}
+	unknown := []RawEntry{{Tag: 0x0050, Type: 7, Value: []byte{1}}, {Tag: 0x0051, Type: 7, Value: []byte{2}},
+		{Tag: 0x0052, Type: 7, Value: []byte{3}}, {Tag: 0x0053, Type: 7, Value: []byte{4}}}
+	coverage := func(m *PackMeta) {
+		for i := range uint64(3) {
+			m.Coverage = append(m.Coverage, Coverage{SeqFirst: new(100 * i), SeqLast: new(100*i + 5), Unknown: unknown})
+		}
+	}
+	conflict := make([][]byte, 0, 5)
+	conflict = append(conflict, txPack(t, seg4, nil, txBlock(txRecord(10, other))))
+	for _, id := range []UUID{seg0, seg1, seg2, seg3} {
+		conflict = append(conflict, txPack(t, id, nil, txBlock(txRecord(10, nil))))
+	}
+	footers := make([][]byte, 0, 3)
+	for i, id := range []UUID{seg0, seg1, seg2} {
+		footers = append(footers, invalidFooterFile(t, txPack(t, id, nil, txBlock(txReply(11+2*uint64(i), nil)))))
+	}
+	keys := [][]byte{txPack(t, seg0, nil, txBlock(txRecord(10, nil), txReply(11, nil), txRecord(12, nil), txReply(13, nil),
+		txRecord(14, nil), txRecord(15, nil), txRecord(16, nil), txReply(17, nil)))}
+
+	for name, tt := range map[string]struct {
+		hour [][]byte
+		// from is the start of the range after the start of the hour.
+		from time.Duration
+		// ticks counts the items, reservations, defects, Unknown entries, footer errors and conflict versions of the read, and the keys.
+		ticks int
+		// sorts is set when the hour has keys to sort.
+		sorts bool
+	}{
+		"diagnostics only":           {hour: [][]byte{txPack(t, seg0, coverage, nil)}, ticks: 3 + 3*len(unknown)},
+		"footer errors":              {hour: footers, ticks: 3 + 3},
+		"a conflict of many holders": {hour: conflict, ticks: 2 + 1 + 2 + 1},
+		"keys to enumerate and sort": {hour: keys, ticks: 8 + 5, sorts: true},
+		"no key selected":            {hour: keys, from: time.Microsecond, ticks: 8},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			s := txHours(t, tt.hour, later)
+			r := TxRange{Capture: captureLow, From: time.Unix(0, memTestHour*hourNs).Add(tt.from), To: time.Unix(0, (memTestHour+2)*hourNs)}
+			opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}}
+			ticks, n := -1, 0
+			_, err := findTransactionsWith(t.Context(), s.view(), r, opts, func(*TxPairing) error { return nil }, func(b *txBatch) {
+				b.ticks.step = 1
+				b.onTick = func() { n++ }
+				b.filled = func(rec *txHourRecord) {
+					if rec.hour == memTestHour {
+						ticks = n
+					}
+				}
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.ticks, ticks, "the batch's checks of ctx in reading the hour")
+
+			for at := range ticks {
+				ctx := &txCancelOn{Context: t.Context()}
+				src := &txGuardedSource{src: s.view(), cancelled: func() bool { return ctx.on }, t: t}
+				paired, n := 0, 0
+				res, err := findTransactionsWith(ctx, src, r, opts, func(*TxPairing) error {
+					paired++
+					return nil
+				}, func(b *txBatch) {
+					b.ticks.step = 1
+					b.onTick = func() {
+						if n == at {
+							ctx.on = true
+						}
+						n++
+					}
+				})
+				require.ErrorIs(t, err, context.Canceled, "at %d", at)
+				assert.True(t, strings.HasPrefix(err.Error(), fmt.Sprintf("tracepack: find transactions: hour %d: ", memTestHour)), "at %d: %v", at, err)
+				assert.Equal(t, TxRangeResult{}, res, "at %d", at)
+				assert.Zero(t, paired, "at %d: no pairing", at)
+				assert.Equal(t, 1, src.calls, "at %d: the source called for the hour cancelled only", at)
+			}
+			if !tt.sorts {
+				return
+			}
+			// The sort of the keys cannot check ctx, so ctx is checked before and after it, still within the hour's read:
+			// cancelled at the second or third check from the last key's, the fill fails as cancelled at that key.
+			for _, d := range []int{2, 3} {
+				ctx := &txCancelOn{Context: t.Context()}
+				src := &txGuardedSource{src: s.view(), cancelled: func() bool { return ctx.on }, t: t}
+				n := 0
+				res, err := findTransactionsWith(ctx, src, r, opts, func(*TxPairing) error {
+					t.Fatal("no pairing")
+					return nil
+				}, func(b *txBatch) {
+					b.ticks.step = 1
+					b.onTick = func() {
+						if n++; n == ticks {
+							ctx.countdown = d
+						}
+					}
+				})
+				require.EqualError(t, err, fmt.Sprintf("tracepack: find transactions: hour %d: context canceled", memTestHour), "check %d", d)
+				assert.Equal(t, TxRangeResult{}, res, "check %d", d)
+			}
+		})
+	}
+}
+
+// Cancelled at the last check of ctx before each pairing is passed, a batch returns ctx's error, wrapped by no key,
+// having passed exactly the pairings before it, and calls the source for no later hour;
+// cancelled at the first check after each pairing is passed, before the next lookup or the next hour,
+// it returns that error too, having passed that pairing.
+func TestFindTransactionsCancelBeforeDelivery(t *testing.T) {
+	t.Parallel()
+
+	s := txHours(t,
+		[][]byte{txPack(t, seg0, nil, txBlock(txRecord(10, nil), txReply(11, nil), txRecord(12, txKeyless), txRecord(13, nil)))},
+		[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txReply(14, nil)))},
+	)
+	r := TxRange{Capture: captureLow, From: time.Unix(0, memTestHour*hourNs), To: time.Unix(0, (memTestHour+2)*hourNs)}
+	opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}}
+	dry := &txCancelAfter{Context: t.Context(), at: math.MaxInt}
+	var before []int
+	_, err := FindTransactions(dry, s.view(), r, opts, func(*TxPairing) error {
+		before = append(before, dry.calls)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Len(t, before, 3)
+
+	for k, c := range before {
+		ctx := &txCancelAfter{Context: t.Context(), at: c - 1}
+		src := &txGuardedSource{src: s.view(), cancelled: func() bool { return ctx.reported }, t: t}
+		paired := 0
+		res, err := FindTransactions(ctx, src, r, opts, func(*TxPairing) error {
+			paired++
+			return nil
+		})
+		require.EqualError(t, err, "tracepack: find transactions: context canceled", "pairing %d", k)
+		assert.Equal(t, k, paired, "pairing %d", k)
+		assert.Equal(t, TxRangeResult{HoursRead: 1, Primaries: k}, res, "pairing %d", k)
+		assert.Equal(t, 1, src.calls, "pairing %d: no later hour", k)
+
+		// fn makes no check, so the first check after it is the one after the c-th.
+		ctx = &txCancelAfter{Context: t.Context(), at: c}
+		src = &txGuardedSource{src: s.view(), cancelled: func() bool { return ctx.reported }, t: t}
+		paired = 0
+		res, err = FindTransactions(ctx, src, r, opts, func(*TxPairing) error {
+			paired++
+			return nil
+		})
+		require.EqualError(t, err, "tracepack: find transactions: context canceled", "after pairing %d", k)
+		assert.Equal(t, TxRangeResult{HoursRead: 1, Primaries: k + 1}, res, "after pairing %d", k)
+		assert.Equal(t, k+1, paired, "after pairing %d", k)
+		assert.Equal(t, 1, src.calls, "after pairing %d: no later hour", k)
+	}
+}
+
+// txGuardedSource fails its test when called once cancelled reports that its ctx reported cancellation, and counts its calls.
 type txGuardedSource struct {
-	src   PackSource
-	ctx   *txCancelAfter
-	t     *testing.T
-	calls int
+	src       PackSource
+	cancelled func() bool
+	t         *testing.T
+	calls     int
 }
 
 func (s *txGuardedSource) Readers(ctx context.Context, hour int64) ([]*Reader, error) {
-	require.False(s.t, s.ctx.reported, "no source call after ctx reported its cancellation")
+	require.False(s.t, s.cancelled(), "no source call after ctx reported its cancellation")
 	s.calls++
 
 	return s.src.Readers(ctx, hour)
