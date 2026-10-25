@@ -72,8 +72,7 @@ type TxRangeResult struct {
 // (the hour of r.To − 1 ns plus MaxScopes − 1);
 // the readers it gets for an hour, in that order, are the hour's observation for the whole call,
 // and they must stay valid until FindTransactions returns.
-// The result of every primary it reports equals the TxResult that FindTransaction returns for its key
-// over a PackSource that returns each hour's observation,
+// The result of every primary it reports equals FindTransaction's for its key over a PackSource that returns each hour's observation,
 // with the same TxOptions, field by field and in every order;
 // over a source whose Readers returns the same readers in the same order on every call, as NewReaderSource's does,
 // that is FindTransaction over src itself.

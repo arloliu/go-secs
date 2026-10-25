@@ -251,7 +251,7 @@ For the log service, the consumer that writes a durable-bus capture's packs:
 ## Reading packs
 
 For readers and troubleshooters working on local files:
-`Open`, `Reader.Iterate`, `MergeIterate`, `FindTransaction`, `NewReaderSource`, `ExportJSONL` and `Verify`.
+`Open`, `Reader.Iterate`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `NewReaderSource`, `ExportJSONL` and `Verify`.
 
 - `Open(ctx, ra, size, opts)` opens one pack over an `io.ReaderAt`, such as an `*os.File`, which stays open while the `Reader` is used.
   `Reader.Header` returns the pack metadata, and `Reader.Iterate` yields the records a `Query` selects, in file order.
@@ -289,6 +289,12 @@ For readers and troubleshooters working on local files:
   and lists in `TxResult.Incomplete`, beside any outcome, every reason the lookup is incomplete, each a `TxGap`.
   `TxNotFound` states nothing about records outside the packs it read.
   See `ExampleFindTransaction`.
+- `FindTransactions(ctx, src, r, opts, fn)` pairs every primary of one capture whose timestamp lies in `[r.From, r.To)`, reading each hour once,
+  where a `FindTransaction` per primary reads its hours again for every primary.
+  Each `TxPairing` passed to `fn`, in ascending hour, then seq, holds the primary's key and the result `FindTransaction` gives it, as your own copy.
+  It holds at most `MaxScopes` hours at once, bounded by `TxRangeOptions.MaxCachedBytes`;
+  a primary near the end of the hours read can report an open window when a later hour is not written yet.
+  See `ExampleFindTransactions`.
 - `ExportJSONL(ctx, r, w)` writes the canonical JSONL export of one pack,
   as the [JSONL specification](../docs/specs/tracepack/tracepack-jsonl.md) defines it:
   a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
