@@ -7,12 +7,13 @@ import (
 	"fmt"
 )
 
-// txLookup is the state of one FindTransaction call over one PackSource.
+// txLookup is the state of one transaction lookup over one source of hours.
 type txLookup struct {
 	key  TxKey
 	opts TxOptions
-	src  PackSource
-	res  TxResult
+	// hours gives the packs of each hour and their read: the source's as they are (liveHours), or a replay of reads made once.
+	hours txHourSource
+	res   TxResult
 	// conflicts counts the conflicts reserved over the whole lookup against opts.MaxConflicts.
 	conflicts int
 	// primary holds the versions of the primary's seq that the read of hour key.Hour yielded, cloned as they arrived,
@@ -99,10 +100,10 @@ type txCrashGap struct {
 	b *Boundary
 }
 
-// newTxLookup returns the state of a lookup of key with opts, defaulted, over src.
-func newTxLookup(key TxKey, opts TxOptions, src PackSource) *txLookup {
+// newTxLookup returns the state of a lookup of key with opts, defaulted, over the hours of hours.
+func newTxLookup(key TxKey, opts TxOptions, hours txHourSource) *txLookup {
 	return &txLookup{
-		key: key, opts: opts, src: src,
+		key: key, opts: opts, hours: hours,
 		state: txBudget{max: opts.MaxStateBytes}, ticks: ctxCounter{step: txCtxStep},
 	}
 }
@@ -175,7 +176,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("tracepack: find transaction: %w", err)
 	}
-	readers, err := l.src.Readers(ctx, hour)
+	readers, err := l.hours.readers(ctx, hour)
 	if err != nil {
 		return nil, fmt.Errorf("tracepack: find transaction: hour %d: readers: %w", hour, err)
 	}
@@ -203,9 +204,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 		}
 	}
 	l.reads = append(l.reads, rd)
-	rd.res, err = mergeIterateWith(ctx, readers, Query{Payloads: true},
-		MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: l.opts.MaxHeldBytes},
-		mergeIterateOptions{reserveConflict: l.reserveConflict, storedFlags: &l.flags},
+	rd.res, err = l.hours.read(ctx, hour, readers, l.opts.MaxHeldBytes, l.reserveConflict, &l.flags,
 		func(it *Item) error { return fn(ctx, rd, it) })
 	gerr := l.endGroup(ctx, rd)
 	if err == nil {
@@ -291,7 +290,7 @@ func (l *txLookup) mapScope(ctx context.Context, rd *txScopeRead, completed bool
 		if err := l.grow(ctx, n); err != nil {
 			return err
 		}
-		l.res.Conflicts = append(l.res.Conflicts, rd.res.Conflicts[i])
+		l.res.Conflicts = append(l.res.Conflicts, cloneConflict(&rd.res.Conflicts[i]))
 	}
 	if completed {
 		l.res.Searched = append(l.res.Searched, TxScope{Hour: rd.hour, Packs: rd.packs})
@@ -331,7 +330,7 @@ func (l *txLookup) mapDefects(ctx context.Context, rd *txScopeRead) error {
 			if d.Coverage.CaptureID != nil {
 				capture = *d.Coverage.CaptureID
 			}
-			l.coverage = append(l.coverage, txCoverage{hour: rd.hour, pack: rd.packs[d.Pack], capture: capture, cov: d.Coverage})
+			l.coverage = append(l.coverage, txCoverage{hour: rd.hour, pack: rd.packs[d.Pack], capture: capture, cov: cloneCoverage(d.Coverage)})
 
 			continue
 		}
@@ -412,7 +411,8 @@ func (l *txLookup) noteCrashGap(ctx context.Context, rd *txScopeRead, d *Defect)
 		l.crashSeen = make(map[crashGapKey]struct{})
 	}
 	l.crashSeen[k] = struct{}{}
-	l.crash = append(l.crash, txCrashGap{hour: rd.hour, pack: rd.packs[d.Pack], b: d.Boundary})
+	b := cloneBoundary(*d.Boundary)
+	l.crash = append(l.crash, txCrashGap{hour: rd.hour, pack: rd.packs[d.Pack], b: &b})
 
 	return nil
 }

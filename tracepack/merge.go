@@ -288,6 +288,19 @@ type Conflict struct {
 	Versions [][]UUID
 }
 
+// cloneConflict returns a copy of c that shares no storage with it.
+func cloneConflict(c *Conflict) Conflict {
+	out := Conflict{CaptureID: c.CaptureID, Seq: c.Seq}
+	if c.Versions != nil {
+		out.Versions = make([][]UUID, len(c.Versions))
+		for i, v := range c.Versions {
+			out.Versions[i] = slices.Clone(v)
+		}
+	}
+
+	return out
+}
+
 // inputReaderAt reads a merge input through ra, and marks every error ra returns other than io.EOF as an inputReadError,
 // so a failed read of an input stays apart from a pack that Merge refuses, whenever the Reader reads it.
 type inputReaderAt struct {

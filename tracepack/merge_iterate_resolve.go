@@ -201,7 +201,7 @@ func (cr *clusterResolver) addConflict(seq uint64, at []*openBlock) error {
 	p := cr.run.p
 	if p.reserveConflict != nil {
 		if err := p.reserveConflict(); err != nil {
-			return fmt.Errorf("tracepack: merge iterate: the conflict at seq %d of capture %s: %w", seq, cr.capture, err)
+			return refusedConflict(cr.capture, seq, err)
 		}
 	} else if len(p.res.Conflicts) >= p.opts.MaxConflicts {
 		return fmt.Errorf("tracepack: merge iterate: the conflict at seq %d of capture %s exceeds MaxConflicts %d: %w",
@@ -379,4 +379,10 @@ func (k *ctxCounter) add(n int) bool {
 	k.n = (k.n + n%k.step) % k.step
 
 	return true
+}
+
+// refusedConflict wraps err, the error a reserveConflict refused the conflict at seq of capture with,
+// as a read returns it; a replay of a read wraps a refusal the same way.
+func refusedConflict(capture UUID, seq uint64, err error) error {
+	return fmt.Errorf("tracepack: merge iterate: the conflict at seq %d of capture %s: %w", seq, capture, err)
 }
