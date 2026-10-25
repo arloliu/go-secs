@@ -1817,6 +1817,24 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   reusing `recorder` or `notes`, whose meanings differ.
   Spec: [FMT §5], [FMT §14], [FMT §15], [STO §4], [JSONL §3.1], [JSONL §5], [JSONL §9], [CORPUS], [GO], v2.37.
 
+## 2026-10-25 pairing the transactions of a time range (owner's choice)
+
+- G5-271 A batch pairing read beside the single lookup, before v1.0 (2026-10-25):
+  tracepack adds a read that pairs every primary of one capture in a time range with its reply,
+  reading each scheduled hour once for all of them instead of once per lookup;
+  every transaction it reports keeps the guarantees a single lookup gives it (G5-129 to G5-136):
+  each scheduled hour is read in full, once, with no filter, and the outcome, window and `incomplete` reasons of each primary are those `FindTransaction` would report for it.
+  The hours scheduled are the range's hours and the tail a window needs past them, bounded as `TxOptions.MaxScopes` bounds a lookup.
+  It ships before tracepack v1.0.0; its API is designed with the Virtual Equipment's preference
+  (an iteration over [from, to) of one capture, yielding each primary with its reply or the reason none was established),
+  confirmed with veq before it is frozen.
+  Rationale *(editorial)*: pairing an hour by one lookup per primary reads every scheduled hour once per primary,
+  about 37 s of CPU for the 6,202 primaries of a busy benchmark hour against a few milliseconds for one pass;
+  veq's planned learners and replay read whole settled capture-hours in batches, and the owner fixes the shape before v1.0 rather than adding it later.
+  Rejected *(editorial)*: keeping only the single lookup until a consumer's reader is designed;
+  letting a lookup skip blocks that F-2 and the F-3 summaries exclude, a change of §7.2 that loses the read defects of the skipped blocks and that no consumer needs.
+  Spec: [SEM §7.2], `tracepack-go.md` §3, pending.
+
 ## 2026-10-25 a close segment's bytes across versions (owner's choice)
 
 - G5-272 A close segment is written uncompressed (2026-10-25):
