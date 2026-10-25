@@ -163,7 +163,8 @@ The query service, its catalog database and the live-tail interface are designed
   one `stop-unclean` record at seq 2^63 − 1 alone in a segment.
   `CloseOptions` holds `Meta`, the capture's descriptor and its consumer-owned values; `CaptureID`; `Trigger`, the close's time;
   `HighestSeqTS`, the `ts_utc_ns` of the highest seq the service staged, not the latest timestamp, nil when none is staged;
-  and `PackID`, `Uncompressed`, `Sync` and `Now`.
+  and `PackID`, `Sync` and `Now`.
+  The block and the footer are written with the none codec (G5-272), so equal options with a fixed `PackID` and `Now` write equal bytes whichever tracepack version runs the retry.
   It computes `gap_start` and `gap_end` in checked `i64` arithmetic, each absent on overflow, and its `format_minor` follows [FMT §14].
   `Sync`, when set, is called after the block and after the trailer, as `WriterOptions.Sync` is;
   the pack id is returned with an error once the options are valid,

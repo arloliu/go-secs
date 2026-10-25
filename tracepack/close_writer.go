@@ -33,8 +33,6 @@ type CloseOptions struct {
 	HighestSeqTS *int64
 	// PackID identifies the pack file; the zero UUID makes WriteClose generate a UUIDv7.
 	PackID UUID
-	// Uncompressed writes the block and the footer with CodecNone; otherwise they are written with CodecZstd.
-	Uncompressed bool
 	// Sync, when set, is called after the block and after the trailer, as WriterOptions.Sync is.
 	Sync Syncer
 	// Now returns the time the file header's writer_start_utc_ns is stamped with,
@@ -54,8 +52,9 @@ type CloseOptions struct {
 // The segment's format_minor follows the tracepack format specification §14:
 // 1 for a capture masked at write or thinned, 0 otherwise.
 //
-// Equal options with a fixed PackID and Now write equal bytes, so a retried close is byte-identical
-// and two closes of one capture never conflict.
+// The block and the footer are written with CodecNone, so the bytes depend on no compressor:
+// equal options with a fixed PackID and Now write equal bytes, also when the retry runs a newer tracepack,
+// so a retried close is byte-identical and two closes of one capture never conflict.
 // As for a Writer, the trailer is the commit: an error before it leaves the output unfinalized,
 // while an error of the sync after it may leave a finalized pack that is not durable.
 //
@@ -82,7 +81,7 @@ func WriteClose(w io.Writer, opts CloseOptions) (UUID, error) {
 	wr, err := NewWriter(w, WriterOptions{
 		Meta:         meta,
 		Facts:        PackFacts{DurableRecorder: true, RedactionPolicyApplied: meta.RedactionPolicy != nil},
-		Uncompressed: opts.Uncompressed,
+		Uncompressed: true,
 		Sync:         opts.Sync,
 		PackID:       packID,
 		CaptureID:    opts.CaptureID,

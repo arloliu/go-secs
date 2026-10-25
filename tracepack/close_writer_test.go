@@ -170,6 +170,16 @@ func TestWriteClose(t *testing.T) {
 		first, again := writeCloseBytes(t, opts), writeCloseBytes(t, opts)
 		require.Equal(t, first, again, "a retry writes the same bytes")
 
+		// No compressor takes part, so a retry by a build with another compressor writes the same bytes too.
+		blocks := mustOpen(t, first, ReaderOptions{}).Blocks()
+		require.Len(t, blocks, 1)
+		env, err := format.UnmarshalBlockEnvelope(first[blocks[0].Offset:])
+		require.NoError(t, err)
+		assert.Equal(t, uint8(CodecNone), env.Codec, "the block's codec")
+		tr, err := format.UnmarshalTrailer(first[len(first)-format.TrailerLen:])
+		require.NoError(t, err)
+		assert.Equal(t, uint8(CodecNone), tr.FooterCodec, "the footer's codec")
+
 		// A close written again in another pack holds the same record, read once and without a conflict.
 		opts.PackID = seg2
 		other := writeCloseBytes(t, opts)

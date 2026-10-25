@@ -1816,3 +1816,15 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   a private tag, which a descriptor refuses and an export shows only as base64;
   reusing `recorder` or `notes`, whose meanings differ.
   Spec: [FMT §5], [FMT §14], [FMT §15], [STO §4], [JSONL §3.1], [JSONL §5], [JSONL §9], [CORPUS], [GO], v2.37.
+
+## 2026-10-25 a close segment's bytes across versions (owner's choice)
+
+- G5-272 A close segment is written uncompressed (2026-10-25):
+  `WriteClose` writes the block and the footer of a close segment with the none codec, and `CloseOptions.Uncompressed` is removed.
+  Equal options with a fixed `PackID` and `Now` then write equal bytes whichever tracepack version runs the retry,
+  since the bytes depend on no compressor's implementation or version.
+  Rationale *(editorial)*: the log service retries a close from a durable intent and relies on the retry writing the same bytes ([STO §4] *Closing a capture left open*);
+  with zstd those bytes also depend on the klauspost/compress encoder, which a dependency upgrade between the first write and the retry may change;
+  the segment holds one record, so compression saves almost nothing.
+  Rejected *(editorial)*: keeping the option and stating that the promise holds within one tracepack build only.
+  Spec: [STO §4], `tracepack-go.md` §3, pending (v2.38).

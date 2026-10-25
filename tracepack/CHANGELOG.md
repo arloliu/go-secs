@@ -5,6 +5,13 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `WriteClose` always writes the close segment's block and footer with `CodecNone`, and `CloseOptions.Uncompressed` is removed (G5-272).
+  Equal options with a fixed `PackID` and `Now` now write equal bytes whichever tracepack version runs a retried close,
+  since no compressor takes part.
+  A caller that set `Uncompressed` drops the field; one that left it false gets an uncompressed close segment instead of a zstd one.
+
 ## [0.8.0] - 2026-10-25
 
 This release implements spec v2.37, format 1.2, and keeps every format 1.0 and 1.1 pack and its canonical export unchanged.
