@@ -50,11 +50,13 @@ type CloseOptions struct {
 // and its gap_end Trigger plus clock_step_tolerance_ns,
 // each computed in checked int64 arithmetic and absent when the computation leaves the int64 range.
 // The segment's format_minor follows the tracepack format specification §14:
-// 1 for a capture masked at write or thinned, 0 otherwise.
+// 2 for metadata naming its recorder instance (RecorderInstanceName), else 1 for a capture masked at write or thinned, else 0.
 //
 // The block and the footer are written with CodecNone, so the bytes depend on no compressor:
 // equal options with a fixed PackID and Now write equal bytes, also when the retry runs a newer tracepack,
 // so a retried close is byte-identical and two closes of one capture never conflict.
+// tracepack v0.8.0 and earlier wrote a zstd close by default,
+// so a close first written by one of them and retried by this version writes other bytes (see the module's CHANGELOG).
 // As for a Writer, the trailer is the commit: an error before it leaves the output unfinalized,
 // while an error of the sync after it may leave a finalized pack that is not durable.
 //

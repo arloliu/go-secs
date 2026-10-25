@@ -94,19 +94,30 @@ func TestWriteClose(t *testing.T) {
 
 	highest := blockTestHour + int64(2*time.Minute)
 	for _, tt := range []struct {
-		name            string
-		masked, thinned bool
-		minor           uint16
+		name                   string
+		masked, thinned, named bool
+		minor                  uint16
 	}{
-		{"a plain capture", false, false, 0},
-		{"a capture masked at write", true, false, 1},
-		{"a thinned capture", false, true, 1},
-		{"a masked and thinned capture", true, true, 1},
+		{"a plain capture", false, false, false, 0},
+		{"a capture masked at write", true, false, false, 1},
+		{"a thinned capture", false, true, false, 1},
+		{"a masked and thinned capture", true, true, false, 1},
+		{"a capture naming its recorder instance", false, false, true, 2},
+		{"a masked and thinned capture naming its recorder instance", true, true, true, 2},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			m := closeMeta(1000, tt.masked, tt.thinned)
+			// meta returns the capture's metadata, naming its recorder instance when the case does.
+			meta := func() *PackMeta {
+				m := closeMeta(1000, tt.masked, tt.thinned)
+				if tt.named {
+					m.RecorderInstanceName = new("line 3 recorder")
+				}
+
+				return m
+			}
+			m := meta()
 			given := *m
 			file := writeCloseBytes(t, closeOptions(m, &highest))
 			assert.Equal(t, given, *m, "WriteClose does not change the caller's metadata")
@@ -116,7 +127,7 @@ func TestWriteClose(t *testing.T) {
 			assert.Equal(t, tt.minor, h.FormatMinor)
 			assert.Equal(t, closeCapture, h.CaptureID)
 			assert.Zero(t, h.Flags, "no redaction-present: the close is never masked")
-			want := closeMeta(1000, tt.masked, tt.thinned)
+			want := meta()
 			want.SeqStart = format.MaxU64
 			assert.Equal(t, want, h.Meta)
 
@@ -126,7 +137,7 @@ func TestWriteClose(t *testing.T) {
 			var export bytes.Buffer
 			_, err := ExportJSONL(t.Context(), r, &export)
 			require.NoError(t, err)
-			schema := map[uint16]string{0: "tracepack-jsonl/1", 1: "tracepack-jsonl/2"}[tt.minor]
+			schema := map[uint16]string{0: "tracepack-jsonl/1", 1: "tracepack-jsonl/2", 2: "tracepack-jsonl/3"}[tt.minor]
 			assert.True(t, strings.HasPrefix(export.String(), fmt.Sprintf(`{"schema":%q,`, schema)), "export schema %s", schema)
 		})
 	}
