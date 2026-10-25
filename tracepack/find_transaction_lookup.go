@@ -20,8 +20,10 @@ type txLookup struct {
 	// and primaryFlags the record_flags of each, as stored, which the version's charge covers.
 	primary      []TxRecord
 	primaryFlags []uint8
-	// flags receives the record_flags, as stored, of the item a read passes to its callback.
-	flags uint8
+	// flags receives the record_flags, as stored, of the item a read passes to its callback,
+	// and header its record's HSMS header when the read's source holds it decoded.
+	flags  uint8
+	header txCachedHeader
 	// prim is what the records above the primary are classified against, taken from primary's first version.
 	prim txPrimaryKey
 	// early counts the records above the primary's seq that the read of hour key.Hour yielded before any version of the primary,
@@ -204,7 +206,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 		}
 	}
 	l.reads = append(l.reads, rd)
-	rd.res, err = l.hours.read(ctx, hour, readers, l.opts.MaxHeldBytes, l.reserveConflict, &l.flags,
+	rd.res, err = l.hours.read(ctx, hour, readers, l.opts.MaxHeldBytes, l.reserveConflict, &l.flags, &l.header,
 		func(it *Item) error { return fn(ctx, rd, it) })
 	gerr := l.endGroup(ctx, rd)
 	if err == nil {

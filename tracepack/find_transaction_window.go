@@ -115,11 +115,13 @@ func primaryKeyOf(rec *Record) txPrimaryKey {
 //   - TxClass: the roles; zero for none.
 //   - *TransportEvent: the decoded payload of a transport-event record;
 //     nil for any other record or a payload that does not decode.
-func (k *txPrimaryKey) classify(rec *Record) (TxClass, *TransportEvent) {
+//
+// cached, when not nil, is rec's HSMS header as rec.HSMSHeader returns it, which the comparisons then take instead of decoding it.
+func (k *txPrimaryKey) classify(rec *Record, cached *HSMSHeader) (TxClass, *TransportEvent) {
 	switch {
 	case rec.Kind == KindData:
-		return k.classifyData(rec), nil
-	case rec.Kind == KindControl && k.isReject(rec):
+		return k.classifyData(rec, cached), nil
+	case rec.Kind == KindControl && k.isReject(rec, cached):
 		return TxOutcomeRecord, nil
 	case rec.Kind != KindTransportEvent:
 		return 0, nil
@@ -150,11 +152,11 @@ func (k *txPrimaryKey) keyFields(h *HSMSHeader) (equal, compatible bool) {
 // a candidate or a possible reply, and a same-key primary or a possible same-key primary;
 // a record in unknown direction can be both a possible reply and a possible same-key primary.
 // A record of another epoch, or one whose available SessionID or System Bytes differ from the primary's, plays none.
-func (k *txPrimaryKey) classifyData(rec *Record) TxClass {
+func (k *txPrimaryKey) classifyData(rec *Record, cached *HSMSHeader) TxClass {
 	if rec.Epoch != k.epoch {
 		return 0
 	}
-	h := rec.HSMSHeader()
+	h := headerOf(rec, cached)
 	equal, compatible := k.keyFields(&h)
 	if !compatible {
 		return 0
@@ -188,14 +190,23 @@ func (k *txPrimaryKey) classifyData(rec *Record) TxClass {
 
 // isReject reports whether the control record rec is a Reject.req of the primary:
 // SType available and 7, the opposite direction, the primary's epoch, SessionID and System Bytes available and equal.
-func (k *txPrimaryKey) isReject(rec *Record) bool {
+func (k *txPrimaryKey) isReject(rec *Record, cached *HSMSHeader) bool {
 	if rec.Epoch != k.epoch || rec.Dir != k.opp {
 		return false
 	}
-	h := rec.HSMSHeader()
+	h := headerOf(rec, cached)
 	equal, _ := k.keyFields(&h)
 
 	return equal && h.Available&FieldValiditySType != 0 && h.SType == sTypeRejectReq
+}
+
+// headerOf returns rec's HSMS header: *cached when it is not nil, else as rec.HSMSHeader decodes it.
+func headerOf(rec *Record, cached *HSMSHeader) HSMSHeader {
+	if cached != nil {
+		return *cached
+	}
+
+	return rec.HSMSHeader()
 }
 
 // classifyEvent returns the roles of the transport-event record rec whose payload decodes to ev:
@@ -609,7 +620,7 @@ func (l *txLookup) addVersion(rd *txScopeRead, it *Item) error {
 	class := TxPrimary
 	if rec.Seq != l.key.Seq {
 		var err error
-		if class, err = l.classifyVersion(seenAt(rd, it), rec); err != nil {
+		if class, err = l.classifyVersion(rd, it); err != nil {
 			return err
 		}
 	}
@@ -626,16 +637,22 @@ func (l *txLookup) addVersion(rd *txScopeRead, it *Item) error {
 	return nil
 }
 
-// classifyVersion returns the roles that rec, a version above the primary's seq that a read yielded at at,
-// plays against the primary (classify), and notes it when it is a capture-boundary record of the primary's epoch (noteBoundary).
+// classifyVersion returns the roles that the record of it, a version above the primary's seq that the read rd yielded,
+// plays against the primary (classify), with the HSMS header the read passed beside it when it did,
+// and notes it, with where rd yielded it, when it is a capture-boundary record of the primary's epoch (noteBoundary).
 //
 // Returns:
 //   - TxClass: the roles; zero for none.
 //   - error: the error of the boundary's charge, wrapping ErrReadLimit.
-func (l *txLookup) classifyVersion(at txSeen, rec *Record) (TxClass, error) {
-	class, ev := l.prim.classify(rec)
+func (l *txLookup) classifyVersion(rd *txScopeRead, it *Item) (TxClass, error) {
+	rec := &it.Record
+	var cached *HSMSHeader
+	if l.header.ok {
+		cached = &l.header.h
+	}
+	class, ev := l.prim.classify(rec, cached)
 	if ev != nil && ev.Event == EventCaptureBoundary && rec.Epoch == l.prim.epoch {
-		if err := l.noteBoundary(at, rec, ev); err != nil {
+		if err := l.noteBoundary(seenAt(rd, it), rec, ev); err != nil {
 			return 0, err
 		}
 	}

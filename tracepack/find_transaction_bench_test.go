@@ -244,9 +244,9 @@ func (c txVisitCount) readers(ctx context.Context, hour int64) ([]*Reader, error
 }
 
 func (c txVisitCount) read(ctx context.Context, hour int64, readers []*Reader, maxHeld int64,
-	reserveConflict func() error, flags *uint8, fn func(*Item) error,
+	reserveConflict func() error, flags *uint8, header *txCachedHeader, fn func(*Item) error,
 ) (Result, error) {
-	return c.inner.read(ctx, hour, readers, maxHeld, reserveConflict, flags, func(it *Item) error {
+	return c.inner.read(ctx, hour, readers, maxHeld, reserveConflict, flags, header, func(it *Item) error {
 		*c.n++
 
 		return fn(it)

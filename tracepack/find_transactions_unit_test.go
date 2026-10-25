@@ -221,7 +221,8 @@ func TestFindTransactionsCacheBudget(t *testing.T) {
 	assert.Equal(t, TxRangeResult{}, res)
 }
 
-// Over every generated capture, each hour record charges exactly what its contents recount to,
+// Over every generated capture, each hour record holds the HSMS header of each item's record, as Record.HSMSHeader decodes it,
+// and charges exactly what its contents recount to,
 // the cache holds the sum of the records held, at most MaxScopes of them, and nothing once the batch returns.
 func TestFindTransactionsCacheRecount(t *testing.T) {
 	t.Parallel()
@@ -245,6 +246,10 @@ func TestFindTransactionsCacheRecount(t *testing.T) {
 				b.filled = func(rec *txHourRecord) {
 					filled++
 					require.Equal(t, txCacheRecount(b, rec), rec.charge, "seed %d: hour %d recount", seed, rec.hour)
+					require.Len(t, rec.meta, len(rec.items), "seed %d: hour %d: the flags and header of each item", seed, rec.hour)
+					for i := range rec.items {
+						require.Equal(t, rec.items[i].Record.HSMSHeader(), rec.meta[i].header, "seed %d: hour %d: the header of item %d", seed, rec.hour, i)
+					}
 					require.Equal(t, held(), b.cache.held, "seed %d: held after filling hour %d", seed, rec.hour)
 					require.LessOrEqual(t, len(b.hours), max(g.maxScopes, 1), "seed %d: hours held", seed)
 				}
@@ -287,7 +292,7 @@ func TestFindTransactionsNoAllocationAhead(t *testing.T) {
 func fingerprint(rec *txHourRecord) [32]byte {
 	h := sha256.New()
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(h, format, a...) }
-	p("%d %p %v %v %v|", rec.hour, rec.readers, rec.flags, rec.reservations, rec.keys)
+	p("%d %p %+v %v %v|", rec.hour, rec.readers, rec.meta, rec.reservations, rec.keys)
 	for _, r := range rec.readers {
 		p("%p ", r)
 	}

@@ -129,7 +129,7 @@ func findTransactionsWith(ctx context.Context, src PackSource, r TxRange, opts T
 const (
 	txCacheHourCharge        = (int64(unsafe.Sizeof(txHourRecord{})) + txAlignMask) &^ txAlignMask
 	txCacheReaderCharge      = int64(unsafe.Sizeof(uintptr(0)))
-	txCacheItemCharge        = (int64(unsafe.Sizeof(Item{})+unsafe.Sizeof(uint8(0))) + txAlignMask) &^ txAlignMask
+	txCacheItemCharge        = (int64(unsafe.Sizeof(Item{})+unsafe.Sizeof(txItemMeta{})) + txAlignMask) &^ txAlignMask
 	txCacheReservationCharge = int64(unsafe.Sizeof(int(0)))
 	txCacheKeyCharge         = int64(unsafe.Sizeof(uint64(0)))
 	txCacheDefectCharge      = (int64(unsafe.Sizeof(Defect{})) + txAlignMask) &^ txAlignMask
@@ -140,15 +140,16 @@ const (
 	txCacheRedDefectCharge   = (int64(unsafe.Sizeof(RedactionDefect{})) + txAlignMask) &^ txAlignMask
 )
 
-// txHourRecord is one hour a batch read once: its observation, the read's items with their stored flags,
+// txHourRecord is one hour a batch read once: its observation, the read's items with their stored flags and HSMS headers,
 // where the read reserved each conflict, and the read's Result.
 // It is never changed once filled: every lookup replaying it reads it only (txReplay).
 type txHourRecord struct {
 	hour    int64
 	readers []*Reader
-	// items are the read's items, in yield order, each the record's own copy; flags[i] is item i's record_flags as stored.
+	// items are the read's items, in yield order, each the record's own copy;
+	// meta[i] holds item i's record_flags as stored and its record's HSMS header, decoded once for every lookup replaying it.
 	items []Item
-	flags []uint8
+	meta  []txItemMeta
 	// reservations holds, for the k-th conflict the read reserved, the number of items yielded before it;
 	// the conflict is res.Conflicts[k], since a read lists every conflict it reserves, in order.
 	reservations []int
@@ -157,6 +158,13 @@ type txHourRecord struct {
 	keys []uint64
 	// charge is what the record charged against MaxCachedBytes.
 	charge int64
+}
+
+// txItemMeta is what an hour record holds beside one of its items: the record_flags of its record header, as stored,
+// and its record's HSMS header, as Record.HSMSHeader returns it.
+type txItemMeta struct {
+	header HSMSHeader
+	flags  uint8
 }
 
 // txBatch is the state of one FindTransactions call.
@@ -329,7 +337,7 @@ func (b *txBatch) fill(ctx context.Context, h int64) error {
 
 			return nil
 		},
-		&flags,
+		&flags, nil,
 		func(it *Item) error { return b.keep(ctx, rec, it, flags, enumerate) })
 	if err != nil {
 		return fmt.Errorf("tracepack: find transactions: hour %d: %w", h, err)
@@ -357,7 +365,7 @@ func (b *txBatch) charge(rec *txHourRecord, n int64) error {
 	return nil
 }
 
-// keep keeps a copy of it, an item of rec's read whose stored record_flags are flags,
+// keep keeps a copy of it, an item of rec's read whose stored record_flags are flags, with its record's HSMS header,
 // and, when enumerate is set, the seq of its record when it is a primary the batch pairs.
 func (b *txBatch) keep(ctx context.Context, rec *txHourRecord, it *Item, flags uint8, enumerate bool) error {
 	if err := b.tick(ctx); err != nil {
@@ -379,7 +387,7 @@ func (b *txBatch) keep(ctx context.Context, rec *txHourRecord, it *Item, flags u
 	c.HeaderExtra = bytes.Clone(it.HeaderExtra)
 	c.Redaction = cloneRecordRedaction(it.Redaction)
 	rec.items = append(rec.items, c)
-	rec.flags = append(rec.flags, flags)
+	rec.meta = append(rec.meta, txItemMeta{header: c.Record.HSMSHeader(), flags: flags})
 	if key {
 		rec.keys = append(rec.keys, it.Record.Seq)
 	}
@@ -541,10 +549,10 @@ func (h txReplay) readers(ctx context.Context, hour int64) ([]*Reader, error) {
 }
 
 // read replays the read of hour: each reservation at its place between the items, through reserveConflict,
-// each item through fn after its stored flags, then the read's Result, shared and read-only.
+// each item through fn after its stored flags and its record's HSMS header, each a copy, then the read's Result, shared and read-only.
 // A refused reservation is wrapped as the live read wraps it; an error of fn is returned as is.
 func (h txReplay) read(_ context.Context, hour int64, _ []*Reader, _ int64,
-	reserveConflict func() error, flags *uint8, fn func(*Item) error,
+	reserveConflict func() error, flags *uint8, header *txCachedHeader, fn func(*Item) error,
 ) (Result, error) {
 	rec, ok := h.b.hours[hour]
 	if !ok {
@@ -567,7 +575,9 @@ func (h txReplay) read(_ context.Context, hour int64, _ []*Reader, _ int64,
 		if err := reserve(i); err != nil {
 			return Result{}, err
 		}
-		*flags = rec.flags[i]
+		m := &rec.meta[i]
+		*flags = m.flags
+		*header = txCachedHeader{h: m.header, ok: true}
 		it = rec.items[i]
 		if err := fn(&it); err != nil {
 			return Result{}, err
