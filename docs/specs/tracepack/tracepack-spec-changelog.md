@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-25) — spec v2.37.
+Status: current (2026-10-25) — spec v2.38.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1650,3 +1650,25 @@ Review rounds:
 | apply consistency review P2 | no regression pinned 0x0034 across the minor boundary or in a merge of minor-1 and minor-2 inputs | tests: any type unknown below minor 2, a wrong type or invalid UTF-8 rejected from minor 2, `/1`–`/3` rendering, and a mixed-minor merge refused in both orders |
 | apply consistency review P3 | [FMT §16] named only formats 1.0 and 1.1 | it names format 1.2 |
 | apply consistency review | — | fix-then-ready, applied; confirmation pass ready |
+
+## Changes v2.37 → v2.38: batch pairing and uncompressed close segments (owner decisions G5-271..G5-273, 2026-10-25)
+
+Source: the tracepack maintainers' performance review and v1.0 shape review, with the Virtual Equipment project and its log service (tracekeep) consulted.
+Format 1.2, the canonical export and the corpus goldens are unchanged.
+Implemented by the tracepack release after v0.8.0.
+
+Summary:
+- [SEM §7.2] gains *Pairing a time range*: a batch that pairs every primary of one capture in a time range, reading each hour once,
+  each pairing being the lookup's result over the hour observations the batch takes (G5-271, G5-273).
+- [STO §4] *Closing a capture left open*: a close segment's block and footer are written with the none codec, so its bytes depend on no compressor (G5-272).
+- [GO] §3: `FindTransactions` with `TxRange`, `TxRangeOptions`, `TxPairing` and `TxRangeResult`; `CloseOptions` loses `Uncompressed`.
+- The overview's list of decisions reaches G5-273.
+
+Review rounds:
+
+| Round | Finding | Resolution |
+|---|---|---|
+| plan review 1 | a cached conflict shared with a pairing could be changed by a callback and reach later pairings; the lookup needs its readers before its first item; equivalence needs a fixed observation; range validation, the cache budget, scheduling and the comparator were incomplete | owned pairings over an immutable cache; a two-step hour source; the observation contract; validation as a single lookup's; a nominal budget; one scheduling rule; a strict comparator and an independent enumeration oracle |
+| plan review 2 | variable-sized cache parts were not charged; temporary memory was said to be bounded where it is not; a refused reservation lost its capture and seq; cancellation of the batch's own loops was unspecified | variable charges; the memory contract split by kind; the lookup copies what it keeps after charging it; one wrapper for refused reservations; cancellation points |
+| plan review 3 | copying a large diagnostic result and sorting keys could not be cancelled; error values are shared | the batch's counter counts that work and brackets the sort; error values are shared as immutable |
+| plan review 4 | — | ready |

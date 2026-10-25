@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-10-25)
-Implements tracepack v2.37 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.38 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -365,6 +365,15 @@ The query service, its catalog database and the live-tail interface are designed
   when it detects that a block it read disagrees with its F-2 entry or its F-3 summary, or that another footer value disagrees with the records it describes,
   only `Incomplete` and that defect are guaranteed, every other fact best-effort (G5-203).
   Each hour read is one `MergeIterate` in capture order over that hour's readers.
+- `FindTransactions(ctx, src PackSource, r TxRange, opts TxRangeOptions, fn func(*TxPairing) error) (TxRangeResult, error)`: [SEM §7.2] *Pairing a time range* (G5-271, G5-273).
+  `TxRange{Capture, From, To}` selects the primaries whose `ts_utc_ns` lies in `[From, To)`;
+  `TxRangeOptions` holds `Lookup`, the `TxOptions` of every primary's lookup, and `MaxCachedBytes` (default 256 MiB), which bounds, nominally, the hours held at once.
+  It calls `src.Readers` once for each hour it reads, in ascending order, reads each hour once into an immutable record,
+  and replays it to the lookup of every primary that needs it, so each pairing's `Result` equals `FindTransaction`'s for its key over the same observations;
+  at most `MaxScopes` hours are held, a primary's pairing being passed once the last of its hours scheduled is read.
+  `fn` receives each `TxPairing{Key, Result}` in ascending hour, then seq, as the caller's own copy, error values shared;
+  the first error (a source or read error, `ErrReadLimit` from a budget, ctx, or `fn`'s, returned as is) ends the call, and `TxRangeResult{HoursRead, Primaries}` counts what was done.
+  A callback, like `MergeIterate`'s, because the call returns that summary and an error after the last pairing.
 - `NewReaderSource(readers []*Reader) (PackSource, error)` (G5-154): the readers of a lookup, opened by the caller, grouped by the UTC hour of their period, whatever their capture.
   It accepts a pack of any role but `extract`, `repair`, the retired 5 and unknown values included ([STO §2]).
   It rejects a nil reader, a reader given twice, a repeated `pack_id`, readers of more than one `tool_id`, an `extract`, and a pack whose period is empty or not inside one UTC hour,
@@ -420,9 +429,9 @@ The query service, its catalog database and the live-tail interface are designed
 - Documentation (G5-155): the `tracepack` package and `tracepack/redact`; `tracepack/README.md` and the package documentation open with the API by audience:
   recorders (`CaptureDescriptor`, `SegmentWriter`, `SegmentSink`), producers over a durable bus (the bus codec, the descriptor codec),
   the log service (`DeriveBusRecord`, `redact`, the `Writer`'s masked-at-write path, `WriteClose`, `Merge`),
-  readers (`Open`, `MergeIterate`, `FindTransaction`, `NewReaderSource`, `ExportJSONL`, `Verify`, with `Item.Redaction` and `PackHeader.RedactionDefects`)
+  readers (`Open`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `NewReaderSource`, `ExportJSONL`, `Verify`, with `Item.Redaction` and `PackHeader.RedactionDefects`)
   and the storage service (`Merge`, the key builders),
-  with runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, `ExampleMergeIterate`, `ExampleExportJSONL`
+  with runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` and `ExampleFindTransactions` over `NewReaderSource`, `ExampleMergeIterate`, `ExampleExportJSONL`
   and the `redact` package's `Example`.
 
 ## 4. Classifier: go-secs → decode_status
