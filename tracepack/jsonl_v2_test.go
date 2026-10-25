@@ -97,7 +97,7 @@ func jsonlExportLines(t *testing.T, file []byte) []string {
 }
 
 // The schema of the export follows from the pack's format minor alone (the tracepack JSONL specification §5 and §9):
-// tracepack-jsonl/1 for minor 0 and tracepack-jsonl/2 for every other minor, a minor this module does not know included;
+// tracepack-jsonl/1 for minor 0, tracepack-jsonl/2 for minor 1 and tracepack-jsonl/3 for every other minor, a minor this module does not know included;
 // every export of the conformance corpus is reproduced byte for byte under the schema of its pack's minor.
 func TestExportSchemaByMinor(t *testing.T) {
 	t.Parallel()
@@ -111,9 +111,14 @@ func TestExportSchemaByMinor(t *testing.T) {
 		file, err := os.ReadFile(filepath.Join(filepath.Dir(path), "pack.tpk"))
 		require.NoError(t, err)
 		r := mustOpen(t, file, ReaderOptions{})
-		schema := `{"schema":"tracepack-jsonl/1",`
-		if r.Header().FormatMinor != 0 {
+		var schema string
+		switch r.Header().FormatMinor {
+		case 0:
+			schema = `{"schema":"tracepack-jsonl/1",`
+		case 1:
 			schema = `{"schema":"tracepack-jsonl/2",`
+		default:
+			schema = `{"schema":"tracepack-jsonl/3",`
 		}
 
 		out, _, err := runExportJSONL(t, r)
@@ -125,18 +130,18 @@ func TestExportSchemaByMinor(t *testing.T) {
 	lines := jsonlExportLines(t, jsonlThinnedPack(t))
 	assert.True(t, strings.HasPrefix(lines[0], `{"schema":"tracepack-jsonl/2","format_major":1,"format_minor":1,`), lines[0])
 
-	// A minor this module does not know: the tags of format 1.1 are named, and a tag a later minor may define is unknown.
+	// A minor this module does not know: the tags of formats 1.1 and 1.2 are named, and a tag a later minor may define is unknown.
 	first, _ := jsonlV2Thinning()
-	meta := jsonlTLV(append(jsonlV2Required(), tlv.NestedEntry(0x0033, first), tlv.UTF8Entry(0x0034, "x"))...)
-	for _, minor := range []uint16{2, 0xFFFF} {
+	meta := jsonlTLV(append(jsonlV2Required(), tlv.NestedEntry(0x0033, first), tlv.UTF8Entry(0x0034, "eqp"), tlv.UTF8Entry(0x0035, "x"))...)
+	for _, minor := range []uint16{3, 0xFFFF} {
 		r := jsonlTestReader(t, format.FileHeader{FormatMajor: 1, FormatMinor: minor}, meta)
 		out, _, err := runExportJSONL(t, r)
 		require.NoError(t, err)
-		want := `{"schema":"tracepack-jsonl/2","format_major":1,"format_minor":` + map[uint16]string{2: "2", 0xFFFF: "65535"}[minor] +
+		want := `{"schema":"tracepack-jsonl/3","format_major":1,"format_minor":` + map[uint16]string{3: "3", 0xFFFF: "65535"}[minor] +
 			`,"flags":[],"writer_start_utc_ns":"0","pack_id":"00000000-0000-0000-0000-000000000000",` +
 			`"capture_id":"00000000-0000-0000-0000-000000000000","metadata":{` + jsonlV2RequiredJSON + `,` +
 			`"thinning":[{"stream":"1","function":"3","source":"fdc","unknown":[{"tag":9,"value_type":4,"value":"CQAAAAAAAAA="}]}],` +
-			`"unknown":[{"tag":52,"value_type":6,"value":"eA=="}]}}` + "\n"
+			`"recorder_instance_name":"eqp","unknown":[{"tag":53,"value_type":6,"value":"eA=="}]}}` + "\n"
 		assert.Equal(t, want, out, "minor %d", minor)
 	}
 }

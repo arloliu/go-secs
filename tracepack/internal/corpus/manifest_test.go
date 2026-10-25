@@ -32,9 +32,9 @@ func TestManifestMarshal(t *testing.T) {
 	b, err := m.Marshal()
 	require.NoError(t, err)
 	require.Equal(t, `{
-  "corpus": "tracepack-corpus/4",
-  "spec_version": "2.33",
-  "format_version": "1.1",
+  "corpus": "tracepack-corpus/5",
+  "spec_version": "2.37",
+  "format_version": "1.2",
   "zstd_encoder": "github.com/klauspost/compress v1.20.1",
   "vectors": [
     {
@@ -168,7 +168,7 @@ func TestManifestRefuses(t *testing.T) {
 		}},
 		{"codec", func(v *Vector) { v.Codec = "lz4" }},
 		{"no jsonl_schema in a read vector", func(v *Vector) { v.JSONLSchema = "" }},
-		{"an undefined jsonl_schema", func(v *Vector) { v.JSONLSchema = "tracepack-jsonl/3" }},
+		{"an undefined jsonl_schema", func(v *Vector) { v.JSONLSchema = "tracepack-jsonl/4" }},
 		{"a jsonl_schema in a rejection vector", func(v *Vector) { v.Class, v.Files = ClassRejection, []string{FilePack, FileRejection} }},
 		{"source", func(v *Vector) { v.Source = "made" }},
 		{"label", func(v *Vector) { v.Labels = []string{"broken"} }},

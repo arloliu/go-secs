@@ -35,6 +35,9 @@ This page is a map by audience; the Godoc states each contract in full.
   of the streams and functions the pack's `thinning` entries declare.
   A `Writer` writes minor 0 for a pack holding neither, as for every pack before format 1.1;
   a pack of minor 1 holding neither is still read as minor 1, and `Merge` keeps its minor.
+- Format 1.2, `format_minor` 2, adds `recorder_instance_name`,
+  the human-readable name of the deployment `recorder_instance_id` identifies, which tracepack never interprets.
+  A `Writer` writes minor 2 exactly when the pack metadata carries it.
 
 ## Recording a capture
 
@@ -42,7 +45,7 @@ For a recorder, or a converter of logs:
 `CaptureDescriptor`, `SegmentWriter`, `Classifier`, `SegmentSink` and `NewDirSink`.
 
 A `CaptureDescriptor` holds the pack metadata the producer owns:
-the tool, the transport, how and where the capture was taken, the recorder's identity and the time source.
+the tool, the transport, how and where the capture was taken, the recorder's identity, with an optional name beside it, and the time source.
 `NewSegmentWriter` checks it with `CaptureDescriptor.Validate` and writes the capture's `start` boundary;
 from then on it writes the records you append as segments, through a `SegmentSink`:
 
@@ -177,7 +180,8 @@ It writes block bodies and the footer with zstd, as the format specification §2
 `Merge` does the same unless `MergeOptions.Uncompressed` is set.
 It validates each block before writing it unless `WriterOptions.SkipValidation` is set.
 For every pack but an extract it refuses a period not inside one UTC hour, and a record of another hour, with `ErrScopeBreach`.
-It writes `format_minor` 1 exactly when the pack metadata holds a feature of format 1.1, and 0 otherwise.
+It writes `format_minor` 2 when the pack metadata carries `recorder_instance_name` (format 1.2),
+else 1 when it holds a feature of format 1.1, and 0 otherwise.
 `Close` writes the footer and trailer and returns a `Continuation`:
 `next, ok := cont.Next()` gives the seq the capture's next pack starts at,
 and `ok` is false after a pack whose last record has seq 2^63 − 1, the last seq of a capture, since no pack follows it.
@@ -189,7 +193,8 @@ the bus codec and the descriptor codec.
 The module imports no NATS client; it encodes and checks what a message carries.
 
 - The producer assigns `capture_id`, `recorder_instance_id` and every `seq`; seq 2^63 − 1 is reserved for the consumer's close.
-- `EncodeDescriptor(meta)` encodes the producer-owned entries of the capture's pack metadata, its `thinning` entries included, with no default applied.
+- `EncodeDescriptor(meta)` encodes the producer-owned entries of the capture's pack metadata, its `thinning` entries and `recorder_instance_name` included, with no default applied.
+  A consumer before v0.8.0 refuses a descriptor carrying `recorder_instance_name`, so upgrade consumers and mergers before producers.
   Publish it in the `Tpk-Capture-Descriptor` header of the capture's `start`, in standard base64 with padding (`base64.StdEncoding`).
 - `NewBusRecord(r)` and `EncodeBusBody(&br)` encode one record as the body of layout 1: the 44-byte record header, then the payload.
   A record whose body is too large to travel inline, as `BusInline(bodyLen, maxPayload)` says, travels by claim-check:
@@ -288,7 +293,8 @@ For readers and troubleshooters working on local files:
   as the [JSONL specification](../docs/specs/tracepack/tracepack-jsonl.md) defines it:
   a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
   A pack of format minor 0 exports schema `tracepack-jsonl/1`, byte for byte as earlier versions wrote it,
-  and any other pack `tracepack-jsonl/2`, which names the additions of format 1.1.
+  a pack of minor 1 `tracepack-jsonl/2`, which names the additions of format 1.1,
+  and any other pack `tracepack-jsonl/3`, which also names `recorder_instance_name`.
   A damaged pack exports the records of its validated blocks, and the returned `Result` reports what was lost exactly as `Iterate`'s does:
   a failed block or a crash gap makes it incomplete, while a footer that is not used, with every block found by the forward walk, only sets `FooterErr`.
   A reader budget that keeps part of the pack out fails the export with an error wrapping `ErrReadLimit` instead;
@@ -324,7 +330,7 @@ For the storage service:
   It refuses with `ErrMergeInput`, before writing anything, an input whose role is neither `segment` nor `archive`, and an input of another capture or hour.
   Which packs a merge takes, and when a merged pack may be deleted, is yours to decide (the storage specification §4);
   publish the archive only after `Merge` returned nil.
-- `Merge` merges packs of format 1.1: it carries the inputs' redaction policy, their redaction entries and their `thinning`,
+- `Merge` merges packs of format 1.2: it carries the inputs' redaction policy, their redaction entries, their `thinning` and their `recorder_instance_name`,
   and writes the largest `format_minor` of its inputs.
   Before it writes anything, it refuses with `ErrMergeInput` an input of a newer minor, a policy without both encryption tags,
   inputs carrying `redaction_policy` that differ in policy, `classifier` or `max_frame_len`, a masked input beside an unmasked one,
@@ -333,7 +339,8 @@ For the storage service:
   Differing entries for one seq fail with `ErrMergeConflict`, also before anything is written.
   A record that fails a Marking or unobserved check is found only once its block is read, after the archive's header,
   and its `ErrMergeInput` leaves partial output in `dst`, which you discard, as after any error.
-  Merge packs of format 1.1 only with this version or later, since an earlier one does not carry what format 1.1 adds.
+  Merge packs of format 1.1 only with tracepack v0.5.0 or later, since an earlier one does not carry what format 1.1 adds;
+  a merger before v0.8.0 refuses a pack of format 1.2.
 
 ## Command line
 
@@ -365,7 +372,7 @@ the format, the record semantics, the storage profile, the canonical JSONL expor
 
 The conformance corpus in [testdata/corpus/](testdata/corpus/) holds packs and what a conforming reader produces from them:
 exports, bootstrap rejections, header fields, footer checks and truncation tables.
-Its packs are of format 1.0 and 1.1, masked, encrypted and thinned packs and a consumer's close among them,
+Its packs are of format 1.0, 1.1 and 1.2, masked, encrypted and thinned packs and a consumer's close among them,
 and its `primitives.json` publishes test keys with known-answer cases for the digests and AES-SIV.
 An implementation in any language checks itself against the committed files, without Go;
 its [README](testdata/corpus/README.md) says how,

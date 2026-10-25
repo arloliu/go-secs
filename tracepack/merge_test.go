@@ -840,6 +840,7 @@ func captureMeta(m *PackMeta) {
 	m.RecorderInstanceID = UUID{0x1A}
 	m.CaptureOriginUTCNs, m.CaptureOriginMonoNs, m.ClockStepToleranceNs = new(blockTestHour), new(int64(5)), new(uint64(1000))
 	m.PreviousCaptureID = new(UUID{0xCB})
+	m.RecorderInstanceName = new("eqp")
 	m.SiteID, m.EquipmentModel, m.EquipmentSWRev = new("fab"), new("model"), new("rev")
 	m.HostSoftware, m.HostEndpoint, m.EquipmentEndpoint = new("eap"), new("10.0.0.1:5000"), new("10.0.0.2:5000")
 	m.EquipmentConnectMode, m.DeviceID = new(SocketRolePassive), new(uint64(7))
@@ -870,6 +871,8 @@ func TestMergeCaptureLevelTags(t *testing.T) {
 		{"clock_step_tolerance_ns", "", func(m *PackMeta) { *m.ClockStepToleranceNs++ }},
 		{"previous_capture_id", "", func(m *PackMeta) { m.PreviousCaptureID = new(UUID{0xCD}) }},
 		{"previous_capture_id", "absent", func(m *PackMeta) { m.PreviousCaptureID = nil }},
+		{"recorder_instance_name", "", func(m *PackMeta) { m.RecorderInstanceName = new("tlp") }},
+		{"recorder_instance_name", "absent", func(m *PackMeta) { m.RecorderInstanceName = nil }},
 		{"site_id", "", func(m *PackMeta) { m.SiteID = new("fab2") }},
 		{"site_id", "absent", func(m *PackMeta) { m.SiteID = nil }},
 		{"equipment_model", "", func(m *PackMeta) { m.EquipmentModel = new("model2") }},

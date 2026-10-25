@@ -21,6 +21,10 @@ var jsonlPackMetadata10 = tlv.PackMetadata.AtMinor(0)
 // since naming it would change the output of the schema (the tracepack JSONL specification §3.1 and §9).
 var jsonlPackMetadata11 = tlv.PackMetadata.AtMinor(1)
 
+// jsonlPackMetadata12 is the format 1.2 view of the pack metadata registry, the one schema tracepack-jsonl/3 renders:
+// a tag a minor after 2 defines is unknown in it, whatever this package knows.
+var jsonlPackMetadata12 = tlv.PackMetadata.AtMinor(2)
+
 // Registries of the entry lists the export renders, with the enum each enum-typed tag holds
 // (the tracepack JSONL specification §3.1) and the registry of each known tlv tag.
 // Each nested registry is the one its schema's view of the pack metadata names,
@@ -79,6 +83,14 @@ var (
 		},
 	}
 
+	// jsonlPackMetadataRegistryV3 adds recorder_instance_name, a utf8 tag, to the registry of /2;
+	// format 1.2 extends no nested registry, so the nested ones of /2 serve /3.
+	jsonlPackMetadataRegistryV3 = &jsonlRegistry{
+		reg:    jsonlPackMetadata12,
+		enums:  jsonlPackMetadataEnums,
+		nested: jsonlPackMetadataRegistryV2.nested,
+	}
+
 	jsonlTransportEventRegistry = &jsonlRegistry{
 		reg: tlv.TransportEvent,
 		enums: map[uint16][]string{
@@ -100,10 +112,11 @@ var (
 
 // The schemas of the export (the tracepack JSONL specification §9).
 // They differ only in the registry of the pack metadata and the names of the quality bits:
-// the record bodies, the enums of the record header and the other bit sets are named alike under both.
+// the record bodies, the enums of the record header and the other bit sets are named alike under all three.
 var (
 	jsonlSchemaV1 = &jsonlSchema{name: "tracepack-jsonl/1", meta: jsonlPackMetadataRegistry, quality: jsonlQualityNames}
 	jsonlSchemaV2 = &jsonlSchema{name: "tracepack-jsonl/2", meta: jsonlPackMetadataRegistryV2, quality: jsonlQualityNamesV2}
+	jsonlSchemaV3 = &jsonlSchema{name: "tracepack-jsonl/3", meta: jsonlPackMetadataRegistryV3, quality: jsonlQualityNamesV2}
 )
 
 // jsonlSchema is one schema of the export with the names it renders (the tracepack JSONL specification §3.1 and §3.2).
@@ -131,13 +144,17 @@ type jsonlTagSet [jsonlTagLimit / 64]uint64
 
 // jsonlSchemaOf returns the schema of the export of a pack of the format minor
 // (the tracepack JSONL specification §5 and §9):
-// tracepack-jsonl/1 for minor 0, and tracepack-jsonl/2 for every other minor, one this package does not know included.
+// tracepack-jsonl/1 for minor 0, tracepack-jsonl/2 for minor 1,
+// and tracepack-jsonl/3 for every other minor, one this package does not know included.
 func jsonlSchemaOf(minor uint16) *jsonlSchema {
-	if minor == 0 {
+	switch minor {
+	case 0:
 		return jsonlSchemaV1
+	case 1:
+		return jsonlSchemaV2
+	default:
+		return jsonlSchemaV3
 	}
-
-	return jsonlSchemaV2
 }
 
 // writeJSONLHeader writes the header line of the export of the pack r reads (the tracepack JSONL specification §5)

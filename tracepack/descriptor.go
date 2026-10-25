@@ -55,6 +55,12 @@ type CaptureDescriptor struct {
 	// the deployment persists it and gives the same value to every capture it runs,
 	// which links its captures across restarts (the tracepack format specification I-7).
 	RecorderInstanceID UUID
+	// RecorderInstanceName is the human-readable name of the deployment RecorderInstanceID identifies
+	// (recorder_instance_name, from format 1.2); nil for none.
+	// tracepack never interprets it; any valid UTF-8 value, the empty string included, is valid.
+	// The deployment keeps it with its RecorderInstanceID.
+	// A segment that carries it is written as format 1.2.
+	RecorderInstanceName *string
 	// PreviousCaptureID is the capture this deployment ran immediately before this one (previous_capture_id); nil for none.
 	// A recorder persists each SegmentWriter's CaptureID to give it here to the next capture.
 	PreviousCaptureID *UUID
@@ -175,19 +181,20 @@ func (d *CaptureDescriptor) Validate() error {
 
 // descriptorTagNames names the pack metadata tags of a CaptureDescriptor whose values the encoding can refuse.
 var descriptorTagNames = map[uint16]string{
-	tagToolID:            "tool_id",
-	tagRecorder:          "recorder",
-	tagSourceTZ:          "source_tz",
-	tagSourceDialect:     "source_dialect",
-	tagSourceRef:         "source_ref",
-	tagSiteID:            "site_id",
-	tagEquipmentModel:    "equipment_model",
-	tagEquipmentSWRev:    "equipment_sw_rev",
-	tagHostSoftware:      "host_software",
-	tagHostEndpoint:      "host_endpoint",
-	tagEquipmentEndpoint: "equipment_endpoint",
-	tagDeviceID:          "device_id",
-	tagHSMSTimers:        "hsms_timers",
+	tagToolID:               "tool_id",
+	tagRecorder:             "recorder",
+	tagSourceTZ:             "source_tz",
+	tagSourceDialect:        "source_dialect",
+	tagSourceRef:            "source_ref",
+	tagSiteID:               "site_id",
+	tagEquipmentModel:       "equipment_model",
+	tagEquipmentSWRev:       "equipment_sw_rev",
+	tagHostSoftware:         "host_software",
+	tagHostEndpoint:         "host_endpoint",
+	tagEquipmentEndpoint:    "equipment_endpoint",
+	tagDeviceID:             "device_id",
+	tagHSMSTimers:           "hsms_timers",
+	tagRecorderInstanceName: "recorder_instance_name",
 }
 
 // checkEncoding encodes the pack metadata of a segment of d, as a SegmentWriter will,
@@ -217,6 +224,7 @@ func (d *CaptureDescriptor) checkEncoding() error {
 // so a SegmentWriter keeps the descriptor it was given whatever the caller changes afterwards.
 func (d *CaptureDescriptor) clone() CaptureDescriptor {
 	c := *d
+	c.RecorderInstanceName = clonePtr(d.RecorderInstanceName)
 	c.PreviousCaptureID = clonePtr(d.PreviousCaptureID)
 	c.SourceTZ = clonePtr(d.SourceTZ)
 	c.SourceDialect = clonePtr(d.SourceDialect)
@@ -305,6 +313,7 @@ func (d *CaptureDescriptor) packMeta(p segmentMetaParams) *PackMeta {
 		PackRole:             PackRoleSegment,
 		CompactionLevel:      0,
 		RecorderInstanceID:   d.RecorderInstanceID,
+		RecorderInstanceName: d.RecorderInstanceName,
 		PreviousCaptureID:    d.PreviousCaptureID,
 		SiteID:               d.SiteID,
 		EquipmentModel:       d.EquipmentModel,

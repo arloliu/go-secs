@@ -73,7 +73,7 @@ func TestMergeMinor(t *testing.T) {
 		t.Parallel()
 
 		newer := withMinor(t, other, formatMinorNewest+1)
-		requireMergeRefused(t, inputsOf(newer), mergeOpts(), "format_minor 2", ErrMergeInput)
+		requireMergeRefused(t, inputsOf(newer), mergeOpts(), "format_minor 3", ErrMergeInput)
 		requireMergeRefused(t, inputsOf(plain, newer), mergeOpts(), "input 1", ErrMergeInput)
 	})
 

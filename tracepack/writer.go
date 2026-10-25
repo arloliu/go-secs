@@ -441,11 +441,13 @@ func hasSIV(e RedactionEntry) bool {
 }
 
 // formatMinorOf returns the format_minor the pack metadata m needs (the tracepack format specification §14):
-// 1 when it holds a format 1.1 feature, else 0.
+// 2 when it holds a format 1.2 feature (recorder_instance_name), else 1 when it holds a format 1.1 feature, else 0.
 // The record features need a metadata feature the Writer checks for (see NewWriter), so m alone decides.
 func formatMinorOf(m *PackMeta) uint16 {
 	p := m.RedactionPolicy
 	switch {
+	case m.RecorderInstanceName != nil:
+		return 2
 	case m.PackRole != PackRoleExtract && len(m.Redaction) > 0,
 		p != nil && (p.EncryptionAlgorithm != nil || p.EncryptionKeyID != nil),
 		slices.ContainsFunc(m.Redaction, hasSIV),

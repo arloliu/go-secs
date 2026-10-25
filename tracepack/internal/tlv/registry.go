@@ -58,6 +58,7 @@ var (
 		0x0031: {Name: "redaction_policy", Type: TypeTLV, Nested: &RedactionPolicy},
 		0x0032: {Name: "redaction", Type: TypeTLV, Repeatable: true, Nested: &Redaction},
 		0x0033: {Name: "thinning", Type: TypeTLV, Repeatable: true, Nested: &Thinning, Since: 1},
+		0x0034: {Name: "recorder_instance_name", Type: TypeUTF8, Since: 2},
 	}
 
 	// Coverage is the registry of the entries nested in a pack metadata `coverage` entry.

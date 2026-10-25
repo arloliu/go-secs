@@ -113,6 +113,7 @@ var captureTags = [...]struct {
 	{"lifecycle_coverage", func(a, b *PackMeta) bool { return a.LifecycleCoverage == b.LifecycleCoverage }},
 	{"quality_evaluated", func(a, b *PackMeta) bool { return a.QualityEvaluated == b.QualityEvaluated }},
 	{"recorder_instance_id", func(a, b *PackMeta) bool { return a.RecorderInstanceID == b.RecorderInstanceID }},
+	{"recorder_instance_name", func(a, b *PackMeta) bool { return equalPtr(a.RecorderInstanceName, b.RecorderInstanceName) }},
 	{"capture_origin_utc_ns", func(a, b *PackMeta) bool { return equalPtr(a.CaptureOriginUTCNs, b.CaptureOriginUTCNs) }},
 	{"capture_origin_mono_ns", func(a, b *PackMeta) bool { return equalPtr(a.CaptureOriginMonoNs, b.CaptureOriginMonoNs) }},
 	{"clock_step_tolerance_ns", func(a, b *PackMeta) bool { return equalPtr(a.ClockStepToleranceNs, b.ClockStepToleranceNs) }},
@@ -941,7 +942,7 @@ func (p *mergePlan) planMeta(opts *MergeOptions, setID UUID) error {
 	m := &PackMeta{
 		ToolID: c.ToolID, Transport: c.Transport, CaptureMethod: c.CaptureMethod, Vantage: c.Vantage, Recorder: c.Recorder,
 		TimeSource: c.TimeSource, LifecycleCoverage: c.LifecycleCoverage, QualityEvaluated: c.QualityEvaluated,
-		RecorderInstanceID: c.RecorderInstanceID, CaptureOriginUTCNs: c.CaptureOriginUTCNs, CaptureOriginMonoNs: c.CaptureOriginMonoNs,
+		RecorderInstanceID: c.RecorderInstanceID, RecorderInstanceName: c.RecorderInstanceName, CaptureOriginUTCNs: c.CaptureOriginUTCNs, CaptureOriginMonoNs: c.CaptureOriginMonoNs,
 		ClockStepToleranceNs: c.ClockStepToleranceNs, PreviousCaptureID: c.PreviousCaptureID,
 		SiteID: c.SiteID, EquipmentModel: c.EquipmentModel, EquipmentSWRev: c.EquipmentSWRev, HostSoftware: c.HostSoftware,
 		HostEndpoint: c.HostEndpoint, EquipmentEndpoint: c.EquipmentEndpoint, EquipmentConnectMode: c.EquipmentConnectMode,

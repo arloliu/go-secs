@@ -25,8 +25,9 @@ import (
 //
 // The header line names the schema, which follows from the pack's format minor:
 // tracepack-jsonl/1 for a pack of minor 0, so the export of a format 1.0 pack is the one earlier versions wrote,
-// and tracepack-jsonl/2 for any other minor, which names the additions of format 1.1
-// (thinning, the encryption tags of redaction_policy, the siv of a redaction entry, the quality bit unobserved)
+// tracepack-jsonl/2 for minor 1, which names the additions of format 1.1
+// (thinning, the encryption tags of redaction_policy, the siv of a redaction entry, the quality bit unobserved),
+// and tracepack-jsonl/3 for any other minor, which also names recorder_instance_name of format 1.2
 // and keeps unknown whatever a later minor adds.
 //
 // The Result is the one that Iterate call returns:

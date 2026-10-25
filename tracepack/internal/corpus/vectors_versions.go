@@ -18,8 +18,13 @@ const (
 	metaRedactionTag       uint16 = 0x0032
 	// metaThinningTag is thinning from format 1.1; in a pack of format_minor 0 the number is unknown.
 	metaThinningTag uint16 = 0x0033
-	// unassignedMetaTag is a top-level pack metadata tag that neither format 1.0 nor format 1.1 assigns.
-	unassignedMetaTag uint16 = 0x0034
+	// metaRecorderInstanceNameTag is recorder_instance_name from format 1.2; in a pack of an earlier minor the number is unknown.
+	metaRecorderInstanceNameTag uint16 = 0x0034
+	// standInRecorderInstanceNameTag is the private tag a Writer writes in place of metaRecorderInstanceNameTag,
+	// which the newest registry knows and so refuses in PackMeta.Unknown; surgery then renumbers it.
+	standInRecorderInstanceNameTag uint16 = 0x8000 | metaRecorderInstanceNameTag
+	// unassignedMetaTag is a top-level pack metadata tag that no format minor up to 1.2 assigns.
+	unassignedMetaTag uint16 = 0x0035
 	// standInThinningTag is the private tag a Writer writes in place of metaThinningTag,
 	// which the newest registry knows and so refuses in PackMeta.Unknown; surgery then renumbers it.
 	standInThinningTag uint16 = 0x8000 | metaThinningTag
@@ -39,9 +44,11 @@ const (
 
 // Values of the version-aware extracts.
 const (
-	extractPolicyID = "policy-extract"
-	extractDomain   = "recipe"
-	extractFilter   = "the records of corpus-tool, seqs 0 to 2"
+	// corpusDeviceName is the recorder_instance_name of the format 1.2 vectors.
+	corpusDeviceName = "eqp"
+	extractPolicyID  = "policy-extract"
+	extractDomain    = "recipe"
+	extractFilter    = "the records of corpus-tool, seqs 0 to 2"
 	// extractPadding pads a string the surgery later shortens, so the pack metadata keeps its length.
 	extractPadding = "_"
 	// secondClassifier and the max_frame_len values are those an extract inherits from two sources classified apart.
@@ -128,15 +135,41 @@ func versionVectors() []Recipe {
 			},
 		},
 		{
-			ID: "basic-future-minor", Title: "a readable pack of format_minor 2 holding an unknown tag",
+			ID: "basic-new-tags-segment-1-1", Title: "a format 1.1 segment holding tag 0x0034 as utf8",
+			Cites: []string{"FMT §5", "FMT §14", "JSONL §5"}, Class: ClassRead,
+			Build: newTagsSegment11,
+			// In a pack of format_minor 1 the number keeps its format 1.1 status: an unknown tag, exported under /2.
+			Expect: &Expectation{
+				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+				ExportHas: []string{
+					`"schema":"tracepack-jsonl/2","format_major":1,"format_minor":1`,
+					`"unknown":[{"tag":52,"value_type":6,"value":"ZXFw"}]`,
+				},
+			},
+		},
+		{
+			ID: "basic-recorder-instance-name", Title: "a format 1.2 segment carrying recorder_instance_name",
+			Cites: []string{"FMT §5", "FMT §14", "JSONL §5"}, Class: ClassRead,
+			Build: recorderInstanceNameSegment,
+			// The tag is format 1.2's: the writer writes format_minor 2 and the export names it under /3.
+			Expect: &Expectation{
+				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+				ExportHas: []string{
+					`"schema":"tracepack-jsonl/3","format_major":1,"format_minor":2`,
+					`"recorder_instance_name":"eqp"`,
+				},
+			},
+		},
+		{
+			ID: "basic-future-minor", Title: "a readable pack of format_minor 3 holding an unknown tag",
 			Cites: []string{"FMT §14", "FMT §5", "JSONL §5"}, Class: ClassRead, Labels: []string{LabelNonconformingWriter},
 			Build: futureMinor,
 			// A newer minor is read with the newest registry and exported under the newest schema, its unknown tag kept.
 			Expect: &Expectation{
 				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
 				ExportHas: []string{
-					`"schema":"tracepack-jsonl/2","format_major":1,"format_minor":2`,
-					`"unknown":[{"tag":52,"value_type":7,"value":"ZnV0dXJl"}]`,
+					`"schema":"tracepack-jsonl/3","format_major":1,"format_minor":3`,
+					`"unknown":[{"tag":53,"value_type":7,"value":"ZnV0dXJl"}]`,
 				},
 			},
 		},
@@ -265,7 +298,7 @@ func zeroMaskedS7F3(seq uint64) (tracepack.Record, tracepack.RedactionEntry, err
 }
 
 // futureMinor builds basic-future-minor: a segment of two data records holding an unassigned top-level tag,
-// whose file header then states format_minor 2, which no Writer of this module writes.
+// whose file header then states format_minor 3, which no Writer of this module writes.
 func futureMinor(seed string) (*Built, error) {
 	meta := segmentMeta(seed)
 	meta.Unknown = []tracepack.RawEntry{{Tag: unassignedMetaTag, Type: uint8(tlv.TypeBytes), Value: []byte("future")}}
@@ -273,9 +306,38 @@ func futureMinor(seed string) (*Built, error) {
 	if err != nil {
 		return nil, err
 	}
-	pack, err = PatchHeader(pack, func(h []byte) { binary.LittleEndian.PutUint16(h[headerFormatMinorOff:], 2) })
+	pack, err = PatchHeader(pack, func(h []byte) { binary.LittleEndian.PutUint16(h[headerFormatMinorOff:], 3) })
 
 	return &Built{Pack: pack}, err
+}
+
+// newTagsSegment11 builds basic-new-tags-segment-1-1:
+// a segment of format 1.1, by its thinning entry, of two data records whose pack metadata holds tag 0x0034 as utf8.
+// The Writer refuses a known tag among the unknown entries, so the entry is written under a private tag and renumbered.
+func newTagsSegment11(seed string) (*Built, error) {
+	meta := segmentMeta(seed)
+	meta.Thinning = []tracepack.Thinning{{Stream: 1, Function: 3, Source: fdcPollSource}}
+	meta.Unknown = []tracepack.RawEntry{{Tag: standInRecorderInstanceNameTag, Type: uint8(tlv.TypeUTF8), Value: []byte(corpusDeviceName)}}
+	pack, err := writeSpec(&packSpec{seed: seed, meta: meta, blocks: [][]tracepack.Record{{footerData(0, 1), footerData(1, 1)}}})
+	if err != nil {
+		return nil, err
+	}
+	pack, err = renumberMetaTag(pack, standInRecorderInstanceNameTag, metaRecorderInstanceNameTag)
+
+	return &Built{Pack: pack}, err
+}
+
+// recorderInstanceNameSegment builds basic-recorder-instance-name:
+// a segment of two data records whose pack metadata carries recorder_instance_name, which makes it format 1.2.
+func recorderInstanceNameSegment(seed string) (*Built, error) {
+	meta := segmentMeta(seed)
+	meta.RecorderInstanceName = new(corpusDeviceName)
+	pack, err := writeSpec(&packSpec{seed: seed, meta: meta, blocks: [][]tracepack.Record{{footerData(0, 1), footerData(1, 1)}}})
+	if err != nil {
+		return nil, err
+	}
+
+	return &Built{Pack: pack}, nil
 }
 
 // renumberMetaTag returns pack with every top-level pack metadata entry of tag from renumbered to, its value kept.

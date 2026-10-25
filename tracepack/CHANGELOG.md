@@ -5,6 +5,32 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+This release implements spec v2.37, format 1.2, and keeps every format 1.0 and 1.1 pack and its canonical export unchanged.
+Format 1.2 adds the pack metadata tag `recorder_instance_name`, the human-readable name of the deployment `recorder_instance_id` identifies (G5-270).
+tracepack never interprets it.
+The conformance corpus, now `tracepack-corpus/5`, gains 2 vectors.
+
+### Upgrade notes
+
+- Upgrade durable-bus consumers and mergers before producers.
+  A consumer of v0.7.x or earlier refuses a capture descriptor carrying `recorder_instance_name`, so the capture's `start` stays deferred on the bus;
+  a merger of v0.7.x or earlier refuses a pack of format 1.2.
+  A reader of v0.5.0 to v0.7.x reads such a pack, keeps the tag as an unknown entry, and exports it under `tracepack-jsonl/2`.
+- `ExportJSONL` writes `tracepack-jsonl/3` for a pack of `format_minor` 2 or later, where earlier versions wrote `tracepack-jsonl/2`;
+  a pack of minor 1 still exports `tracepack-jsonl/2`.
+
+### Added
+
+- `CaptureDescriptor.RecorderInstanceName` and `PackMeta.RecorderInstanceName` (`*string`).
+  A `Writer` writes `format_minor` 2 exactly when the pack metadata carries it.
+- `EncodeDescriptor` and `DecodeDescriptor` carry `recorder_instance_name` as a producer-owned value.
+- `Merge` treats `recorder_instance_name` as a capture-level tag: every input carries the same value or none, and the archive carries it.
+- The corpus vectors `basic-recorder-instance-name` and `basic-new-tags-segment-1-1`.
+
+### Changed
+
+- The corpus vector `basic-future-minor` holds a pack of minor 3 with the unassigned tag 0x0035, since format 1.2 assigns 0x0034 and defines minor 2.
+
 ## [0.7.1] - 2026-10-25
 
 This release implements spec v2.36 and changes no library API, no byte of a pack, no canonical export and no dependency.
