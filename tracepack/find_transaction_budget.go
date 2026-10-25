@@ -204,10 +204,20 @@ func scopeCost(packs int) int64 {
 //
 // Returns:
 //   - error: ctx's error, as is, at a check.
+//
+// It is kept small enough to inline, as it runs for every item a read yields; the check itself is checkCtx.
 func (l *txLookup) tick(ctx context.Context) error {
-	if !l.ticks.add(1) {
+	if l.ticks.n++; l.ticks.n < l.ticks.step {
 		return nil
 	}
+
+	return l.checkCtx(ctx)
+}
+
+// checkCtx is the check of ctx that tick makes once its count reaches the step:
+// it restarts the count, as ctxCounter.add does, runs the test hook onTick, then returns ctx's error, as is.
+func (l *txLookup) checkCtx(ctx context.Context) error {
+	l.ticks.n = 0
 	if l.onTick != nil {
 		l.onTick()
 	}
