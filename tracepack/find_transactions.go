@@ -173,8 +173,10 @@ type txBatch struct {
 	cache txCacheBudget
 	ticks ctxCounter
 	res   TxRangeResult
-	// filled and evicting, set only by tests, run on each hour record once it is filled and before it is dropped.
+	// filled and evicting, set only by tests, run on each hour record once it is filled and before it is dropped;
+	// lookupPrep, set only by tests, runs on the state of each primary's lookup before it starts.
 	filled, evicting func(rec *txHourRecord)
+	lookupPrep       func(l *txLookup)
 }
 
 // txCacheBudget charges the hour records a batch holds against MaxCachedBytes.
@@ -234,7 +236,8 @@ func newTxBatch(src PackSource, r TxRange, opts TxRangeOptions, fn func(*TxPairi
 
 	return &txBatch{
 		src: src, r: r, opts: lookup, fn: fn, fromNs: fromNs, toNs: toNs, first: first, last: last,
-		hours: make(map[int64]*txHourRecord, lookup.MaxScopes), cache: txCacheBudget{limit: limit},
+		// The map grows with the hours held, at most MaxScopes, each charged when filled; no capacity is reserved ahead of them.
+		hours: map[int64]*txHourRecord{}, cache: txCacheBudget{limit: limit},
 		ticks: ctxCounter{step: txCtxStep},
 	}, nil
 }
@@ -267,6 +270,10 @@ func (b *txBatch) run(ctx context.Context) error {
 			}
 		}
 		b.evict(q)
+	}
+	// The hours after last were read only as the tails of earlier hours' lookups.
+	for h := b.last + 1; h <= b.last+m-1; h++ {
+		b.evict(h)
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("tracepack: find transactions: %w", err)
@@ -307,6 +314,9 @@ func (b *txBatch) fill(ctx context.Context, h int64) error {
 	var flags uint8
 	res, err := liveHours{src: b.src}.read(ctx, h, readers, b.opts.MaxHeldBytes,
 		func() error {
+			if err := b.tick(ctx); err != nil {
+				return err
+			}
 			if err := b.charge(rec, txCacheReservationCharge); err != nil {
 				return err
 			}
@@ -387,7 +397,9 @@ func (b *txBatch) pairs(rec *txHourRecord, it *Item) bool {
 }
 
 // keepResult keeps res, the Result of rec's read, which the read built for the batch alone,
-// charging each of its parts before the record holds it.
+// charging each of its parts before the record holds it;
+// every defect, coverage Unknown entry, footer error and conflict version counts once toward the checks of ctx,
+// in the same traversal that charges it.
 func (b *txBatch) keepResult(ctx context.Context, rec *txHourRecord, res *Result) error {
 	for i := range res.Incomplete {
 		d := &res.Incomplete[i]
@@ -395,12 +407,13 @@ func (b *txBatch) keepResult(ctx context.Context, rec *txHourRecord, res *Result
 			return err
 		}
 		n := txCacheDefectCharge
-		if d.Coverage != nil {
-			n += coverageCost(d.Coverage)
-			for range d.Coverage.Unknown {
+		if c := d.Coverage; c != nil {
+			n += txCoverageCharge
+			for k := range c.Unknown {
 				if err := b.tick(ctx); err != nil {
 					return err
 				}
+				n += rawEntryCost(&c.Unknown[k])
 			}
 		}
 		if d.Boundary != nil {
@@ -419,14 +432,15 @@ func (b *txBatch) keepResult(ctx context.Context, rec *txHourRecord, res *Result
 		}
 	}
 	for i := range res.Conflicts {
-		c := &res.Conflicts[i]
-		for range c.Versions {
+		// The reservation event charged a fixed size; the conflict and its versions are charged here.
+		n := txConflictCharge
+		for _, v := range res.Conflicts[i].Versions {
 			if err := b.tick(ctx); err != nil {
 				return err
 			}
+			n += conflictVersionCost(v)
 		}
-		// The reservation event charged a fixed size; the conflict's versions are charged here.
-		if err := b.charge(rec, conflictCost(c)); err != nil {
+		if err := b.charge(rec, n); err != nil {
 			return err
 		}
 	}
@@ -451,7 +465,12 @@ func (b *txBatch) sortKeys(ctx context.Context, rec *txHourRecord) error {
 		return err
 	}
 	slices.Sort(rec.keys)
+	n := len(rec.keys)
 	rec.keys = slices.Compact(rec.keys)
+	// Each version of a primary charged a key; the seqs repeated are released.
+	dropped := int64(n-len(rec.keys)) * txCacheKeyCharge
+	b.cache.release(dropped)
+	rec.charge -= dropped
 
 	return ctx.Err()
 }
@@ -476,7 +495,7 @@ func (b *txBatch) pair(ctx context.Context, rec *txHourRecord) error {
 			return fmt.Errorf("tracepack: find transactions: %w", err)
 		}
 		key := TxKey{Capture: b.r.Capture, Seq: seq, Hour: rec.hour}
-		res, err := lookupHours(ctx, hours, key, b.opts, nil)
+		res, err := lookupHours(ctx, hours, key, b.opts, b.lookupPrep)
 		if err != nil {
 			return fmt.Errorf("tracepack: find transactions: primary seq %d of hour %d: %w", seq, rec.hour, err)
 		}
