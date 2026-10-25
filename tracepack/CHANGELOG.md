@@ -7,6 +7,13 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 This release implements spec v2.38 and keeps format 1.2, every pack and its canonical export unchanged.
 
+### Upgrade notes
+
+- A capture close that tracepack v0.8.0 or earlier began writes other bytes when this version retries it:
+  those versions wrote the close segment with zstd by default, and this one always writes it uncompressed.
+  Before upgrading a log service, finish every close it has recorded but not yet committed with the version that began it,
+  or keep the bytes of its first attempt and write those on a retry, so that two closes of one capture never conflict.
+
 ### Added
 
 - `FindTransactions` pairs every primary of one capture in a time range with its reply, reading each hour once (G5-271, G5-273).
@@ -22,8 +29,8 @@ This release implements spec v2.38 and keeps format 1.2, every pack and its cano
 ### Changed
 
 - **Breaking:** `WriteClose` always writes the close segment's block and footer with `CodecNone`, and `CloseOptions.Uncompressed` is removed (G5-272).
-  Equal options with a fixed `PackID` and `Now` now write equal bytes whichever tracepack version runs a retried close,
-  since no compressor takes part.
+  Equal options with a fixed `PackID` and `Now` now write equal bytes whichever tracepack version, from this one on, runs a retried close,
+  since no compressor takes part; a close begun by v0.8.0 or earlier is the exception (see Upgrade notes).
   A caller that set `Uncompressed` drops the field; one that left it false gets an uncompressed close segment instead of a zstd one.
 
 ## [0.8.0] - 2026-10-25

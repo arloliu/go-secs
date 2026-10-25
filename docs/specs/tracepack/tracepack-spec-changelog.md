@@ -74,6 +74,8 @@ The decision log and the outcome of every proposal are listed in `README.md`.
 - 2026-10-25: the §3 `FindTransactions` bullet says that the lookups of an hour run on up to `runtime.GOMAXPROCS(0)` goroutines,
   none when that is 1 or less, `fn` on the calling goroutine, and that up to that many lookups' `MaxStateBytes` are charged at once (G5-275).
   No rule of [SEM §7.2] changed.
+- 2026-10-25: the §3 `WriteClose` bullet bounds its byte-identical retry to tracepack v0.9.0 and later:
+  v0.8.0 and earlier wrote a zstd close by default, whose retry by a later version writes other bytes (G5-272 unchanged).
 
 ## Changes vs v1 (summary)
 
