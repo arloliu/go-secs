@@ -1881,3 +1881,24 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rejected *(editorial)*: `intermediary` because the gateway is a hub, which misstates what `ts_utc_ns` and `dir` mean for the connection recorded;
   `quality_evaluated = false`, which would leave every transaction lookup over gateway captures incomplete.
   Spec: `tracepack-go.md` §2, v2.38.
+
+## 2026-10-25 parallel batch pairing (owner's direction, the batch pairing follow-ups)
+
+- G5-275 `FindTransactions` runs an hour's lookups on up to `GOMAXPROCS` goroutines (2026-10-25, Go mapping of G5-271 and G5-273):
+  the Go implementation runs the lookups of one hour's primaries on up to `runtime.GOMAXPROCS(0)` goroutines, read when the call starts,
+  and on the calling goroutine alone when that is 1 or less; there is no option of its own.
+  `fn` is called from the calling goroutine, one pairing at a time, in the order G5-273 gives.
+  Without cancellation, the pairings, their order, the error, its text and the summary are those of the lookups run one after another,
+  and a panic in a lookup is raised again on the calling goroutine.
+  Under cancellation, the checks of ctx before each lookup's result and before each pairing are the calling goroutine's,
+  no pairing is passed after one of them saw it, `fn`'s error prevails,
+  and which check sees it, and so the error's wrapping and the counts, depend on timing.
+  Every goroutine has ended when the call returns.
+  Each lookup's `MaxStateBytes` bounds its own state, so up to that many lookups' states are charged at once; `MaxCachedBytes` is unchanged.
+  Rationale *(editorial)*: the replay's cost is the lookups', each independent over read-only hour records;
+  a throwaway prototype paired the busy benchmark hour about 14 times faster at 16 workers;
+  `GOMAXPROCS` is the knob a Go caller already sets for parallel work, so no option is added.
+  Rejected *(editorial)*: a worker-count option, which `GOMAXPROCS` already provides;
+  a total budget across concurrent lookups, which would make a lookup's failure depend on its neighbours;
+  an in-memory index (G5-273 stands).
+  Spec: `tracepack-go.md` §3 (a Go-mapping note), v2.38.

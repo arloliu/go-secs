@@ -381,6 +381,10 @@ The query service, its catalog database and the live-tail interface are designed
   at most `MaxScopes` hours are held, a primary's pairing being passed once the last of its hours scheduled is read.
   `fn` receives each `TxPairing{Key, Result}` in ascending hour, then seq, as the caller's own copy, error values shared;
   the first error (a source or read error, `ErrReadLimit` from a budget, ctx, or `fn`'s, returned as is) ends the call, and `TxRangeResult{HoursRead, Primaries}` counts what was done.
+  It runs the lookups of an hour's primaries on up to `runtime.GOMAXPROCS(0)` goroutines, none when that is 1 or less (G5-275):
+  `fn` is called from the calling goroutine, one pairing at a time, the outcome without cancellation is that of the lookups run one after another,
+  a lookup's panic is raised again on the calling goroutine, and every goroutine has ended when the call returns;
+  each lookup's `MaxStateBytes` bounds its own state, so up to that many lookups' states are charged at once.
   A callback, like `MergeIterate`'s, because the call returns that summary and an error after the last pairing.
 - `NewReaderSource(readers []*Reader) (PackSource, error)` (G5-154): the readers of a lookup, opened by the caller, grouped by the UTC hour of their period, whatever their capture.
   It accepts a pack of any role but `extract`, `repair`, the retired 5 and unknown values included ([STO §2]).
