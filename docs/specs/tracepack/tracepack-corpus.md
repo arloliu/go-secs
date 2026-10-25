@@ -1,6 +1,6 @@
 # tracepack — conformance corpus
 
-Status: current (2026-10-25) — v2.36, tracepack format 1.1, schema `tracepack-corpus/4` (draft until tracepack v1.0.0).
+Status: current (2026-10-25) — v2.37, tracepack format 1.2, schema `tracepack-corpus/5` (draft until tracepack v1.0.0).
 Normative.
 [FMT §16] states what the corpus holds; this document defines its files, their schemas and the vector catalogue.
 The format is documented for any reader;
@@ -55,9 +55,9 @@ so goldens written under different definitions are told apart ([FMT §14]).
 
 | Key | Type | Present | Value |
 |---|---|---|---|
-| `corpus` | string | always | `"tracepack-corpus/4"`, the schema of every file of this document (§10) |
-| `spec_version` | string | always | the spec version the goldens follow: `"2.33"` |
-| `format_version` | string | always | `"1.1"`, the format revision the corpus targets ([FMT §4], [FMT §14]); a compatibility or rejection vector may hold a pack of another version, such as `basic-future-minor` (minor 2) or the bootstrap vector of an unsupported version |
+| `corpus` | string | always | `"tracepack-corpus/5"`, the schema of every file of this document (§10) |
+| `spec_version` | string | always | the spec version the goldens follow: `"2.37"` |
+| `format_version` | string | always | `"1.2"`, the format revision the corpus targets ([FMT §4], [FMT §14]); a compatibility or rejection vector may hold a pack of another version, such as `basic-future-minor` (minor 3) or the bootstrap vector of an unsupported version |
 | `zstd_encoder` | string | always | the identity and version of the zstd encoder that produced the encoder-made zstd blocks and footers of the corpus, as its generator records it (§6.1) |
 | `vectors` | array of objects | always | one per vector, ascending by `id` |
 
@@ -71,7 +71,7 @@ A vector entry:
 | `class` | string | always | `read`, `rejection` or `truncation` (§2) |
 | `labels` | array of strings | always, `[]` when none | ascending; `damaged`: the pack models damage after writing (a failed CRC, a cut, a broken codec stream); `nonconforming-writer`: the pack holds bytes, every CRC valid, that a conforming writer never writes; `pre-v2.13-sample`: the sample of the format definition before v2.13 ([FMT §14]) |
 | `codec` | string | always | `none` when every block body and the footer of `pack.tpk` use codec `none`, `zstd` when they all use `zstd`, `mixed` otherwise, an unknown codec included |
-| `jsonl_schema` | string | for class `read` and `truncation` | the export schema of the vector's `.jsonl` file: `"tracepack-jsonl/1"` when its pack's `format_minor` is 0, `"tracepack-jsonl/2"` otherwise ([JSONL §5]) |
+| `jsonl_schema` | string | for class `read` and `truncation` | the export schema of the vector's `.jsonl` file: `"tracepack-jsonl/1"` when its pack's `format_minor` is 0, `"tracepack-jsonl/2"` when it is 1, `"tracepack-jsonl/3"` otherwise ([JSONL §5]) |
 | `source` | string | always | `generated`, or `fixed` for a file kept as committed and never regenerated |
 | `files` | array of strings | always | the vector's files, in the order of the table of §2 |
 | `cases` | array of objects | optional, never empty | single-record sub-vectors, ascending by `seq`: `{id, seq, cites}`, `id` kebab-case and unique within the vector, `seq` the record's seq (string), `cites` as above |
@@ -423,7 +423,8 @@ A vector may serve several clauses.
 | an extract requested from an extract or a pack holding `redacted`; one from an unscreened extract; an extract without a policy | deferred with extracts (G5-244) |
 | records unobserved by design, an empty-text reply and an abnormal reply kept in full | `thin-fdc-polls` |
 | a consumer's close of a plain capture, of a masked and thinned one, of one with no staged record, and merged with its records | `close-plain`, `close-masked-thinned`, `close-no-start-bound`, `close-merged-archive` |
-| the version-aware cases: a format 1.0 pack holding the numbers format 1.1 assigns, format 1.0 extracts under a policy, and a pack of minor 2 | `basic-new-tags-segment-1-0`, `basic-new-tags-extract-1-0`, `basic-extract-policy-no-classifier-1-0`, `basic-extract-policy-multi-classifier-1-0`, `basic-future-minor` |
+| the version-aware cases: a format 1.0 pack holding the numbers format 1.1 assigns, format 1.0 extracts under a policy, a format 1.1 pack holding the number format 1.2 assigns, and a pack of minor 3 | `basic-new-tags-segment-1-0`, `basic-new-tags-extract-1-0`, `basic-extract-policy-no-classifier-1-0`, `basic-extract-policy-multi-classifier-1-0`, `basic-new-tags-segment-1-1`, `basic-future-minor` |
+| a segment of format 1.2 carrying `recorder_instance_name` | `basic-recorder-instance-name` |
 | a sample of the definition before v2.13 | `sample-v010-rows` |
 
 ### 9.2 [SEM §9] clauses
@@ -471,7 +472,9 @@ Files beyond those of the class (§2) are named where a vector has them.
 | `basic-new-tags-extract-1-0` | read | a format 1.0 extract whose `redaction_policy` holds nested 0x0005 and 0x0006 as opaque `bytes` and whose `redaction` entry holds nested 0x0006 twice: exported under `/1` ([FMT §5]) |
 | `basic-extract-policy-no-classifier-1-0` | read | a format 1.0 extract under a policy that matched nothing, holding only unclassified records and no `classifier` ([FMT §5]) |
 | `basic-extract-policy-multi-classifier-1-0` | read | a format 1.0 extract under a policy with two `classifier` and two `max_frame_len` values inherited from its sources ([FMT §5]) |
-| `basic-future-minor` | read | a readable pack of minor 2 holding an unknown tag: read with the newest registry and exported under `/2` ([FMT §14]) |
+| `basic-new-tags-segment-1-1` | read | a format 1.1 segment holding tag 0x0034 as `utf8`: an unknown tag there, exported under `/2` with `unknown` ([FMT §5]) |
+| `basic-recorder-instance-name` | read | a format 1.2 segment carrying `recorder_instance_name`, exported under `/3` with the tag named ([FMT §5], [FMT §14]) |
+| `basic-future-minor` | read | a readable pack of minor 3 holding an unknown tag 0x0035: read with the newest registry and exported under `/3` ([FMT §14]) |
 | `framing-header-extension` | read | blocks of `record_header_len` 44 and 45 to 55, each with its own extension bytes |
 | `framing-two-framings` | read | two blocks whose decoded bodies are equal: one record with a long header, several records with 44-byte headers |
 | `framing-gathered-headers` | read | a block of several records with extension bytes, seqs and lengths read from the gathered headers |
@@ -571,3 +574,8 @@ Adding a vector or a case keeps the value; changing what an existing file states
   `footer.json` gains the bounds of a boundary and the F-5 seq ranges, with their order (§5.8), so every `footer.json` is regenerated;
   and the redaction, unobserved, close and version-aware vectors are added (§9).
   Every earlier vector keeps its `pack.tpk` and its `export.jsonl` byte for byte under `/1`.
+- `tracepack-corpus/5` (spec v2.37): format 1.2 (G5-270).
+  A vector's `jsonl_schema` may be `tracepack-jsonl/3` (§3);
+  `basic-future-minor` moves to minor 3 and tag 0x0035, which format 1.2 leaves unassigned, so its `pack.tpk` and `export.jsonl` change;
+  and `basic-new-tags-segment-1-1` and `basic-recorder-instance-name` are added (§9).
+  Every other vector keeps its files byte for byte.

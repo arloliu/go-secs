@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-25) — v2.36, tracepack format 1.1.
+Status: current (2026-10-25) — v2.37, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -267,6 +267,7 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | 0x0032 | `redaction` | tlv, repeatable | a record was masked | one mask per entry ([SEM §8]); nested tags below; ordered by `seq`, then first masked offset |
 | 0x0030 | — | — | — | retired (block validation commits nothing to the pack metadata, §12) |
 | 0x0033 | `thinning` | tlv, repeatable | a record carries `quality.unobserved` | from format 1.1: one thinned stream and function per entry, declared by the producer in the capture descriptor ([SEM §2], [STO §4]); a capture-level tag ([STO §4] Merge); nested tags below |
+| 0x0034 | `recorder_instance_name` | utf8 | optional | from format 1.2: the human-readable name of the deployment whose stable identity is `recorder_instance_id`, declared by the producer in the capture descriptor ([STO §4]); any valid UTF-8 value, the empty string included; tracepack never interprets it, checks no relation to `recorder_instance_id` and requires no uniqueness; the producer keeps it with its `recorder_instance_id`; a capture-level tag ([STO §4] Merge) (G5-270) |
 
 Nested tags of `coverage`: 0x0001 `capture_id` uuid, 0x0002 `seq_first` u64, 0x0003 `seq_last` u64,
 0x0004 `time_start` i64, 0x0005 `time_end` i64.
@@ -877,13 +878,16 @@ The object size is known before reading (file system stat, object listing, the s
   the enum `encryption_algorithm` and the `quality` bit 7 `unobserved` (§9),
   and it lets a pack whose role is not `extract` hold masked records ([SEM §8], [STO §4]).
   Each addition is known only in a pack of format 1.1 or later (§5); a reader reads a pack of a newer minor with the newest registry it knows.
-- A writer writes `format_minor` 1 exactly when the pack holds a **format 1.1 feature**, and 0 otherwise:
-  a record carrying `quality.redacted`, or a `redaction` entry, in a pack whose `pack_role` is not `extract`;
+- Spec v2.37 defines **format 1.2**: it changes no byte of formats 1.0 and 1.1 and no export of their packs (§15).
+  It adds the pack metadata tag `recorder_instance_name` (§5, G5-270), known only in a pack of format 1.2 or later.
+- A writer writes `format_minor` 2 exactly when the pack holds a **format 1.2 feature**, a `recorder_instance_name` entry (G5-270);
+  otherwise it writes 1 exactly when the pack holds a **format 1.1 feature**, and 0 otherwise.
+  The format 1.1 features are: a record carrying `quality.redacted`, or a `redaction` entry, in a pack whose `pack_role` is not `extract`;
   a `redaction_policy` with the encryption tags, or a `redaction` entry with `siv`;
   a `thinning` entry; or a record carrying `quality.unobserved`.
   The seq 2^63 − 1 and the `stop-unclean` boundary of a consumer's close need no minor 1 by themselves ([STO §4]);
   a close segment's minor follows this rule like any pack's.
-  A pack of minor 1 that holds no format 1.1 feature breaks this writer rule, but is valid, and is read as minor 1.
+  A pack of minor 1 that holds no format 1.1 feature, or of minor 2 that holds no format 1.2 feature, breaks this writer rule, but is valid, and is read as its minor.
 - A merge writes the largest `format_minor` of its inputs.
   It refuses an input of a minor newer than it implements, since it drops unknown top-level entries ([STO §4] Merge), which a newer minor may define as capture-level;
   and an input whose preserved bytes would gain, under the output's minor, a meaning they lack under its own:
@@ -894,6 +898,8 @@ The object size is known before reading (file system stat, object listing, the s
   it fails on an input holding a `redacted` record, a commitment breach to it,
   but merges a policy-bearing input that holds none — a segment whose policy matched nothing, or the close segment of a masked capture — and drops its `redaction_policy`.
   So packs of format 1.1 are merged only by a merger of format 1.1, tracepack v0.5.0 or later.
+  A merger of format 1.1, tracepack v0.5.0 to v0.7.x, refuses an input of format 1.2 by the rule above, so nothing of format 1.2 is dropped by a merge;
+  packs of format 1.2 are merged only by tracepack v0.8.0 or later.
 - *Informative*: what a reader of format 1.0, tracepack v0.4.0, does with a pack of format 1.1, which it accepts:
 
   | Format 1.1 feature | A reader of format 1.0 |
@@ -908,6 +914,9 @@ The object size is known before reading (file system stat, object listing, the s
 
   So its acceptance of a pack of format 1.1 is no evidence that the defect handling of format 1.1 took place.
   The unobserved row is the one silent degradation: a consumer of a reader of format 1.0 that ignores `decode_status` can take the zeros for traffic.
+- *Informative*: a reader of format 1.1, tracepack v0.5.0 to v0.7.x, accepts a pack of format 1.2:
+  it reads `recorder_instance_name` as an unknown top-level tag, preserved, and its exporter writes the pack under `tracepack-jsonl/2` with the tag under `unknown`;
+  its merge refuses the pack, and its durable-bus consumer refuses a capture descriptor holding the tag ([STO §4], G5-252).
 - **One exception, before any production use, now closed.**
   In spec v2.13, format 1.0 was redefined in place, without a new format number:
   the header section became byte-columnar (§6),
@@ -936,7 +945,8 @@ The canonical JSONL export is the language-agnostic text form of a pack and its 
 - Then one JSON object per record carrying every §7.1 field by its spec name,
   enum values by name (`unknown(<n>)` for unknown values), bit sets as arrays of names,
   the payload as base64, and transport-event / annotation bodies as objects keyed by tag name.
-- The schema is versioned: `tracepack-jsonl/1` for a pack of format 1.0, `tracepack-jsonl/2` for every later minor (G5-233);
+- The schema is versioned: `tracepack-jsonl/1` for a pack of format 1.0, `tracepack-jsonl/2` for a pack of format 1.1 (G5-233),
+  and `tracepack-jsonl/3` for every later minor (G5-270);
   its byte-exact form is defined in `tracepack-jsonl.md` [JSONL].
 - It holds the records of the validated blocks; a failed block is left out without a mark, and the `verify` report says what was lost ([JSONL §7]).
   A pack rejected at bootstrap (§13) has no export.
@@ -1046,7 +1056,9 @@ Its layout, the JSON schemas of its expectations and the catalogue that maps eac
   records unobserved by design with their `thinning` entries, beside a reply whose message text is empty and an abnormal reply, both kept in full ([SEM §2]);
   a consumer's close at seq 2^63 − 1 of a plain capture, of a masked and thinned one, of one whose capture staged no record, and merged with its capture's records ([STO §4]);
   and the version-aware cases (§5, §14): a format 1.0 segment holding tag 0x0033 and `quality` bit 7, a format 1.0 extract holding the nested tag numbers format 1.1 assigns,
-  format 1.0 extracts under a policy without a `classifier` and with several, and a readable pack of minor 2.
+  format 1.0 extracts under a policy without a `classifier` and with several, and a readable pack of minor 3.
+- Format 1.2 vectors: a segment carrying `recorder_instance_name`, exported under `tracepack-jsonl/3`,
+  and a format 1.1 segment holding tag 0x0034, an unknown tag there (§5, §14).
 - [SEM §9] adds the single-pack vectors of its rules to the same corpus;
   reads over several packs, transaction lookups and store behaviour have no corpus vectors (G5-199).
 - Conformance is [CORPUS §1]: in short, a reader produces the expected files [CORPUS §1] lists for each vector's class

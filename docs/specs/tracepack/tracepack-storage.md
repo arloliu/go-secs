@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-25) — v2.36, tracepack format 1.1.
+Status: current (2026-10-25) — v2.37, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for mergers, recorders, log converters and the service that deletes packs.
 
@@ -95,6 +95,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
     A log conversion writes packs by the converter contract of §7 and never publishes over the bus.
     Every capture a consumer closes therefore has `clock_step_tolerance_ns`.
   - *Producer duties.* The producer keeps a stable `recorder_instance_id` for its deployment across restarts,
+    and with it the deployment's `recorder_instance_name` when it writes one, a rule tracepack does not check (G5-270),
     assigns a new `capture_id` each time it starts producing — at process start, and at each leadership change for a producer chosen by leader election (G5-200) —
     and names the immediately preceding capture in `previous_capture_id` ([FMT I-7]),
     assigns the capture-scoped `seq` ([FMT I-12]), and stamps `epoch`, `ts_utc_ns` and `mono_ns` at the observation point.
@@ -246,8 +247,9 @@ Which packs to give is the caller's choice; tracepack defines no view.
     the always-required `tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated` and `recorder_instance_id`,
     `capture_method` being `raw-stream` or `decoded-message` (*Scope of the bus*);
     `capture_origin_utc_ns`, `capture_origin_mono_ns` and `clock_step_tolerance_ns`, required, since the bus serves capture-clock captures ([FMT §5]);
-    `previous_capture_id` and the optional site and equipment tags when it has them;
+    `previous_capture_id`, `recorder_instance_name` and the optional site and equipment tags when it has them (G5-270);
     and the `thinning` entries when it thins records ([FMT §5], *Unobserved records*).
+    The descriptor counts toward the 4096 bytes of a `start`'s header block (*Bus message*), so a long text value can make a `start` unpublishable; tracepack sets no other limit on it.
     The consumer copies these values as decoded, applying no default: a `capture_origin_mono_ns` other than 0 and a `clock_step_tolerance_ns` of 0 are kept.
     A descriptor holding a top-level tag other than these producer-owned ones, single or repeated (unknown, retired, or a pack-metadata tag the consumer owns or a durable bus does not use),
     a nested tag that `thinning` or `hsms_timers` does not define, or a `thinning` entry whose stream is above 127 or whose function is above 255
@@ -332,7 +334,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
   or when an input's preserved bytes would gain, under the output's `format_minor`, a meaning they lack under the input's own:
   a `quality` bit 7 in a minor-0 input merged into a minor-1 archive ([FMT §14]).
   Every input carries the same value of each **capture-level tag**:
-  `tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated`, `recorder_instance_id`,
+  `tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated`, `recorder_instance_id`, `recorder_instance_name`,
   `capture_origin_utc_ns`, `capture_origin_mono_ns`, `clock_step_tolerance_ns`, `previous_capture_id`,
   `site_id`, `equipment_model`, `equipment_sw_rev`, `host_software`, `host_endpoint`, `equipment_endpoint`, `equipment_connect_mode`, `device_id`, `hsms_timers`,
   `source_tz`, `source_dialect`, `source_ref` and `thinning`:

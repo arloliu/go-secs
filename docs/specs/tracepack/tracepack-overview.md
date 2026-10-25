@@ -1,8 +1,8 @@
 # tracepack — overview
 
-Status: current (2026-10-25) — v2.36, tracepack format 1.1.
+Status: current (2026-10-25) — v2.37, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
-Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-269.
+Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-270.
 Change history: `tracepack-spec-changelog.md`.
 This document is **informative**; the rules live in the normative documents below.
 
@@ -42,8 +42,8 @@ It targets local file systems, S3-compatible object storage and HTTP range reads
 |---|---|---|---|
 | `tracepack-overview.md` (this) | purpose, document map, terminology, diagrams, open questions, deferred items | informative | all |
 | `tracepack-format.md` [FMT] | conventions, portable encoding, invariants, byte layouts, TLV and all registries, footer and validation, bootstrap and recovery, versioning, canonical JSONL, conformance corpus | normative | 1, 2, 3, 6, 8, 9 |
-| `tracepack-jsonl.md` [JSONL] | byte-exact form of the canonical JSONL export (schemas `tracepack-jsonl/1` and `tracepack-jsonl/2`) | normative | 6, 8 |
-| `tracepack-corpus.md` [CORPUS] | conformance corpus of format-level reading: layout, manifest, JSON schemas of its expectations, zstd comparison, item-validity checklist, vector catalogue (schema `tracepack-corpus/4`) | normative | 6, 8, 9 |
+| `tracepack-jsonl.md` [JSONL] | byte-exact form of the canonical JSONL export (schemas `tracepack-jsonl/1`, `tracepack-jsonl/2` and `tracepack-jsonl/3`) | normative | 6, 8 |
+| `tracepack-corpus.md` [CORPUS] | conformance corpus of format-level reading: layout, manifest, JSON schemas of its expectations, zstd comparison, item-validity checklist, vector catalogue (schema `tracepack-corpus/5`) | normative | 6, 8, 9 |
 | `tracepack-semantics.md` [SEM] | capture model, decode_status, time and clock steps, transport events, quality, indexes, transaction lookup, query mapping, redaction | normative | 2, 3, 5, 8, 9 |
 | `tracepack-storage.md` [STO] | scopes and roles, keys, reads of the packs given, flush, merge and deletion, the durable-bus contract, its masking and the close of a capture left open, log converter, implementation tests; the catalog and retention are the service's (G5-201) | normative for publishers, recorders and converters | 5, 8, 9, service |
 | `tracepack-go.md` | Go module, API, mapping from go-secs, CLI | Go reference implementation | — |
