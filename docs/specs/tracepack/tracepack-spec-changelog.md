@@ -1646,3 +1646,7 @@ Review rounds:
 | request review | the export schema rule "/2 for every other value" would label a minor-2 pack `/2` | `/2` for minor 1, `/3` for every later minor |
 | request update | the requester's value became a bare device name that may hold `/` | no character constraint; any valid UTF-8 value, the empty string included |
 | ratification | — | G5-270 ratified by the owner (2026-10-25) |
+| apply consistency review P2 | the corpus README still named `tracepack-corpus/4`, format 1.1, future minor 2 and `/2` for every nonzero minor | it names `/5`, `2.37`, format 1.2, minor 3 and the three-schema rule; the `/4` note is historical |
+| apply consistency review P2 | no regression pinned 0x0034 across the minor boundary or in a merge of minor-1 and minor-2 inputs | tests: any type unknown below minor 2, a wrong type or invalid UTF-8 rejected from minor 2, `/1`–`/3` rendering, and a mixed-minor merge refused in both orders |
+| apply consistency review P3 | [FMT §16] named only formats 1.0 and 1.1 | it names format 1.2 |
+| apply consistency review | — | fix-then-ready, applied; confirmation pass ready |
