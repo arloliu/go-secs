@@ -294,6 +294,8 @@ For readers and troubleshooters working on local files:
   Each `TxPairing` passed to `fn`, in ascending hour, then seq, holds the primary's key and the result `FindTransaction` gives it, as your own copy.
   It holds at most `MaxScopes` hours at once, bounded by `TxRangeOptions.MaxCachedBytes`;
   a primary near the end of the hours read can report an open window when a later hour is not written yet.
+  It runs an hour's lookups on up to `GOMAXPROCS` goroutines and calls `fn` from yours, one pairing at a time;
+  set `GOMAXPROCS` to 1 to run them on your goroutine alone.
   See `ExampleFindTransactions`.
 - `ExportJSONL(ctx, r, w)` writes the canonical JSONL export of one pack,
   as the [JSONL specification](../docs/specs/tracepack/tracepack-jsonl.md) defines it:

@@ -13,7 +13,10 @@ This release implements spec v2.38 and keeps format 1.2, every pack and its cano
   Each `TxPairing` holds the primary's key and the `TxResult` that `FindTransaction` returns for it over the same packs,
   passed to a callback in ascending hour, then seq, as the caller's own copy.
   It holds at most `MaxScopes` hours, bounded by `TxRangeOptions.MaxCachedBytes` (default 256 MiB, `DefaultTxMaxCachedBytes`).
-  On the busy benchmark hour, its 6,202 primaries pair in about 2.2 s with 60 MB allocated, against about 36 s and 37 GB by one `FindTransaction` each;
+  It runs an hour's lookups on up to `GOMAXPROCS` goroutines, none when that is 1 or less, and calls the callback from the calling goroutine (G5-275);
+  up to that many lookups' `MaxStateBytes` are charged at once.
+  On the busy benchmark hour, its 6,202 primaries pair in about 0.25 s at `GOMAXPROCS` 16 and 2.2 s at 1, with 60 MB allocated,
+  against about 36 s and 37 GB by one `FindTransaction` each;
   each item's HSMS header is decoded once when its hour is read, not again by every lookup replaying it.
 
 ### Changed

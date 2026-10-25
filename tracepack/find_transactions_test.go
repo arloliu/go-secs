@@ -138,6 +138,7 @@ type txLookupRun struct {
 }
 
 // requireBatchOverHour runs FindTransactions over the whole hour of key with opts, over src, a source whose answers do not change,
+// its lookups one after another and on several workers,
 // and requires it to pair the keys the hour holds, derived apart from FindTransactions (txHourKeys), in order,
 // each with the result its lookup alone returns, compared strictly, the lookup reading its hours through the same events;
 // and the pairing of key, when want is not nil and the hour pairs key, to equal want.
@@ -192,6 +193,21 @@ func requireBatchOverHour(t testing.TB, src PackSource, key TxKey, opts TxOption
 		}
 	})
 	assert.Equal(t, len(gotKeys), res.Primaries, "the pairings counted")
+	// The lookups run on several workers pair the same keys with the same results, and end as the batch above does.
+	var parKeys []TxKey
+	var par []txStrictForm
+	pres, perr := findTransactionsWith(t.Context(), src, r, TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
+		parKeys, par = append(parKeys, p.Key), append(par, strictForm(&p.Result))
+		mutateTxResult(&p.Result)
+
+		return nil
+	}, txWorkers(4))
+	assert.Equal(t, res, pres, "the summary on several workers")
+	assert.Equal(t, errText(err), errText(perr), "the error on several workers")
+	require.Equal(t, gotKeys, parKeys, "the keys paired on several workers")
+	for i := range par {
+		requireStrictEqual(t, got[i], par[i], "pairing of %v on several workers", parKeys[i])
+	}
 	pairedBefore := func(n int) {
 		t.Helper()
 
@@ -486,7 +502,17 @@ func txRangePrimary(capture, packCapture UUID, r *Record, hour, fromNs, toNs int
 	return hh.Available&FieldValidityFunction != 0 && hh.Function%2 == 1
 }
 
+// txWorkerCounts are the worker counts the batch tests run FindTransactions with:
+// its lookups one after another, and on several goroutines whatever GOMAXPROCS the test runs under.
+var txWorkerCounts = []int{1, 4}
+
+// txWorkers returns the prep of a batch that runs an hour's lookups on n workers.
+func txWorkers(n int) func(b *txBatch) {
+	return func(b *txBatch) { b.workers = n }
+}
+
 // checkTxRange runs FindTransactions over g for [fromNs, toNs) with opts, mutating every pairing once it is recorded,
+// with each of txWorkerCounts,
 // and requires it to pair exactly the keys of the reference, in order, each with the result FindTransaction gives,
 // or to fail as the first lookup that fails.
 func checkTxRange(t *testing.T, g *txGen, snap *txSnapshot, fromNs, toNs int64, opts TxOptions) {
@@ -500,29 +526,48 @@ func checkTxRange(t *testing.T, g *txGen, snap *txSnapshot, fromNs, toNs int64, 
 		single, serr := FindTransaction(t.Context(), g.src.view(), key, opts)
 		singles[i], serrs[i] = strictForm(&single), serr
 	}
+	exp := txRangeWant{keys: want, singles: singles, serrs: serrs}
+	for _, workers := range txWorkerCounts {
+		checkTxRangeWith(t, g, &exp, fromNs, toNs, opts, workers)
+	}
+}
+
+// txRangeWant is what checkTxRange expects of a FindTransactions call, taken before any call:
+// the keys of the range, and each key's result alone, in the strict form, and error.
+type txRangeWant struct {
+	keys    []TxKey
+	singles []txStrictForm
+	serrs   []error
+}
+
+// checkTxRangeWith is the check of checkTxRange with workers, against exp.
+func checkTxRangeWith(t *testing.T, g *txGen, exp *txRangeWant, fromNs, toNs int64, opts TxOptions, workers int) {
+	t.Helper()
+
+	want, singles, serrs := exp.keys, exp.singles, exp.serrs
 	var gotKeys []TxKey
 	var got []txStrictForm
 	before := g.src.counts()
-	res, err := FindTransactions(t.Context(), g.src, TxRange{Capture: captureLow, From: time.Unix(0, fromNs), To: time.Unix(0, toNs)},
+	res, err := findTransactionsWith(t.Context(), g.src, TxRange{Capture: captureLow, From: time.Unix(0, fromNs), To: time.Unix(0, toNs)},
 		TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
 			gotKeys = append(gotKeys, p.Key)
 			got = append(got, strictForm(&p.Result))
 			mutateTxResult(&p.Result)
 
 			return nil
-		})
+		}, txWorkers(workers))
 
 	m := opts.MaxScopes
 	if m <= 0 {
 		m = DefaultTxMaxScopes
 	}
 	for h, n := range g.src.counts() {
-		require.LessOrEqual(t, n-before[h], 1, "hour %d read once", h)
+		require.LessOrEqual(t, n-before[h], 1, "workers %d: hour %d read once", workers, h)
 	}
 
 	for i, key := range want {
 		if serr := serrs[i]; serr != nil {
-			require.Error(t, err, "key %v fails alone", key)
+			require.Error(t, err, "workers %d: key %v fails alone", workers, key)
 			assert.Equal(t, fmt.Sprintf("tracepack: find transactions: primary seq %d of hour %d: %v", key.Seq, key.Hour, serr), err.Error())
 			assert.Equal(t, errors.Is(serr, ErrReadLimit), errors.Is(err, ErrReadLimit))
 			require.Len(t, gotKeys, i, "the keys before the failing one")
@@ -530,11 +575,11 @@ func checkTxRange(t *testing.T, g *txGen, snap *txSnapshot, fromNs, toNs int64, 
 
 			return
 		}
-		require.Greater(t, len(gotKeys), i, "key %v paired", key)
-		require.Equal(t, key, gotKeys[i], "key %d", i)
-		requireStrictEqual(t, singles[i], got[i], "key %v", key)
+		require.Greater(t, len(gotKeys), i, "workers %d: key %v paired", workers, key)
+		require.Equal(t, key, gotKeys[i], "workers %d: key %d", workers, i)
+		requireStrictEqual(t, singles[i], got[i], "workers %d: key %v", workers, key)
 	}
-	require.NoError(t, err)
+	require.NoError(t, err, "workers %d", workers)
 	require.Len(t, gotKeys, len(want), "no other key")
 	assert.Equal(t, len(want), res.Primaries)
 	assert.Equal(t, int(hourOf(toNs-1)-hourOf(fromNs))+m, res.HoursRead)
