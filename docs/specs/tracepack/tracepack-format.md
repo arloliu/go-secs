@@ -958,7 +958,7 @@ The canonical JSONL export is the language-agnostic text form of a pack and its 
 ## 16. Conformance corpus
 
 The corpus binds format-level reading (G5-199):
-it pins what a reader of format 1.0 and 1.1 reads from each of its packs, so that drift of the format is caught over years of storage.
+it pins what a reader of formats 1.0, 1.1 and 1.2 reads from each of its packs, so that drift of the format is caught over years of storage.
 The format is documented for any reader, and the Go module is the only implementation (G5-198);
 diagnostics, reads over several packs, transaction lookups and store behaviour are tested by the Go module's own tests, not by the corpus ([SEM §9], [STO §8]).
 Its layout, the JSON schemas of its expectations and the catalogue that maps each clause below to its vectors are [CORPUS];
