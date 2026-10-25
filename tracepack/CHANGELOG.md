@@ -5,6 +5,8 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-25
+
 This release implements spec v2.37, format 1.2, and keeps every format 1.0 and 1.1 pack and its canonical export unchanged.
 Format 1.2 adds the pack metadata tag `recorder_instance_name`, the human-readable name of the deployment `recorder_instance_id` identifies (G5-270).
 tracepack never interprets it.
