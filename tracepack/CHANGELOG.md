@@ -5,6 +5,8 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-26
+
 This release implements spec v2.38 and keeps format 1.2, every pack and its canonical export unchanged.
 
 ### Upgrade notes
