@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-10-25) — v2.37, tracepack format 1.2.
+Status: current (2026-10-25) — v2.38, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, documented for any reader;
 the Go module is the only implementation (G5-199).
@@ -388,6 +388,19 @@ An I/O error, a cancellation or a limit that ends the lookup is an error, not a 
 one valid match → `matched`, several → `ambiguous`, none → `not-found`;
 the `incomplete` flag and its reasons stand beside any of them, none hiding another (§7.4).
 When a block read disagrees with its F-2 entry, or the lookup detects another footer value disagreeing with its records, only `incomplete` and that defect are guaranteed (Identity across the hours read).
+
+*Pairing a time range* (G5-271, G5-273).
+A batch pairs every primary of one capture whose `ts_utc_ns` lies in a time range `[from, to)` with its reply, reading each hour once.
+For each UTC hour `H` from the hour of `from` to the hour of the range's last nanosecond,
+it pairs every seq of the capture whose versions, as the read of hour `H` yields them, include a primary whose `ts_utc_ns` lies in `H` and in the range;
+the key is (`capture_id`, seq, `H`), each seq once, whatever its number of versions.
+A version that breaches the scope it is read from is not paired from either hour; the lookups whose hours hold it report the breach.
+The batch reads each hour it needs once, in ascending order, and the packs the caller gives for an hour, in that order, are the hour's **observation** for the whole batch.
+Each pairing is the result of the lookup from its primary (above) over those observations: the same hours scheduled, the same reads, the same outcome, window, versions and `incomplete` reasons,
+so no rule of a lookup changes and no hour beyond a primary's own hours scheduled takes part in its result.
+Pairings are reported in ascending hour, then seq.
+A primary whose hours scheduled reach past the hours already written can report a window still unbounded;
+a batch cannot tell an hour that holds no record from one not yet written.
 
 ### 7.3 Secondary index
 

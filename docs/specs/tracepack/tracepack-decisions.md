@@ -1833,7 +1833,7 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   veq's planned learners and replay read whole settled capture-hours in batches, and the owner fixes the shape before v1.0 rather than adding it later.
   Rejected *(editorial)*: keeping only the single lookup until a consumer's reader is designed;
   letting a lookup skip blocks that F-2 and the F-3 summaries exclude, a change of §7.2 that loses the read defects of the skipped blocks and that no consumer needs.
-  Spec: [SEM §7.2], `tracepack-go.md` §3, pending.
+  Spec: [SEM §7.2], `tracepack-go.md` §3, v2.38.
 
 ## 2026-10-25 a close segment's bytes across versions (owner's choice)
 
@@ -1845,4 +1845,24 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   with zstd those bytes also depend on the klauspost/compress encoder, which a dependency upgrade between the first write and the retry may change;
   the segment holds one record, so compression saves almost nothing.
   Rejected *(editorial)*: keeping the option and stating that the promise holds within one tracepack build only.
-  Spec: [STO §4], `tracepack-go.md` §3, pending (v2.38).
+  Spec: [STO §4], `tracepack-go.md` §3, v2.38.
+
+## 2026-10-25 the batch pairing read (owner approved the plan)
+
+- G5-273 The shape of the batch pairing read (2026-10-25, completing G5-271):
+  `FindTransactions` takes a capture and a time range `[from, to)`, and pairs every seq of the capture with a primary version, read from hour `H`, whose `ts_utc_ns` lies in `H` and in the range, keyed by `H`;
+  a version that breaches its scope is not paired, and the lookups whose hours hold it report the breach.
+  It reads each hour once, the packs its caller gives for the hour being the hour's observation for the whole call,
+  and each pairing is the lookup's result over those observations, so a lookup's rules are unchanged.
+  It passes pairings to a callback, in ascending hour, then seq, each the caller's own copy, error values shared,
+  and returns a summary of counts and the first error, which ends the call.
+  It holds at most `MaxScopes` hours, bounded nominally by a cache budget of its own, 256 MiB by default.
+  Rationale *(editorial)*: the callback is the shape of every other read and returns a summary and an error after the last item, which an iterator cannot;
+  the range by time is what the Virtual Equipment asked for, whole hours its special case;
+  replaying one read per hour through the lookup's own code keeps each pairing equal to a single lookup by construction;
+  the Virtual Equipment confirmed the shape, the callback and the default.
+  Rejected *(editorial)*: an iterator as the main form, which an adapter can add later;
+  outcome counts in the summary, a stream and function filter and a matched-only mode, which the caller does in its callback;
+  pairing breached versions under the hour of their own timestamp, whose read does not hold them;
+  an in-memory index or a decoded-block cache, which no consumer needs before tracepack v1.0.0 and can be added after it.
+  Spec: [SEM §7.2], `tracepack-go.md` §3, v2.38.
