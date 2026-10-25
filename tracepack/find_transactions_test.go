@@ -275,7 +275,7 @@ func (l *txEventLog) readers(ctx context.Context, hour int64) ([]*Reader, error)
 }
 
 func (l *txEventLog) read(ctx context.Context, hour int64, readers []*Reader, maxHeld int64,
-	reserveConflict func() error, flags *uint8, fn func(*Item) error,
+	reserveConflict func() error, flags *uint8, header *txCachedHeader, fn func(*Item) error,
 ) (Result, error) {
 	l.addf("read %d", hour)
 	res, err := l.inner.read(ctx, hour, readers, maxHeld,
@@ -285,7 +285,7 @@ func (l *txEventLog) read(ctx context.Context, hour int64, readers []*Reader, ma
 
 			return err
 		},
-		flags,
+		flags, header,
 		func(it *Item) error {
 			err := fn(it)
 			l.addf("item %d/%d seq %d flags %d conflict %t: %s", it.Pack, it.Block, it.Record.Seq, *flags, it.Conflict, errText(err))

@@ -53,7 +53,8 @@ func txChargeEvents(b *txBatch, rec *txHourRecord) ([]txChargeEvent, int) {
 			break
 		}
 		it := &rec.items[i]
-		n := txAlign(unsafe.Sizeof(Item{})+unsafe.Sizeof(uint8(0))) + int64(len(it.Record.Payload)) + int64(len(it.HeaderExtra)) +
+		n := txAlign(unsafe.Sizeof(Item{})+unsafe.Sizeof(txItemMeta{})) +
+			int64(len(it.Record.Payload)) + int64(len(it.HeaderExtra)) +
 			txRedactionRecount(it.Redaction)
 		capture := UUID(rec.readers[it.Pack].hdr.CaptureID)
 		if enumerate && txRangePrimary(b.r.Capture, capture, &it.Record, rec.hour, b.fromNs, b.toNs) &&
@@ -281,4 +282,14 @@ func TestFindTransactionsVariableCharges(t *testing.T) {
 		requireExactAdmission(t, long)
 		requireExactAdmission(t, note(split(0), second))
 	})
+}
+
+// The fixed charges of an hour record and of each item it holds are pinned per word size,
+// so that a change of the record's layout, which moves what fits MaxCachedBytes, is a deliberate one.
+func TestFindTransactionsFixedCharges(t *testing.T) {
+	t.Parallel()
+
+	want := map[uintptr][2]int64{8: {224, 144}, 4: {128, 112}}[unsafe.Sizeof(uintptr(0))]
+	require.NotZero(t, want, "a word size the test pins")
+	assert.Equal(t, want, [2]int64{txCacheHourCharge, txCacheItemCharge}, "the charges of an hour record and of an item")
 }
