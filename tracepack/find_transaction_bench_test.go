@@ -175,6 +175,10 @@ func BenchmarkFindTransactions(b *testing.B) {
 // perfFindTransactions runs the sub-benchmark name of FindTransactions over packs for r and scopes,
 // reporting pair-ns/primary as the time per primary beyond fillNs, the time of a fill alone, and returns its ns/op.
 func perfFindTransactions(b *testing.B, name string, packs [][]byte, r TxRange, scopes int, fillNs float64) float64 {
+	want := 0
+	if r.Capture == perfCapture {
+		want = len(perfPrimaries(perfHour(true, 0)))
+	}
 	var nsOp float64
 	b.Run(name, func(b *testing.B) {
 		var stats perfStats
@@ -194,6 +198,9 @@ func perfFindTransactions(b *testing.B, name string, packs [][]byte, r TxRange, 
 			if err != nil {
 				b.Fatal(err)
 			}
+		}
+		if res.Primaries != want {
+			b.Fatalf("%d primaries paired, %d expected", res.Primaries, want)
 		}
 		nsOp = float64(b.Elapsed().Nanoseconds()) / float64(b.N)
 		stats.report(b)
