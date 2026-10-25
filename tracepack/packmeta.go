@@ -60,11 +60,12 @@ const (
 	tagRedactionPolicy      uint16 = 0x0031
 	tagRedaction            uint16 = 0x0032
 	tagThinning             uint16 = 0x0033
+	tagRecorderInstanceName uint16 = 0x0034
 )
 
 // formatMinorNewest is the newest format minor this package knows (the tracepack format specification §14).
 // A pack of a newer minor is read with the registry of this one.
-const formatMinorNewest uint16 = 1
+const formatMinorNewest uint16 = 2
 
 // retiredPackMetaTags are the retired pack metadata tag numbers (the tracepack format specification §5):
 // a writer never writes them, and a reader treats them as unknown tags.
@@ -407,6 +408,11 @@ type PackMeta struct {
 	// RecorderInstanceID is the stable identity of the recorder or converter deployment across restarts
 	// (recorder_instance_id); always required.
 	RecorderInstanceID UUID
+	// RecorderInstanceName is the human-readable name of the deployment RecorderInstanceID identifies
+	// (recorder_instance_name, from format 1.2); optional.
+	// tracepack never interprets it and checks no relation to RecorderInstanceID; any valid UTF-8 value, the empty string included, is valid.
+	// It is a capture-level tag, declared by the producer in the capture descriptor (the tracepack storage specification §4).
+	RecorderInstanceName *string
 	// PreviousCaptureID is the capture this recorder deployment ran immediately before this one
 	// (previous_capture_id, the tracepack format specification I-7); optional.
 	PreviousCaptureID *UUID
@@ -478,8 +484,8 @@ type PackMeta struct {
 	// It is a capture-level tag, declared by the producer in the capture descriptor (the tracepack storage specification §4).
 	Thinning []Thinning
 	// Unknown preserves every entry whose tag PackMeta does not recognize, private tags included, in stored order.
-	// In a pack of format minor 0 that includes a tag a later minor defines, such as 0x0033,
-	// which keeps the status minor 0 gives it (the tracepack format specification §5).
+	// In a pack of an earlier format minor that includes a tag a later minor defines, such as 0x0033 in minor 0 or 0x0034 below minor 2,
+	// which keeps the status its minor gives it (the tracepack format specification §5).
 	Unknown []RawEntry
 }
 
@@ -561,6 +567,7 @@ var packMetaSetters = map[uint16]func(m *PackMeta, e tlv.Entry) error{
 	tagRedactionPolicy:      redactionPolicySetter(formatMinorNewest),
 	tagRedaction:            redactionSetter(formatMinorNewest),
 	tagThinning:             setNested(decodeNested(thinningSetters), func(m *PackMeta, v Thinning) { m.Thinning = append(m.Thinning, v) }),
+	tagRecorderInstanceName: setField(tlv.Entry.UTF8, func(m *PackMeta, v string) { m.RecorderInstanceName = &v }),
 }
 
 // packMetaSettersByMinor holds, for each format minor up to the newest,
@@ -1038,6 +1045,7 @@ func (m *PackMeta) appendOptionalScalarEntries(dst []tlv.Entry) []tlv.Entry {
 		{m.ScopeGeneration != nil, func() tlv.Entry { return tlv.U64Entry(tagScopeGeneration, *m.ScopeGeneration) }},
 		{m.PublisherEpoch != nil, func() tlv.Entry { return tlv.U64Entry(tagPublisherEpoch, *m.PublisherEpoch) }},
 		{m.PatchBase != nil, func() tlv.Entry { return tlv.UUIDEntry(tagPatchBase, [16]byte(*m.PatchBase)) }},
+		{m.RecorderInstanceName != nil, func() tlv.Entry { return tlv.UTF8Entry(tagRecorderInstanceName, *m.RecorderInstanceName) }},
 	})
 }
 

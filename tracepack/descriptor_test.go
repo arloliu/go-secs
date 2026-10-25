@@ -30,6 +30,7 @@ func validDescriptor() CaptureDescriptor {
 func fullDescriptor() CaptureDescriptor {
 	d := validDescriptor()
 	d.PreviousCaptureID = new(UUID{9, 8, 7})
+	d.RecorderInstanceName = new("eqp")
 	d.CaptureOrigin = time.Date(2026, 10, 5, 8, 30, 0, 123, time.UTC)
 	d.ClockStepTolerance = 250 * time.Millisecond
 	d.SourceTZ = new("Asia/Taipei")
@@ -191,7 +192,7 @@ func TestFullDescriptorSetsEveryReference(t *testing.T) {
 			assert.Falsef(t, v.IsZero(), "%s refers to a zero value in fullDescriptor", path)
 		}
 	})
-	assert.Equal(t, 20, n, "pointer and slice fields of CaptureDescriptor and HSMSTimers")
+	assert.Equal(t, 21, n, "pointer and slice fields of CaptureDescriptor and HSMSTimers")
 }
 
 // walkReferences calls fn for every pointer or slice field of the struct v, under path:

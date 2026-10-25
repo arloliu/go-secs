@@ -1,7 +1,7 @@
 {
-  "corpus": "tracepack-corpus/4",
-  "spec_version": "2.33",
-  "format_version": "1.1",
+  "corpus": "tracepack-corpus/5",
+  "spec_version": "2.37",
+  "format_version": "1.2",
   "zstd_encoder": "github.com/klauspost/compress v1.20.1",
   "vectors": [
     {
@@ -174,7 +174,7 @@
     },
     {
       "id": "basic-future-minor",
-      "title": "a readable pack of format_minor 2 holding an unknown tag",
+      "title": "a readable pack of format_minor 3 holding an unknown tag",
       "cites": [
         "FMT §14",
         "FMT §5",
@@ -185,7 +185,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
-      "jsonl_schema": "tracepack-jsonl/2",
+      "jsonl_schema": "tracepack-jsonl/3",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -263,6 +263,42 @@
       ],
       "codec": "none",
       "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "basic-new-tags-segment-1-1",
+      "title": "a format 1.1 segment holding tag 0x0034 as utf8",
+      "cites": [
+        "FMT §5",
+        "FMT §14",
+        "JSONL §5"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "basic-recorder-instance-name",
+      "title": "a format 1.2 segment carrying recorder_instance_name",
+      "cites": [
+        "FMT §5",
+        "FMT §14",
+        "JSONL §5"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/3",
       "source": "generated",
       "files": [
         "pack.tpk",

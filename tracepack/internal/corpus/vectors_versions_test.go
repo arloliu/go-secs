@@ -58,7 +58,7 @@ func TestVersionVectorsKeepTheirStatus(t *testing.T) {
 
 	rd, _ = builtItems(t, "basic-future-minor")
 	h = rd.Header()
-	assert.Equal(t, uint16(2), h.FormatMinor)
+	assert.Equal(t, uint16(3), h.FormatMinor)
 	require.Len(t, h.Meta.Unknown, 1)
 	assert.Equal(t, unassignedMetaTag, h.Meta.Unknown[0].Tag)
 }

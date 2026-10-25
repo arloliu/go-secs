@@ -108,6 +108,29 @@ func TestDescriptorRoundTrip(t *testing.T) {
 	assert.Equal(t, b, raw)
 }
 
+// recorder_instance_name, of format 1.2, is a producer-owned value: it round-trips, the empty string and a "/" included,
+// and its entry follows thinning in tag order.
+func TestDescriptorRecorderInstanceName(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"eqp", "", "hub/eqp"} {
+		m := descriptorMeta()
+		m.RecorderInstanceName = new(name)
+		b, err := EncodeDescriptor(m)
+		require.NoError(t, err)
+
+		got, err := DecodeDescriptor(b)
+		require.NoError(t, err)
+		assert.Equal(t, m, got, "name %q", name)
+
+		entries, err := tlv.Decode(b)
+		require.NoError(t, err)
+		last := entries[len(entries)-1]
+		assert.Equal(t, tagRecorderInstanceName, last.Tag, "name %q", name)
+		assert.Equal(t, tlv.TypeUTF8, last.Type, "name %q", name)
+	}
+}
+
 func TestDescriptorRoundTripMinimal(t *testing.T) {
 	t.Parallel()
 
@@ -171,6 +194,7 @@ func TestEncodeDescriptorRefuses(t *testing.T) {
 		{"thinning function 256", func(m *PackMeta) { m.Thinning[0].Function = 256 }},
 		{"device_id above 2^63-1", func(m *PackMeta) { m.DeviceID = new(uint64(1 << 63)) }},
 		{"invalid UTF-8", func(m *PackMeta) { m.SiteID = new("\xff") }},
+		{"invalid UTF-8 in recorder_instance_name", func(m *PackMeta) { m.RecorderInstanceName = new("\xff") }},
 	}
 
 	for _, tt := range tests {

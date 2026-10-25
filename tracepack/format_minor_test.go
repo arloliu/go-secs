@@ -301,6 +301,15 @@ func TestFormatMinorOfEachFeature(t *testing.T) {
 			return m
 		}, 1},
 		{"a thinning entry", func() *PackMeta { m := extract(); m.Thinning = thinnedMeta().Thinning; return m }, 1},
+		{"a recorder_instance_name", func() *PackMeta { m := repairTestMeta(); m.RecorderInstanceName = new("eqp"); return m }, 2},
+		{"an empty recorder_instance_name", func() *PackMeta { m := repairTestMeta(); m.RecorderInstanceName = new(""); return m }, 2},
+		{"a recorder_instance_name beside a format 1.1 feature", func() *PackMeta {
+			m := extract()
+			m.Thinning = thinnedMeta().Thinning
+			m.RecorderInstanceName = new("eqp")
+
+			return m
+		}, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -11,29 +11,34 @@ import (
 // Values that identify the corpus (the tracepack corpus specification §3).
 const (
 	// CorpusSchema names the schemas of every file of the corpus.
-	CorpusSchema = "tracepack-corpus/4"
+	CorpusSchema = "tracepack-corpus/5"
 	// SpecVersion is the spec version the goldens follow.
-	SpecVersion = "2.33"
+	SpecVersion = "2.37"
 	// FormatVersion is the format revision the corpus targets;
 	// a compatibility or rejection vector may hold a pack of another version.
-	FormatVersion = "1.1"
+	FormatVersion = "1.2"
 )
 
 // Export schemas of a vector's .jsonl file (the tracepack JSONL specification §5).
 const (
 	// JSONLSchema1 is the export schema of a pack whose format_minor is 0.
 	JSONLSchema1 = "tracepack-jsonl/1"
-	// JSONLSchema2 is the export schema of a pack whose format_minor is 1 or more.
+	// JSONLSchema2 is the export schema of a pack whose format_minor is 1.
 	JSONLSchema2 = "tracepack-jsonl/2"
+	// JSONLSchema3 is the export schema of a pack whose format_minor is 2 or more.
+	JSONLSchema3 = "tracepack-jsonl/3"
 )
 
 // JSONLSchemaOf returns the export schema of a pack of format_minor minor.
 func JSONLSchemaOf(minor uint16) string {
-	if minor == 0 {
+	switch minor {
+	case 0:
 		return JSONLSchema1
+	case 1:
+		return JSONLSchema2
+	default:
+		return JSONLSchema3
 	}
-
-	return JSONLSchema2
 }
 
 // Vector classes (the tracepack corpus specification §2).
@@ -220,7 +225,7 @@ func (v *Vector) check() error {
 		return fmt.Errorf("corpus: vector %q: %w", v.ID, err)
 	}
 	if exported := v.Class != ClassRejection; exported != (v.JSONLSchema != "") ||
-		(exported && v.JSONLSchema != JSONLSchema1 && v.JSONLSchema != JSONLSchema2) {
+		(exported && v.JSONLSchema != JSONLSchema1 && v.JSONLSchema != JSONLSchema2 && v.JSONLSchema != JSONLSchema3) {
 		return fmt.Errorf("corpus: vector %q of class %s: jsonl_schema %q", v.ID, v.Class, v.JSONLSchema)
 	}
 

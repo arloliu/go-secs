@@ -175,6 +175,7 @@ func jsonlEveryTagMeta() []byte {
 			tlv.U64Entry(0x0001, 1),
 			tlv.UTF8Entry(0x0004, "x"),
 		}),
+		tlv.UTF8Entry(0x0034, "eqp/1"),
 		tlv.Entry{Tag: 0x0040, Type: 9, Value: []byte("zz")},
 	)
 }
@@ -195,7 +196,7 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 	}
 
 	// Written by hand from the tracepack JSONL specification §3–§5.
-	want := `{"schema":"tracepack-jsonl/2","format_major":1,"format_minor":3,"flags":["redaction-present","bit(31)"],` +
+	want := `{"schema":"tracepack-jsonl/3","format_major":1,"format_minor":3,"flags":["redaction-present","bit(31)"],` +
 		`"writer_start_utc_ns":"1791000000000000000",` +
 		`"pack_id":"00010203-0405-0607-0809-0a0b0c0d0e0f","capture_id":"abababab-abab-abab-abab-abababababab",` +
 		`"metadata":{` +
@@ -220,6 +221,7 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 		`"redaction":[{"seq":"5","item_path":"","masked_ranges":"DgAAAAAAAAAEAAAAAAAAAA==","domain":"d","digest":"q83v",` +
 		`"siv":"/////////////////////w==","unknown":[{"tag":7,"value_type":2,"value":"Ag=="}]}],` +
 		`"thinning":[{"stream":"1","function":"3","source":"s","unknown":[{"tag":4,"value_type":6,"value":"eA=="}]}],` +
+		`"recorder_instance_name":"eqp/1",` +
 		`"unknown":[{"tag":20,"value_type":4,"value":"AQAAAAAAAAA="},{"tag":32769,"value_type":7,"value":"AQID"},` +
 		`{"tag":64,"value_type":9,"value":"eno="}]` +
 		"}}\n"

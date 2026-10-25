@@ -20,6 +20,8 @@
 // a Writer writes minor 0 for a pack holding neither, as for every pack before format 1.1.
 // A pack of minor 1 that holds no such feature is still read as minor 1, and a merge of it writes minor 1
 // (the tracepack format specification §14).
+// Format 1.2, minor 2, adds recorder_instance_name, the human-readable name of the deployment recorder_instance_id identifies;
+// a Writer writes minor 2 exactly when the pack metadata carries it.
 //
 // # Recording
 //
@@ -32,7 +34,8 @@
 // an error wrapping ErrPublishUncertain reports a segment that is published but may not survive a system crash.
 // NewWriter writes one pack from pack metadata the caller assembles, the layer under SegmentWriter and Merge;
 // it and Merge write block bodies and the footer with zstd unless their options set Uncompressed.
-// A Writer writes format_minor 1 exactly when the pack metadata holds a feature of format 1.1.
+// A Writer writes format_minor 2 when the pack metadata holds a feature of format 1.2,
+// else 1 when it holds a feature of format 1.1, else 0.
 // Writer.Close returns a Continuation, whose Next gives the seq the capture's next pack starts at,
 // and reports no next pack after a pack whose last record has seq 2^63-1, the last seq of a capture.
 //
@@ -102,7 +105,8 @@
 // ExportJSONL writes the canonical JSONL export of one pack (the tracepack JSONL specification):
 // a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
 // A pack of format minor 0 exports schema tracepack-jsonl/1, as earlier versions wrote it,
-// and any other pack tracepack-jsonl/2, which names the additions of format 1.1.
+// a pack of minor 1 tracepack-jsonl/2, which names the additions of format 1.1,
+// and any other pack tracepack-jsonl/3, which also names recorder_instance_name.
 // A damaged pack exports the records of its validated blocks, with the Result Iterate returns for it:
 // a failed block or a crash gap makes it incomplete, while a footer that is not used only sets FooterErr.
 // A reader budget that keeps part of the pack out fails the export with an error wrapping ErrReadLimit instead.
@@ -114,12 +118,13 @@
 // Merge writes one archive of a scope from the segments and archives its caller gives,
 // with the scope_generation and publisher_epoch the caller supplies;
 // it writes the archive's lineage, compacted_from and supersedes, from the inputs.
-// It carries the masks and thinning of format 1.1 packs and writes the largest format_minor of its inputs;
+// It carries the masks and thinning of format 1.1 packs and the recorder_instance_name of format 1.2 packs,
+// and writes the largest format_minor of its inputs;
 // it refuses inputs carrying redaction_policy that differ in that policy or in their classifier configuration,
 // or a masked input beside an unmasked one,
 // while inputs without a policy merge with their classifier and max_frame_len values united, as before;
 // differing redaction entries for one seq are conflicts (the tracepack storage specification §4 Merge).
-// Packs of format 1.1 are merged only by this version or later.
+// Packs of format 1.2 are merged only by tracepack v0.8.0 or later, which an earlier merger enforces by refusing them.
 // The caller decides which packs a merge takes and when a pack may be deleted,
 // and publishes the archive only after Merge returns nil (the tracepack storage specification §4).
 // SegmentKey and ArchiveKey build the keys of the tracepack storage specification §3, and EscapeToolID spells a tool as a key does.

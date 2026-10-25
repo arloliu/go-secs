@@ -32,7 +32,7 @@ var descriptorRegistry = func() tlv.Registry {
 		tagPreviousCaptureID,
 		tagSiteID, tagEquipmentModel, tagEquipmentSWRev, tagHostSoftware, tagHostEndpoint, tagEquipmentEndpoint,
 		tagEquipmentConnectMode, tagDeviceID, tagHSMSTimers,
-		tagThinning,
+		tagThinning, tagRecorderInstanceName,
 	}
 
 	reg := make(tlv.Registry, len(required)+len(optional))
@@ -56,7 +56,7 @@ var descriptorRegistry = func() tlv.Registry {
 // previous_capture_id and the site and equipment tags when m holds them
 // (site_id, equipment_model, equipment_sw_rev, host_software, host_endpoint, equipment_endpoint,
 // equipment_connect_mode, device_id and hsms_timers),
-// and every thinning entry, in tag order and thinning in its own order.
+// every thinning entry, and recorder_instance_name when m holds it, in tag order and thinning in its own order.
 // Every other value of m, the consumer-owned ones and m.Unknown included, is not encoded;
 // m's values are written as they are, with no default applied.
 //
@@ -111,6 +111,9 @@ func EncodeDescriptor(m *PackMeta) ([]byte, error) {
 	})
 	for _, th := range m.Thinning {
 		entries = append(entries, th.entry())
+	}
+	if m.RecorderInstanceName != nil {
+		entries = append(entries, tlv.UTF8Entry(tagRecorderInstanceName, *m.RecorderInstanceName))
 	}
 
 	return encodeEntries(entries, descriptorRegistry, "capture descriptor")
