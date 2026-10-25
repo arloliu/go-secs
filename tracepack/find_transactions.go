@@ -5,7 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 )
@@ -26,7 +29,8 @@ type TxRange struct {
 // TxRangeOptions configures FindTransactions.
 type TxRangeOptions struct {
 	// Lookup applies to the lookup of each primary as it applies to one FindTransaction:
-	// MaxScopes, and MaxHeldBytes, MaxConflicts and MaxStateBytes, each per lookup.
+	// MaxScopes, and MaxHeldBytes, MaxConflicts and MaxStateBytes, each per lookup;
+	// up to GOMAXPROCS lookups run at once (see FindTransactions), so up to that many MaxStateBytes are charged at once.
 	// MaxHeldBytes also bounds the read of each hour into the cache, as it bounds a lookup's read of that hour.
 	Lookup TxOptions
 	// MaxCachedBytes bounds the hours FindTransactions holds at once, the records and diagnostics of each hour read,
@@ -88,9 +92,18 @@ type TxRangeResult struct {
 // Each hour is held, read once, while a primary's lookup still needs it, so at most MaxScopes hours at once,
 // bounded by TxRangeOptions.MaxCachedBytes.
 //
+// The lookups of an hour's primaries run on up to runtime.GOMAXPROCS(0) goroutines, read when the call starts,
+// and on the calling goroutine alone when that is 1 or less.
+// fn is called from the calling goroutine, one pairing at a time, in the order above;
+// without cancellation, the pairings, the error and the result are those of the lookups run one after another,
+// and a panic in a lookup is raised again on the calling goroutine.
+// Every goroutine FindTransactions starts has ended when it returns.
+//
 // Parameters:
 //   - ctx: cancels the call; checked before each hour, during each hour's read and enumeration,
-//     before and inside each lookup, before each pairing is passed to fn, and before FindTransactions returns.
+//     before and inside each lookup, before each pairing is passed to fn, and before FindTransactions returns;
+//     the checks before each lookup's result and each pairing are the calling goroutine's, and no pairing is passed after one of them sees ctx done.
+//     Which check sees it first, and so the error's wrapping and the counts, can depend on timing.
 //   - src: the packs of each hour, as for FindTransaction.
 //   - r: the capture and time range of the primaries.
 //   - opts: see TxRangeOptions.
@@ -187,6 +200,13 @@ type txBatch struct {
 	lookupPrep       func(l *txLookup)
 	// onTick, set only by tests, runs at each check of ctx that tick makes, before it.
 	onTick func()
+	// workers is the number of goroutines that run an hour's lookups, runtime.GOMAXPROCS(0) when the call starts;
+	// 1 or less runs them one after another on the calling goroutine (pairParallel).
+	workers int
+	// parallelLookup, set only by tests, runs on a worker in place of the lookup of the i-th key of an hour; it must be safe for concurrent use.
+	// liveWorkers counts the workers running, for tests.
+	parallelLookup func(ctx context.Context, i int, key TxKey) (TxResult, error)
+	liveWorkers    atomic.Int32
 }
 
 // txCacheBudget charges the hour records a batch holds against MaxCachedBytes.
@@ -248,7 +268,7 @@ func newTxBatch(src PackSource, r TxRange, opts TxRangeOptions, fn func(*TxPairi
 		src: src, r: r, opts: lookup, fn: fn, fromNs: fromNs, toNs: toNs, first: first, last: last,
 		// The map grows with the hours held, at most MaxScopes, each charged when filled; no capacity is reserved ahead of them.
 		hours: map[int64]*txHourRecord{}, cache: txCacheBudget{limit: limit},
-		ticks: ctxCounter{step: txCtxStep},
+		ticks: ctxCounter{step: txCtxStep}, workers: runtime.GOMAXPROCS(0),
 	}, nil
 }
 
@@ -502,8 +522,12 @@ func (b *txBatch) evict(h int64) {
 }
 
 // pair runs the lookup of every primary of rec, the record of an hour whose lookups have every hour they read,
-// over the batch's hour records, and passes each pairing to fn.
+// over the batch's hour records, and passes each pairing to fn:
+// on the batch's workers (pairParallel), or one after another when it has one worker, rec has one key, or a test hooks every lookup.
 func (b *txBatch) pair(ctx context.Context, rec *txHourRecord) error {
+	if b.workers > 1 && len(rec.keys) > 1 && b.lookupPrep == nil {
+		return b.pairParallel(ctx, rec)
+	}
 	hours := txReplay{b: b}
 	for _, seq := range rec.keys {
 		if err := ctx.Err(); err != nil {
@@ -521,6 +545,107 @@ func (b *txBatch) pair(ctx context.Context, rec *txHourRecord) error {
 		if err := b.fn(&TxPairing{Key: key, Result: res}); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// txSlot is where a worker of pairParallel leaves the result of one lookup for the calling goroutine.
+// Its worker writes the result between taking free and sending ready; the calling goroutine reads and clears it
+// between receiving ready and sending free, so the two channels order every access.
+type txSlot struct {
+	// free holds a token while the worker may run its next lookup; ready, once the result is in the slot.
+	free, ready chan struct{}
+	res         TxResult
+	err         error
+	// panicked reports that the lookup panicked with panicVal.
+	panicked bool
+	panicVal any
+}
+
+// pairParallel is pair over min(workers, len(rec.keys)) worker goroutines, w:
+// worker s runs the lookups of keys s, s+w, s+2w, …, each once the calling goroutine has passed the pairing before it in its slot,
+// so at most w lookups are running or waiting to be passed at once;
+// the calling goroutine takes the results in key order, checks ctx before each lookup's result and before each pairing as pair does,
+// and passes each pairing to fn, so the pairings, their order, the error and the counts are pair's when ctx is not cancelled.
+// A lookup's error or panic is seen only when its key's turn comes; a panic is raised again on the calling goroutine.
+// Every worker has ended when it returns, or panics.
+func (b *txBatch) pairParallel(ctx context.Context, rec *txHourRecord) error {
+	n := len(rec.keys)
+	w := min(b.workers, n)
+	slots := make([]txSlot, w)
+	lctx, stop := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	defer func() {
+		stop()
+		wg.Wait()
+	}()
+
+	lookup := func(ctx context.Context, _ int, key TxKey) (TxResult, error) {
+		return lookupHours(ctx, txReplay{b: b}, key, b.opts, nil)
+	}
+	if b.parallelLookup != nil {
+		lookup = b.parallelLookup
+	}
+	wg.Add(w)
+	for s := range slots {
+		sl := &slots[s]
+		sl.free, sl.ready = make(chan struct{}, 1), make(chan struct{}, 1)
+		sl.free <- struct{}{}
+		go func() {
+			defer wg.Done()
+			b.liveWorkers.Add(1)
+			defer b.liveWorkers.Add(-1)
+			for i := s; i < n; i += w {
+				select {
+				case <-sl.free:
+				case <-lctx.Done():
+					return
+				}
+				key := TxKey{Capture: b.r.Capture, Seq: rec.keys[i], Hour: rec.hour}
+				func() {
+					defer func() {
+						if v := recover(); v != nil {
+							sl.panicked, sl.panicVal = true, v
+						}
+					}()
+					sl.res, sl.err = lookup(lctx, i, key)
+				}()
+				panicked := sl.panicked
+				// ready is empty: the calling goroutine takes it before it gives free back.
+				sl.ready <- struct{}{}
+				if panicked {
+					return
+				}
+			}
+		}()
+	}
+
+	for i, seq := range rec.keys {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("tracepack: find transactions: %w", err)
+		}
+		sl := &slots[i%w]
+		select {
+		case <-sl.ready:
+		case <-ctx.Done():
+			return fmt.Errorf("tracepack: find transactions: %w", ctx.Err())
+		}
+		if sl.panicked {
+			panic(sl.panicVal)
+		}
+		if sl.err != nil {
+			return fmt.Errorf("tracepack: find transactions: primary seq %d of hour %d: %w", seq, rec.hour, sl.err)
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("tracepack: find transactions: %w", err)
+		}
+		b.res.Primaries++
+		if err := b.fn(&TxPairing{Key: TxKey{Capture: b.r.Capture, Seq: seq, Hour: rec.hour}, Result: sl.res}); err != nil {
+			return err
+		}
+		sl.res, sl.err = TxResult{}, nil
+		sl.free <- struct{}{}
 	}
 
 	return nil

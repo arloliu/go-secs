@@ -346,7 +346,7 @@ func fingerprint(rec *txHourRecord) [32]byte {
 	return [32]byte(h.Sum(nil))
 }
 
-// Every hour record a batch holds is unchanged from its fill to its eviction,
+// Every hour record a batch holds is unchanged from its fill to its eviction, read by lookups on several workers,
 // though every pairing passed to fn is mutated in full: the lookups and the caller share no mutable storage with it.
 func TestFindTransactionsRecordsUnchanged(t *testing.T) {
 	t.Parallel()
@@ -357,6 +357,7 @@ func TestFindTransactionsRecordsUnchanged(t *testing.T) {
 		evicted := 0
 		var batch *txBatch
 		r := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
+		// On several workers, the records are read by lookups running beside the callback's checks.
 		_, err := findTransactionsWith(t.Context(), g.src.view(), r, TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}},
 			func(p *TxPairing) error {
 				mutateTxResult(&p.Result)
@@ -367,6 +368,7 @@ func TestFindTransactionsRecordsUnchanged(t *testing.T) {
 			},
 			func(b *txBatch) {
 				batch = b
+				b.workers = 4
 				b.filled = func(rec *txHourRecord) { filled[rec.hour] = fingerprint(rec) }
 				b.evicting = func(rec *txHourRecord) {
 					evicted++
@@ -668,6 +670,17 @@ func TestFindTransactionsCancelInFill(t *testing.T) {
 func TestFindTransactionsCancelBeforeDelivery(t *testing.T) {
 	t.Parallel()
 
+	for _, workers := range txWorkerCounts {
+		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
+			t.Parallel()
+
+			txCancelAroundDelivery(t, workers)
+		})
+	}
+}
+
+// txCancelAroundDelivery is TestFindTransactionsCancelBeforeDelivery with workers.
+func txCancelAroundDelivery(t *testing.T, workers int) {
 	s := txHours(t,
 		[][]byte{txPack(t, seg0, nil, txBlock(txRecord(10, nil), txReply(11, nil), txRecord(12, txKeyless), txRecord(13, nil)))},
 		[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txReply(14, nil)))},
@@ -676,10 +689,10 @@ func TestFindTransactionsCancelBeforeDelivery(t *testing.T) {
 	opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}}
 	dry := &txCancelAfter{Context: t.Context(), at: math.MaxInt}
 	var before []int
-	_, err := FindTransactions(dry, s.view(), r, opts, func(*TxPairing) error {
+	_, err := findTransactionsWith(dry, s.view(), r, opts, func(*TxPairing) error {
 		before = append(before, dry.calls)
 		return nil
-	})
+	}, txWorkers(workers))
 	require.NoError(t, err)
 	require.Len(t, before, 3)
 
@@ -687,10 +700,10 @@ func TestFindTransactionsCancelBeforeDelivery(t *testing.T) {
 		ctx := &txCancelAfter{Context: t.Context(), at: c - 1}
 		src := &txGuardedSource{src: s.view(), cancelled: func() bool { return ctx.reported }, t: t}
 		paired := 0
-		res, err := FindTransactions(ctx, src, r, opts, func(*TxPairing) error {
+		res, err := findTransactionsWith(ctx, src, r, opts, func(*TxPairing) error {
 			paired++
 			return nil
-		})
+		}, txWorkers(workers))
 		require.EqualError(t, err, "tracepack: find transactions: context canceled", "pairing %d", k)
 		assert.Equal(t, k, paired, "pairing %d", k)
 		assert.Equal(t, TxRangeResult{HoursRead: 1, Primaries: k}, res, "pairing %d", k)
@@ -700,10 +713,10 @@ func TestFindTransactionsCancelBeforeDelivery(t *testing.T) {
 		ctx = &txCancelAfter{Context: t.Context(), at: c}
 		src = &txGuardedSource{src: s.view(), cancelled: func() bool { return ctx.reported }, t: t}
 		paired = 0
-		res, err = FindTransactions(ctx, src, r, opts, func(*TxPairing) error {
+		res, err = findTransactionsWith(ctx, src, r, opts, func(*TxPairing) error {
 			paired++
 			return nil
-		})
+		}, txWorkers(workers))
 		require.EqualError(t, err, "tracepack: find transactions: context canceled", "after pairing %d", k)
 		assert.Equal(t, TxRangeResult{HoursRead: 1, Primaries: k + 1}, res, "after pairing %d", k)
 		assert.Equal(t, k+1, paired, "after pairing %d", k)
@@ -726,7 +739,8 @@ func (s *txGuardedSource) Readers(ctx context.Context, hour int64) ([]*Reader, e
 	return s.src.Readers(ctx, hour)
 }
 
-// Every pairing is the caller's own: kept after fn returns, each still holds what it held when it was passed,
+// Every pairing is the caller's own, its lookup run on one of several workers:
+// kept after fn returns, each still holds what it held when it was passed,
 // after later pairings, the eviction of its hours and the end of the call, and no two share a TxPairing.
 func TestFindTransactionsPairingsOwned(t *testing.T) {
 	t.Parallel()
@@ -736,14 +750,14 @@ func TestFindTransactionsPairingsOwned(t *testing.T) {
 		r := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
 		var kept []*TxPairing
 		var forms []txStrictForm
-		_, err := FindTransactions(t.Context(), g.src.view(), r, TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}},
+		_, err := findTransactionsWith(t.Context(), g.src.view(), r, TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}},
 			func(p *TxPairing) error {
 				for _, q := range kept {
 					require.NotSame(t, q, p, "seed %d: a fresh TxPairing", seed)
 				}
 				kept, forms = append(kept, p), append(forms, strictForm(&p.Result))
 				return nil
-			})
+			}, txWorkers(4))
 		require.NoError(t, err, "seed %d", seed)
 		for i, p := range kept {
 			requireStrictEqual(t, forms[i], strictForm(&p.Result), "seed %d: pairing %v kept", seed, p.Key)
