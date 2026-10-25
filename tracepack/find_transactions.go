@@ -177,6 +177,8 @@ type txBatch struct {
 	// lookupPrep, set only by tests, runs on the state of each primary's lookup before it starts.
 	filled, evicting func(rec *txHourRecord)
 	lookupPrep       func(l *txLookup)
+	// onTick, set only by tests, runs at each check of ctx that tick makes, before it.
+	onTick func()
 }
 
 // txCacheBudget charges the hour records a batch holds against MaxCachedBytes.
@@ -287,6 +289,9 @@ func (b *txBatch) tick(ctx context.Context) error {
 	if !b.ticks.add(1) {
 		return nil
 	}
+	if b.onTick != nil {
+		b.onTick()
+	}
 
 	return ctx.Err()
 }
@@ -359,7 +364,9 @@ func (b *txBatch) keep(ctx context.Context, rec *txHourRecord, it *Item, flags u
 		return err
 	}
 	n := txCacheItemCharge + int64(len(it.Record.Payload)) + int64(len(it.HeaderExtra)) + redactionCost(it.Redaction)
-	key := enumerate && b.pairs(rec, it)
+	// A read yields the versions of a seq together, so a seq repeating the last key is charged once;
+	// the repeats a block disagreeing with its F-2 entry brings apart are released when the keys are sorted.
+	key := enumerate && b.pairs(rec, it) && (len(rec.keys) == 0 || rec.keys[len(rec.keys)-1] != it.Record.Seq)
 	if key {
 		n += txCacheKeyCharge
 	}
@@ -467,7 +474,7 @@ func (b *txBatch) sortKeys(ctx context.Context, rec *txHourRecord) error {
 	slices.Sort(rec.keys)
 	n := len(rec.keys)
 	rec.keys = slices.Compact(rec.keys)
-	// Each version of a primary charged a key; the seqs repeated are released.
+	// A seq kept twice, apart, charged twice; the repeats are released.
 	dropped := int64(n-len(rec.keys)) * txCacheKeyCharge
 	b.cache.release(dropped)
 	rec.charge -= dropped

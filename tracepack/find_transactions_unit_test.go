@@ -374,13 +374,18 @@ func TestFindTransactionsRecordsUnchanged(t *testing.T) {
 		g := genTxCapture(t, seed)
 		filled := map[int64][32]byte{}
 		evicted := 0
+		var batch *txBatch
 		r := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
 		_, err := findTransactionsWith(t.Context(), g.src.view(), r, TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}},
 			func(p *TxPairing) error {
 				mutateTxResult(&p.Result)
+				for _, rec := range batch.hours {
+					require.Equal(t, filled[rec.hour], fingerprint(rec), "seed %d: hour %d unchanged after %v is mutated", seed, rec.hour, p.Key)
+				}
 				return nil
 			},
 			func(b *txBatch) {
+				batch = b
 				b.filled = func(rec *txHourRecord) { filled[rec.hour] = fingerprint(rec) }
 				b.evicting = func(rec *txHourRecord) {
 					evicted++
@@ -400,12 +405,15 @@ func TestFindTransactionsRecordsUnchanged(t *testing.T) {
 func TestFindTransactionsLookupTicks(t *testing.T) {
 	t.Parallel()
 
-	for seed := range uint64(24) {
+	for seed := range uint64(48) {
 		g := genTxCapture(t, seed)
 		snap := newTxSnapshot(t, g.src, captureLow, g.first, g.first+int64(g.hours+txGenHours))
 		from, to := g.first*hourNs, (g.first+int64(g.hours))*hourNs
 		opts := TxOptions{MaxScopes: g.maxScopes}
-		live := map[TxKey]int{}
+		if seed%2 == 1 {
+			opts.MaxConflicts, opts.MaxStateBytes = 1, 4<<10 // budgets small enough to fail some lookups
+		}
+		live, failed := map[TxKey]int{}, map[TxKey]int{}
 		for _, key := range txRangeKeys(snap, captureLow, from, to) {
 			n := 0
 			_, err := findTransactionWith(t.Context(), g.src.view(), key, opts, func(l *txLookup) {
@@ -414,6 +422,8 @@ func TestFindTransactionsLookupTicks(t *testing.T) {
 			})
 			if err == nil {
 				live[key] = n
+			} else {
+				failed[key] = n
 			}
 		}
 
@@ -435,7 +445,22 @@ func TestFindTransactionsLookupTicks(t *testing.T) {
 			})
 		if err == nil {
 			assert.Len(t, live, compared, "seed %d", seed)
+			assert.Empty(t, failed, "seed %d: no lookup fails alone when the batch succeeds", seed)
+			continue
 		}
+		// The batch stops in the lookup it names, at the event where that lookup fails alone.
+		// A live read that fails returns its partial Result, which the lookup still maps before it returns;
+		// a replay returns none, by design, since a failed lookup's result is never reported,
+		// so the replayed lookup checks ctx no more often than the live one, and fails with the same error.
+		var seq uint64
+		var hour int64
+		_, serr := fmt.Sscanf(err.Error(), "tracepack: find transactions: primary seq %d of hour %d:", &seq, &hour)
+		require.NoError(t, serr, "seed %d: %v", seed, err)
+		key := TxKey{Capture: captureLow, Seq: seq, Hour: hour}
+		want, ok := failed[key]
+		require.True(t, ok, "seed %d: %v fails alone too", seed, key)
+		assert.LessOrEqual(t, n, want, "seed %d: checks of ctx in the failing lookup of %v", seed, key)
+		assert.Positive(t, n, "seed %d: the failing lookup of %v ran", seed, key)
 	}
 }
 
@@ -471,10 +496,31 @@ func TestFindTransactionsCancelEverywhere(t *testing.T) {
 	full, err := findTransactionsWith(total, g.src.view(), r, opts, func(*TxPairing) error { return nil }, prep)
 	require.NoError(t, err)
 	require.Positive(t, full.Primaries)
+	// With a step of 1 the batch's own counter checks ctx once per item of every hour it reads and once per conflict version,
+	// apart from the lookups' checks and from the checks between hours:
+	// a check removed from the fill shrinks its count below the bound.
+	snap := newTxSnapshot(t, g.src, captureLow, g.first, g.first+int64(g.hours+txGenHours))
+	own := 0
+	_, err = findTransactionsWith(t.Context(), g.src.view(), r, opts, func(*TxPairing) error { return nil }, func(b *txBatch) {
+		b.ticks.step = 1
+		b.onTick = func() { own++ }
+	})
+	require.NoError(t, err)
+	bound := 0
+	for h := g.first; h < g.first+int64(full.HoursRead); h++ {
+		sc := snap.scopes[h]
+		bound += len(sc.items)
+		for _, c := range sc.conflicts {
+			bound += len(c.Versions)
+		}
+	}
+	require.Positive(t, bound)
+	require.GreaterOrEqual(t, own, bound, "the batch's own checks of ctx")
 
 	for at := 0; at <= total.calls; at++ {
 		ctx := &txCancelAfter{Context: t.Context(), at: at}
-		res, err := findTransactionsWith(ctx, g.src.view(), r, opts, func(*TxPairing) error {
+		src := &txGuardedSource{src: g.src.view(), ctx: ctx, t: t}
+		res, err := findTransactionsWith(ctx, src, r, opts, func(*TxPairing) error {
 			require.False(t, ctx.reported, "at %d: no pairing after ctx reported its cancellation", at)
 			return nil
 		}, prep)
@@ -484,5 +530,50 @@ func TestFindTransactionsCancelEverywhere(t *testing.T) {
 		}
 		require.ErrorIs(t, err, context.Canceled, "at %d", at)
 		require.LessOrEqual(t, res.Primaries, full.Primaries, "at %d", at)
+		// An hour counts as read once its fill completes: the source was called for it, and maybe for one more hour cut short.
+		require.Contains(t, []int{src.calls, src.calls - 1}, res.HoursRead, "at %d: hours read against source calls", at)
+	}
+}
+
+// txGuardedSource fails its test when called after its ctx reported cancellation, and counts its calls.
+type txGuardedSource struct {
+	src   PackSource
+	ctx   *txCancelAfter
+	t     *testing.T
+	calls int
+}
+
+func (s *txGuardedSource) Readers(ctx context.Context, hour int64) ([]*Reader, error) {
+	require.False(s.t, s.ctx.reported, "no source call after ctx reported its cancellation")
+	s.calls++
+
+	return s.src.Readers(ctx, hour)
+}
+
+// Every pairing is the caller's own: kept after fn returns, each still holds what it held when it was passed,
+// after later pairings, the eviction of its hours and the end of the call, and no two share a TxPairing.
+func TestFindTransactionsPairingsOwned(t *testing.T) {
+	t.Parallel()
+
+	for seed := range uint64(16) {
+		g := genTxCapture(t, seed)
+		r := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
+		var kept []*TxPairing
+		var forms []txStrictForm
+		_, err := FindTransactions(t.Context(), g.src.view(), r, TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}},
+			func(p *TxPairing) error {
+				for _, q := range kept {
+					require.NotSame(t, q, p, "seed %d: a fresh TxPairing", seed)
+				}
+				kept, forms = append(kept, p), append(forms, strictForm(&p.Result))
+				return nil
+			})
+		require.NoError(t, err, "seed %d", seed)
+		for i, p := range kept {
+			requireStrictEqual(t, forms[i], strictForm(&p.Result), "seed %d: pairing %v kept", seed, p.Key)
+			single, err := FindTransaction(t.Context(), g.src.view(), p.Key, TxOptions{MaxScopes: g.maxScopes})
+			require.NoError(t, err)
+			requireStrictEqual(t, strictForm(&single), strictForm(&p.Result), "seed %d: pairing %v kept", seed, p.Key)
+		}
 	}
 }
