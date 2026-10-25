@@ -298,14 +298,9 @@ func txRangeKeys(snap *txSnapshot, capture UUID, fromNs, toNs int64) []TxKey {
 		}
 		var seqs []uint64
 		for _, it := range sc.items {
-			r := &it.rec
-			if sc.captures[it.pack] != capture || r.Kind != KindData || r.TSUTCNs < fromNs || r.TSUTCNs >= toNs || hourOf(r.TSUTCNs) != h {
-				continue
+			if txRangePrimary(capture, sc.captures[it.pack], &it.rec, h, fromNs, toNs) {
+				seqs = append(seqs, it.rec.Seq)
 			}
-			if hh := r.HSMSHeader(); hh.Available&FieldValidityFunction == 0 || hh.Function%2 == 0 {
-				continue
-			}
-			seqs = append(seqs, r.Seq)
 		}
 		slices.Sort(seqs)
 		for _, s := range slices.Compact(seqs) {
@@ -314,6 +309,18 @@ func txRangeKeys(snap *txSnapshot, capture UUID, fromNs, toNs int64) []TxKey {
 	}
 
 	return keys
+}
+
+// txRangePrimary reports whether r, a version the read of hour yields from a pack of packCapture,
+// is a primary FindTransactions pairs for capture and the range [fromNs, toNs):
+// a data record of capture whose ts_utc_ns lies in hour and in the range, whose function is available and odd.
+func txRangePrimary(capture, packCapture UUID, r *Record, hour, fromNs, toNs int64) bool {
+	if packCapture != capture || r.Kind != KindData || r.TSUTCNs < fromNs || r.TSUTCNs >= toNs || hourOf(r.TSUTCNs) != hour {
+		return false
+	}
+	hh := r.HSMSHeader()
+
+	return hh.Available&FieldValidityFunction != 0 && hh.Function%2 == 1
 }
 
 // checkTxRange runs FindTransactions over g for [fromNs, toNs) with opts, mutating every pairing once it is recorded,

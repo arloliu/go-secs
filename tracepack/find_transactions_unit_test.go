@@ -219,32 +219,6 @@ func TestFindTransactionsCacheBudget(t *testing.T) {
 	assert.Equal(t, TxRangeResult{}, res)
 }
 
-// txCacheRecount recounts, from its contents, what rec must have charged against MaxCachedBytes.
-func txCacheRecount(rec *txHourRecord) int64 {
-	n := txCacheHourCharge + int64(len(rec.readers))*txCacheReaderCharge +
-		int64(len(rec.reservations))*txCacheReservationCharge + int64(len(rec.keys))*txCacheKeyCharge
-	for i := range rec.items {
-		it := &rec.items[i]
-		n += txCacheItemCharge + int64(len(it.Record.Payload)) + int64(len(it.HeaderExtra)) + redactionCost(it.Redaction)
-	}
-	for i := range rec.res.Incomplete {
-		d := &rec.res.Incomplete[i]
-		n += txCacheDefectCharge
-		if d.Coverage != nil {
-			n += coverageCost(d.Coverage)
-		}
-		if d.Boundary != nil {
-			n += txBoundaryCharge
-		}
-	}
-	n += int64(len(rec.res.FooterErrs)) * txCacheFooterErrCharge
-	for i := range rec.res.Conflicts {
-		n += conflictCost(&rec.res.Conflicts[i])
-	}
-
-	return n
-}
-
 // Over every generated capture, each hour record charges exactly what its contents recount to,
 // the cache holds the sum of the records held, at most MaxScopes of them, and nothing once the batch returns.
 func TestFindTransactionsCacheRecount(t *testing.T) {
@@ -268,7 +242,7 @@ func TestFindTransactionsCacheRecount(t *testing.T) {
 				}
 				b.filled = func(rec *txHourRecord) {
 					filled++
-					require.Equal(t, txCacheRecount(rec), rec.charge, "seed %d: hour %d recount", seed, rec.hour)
+					require.Equal(t, txCacheRecount(b, rec), rec.charge, "seed %d: hour %d recount", seed, rec.hour)
 					require.Equal(t, held(), b.cache.held, "seed %d: held after filling hour %d", seed, rec.hour)
 					require.LessOrEqual(t, len(b.hours), max(g.maxScopes, 1), "seed %d: hours held", seed)
 				}
