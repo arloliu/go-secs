@@ -3,6 +3,7 @@ package tracepack
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"slices"
 	"testing"
@@ -170,18 +171,37 @@ func requireBatchAgreesOnError(t testing.TB, src PackSource, key TxKey, opts TxO
 		return
 	}
 	from := time.Unix(0, key.Hour*hourNs)
-	_, err := FindTransactions(t.Context(), src, TxRange{Capture: key.Capture, From: from, To: from.Add(time.Hour)},
-		TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
-			single, serr := FindTransaction(t.Context(), src, p.Key, opts)
-			require.NoError(t, serr, "a pairing is reported only for a lookup that succeeds alone: %v", p.Key)
-			requireStrictEqual(t, strictForm(&single), strictForm(&p.Result), "batch pairing of %v", p.Key)
+	r := TxRange{Capture: key.Capture, From: from, To: from.Add(time.Hour)}
+	// The keys of the hour, from a batch whose lookups have budgets nothing reaches.
+	roomy := opts
+	roomy.MaxConflicts, roomy.MaxStateBytes, roomy.MaxHeldBytes = math.MaxInt, math.MaxInt64, math.MaxInt64
+	var keys []TxKey
+	if _, err := FindTransactions(t.Context(), src, r, TxRangeOptions{Lookup: roomy}, func(p *TxPairing) error {
+		keys = append(keys, p.Key)
+		return nil
+	}); err != nil {
+		return // the hour fails apart from the lookup budgets; requireBatchAgrees covers the rest
+	}
 
-			return nil
-		})
-	if errors.Is(err, ErrInvalidQuery) {
+	got := []TxKey{}
+	_, err := FindTransactions(t.Context(), src, r, TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
+		got = append(got, p.Key)
+		single, serr := FindTransaction(t.Context(), src, p.Key, opts)
+		require.NoError(t, serr, "a pairing is reported only for a lookup that succeeds alone: %v", p.Key)
+		requireStrictEqual(t, strictForm(&single), strictForm(&p.Result), "batch pairing of %v", p.Key)
+
+		return nil
+	})
+	if !slices.Contains(keys, key) {
+		requireBatchError(t, src, opts, err)
 		return
 	}
+	// The key failing alone is paired by the batch, so the batch fails at it or at an earlier key, every key before passed.
+	require.Error(t, err, "the batch reaches %v, whose lookup fails alone", key)
 	requireBatchError(t, src, opts, err)
+	at := slices.Index(keys, key)
+	require.LessOrEqual(t, len(got), at, "no key at or after the failing one is paired")
+	assert.Equal(t, append([]TxKey{}, keys[:len(got)]...), got, "the keys before the failure, in order")
 }
 
 // mutateTxResult changes every mutable part of res that a caller can reach.
