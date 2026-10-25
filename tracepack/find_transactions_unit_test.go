@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
+	"runtime"
 
 	"testing"
 	"time"
@@ -175,7 +177,7 @@ func TestFindTransactionsErrors(t *testing.T) {
 		assert.Empty(t, s.counts(), "no source call")
 	})
 
-	t.Run("ctx cancelled during an hour's read", func(t *testing.T) {
+	t.Run("ctx cancelled once an hour is read", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(t.Context())
@@ -215,22 +217,94 @@ func TestFindTransactionsCacheBudget(t *testing.T) {
 	require.ErrorIs(t, err, ErrReadLimit)
 	assert.Contains(t, err.Error(), fmt.Sprintf("hour %d", memTestHour))
 	assert.Equal(t, TxRangeResult{}, res)
+}
 
-	t.Run("evicted hours release their charge", func(t *testing.T) {
-		t.Parallel()
+// txCacheRecount recounts, from its contents, what rec must have charged against MaxCachedBytes.
+func txCacheRecount(rec *txHourRecord) int64 {
+	n := txCacheHourCharge + int64(len(rec.readers))*txCacheReaderCharge +
+		int64(len(rec.reservations))*txCacheReservationCharge + int64(len(rec.keys))*txCacheKeyCharge
+	for i := range rec.items {
+		it := &rec.items[i]
+		n += txCacheItemCharge + int64(len(it.Record.Payload)) + int64(len(it.HeaderExtra)) + redactionCost(it.Redaction)
+	}
+	for i := range rec.res.Incomplete {
+		d := &rec.res.Incomplete[i]
+		n += txCacheDefectCharge
+		if d.Coverage != nil {
+			n += coverageCost(d.Coverage)
+		}
+		if d.Boundary != nil {
+			n += txBoundaryCharge
+		}
+	}
+	n += int64(len(rec.res.FooterErrs)) * txCacheFooterErrCharge
+	for i := range rec.res.Conflicts {
+		n += conflictCost(&rec.res.Conflicts[i])
+	}
 
-		var held []int64
-		_, err := findTransactionsWith(t.Context(), s.view(), TxRange{Capture: captureLow, From: txBatchHour(0).From, To: txBatchHour(3).To},
-			TxRangeOptions{Lookup: TxOptions{MaxScopes: 2}}, func(*TxPairing) error { return nil },
+	return n
+}
+
+// Over every generated capture, each hour record charges exactly what its contents recount to,
+// the cache holds the sum of the records held, at most MaxScopes of them, and nothing once the batch returns.
+func TestFindTransactionsCacheRecount(t *testing.T) {
+	t.Parallel()
+
+	for seed := range uint64(32) {
+		g := genTxCapture(t, seed)
+		r := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
+		var batch *txBatch
+		filled, evicted := 0, 0
+		res, err := findTransactionsWith(t.Context(), g.src.view(), r, TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}},
+			func(*TxPairing) error { return nil },
 			func(b *txBatch) {
-				b.evicting = func(rec *txHourRecord) { held = append(held, b.cache.held) }
+				batch = b
+				held := func() int64 {
+					var n int64
+					for _, rec := range b.hours {
+						n += rec.charge
+					}
+					return n
+				}
 				b.filled = func(rec *txHourRecord) {
-					require.LessOrEqual(t, len(b.hours), 2, "at most MaxScopes hours held")
+					filled++
+					require.Equal(t, txCacheRecount(rec), rec.charge, "seed %d: hour %d recount", seed, rec.hour)
+					require.Equal(t, held(), b.cache.held, "seed %d: held after filling hour %d", seed, rec.hour)
+					require.LessOrEqual(t, len(b.hours), max(g.maxScopes, 1), "seed %d: hours held", seed)
+				}
+				b.evicting = func(rec *txHourRecord) {
+					evicted++
+					require.Equal(t, held(), b.cache.held, "seed %d: held before dropping hour %d", seed, rec.hour)
 				}
 			})
-		require.NoError(t, err)
-		assert.Len(t, held, 4)
-	})
+		require.NoError(t, err, "seed %d", seed)
+		assert.Equal(t, res.HoursRead, filled, "seed %d", seed)
+		assert.Equal(t, filled, evicted, "seed %d: every hour dropped", seed)
+		assert.Zero(t, batch.cache.held, "seed %d: every charge released", seed)
+		assert.Empty(t, batch.hours, "seed %d", seed)
+	}
+}
+
+// A MaxScopes far beyond the hours read reserves nothing ahead: with a cancelled context or a one-byte cache,
+// FindTransactions returns without allocating for the hours it would schedule.
+func TestFindTransactionsNoAllocationAhead(t *testing.T) {
+	src := newMemSource()
+	r := TxRange{Capture: captureLow, From: time.Unix(0, 0), To: time.Unix(0, int64(time.Hour))}
+	opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: 2_000_000}, MaxCachedBytes: 1}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	for name, ctx := range map[string]context.Context{"a cancelled ctx": cancelled, "a one-byte cache": t.Context()} {
+		allocs := testing.AllocsPerRun(5, func() {
+			_, err := FindTransactions(ctx, src, r, opts, func(*TxPairing) error { return nil })
+			require.Error(t, err)
+		})
+		var ms0, ms1 runtime.MemStats
+		runtime.ReadMemStats(&ms0)
+		_, _ = FindTransactions(ctx, src, r, opts, func(*TxPairing) error { return nil })
+		runtime.ReadMemStats(&ms1)
+		assert.Less(t, ms1.TotalAlloc-ms0.TotalAlloc, uint64(64<<10), "%s: bytes allocated", name)
+		assert.Less(t, allocs, 50.0, "%s: allocations", name)
+	}
 }
 
 // fingerprint hashes every part of rec a lookup could change, through the pointers it holds.
@@ -254,9 +328,19 @@ func fingerprint(rec *txHourRecord) [32]byte {
 	for _, d := range rec.res.Incomplete {
 		p("%d %d %d %d %v|", d.Reason, d.Pack, d.Block, d.Offset, d.Err)
 		if c := d.Coverage; c != nil {
-			p("%v %v %v %v %v %v|", c.CaptureID, c.SeqFirst, c.SeqLast, c.TimeStart, c.TimeEnd, c.Unknown)
-			if c.SeqFirst != nil {
-				p("%d", *c.SeqFirst)
+			p("%v %t|", c.Unknown, c.Unknown == nil)
+			if c.CaptureID != nil {
+				p("c%x", *c.CaptureID)
+			}
+			for _, v := range []*uint64{c.SeqFirst, c.SeqLast} {
+				if v != nil {
+					p("s%d", *v)
+				}
+			}
+			for _, v := range []*int64{c.TimeStart, c.TimeEnd} {
+				if v != nil {
+					p("t%d", *v)
+				}
 			}
 			for _, u := range c.Unknown {
 				p("%x", u.Value)
@@ -264,8 +348,10 @@ func fingerprint(rec *txHourRecord) [32]byte {
 		}
 		if b := d.Boundary; b != nil {
 			p("%+v", *b)
-			if b.GapStart != nil {
-				p("%d", *b.GapStart)
+			for _, v := range []*int64{b.GapStart, b.GapEnd} {
+				if v != nil {
+					p("g%d", *v)
+				}
 			}
 		}
 	}
@@ -305,6 +391,98 @@ func TestFindTransactionsRecordsUnchanged(t *testing.T) {
 			require.ErrorIs(t, err, ErrReadLimit, "seed %d", seed)
 			continue
 		}
-		require.Positive(t, evicted, "seed %d", seed)
+		require.Equal(t, len(filled), evicted, "seed %d: every hour checked when it is dropped, the tail hours included", seed)
+	}
+}
+
+// Each primary's lookup over the replay checks ctx as many times as its lookup over the source:
+// the batch's own checks stay out of the lookup's count.
+func TestFindTransactionsLookupTicks(t *testing.T) {
+	t.Parallel()
+
+	for seed := range uint64(24) {
+		g := genTxCapture(t, seed)
+		snap := newTxSnapshot(t, g.src, captureLow, g.first, g.first+int64(g.hours+txGenHours))
+		from, to := g.first*hourNs, (g.first+int64(g.hours))*hourNs
+		opts := TxOptions{MaxScopes: g.maxScopes}
+		live := map[TxKey]int{}
+		for _, key := range txRangeKeys(snap, captureLow, from, to) {
+			n := 0
+			_, err := findTransactionWith(t.Context(), g.src.view(), key, opts, func(l *txLookup) {
+				l.ticks.step = 1
+				l.onTick = func() { n++ }
+			})
+			if err == nil {
+				live[key] = n
+			}
+		}
+
+		n, compared := 0, 0
+		_, err := findTransactionsWith(t.Context(), g.src.view(), TxRange{Capture: captureLow, From: time.Unix(0, from), To: time.Unix(0, to)},
+			TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
+				want, ok := live[p.Key]
+				require.True(t, ok, "seed %d: %v succeeded alone", seed, p.Key)
+				require.Equal(t, want, n, "seed %d: checks of ctx in the lookup of %v", seed, p.Key)
+				compared++
+				return nil
+			},
+			func(b *txBatch) {
+				b.lookupPrep = func(l *txLookup) {
+					n = 0
+					l.ticks.step = 1
+					l.onTick = func() { n++ }
+				}
+			})
+		if err == nil {
+			assert.Len(t, live, compared, "seed %d", seed)
+		}
+	}
+}
+
+// txCancelAfter is a context whose Err reports cancellation from its call number at on,
+// and that records whether it has reported it.
+type txCancelAfter struct {
+	context.Context
+	calls, at int
+	reported  bool
+}
+
+func (c *txCancelAfter) Err() error {
+	c.calls++
+	if c.calls > c.at {
+		c.reported = true
+		return context.Canceled
+	}
+
+	return nil
+}
+
+// Cancelled at every check of ctx in turn, a batch returns ctx's error without passing a pairing after it,
+// whether the check falls in a fill, an enumeration, a sort, a lookup, before a delivery or before success.
+func TestFindTransactionsCancelEverywhere(t *testing.T) {
+	t.Parallel()
+
+	g := genTxCapture(t, 3)
+	r := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
+	opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}}
+	prep := func(b *txBatch) { b.ticks.step = 1 }
+
+	total := &txCancelAfter{Context: t.Context(), at: math.MaxInt}
+	full, err := findTransactionsWith(total, g.src.view(), r, opts, func(*TxPairing) error { return nil }, prep)
+	require.NoError(t, err)
+	require.Positive(t, full.Primaries)
+
+	for at := 0; at <= total.calls; at++ {
+		ctx := &txCancelAfter{Context: t.Context(), at: at}
+		res, err := findTransactionsWith(ctx, g.src.view(), r, opts, func(*TxPairing) error {
+			require.False(t, ctx.reported, "at %d: no pairing after ctx reported its cancellation", at)
+			return nil
+		}, prep)
+		if at == total.calls {
+			require.NoError(t, err, "at %d: past the last check", at)
+			continue
+		}
+		require.ErrorIs(t, err, context.Canceled, "at %d", at)
+		require.LessOrEqual(t, res.Primaries, full.Primaries, "at %d", at)
 	}
 }

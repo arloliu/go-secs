@@ -3,6 +3,7 @@ package tracepack
 import (
 	"bytes"
 	"context"
+	"errors"
 	"math"
 	"runtime"
 	"slices"
@@ -113,8 +114,15 @@ func findTx(t testing.TB, ctx context.Context, src PackSource, key TxKey, opts T
 	if l != nil {
 		requireStateRecount(t, l)
 	}
-	if s, ok := src.(*memSource); ok && err == nil && ctx.Err() == nil {
-		requireBatchAgrees(t, s.view(), key, opts, &res)
+	if s, ok := src.(*memSource); ok && ctx.Err() == nil {
+		switch {
+		case err == nil:
+			requireBatchAgrees(t, s.view(), key, opts, &res)
+		case errors.Is(err, ErrReadLimit):
+			requireBatchAgreesOnError(t, s.view(), key, opts)
+		default:
+			// Other errors come from arguments or from the source's hook, which the view does not run.
+		}
 	}
 
 	return res, err

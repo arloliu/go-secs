@@ -128,32 +128,51 @@ func (s *perfStats) reset() {
 }
 
 // BenchmarkFindTransactions pairs every primary of the first of two busy hours with one FindTransactions call,
-// against BenchmarkFindTransactionHour's lookup per primary.
+// against BenchmarkFindTransactionHour's lookup per primary, with MaxScopes 1, 2 (the default) and 3;
+// "fill" reads the same hours for a capture without primaries, the cost of filling the cache alone,
+// so a run's pairing cost is its time minus fill's at the same MaxScopes.
 func BenchmarkFindTransactions(b *testing.B) {
-	packs := perfDay(b, 2, 0)
+	packs := perfDay(b, 3, 0)
 	keys := perfPrimaries(perfHour(true, 0))
-	var stats perfStats
-	src := perfTxSource(b, packs, ReaderOptions{}, 0, &stats)
 	from := layoutStart
-	r := TxRange{Capture: perfCapture, From: from, To: from.Add(time.Hour)}
-	b.ReportAllocs()
-	var res TxRangeResult
-	var records int
-	for b.Loop() {
-		records = 0
-		var err error
-		res, err = FindTransactions(b.Context(), src, r, TxRangeOptions{}, func(p *TxPairing) error {
-			records += len(p.Result.Records)
-			return nil
+	for _, tt := range []struct {
+		name    string
+		scopes  int
+		capture UUID
+	}{
+		{"fill/scopes=2", 2, UUID{0xEE}},
+		{"scopes=1", 1, perfCapture},
+		{"scopes=2", 2, perfCapture},
+		{"scopes=3", 3, perfCapture},
+	} {
+		b.Run(tt.name, func(b *testing.B) {
+			var stats perfStats
+			src := perfTxSource(b, packs, ReaderOptions{}, 0, &stats)
+			r := TxRange{Capture: tt.capture, From: from, To: from.Add(time.Hour)}
+			opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: tt.scopes}}
+			b.ReportAllocs()
+			var res TxRangeResult
+			var records int
+			for b.Loop() {
+				records = 0
+				var err error
+				res, err = FindTransactions(b.Context(), src, r, opts, func(p *TxPairing) error {
+					records += len(p.Result.Records)
+					return nil
+				})
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+			if tt.capture == perfCapture && res.Primaries != len(keys) {
+				b.Fatalf("%d primaries paired, %d in the hour", res.Primaries, len(keys))
+			}
+			b.ReportMetric(float64(res.Primaries), "primaries")
+			b.ReportMetric(float64(res.HoursRead), "hours")
+			b.ReportMetric(float64(records), "records")
+			if res.Primaries > 0 {
+				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(res.Primaries), "ns/primary")
+			}
 		})
-		if err != nil {
-			b.Fatal(err)
-		}
 	}
-	if res.Primaries != len(keys) {
-		b.Fatalf("%d primaries paired, %d in the hour", res.Primaries, len(keys))
-	}
-	b.ReportMetric(float64(res.Primaries), "primaries")
-	b.ReportMetric(float64(records), "records")
-	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(res.Primaries), "ns/primary")
 }

@@ -65,7 +65,7 @@ func cloneTxResult(res *TxResult) TxResult {
 			g.Hours = slices.Clone(g.Hours)
 			g.Pack, g.Seq = clonePtr(g.Pack), clonePtr(g.Seq)
 			if g.Coverage != nil {
-				g.Coverage = cloneCoverage(g.Coverage)
+				g.Coverage = cloneCoverageStrict(g.Coverage)
 			}
 			if g.Boundary != nil {
 				g.Boundary = new(cloneBoundary(*g.Boundary))
@@ -88,6 +88,22 @@ func cloneTxResult(res *TxResult) TxResult {
 	c.FooterErrs = slices.Clone(res.FooterErrs)
 
 	return c
+}
+
+// cloneCoverageStrict returns a copy of c that keeps a nil Unknown nil and an empty one empty, as cloneCoverage does not.
+func cloneCoverageStrict(c *Coverage) *Coverage {
+	out := &Coverage{
+		CaptureID: clonePtr(c.CaptureID), SeqFirst: clonePtr(c.SeqFirst), SeqLast: clonePtr(c.SeqLast),
+		TimeStart: clonePtr(c.TimeStart), TimeEnd: clonePtr(c.TimeEnd),
+	}
+	if c.Unknown != nil {
+		out.Unknown = make([]RawEntry, len(c.Unknown))
+		for i, e := range c.Unknown {
+			out.Unknown[i] = RawEntry{Tag: e.Tag, Type: e.Type, Value: slices.Clone(e.Value)}
+		}
+	}
+
+	return out
 }
 
 // requireStrictEqual requires got to equal want in the strict form;
@@ -122,7 +138,50 @@ func requireBatchAgrees(t testing.TB, src PackSource, key TxKey, opts TxOptions,
 	if errors.Is(err, ErrInvalidQuery) {
 		return // a tail past MaxTxHour, which the single lookup refuses too
 	}
-	require.NoError(t, err, "the batch over the hour of %v", key)
+	requireBatchError(t, src, opts, err)
+}
+
+// requireBatchError requires err, the error of a FindTransactions call over src with opts, to be nil,
+// or the error the lookup of the key it names returns alone, wrapped with that key, with the same errors.Is identity.
+func requireBatchError(t testing.TB, src PackSource, opts TxOptions, err error) {
+	t.Helper()
+
+	if err == nil {
+		return
+	}
+	var seq uint64
+	var hour int64
+	_, serr := fmt.Sscanf(err.Error(), "tracepack: find transactions: primary seq %d of hour %d:", &seq, &hour)
+	require.NoError(t, serr, "the batch fails only in a lookup here: %v", err)
+	_, single := FindTransaction(t.Context(), src, TxKey{Capture: captureLow, Seq: seq, Hour: hour}, opts)
+	require.Error(t, single, "the lookup of seq %d alone fails too", seq)
+	assert.Equal(t, fmt.Sprintf("tracepack: find transactions: primary seq %d of hour %d: %v", seq, hour, single), err.Error())
+	for _, target := range []error{ErrReadLimit, ErrNotPrimary, ErrInvalidQuery} {
+		assert.Equal(t, errors.Is(single, target), errors.Is(err, target), "errors.Is %v", target)
+	}
+}
+
+// requireBatchAgreesOnError runs FindTransactions over the hour of key, a key whose lookup alone failed:
+// every pairing it reports equals its lookup alone, and a batch that fails fails as the lookup it names does alone.
+func requireBatchAgreesOnError(t testing.TB, src PackSource, key TxKey, opts TxOptions) {
+	t.Helper()
+
+	if key.Hour < MinTxHour || key.Hour > MaxTxHour || key.Capture.IsZero() {
+		return
+	}
+	from := time.Unix(0, key.Hour*hourNs)
+	_, err := FindTransactions(t.Context(), src, TxRange{Capture: key.Capture, From: from, To: from.Add(time.Hour)},
+		TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
+			single, serr := FindTransaction(t.Context(), src, p.Key, opts)
+			require.NoError(t, serr, "a pairing is reported only for a lookup that succeeds alone: %v", p.Key)
+			requireStrictEqual(t, strictForm(&single), strictForm(&p.Result), "batch pairing of %v", p.Key)
+
+			return nil
+		})
+	if errors.Is(err, ErrInvalidQuery) {
+		return
+	}
+	requireBatchError(t, src, opts, err)
 }
 
 // mutateTxResult changes every mutable part of res that a caller can reach.
@@ -142,32 +201,7 @@ func mutateTxResult(res *TxResult) {
 		r.Record.Seq ^= 1
 	}
 	for i := range res.Incomplete {
-		g := &res.Incomplete[i]
-		for j := range g.Hours {
-			g.Hours[j]++
-		}
-		if g.Pack != nil {
-			g.Pack[0] ^= 0xFF
-		}
-		if g.Seq != nil {
-			*g.Seq ^= 1
-		}
-		if g.Coverage != nil && g.Coverage.SeqFirst != nil {
-			*g.Coverage.SeqFirst ^= 1
-		}
-		if g.Coverage != nil {
-			for j := range g.Coverage.Unknown {
-				for k := range g.Coverage.Unknown[j].Value {
-					g.Coverage.Unknown[j].Value[k] ^= 0xFF
-				}
-			}
-		}
-		if g.Boundary != nil {
-			g.Boundary.Seq ^= 1
-			if g.Boundary.GapStart != nil {
-				*g.Boundary.GapStart ^= 1
-			}
-		}
+		mutateTxGap(&res.Incomplete[i])
 	}
 	for i := range res.Searched {
 		for j := range res.Searched[i].Packs {
@@ -183,6 +217,53 @@ func mutateTxResult(res *TxResult) {
 	}
 	for i := range res.FooterErrs {
 		res.FooterErrs[i].Pack[0] ^= 0xFF
+	}
+}
+
+// mutateTxGap changes every mutable part of g.
+func mutateTxGap(g *TxGap) {
+	for j := range g.Hours {
+		g.Hours[j]++
+	}
+	if g.Pack != nil {
+		g.Pack[0] ^= 0xFF
+	}
+	if g.Seq != nil {
+		*g.Seq ^= 1
+	}
+	if c := g.Coverage; c != nil {
+		mutateCoverage(c)
+	}
+	if b := g.Boundary; b != nil {
+		b.Seq ^= 1
+		b.Capture[0] ^= 0xFF
+		for _, p := range []*int64{b.GapStart, b.GapEnd} {
+			if p != nil {
+				*p ^= 1
+			}
+		}
+	}
+}
+
+// mutateCoverage changes every mutable part of c.
+func mutateCoverage(c *Coverage) {
+	for _, p := range []*uint64{c.SeqFirst, c.SeqLast} {
+		if p != nil {
+			*p ^= 1
+		}
+	}
+	for _, p := range []*int64{c.TimeStart, c.TimeEnd} {
+		if p != nil {
+			*p ^= 1
+		}
+	}
+	if c.CaptureID != nil {
+		c.CaptureID[0] ^= 0xFF
+	}
+	for j := range c.Unknown {
+		for k := range c.Unknown[j].Value {
+			c.Unknown[j].Value[k] ^= 0xFF
+		}
 	}
 }
 
@@ -222,6 +303,13 @@ func checkTxRange(t *testing.T, g *txGen, snap *txSnapshot, fromNs, toNs int64, 
 	t.Helper()
 
 	want := txRangeKeys(snap, captureLow, fromNs, toNs)
+	// Every expectation is taken before the batch runs and its callback mutates what it is given.
+	singles := make([]txStrictForm, len(want))
+	serrs := make([]error, len(want))
+	for i, key := range want {
+		single, serr := FindTransaction(t.Context(), g.src.view(), key, opts)
+		singles[i], serrs[i] = strictForm(&single), serr
+	}
 	var gotKeys []TxKey
 	var got []txStrictForm
 	before := g.src.counts()
@@ -243,8 +331,7 @@ func checkTxRange(t *testing.T, g *txGen, snap *txSnapshot, fromNs, toNs int64, 
 	}
 
 	for i, key := range want {
-		single, serr := FindTransaction(t.Context(), g.src, key, opts)
-		if serr != nil {
+		if serr := serrs[i]; serr != nil {
 			require.Error(t, err, "key %v fails alone", key)
 			assert.Equal(t, fmt.Sprintf("tracepack: find transactions: primary seq %d of hour %d: %v", key.Seq, key.Hour, serr), err.Error())
 			assert.Equal(t, errors.Is(serr, ErrReadLimit), errors.Is(err, ErrReadLimit))
@@ -255,7 +342,7 @@ func checkTxRange(t *testing.T, g *txGen, snap *txSnapshot, fromNs, toNs int64, 
 		}
 		require.Greater(t, len(gotKeys), i, "key %v paired", key)
 		require.Equal(t, key, gotKeys[i], "key %d", i)
-		requireStrictEqual(t, strictForm(&single), got[i], "key %v", key)
+		requireStrictEqual(t, singles[i], got[i], "key %v", key)
 	}
 	require.NoError(t, err)
 	require.Len(t, gotKeys, len(want), "no other key")
