@@ -1,9 +1,9 @@
 package tracepack
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"math"
 	"math/rand/v2"
 	"slices"
 	"testing"
@@ -115,56 +115,37 @@ func requireStrictEqual(t testing.TB, want, got txStrictForm, msgAndArgs ...any)
 	require.Equal(t, want, got, msgAndArgs...)
 }
 
-// requireBatchAgrees runs FindTransactions over the hour of key with opts, over src, a source whose answers do not change,
-// and requires every pairing to equal FindTransaction's result for its key, compared strictly,
-// and the pairing of key, when the hour pairs it, to equal want too.
+// requireBatchAgrees runs FindTransactions over the hour of key with opts, over src, a source whose answers do not change
+// (requireBatchOverHour), requiring the pairing of key, when the hour pairs it, to equal want, the result of its lookup alone.
 func requireBatchAgrees(t testing.TB, src PackSource, key TxKey, opts TxOptions, want *TxResult) {
 	t.Helper()
 
-	if key.Hour < MinTxHour || key.Hour > MaxTxHour || key.Capture.IsZero() {
-		return
-	}
-	from := time.Unix(0, key.Hour*hourNs)
-	_, err := FindTransactions(t.Context(), src, TxRange{Capture: key.Capture, From: from, To: from.Add(time.Hour)},
-		TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
-			single, serr := FindTransaction(t.Context(), src, p.Key, opts)
-			require.NoError(t, serr, "key %v alone", p.Key)
-			requireStrictEqual(t, strictForm(&single), strictForm(&p.Result), "batch pairing of %v", p.Key)
-			if p.Key == key {
-				requireStrictEqual(t, strictForm(want), strictForm(&p.Result), "batch pairing of the test's key %v", key)
-			}
-
-			return nil
-		})
-	if errors.Is(err, ErrInvalidQuery) {
-		return // a tail past MaxTxHour, which the single lookup refuses too
-	}
-	requireBatchError(t, src, opts, err)
+	requireBatchOverHour(t, src, key, opts, want)
 }
 
-// requireBatchError requires err, the error of a FindTransactions call over src with opts, to be nil,
-// or the error the lookup of the key it names returns alone, wrapped with that key, with the same errors.Is identity.
-func requireBatchError(t testing.TB, src PackSource, opts TxOptions, err error) {
+// requireBatchAgreesOnError runs FindTransactions over the hour of key, a key whose lookup alone failed (requireBatchOverHour).
+func requireBatchAgreesOnError(t testing.TB, src PackSource, key TxKey, opts TxOptions) {
 	t.Helper()
 
-	if err == nil {
-		return
-	}
-	var seq uint64
-	var hour int64
-	_, serr := fmt.Sscanf(err.Error(), "tracepack: find transactions: primary seq %d of hour %d:", &seq, &hour)
-	require.NoError(t, serr, "the batch fails only in a lookup here: %v", err)
-	_, single := FindTransaction(t.Context(), src, TxKey{Capture: captureLow, Seq: seq, Hour: hour}, opts)
-	require.Error(t, single, "the lookup of seq %d alone fails too", seq)
-	assert.Equal(t, fmt.Sprintf("tracepack: find transactions: primary seq %d of hour %d: %v", seq, hour, single), err.Error())
-	for _, target := range []error{ErrReadLimit, ErrNotPrimary, ErrInvalidQuery} {
-		assert.Equal(t, errors.Is(single, target), errors.Is(err, target), "errors.Is %v", target)
-	}
+	requireBatchOverHour(t, src, key, opts, nil)
 }
 
-// requireBatchAgreesOnError runs FindTransactions over the hour of key, a key whose lookup alone failed:
-// every pairing it reports equals its lookup alone, and a batch that fails fails as the lookup it names does alone.
-func requireBatchAgreesOnError(t testing.TB, src PackSource, key TxKey, opts TxOptions) {
+// txLookupRun is a lookup's result alone, in the strict form, its error, and the events of the hours it read (txEventLog).
+type txLookupRun struct {
+	form   txStrictForm
+	err    error
+	events []string
+}
+
+// requireBatchOverHour runs FindTransactions over the whole hour of key with opts, over src, a source whose answers do not change,
+// and requires it to pair the keys the hour holds, derived apart from FindTransactions (txHourKeys), in order,
+// each with the result its lookup alone returns, compared strictly, the lookup reading its hours through the same events;
+// and the pairing of key, when want is not nil and the hour pairs key, to equal want.
+// When a lookup fails alone, the batch fails at the first that does, after pairing exactly the keys before it,
+// with its error wrapped with its key, its replay stopping at the event where the lookup alone stops.
+// A batch may also fail in reading an hour into its cache, under MaxHeldBytes, before it pairs any key:
+// a read of that hour alone then fails too.
+func requireBatchOverHour(t testing.TB, src PackSource, key TxKey, opts TxOptions, want *TxResult) {
 	t.Helper()
 
 	if key.Hour < MinTxHour || key.Hour > MaxTxHour || key.Capture.IsZero() {
@@ -172,36 +153,217 @@ func requireBatchAgreesOnError(t testing.TB, src PackSource, key TxKey, opts TxO
 	}
 	from := time.Unix(0, key.Hour*hourNs)
 	r := TxRange{Capture: key.Capture, From: from, To: from.Add(time.Hour)}
-	// The keys of the hour, from a batch whose lookups have budgets nothing reaches.
-	roomy := opts
-	roomy.MaxConflicts, roomy.MaxStateBytes, roomy.MaxHeldBytes = math.MaxInt, math.MaxInt64, math.MaxInt64
-	var keys []TxKey
-	if _, err := FindTransactions(t.Context(), src, r, TxRangeOptions{Lookup: roomy}, func(p *TxPairing) error {
-		keys = append(keys, p.Key)
-		return nil
-	}); err != nil {
-		return // the hour fails apart from the lookup budgets; requireBatchAgrees covers the rest
+	if _, err := newTxBatch(src, r, TxRangeOptions{Lookup: opts}, func(*TxPairing) error { return nil }); err != nil {
+		require.ErrorIs(t, err, ErrInvalidQuery)
+		return // a tail past MaxTxHour, which the single lookup refuses too
 	}
 
-	got := []TxKey{}
-	_, err := FindTransactions(t.Context(), src, r, TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
-		got = append(got, p.Key)
-		single, serr := FindTransaction(t.Context(), src, p.Key, opts)
-		require.NoError(t, serr, "a pairing is reported only for a lookup that succeeds alone: %v", p.Key)
-		requireStrictEqual(t, strictForm(&single), strictForm(&p.Result), "batch pairing of %v", p.Key)
+	keys := txHourKeys(t, src, key.Capture, key.Hour)
+	singles := make([]txLookupRun, len(keys))
+	first := len(keys)
+	for i, k := range keys {
+		var log *txEventLog
+		res, err := findTransactionWith(t.Context(), src, k, opts, func(l *txLookup) {
+			log = &txEventLog{inner: l.hours}
+			l.hours = log
+		})
+		singles[i] = txLookupRun{form: strictForm(&res), err: err, events: log.events}
+		if err != nil && first == len(keys) {
+			first = i
+		}
+		if k == key && want != nil {
+			requireStrictEqual(t, strictForm(want), singles[i].form, "the lookup of the test's key %v", key)
+		}
+	}
+
+	var gotKeys []TxKey
+	var got []txStrictForm
+	var replays []*txEventLog
+	res, err := findTransactionsWith(t.Context(), src, r, TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
+		gotKeys, got = append(gotKeys, p.Key), append(got, strictForm(&p.Result))
+		mutateTxResult(&p.Result)
 
 		return nil
+	}, func(b *txBatch) {
+		b.lookupPrep = func(l *txLookup) {
+			log := &txEventLog{inner: l.hours}
+			l.hours = log
+			replays = append(replays, log)
+		}
 	})
-	if !slices.Contains(keys, key) {
-		requireBatchError(t, src, opts, err)
-		return
+	assert.Equal(t, len(gotKeys), res.Primaries, "the pairings counted")
+	pairedBefore := func(n int) {
+		t.Helper()
+
+		if n == 0 {
+			require.Empty(t, gotKeys, "no key paired")
+		} else {
+			require.Equal(t, keys[:n], gotKeys, "the keys paired, in order")
+		}
+		for i := range n {
+			requireStrictEqual(t, singles[i].form, got[i], "batch pairing of %v", keys[i])
+		}
 	}
-	// The key failing alone is paired by the batch, so the batch fails at it or at an earlier key, every key before passed.
-	require.Error(t, err, "the batch reaches %v, whose lookup fails alone", key)
-	requireBatchError(t, src, opts, err)
-	at := slices.Index(keys, key)
-	require.LessOrEqual(t, len(got), at, "no key at or after the failing one is paired")
-	assert.Equal(t, append([]TxKey{}, keys[:len(got)]...), got, "the keys before the failure, in order")
+
+	var seq uint64
+	var hour int64
+	switch {
+	case err == nil:
+		require.Equal(t, len(keys), first, "no lookup fails alone")
+		pairedBefore(len(keys))
+	case scanErr("tracepack: find transactions: primary seq %d of hour %d:", err, &seq, &hour):
+		require.Less(t, first, len(keys), "a lookup fails alone: %v", err)
+		k, serr := keys[first], singles[first].err
+		require.Equal(t, TxKey{Capture: key.Capture, Seq: seq, Hour: hour}, k, "the batch fails at the first key failing alone")
+		assert.Equal(t, fmt.Sprintf("tracepack: find transactions: primary seq %d of hour %d: %v", k.Seq, k.Hour, serr), err.Error())
+		for _, target := range []error{ErrReadLimit, ErrNotPrimary, ErrInvalidQuery} {
+			assert.Equal(t, errors.Is(serr, target), errors.Is(err, target), "errors.Is %v", target)
+		}
+		pairedBefore(first)
+	case scanErr("tracepack: find transactions: hour %d:", err, &hour):
+		require.ErrorIs(t, err, ErrReadLimit, "the batch fails in reading an hour only under MaxHeldBytes here")
+		require.Empty(t, gotKeys, "no key of the hour is paired before its hours are read")
+		requireHourReadFails(t, src, hour, opts.MaxHeldBytes)
+
+		return
+	default:
+		require.Failf(t, "an unexpected error", "%v", err)
+	}
+	require.Len(t, replays, len(gotKeys)+min(1, len(keys)-first), "a replayed lookup for each key paired and for the one failing")
+	for i, log := range replays {
+		assert.Equal(t, singles[i].events, log.events, "the events the lookup of %v reads, through its failure", keys[i])
+	}
+}
+
+// scanErr reports whether err's text starts with format, scanning its values into args.
+func scanErr(format string, err error, args ...any) bool {
+	_, serr := fmt.Sscanf(err.Error(), format, args...)
+
+	return serr == nil
+}
+
+// requireHourReadFails requires a read of hour over src, as one MergeIterate in capture order with payloads
+// and maxHeld as MaxHeldBytes, to fail with an error wrapping ErrReadLimit.
+func requireHourReadFails(t testing.TB, src PackSource, hour, maxHeld int64) {
+	t.Helper()
+
+	readers, err := src.Readers(t.Context(), hour)
+	require.NoError(t, err)
+	_, err = MergeIterate(t.Context(), readers, Query{Payloads: true},
+		MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: maxHeld}, func(*Item) error { return nil })
+	require.ErrorIs(t, err, ErrReadLimit, "the read of hour %d alone", hour)
+}
+
+// txEventLog is a txHourSource that records, in order, the events a lookup reads its hours through:
+// each readers call, each read, each reservation of a conflict and each item passed to the lookup, with their errors,
+// and the end of each read.
+type txEventLog struct {
+	inner  txHourSource
+	events []string
+}
+
+func (l *txEventLog) addf(format string, a ...any) {
+	l.events = append(l.events, fmt.Sprintf(format, a...))
+}
+
+func (l *txEventLog) readers(ctx context.Context, hour int64) ([]*Reader, error) {
+	readers, err := l.inner.readers(ctx, hour)
+	l.addf("readers %d: %d, %s", hour, len(readers), errText(err))
+
+	return readers, err
+}
+
+func (l *txEventLog) read(ctx context.Context, hour int64, readers []*Reader, maxHeld int64,
+	reserveConflict func() error, flags *uint8, fn func(*Item) error,
+) (Result, error) {
+	l.addf("read %d", hour)
+	res, err := l.inner.read(ctx, hour, readers, maxHeld,
+		func() error {
+			err := reserveConflict()
+			l.addf("reserve: %s", errText(err))
+
+			return err
+		},
+		flags,
+		func(it *Item) error {
+			err := fn(it)
+			l.addf("item %d/%d seq %d flags %d conflict %t: %s", it.Pack, it.Block, it.Record.Seq, *flags, it.Conflict, errText(err))
+
+			return err
+		})
+	l.addf("end %d: %s", hour, errText(err))
+
+	return res, err
+}
+
+// txHourKeys returns the keys FindTransactions pairs over src for capture and the whole of hour, in ascending seq,
+// derived apart from FindTransactions:
+// from the reference of a read over several packs (newMergeIterateReference),
+// or, when a block of the hour disagrees with its F-2 entry, which the reference does not model,
+// from each pack's own read (txPerPackKeys).
+func txHourKeys(t testing.TB, src PackSource, capture UUID, hour int64) []TxKey {
+	t.Helper()
+
+	readers, err := src.Readers(t.Context(), hour)
+	require.NoError(t, err)
+	fromNs, toNs := hour*hourNs, (hour+1)*hourNs
+	if !txReferenceHolds(readers) {
+		return txPerPackKeys(t, readers, capture, hour, fromNs, toNs)
+	}
+	sc := &txOracleScope{hour: hour}
+	for _, r := range readers {
+		sc.captures = append(sc.captures, r.Header().CaptureID)
+	}
+	sc.items, _ = newMergeIterateReference(t, readers, Query{Payloads: true}).read(OrderCapture)
+
+	return txRangeKeys(&txSnapshot{capture: capture, scopes: map[int64]*txOracleScope{hour: sc}}, capture, fromNs, toNs)
+}
+
+// txReferenceHolds reports whether the reference of a read over several packs holds for readers:
+// every block reads without a ReadAt error, and none disagrees with its F-2 entry.
+func txReferenceHolds(readers []*Reader) bool {
+	for _, r := range readers {
+		for j := range r.blocks {
+			var buf blockBuf
+			_, def, err := r.readBlock(j, &buf)
+			if err != nil || def != nil && def.Reason == ReasonIndexMismatch {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// txPerPackKeys returns the keys FindTransactions pairs for capture and the range [fromNs, toNs) of hour
+// from the read of each pack of readers on its own:
+// the seqs of every version a pack yields that is a primary (txRangePrimary), ascending, each once.
+func txPerPackKeys(t testing.TB, readers []*Reader, capture UUID, hour, fromNs, toNs int64) []TxKey {
+	t.Helper()
+
+	var seqs []uint64
+	for _, r := range readers {
+		packCapture := r.Header().CaptureID
+		_, err := r.Iterate(t.Context(), Query{Payloads: true}, func(it *Item) error {
+			if txRangePrimary(capture, packCapture, &it.Record, hour, fromNs, toNs) {
+				seqs = append(seqs, it.Record.Seq)
+			}
+
+			return nil
+		})
+		require.NoError(t, err)
+	}
+	slices.Sort(seqs)
+	seqs = slices.Compact(seqs)
+	if len(seqs) == 0 {
+		return nil
+	}
+	keys := make([]TxKey, 0, len(seqs))
+	for _, s := range seqs {
+		keys = append(keys, TxKey{Capture: capture, Seq: s, Hour: hour})
+	}
+
+	return keys
 }
 
 // mutateTxResult changes every mutable part of res that a caller can reach.
@@ -412,6 +574,40 @@ func TestFindTransactionsGenerated(t *testing.T) {
 			})
 		})
 	}
+}
+
+// The keys each pack's own read gives (txPerPackKeys), the fallback of txHourKeys for blocks the reference does not model,
+// equal the keys the reference read gives, over every hour of every generated capture.
+func TestTxPerPackKeys(t *testing.T) {
+	t.Parallel()
+
+	for seed := range uint64(32) {
+		g := genTxCapture(t, seed)
+		snap := newTxSnapshot(t, g.src, captureLow, g.first, g.first+int64(g.hours+txGenHours))
+		paired := 0
+		for h := range snap.scopes {
+			from, to := h*hourNs, (h+1)*hourNs
+			readers, err := g.src.view().Readers(t.Context(), h)
+			require.NoError(t, err)
+			require.True(t, txReferenceHolds(readers), "seed %d: hour %d", seed, h)
+			want := txRangeKeys(snap, captureLow, from, to)
+			assert.Equal(t, want, txPerPackKeys(t, readers, captureLow, h, from, to), "seed %d: hour %d", seed, h)
+			paired += len(want)
+		}
+		require.Positive(t, paired, "seed %d", seed)
+	}
+}
+
+// Over an hour whose read passes MaxHeldBytes, the batch fails in reading the hour, before it pairs anything,
+// as the read of the hour alone fails.
+func TestFindTransactionsHourOverMaxHeld(t *testing.T) {
+	t.Parallel()
+
+	s := txSource(t, txPack(t, seg0, nil, txBlock(txRecord(10, nil), txReply(11, nil), txRecord(12, nil))))
+	key := TxKey{Capture: captureLow, Seq: 10, Hour: memTestHour}
+	_, err := FindTransaction(t.Context(), s.view(), key, TxOptions{MaxHeldBytes: 1})
+	require.ErrorIs(t, err, ErrReadLimit)
+	requireBatchAgreesOnError(t, s.view(), key, TxOptions{MaxHeldBytes: 1})
 }
 
 // FindTransactions refuses invalid arguments before it calls the source.
