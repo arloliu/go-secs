@@ -382,15 +382,22 @@ func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts Tx
 	if err != nil {
 		return TxResult{}, err
 	}
+
+	return lookupHours(ctx, liveHours{src: src}, key, opts, prep)
+}
+
+// lookupHours runs the lookup of key, with opts checked and defaulted (checkFindTransaction), over the hours of hours:
+// FindTransaction's over its source, or FindTransactions's replay of the hours it read once.
+func lookupHours(ctx context.Context, hours txHourSource, key TxKey, opts TxOptions, prep func(l *txLookup)) (TxResult, error) {
 	if err := ctx.Err(); err != nil {
 		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", err)
 	}
 
-	l := newTxLookup(key, opts, liveHours{src: src})
+	l := newTxLookup(key, opts, hours)
 	if prep != nil {
 		prep(l)
 	}
-	err = l.run(ctx)
+	err := l.run(ctx)
 	if err == nil {
 		if cerr := ctx.Err(); cerr != nil {
 			err = fmt.Errorf("tracepack: find transaction: %w", cerr)

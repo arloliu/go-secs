@@ -103,7 +103,8 @@ func requireStateRecount(t testing.TB, l *txLookup) {
 }
 
 // findTx runs FindTransaction with ctx, src, key and opts,
-// then, when the lookup started, requires that the charge of its state equals its recount.
+// then, when the lookup started, requires that the charge of its state equals its recount;
+// and, when it succeeded over a memSource, requires FindTransactions over the key's hour to agree (requireBatchAgrees).
 func findTx(t testing.TB, ctx context.Context, src PackSource, key TxKey, opts TxOptions) (TxResult, error) {
 	t.Helper()
 
@@ -111,6 +112,9 @@ func findTx(t testing.TB, ctx context.Context, src PackSource, key TxKey, opts T
 	res, err := findTransactionWith(ctx, src, key, opts, func(lk *txLookup) { l = lk })
 	if l != nil {
 		requireStateRecount(t, l)
+	}
+	if s, ok := src.(*memSource); ok && err == nil && ctx.Err() == nil {
+		requireBatchAgrees(t, s.view(), key, opts, &res)
 	}
 
 	return res, err

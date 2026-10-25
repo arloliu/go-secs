@@ -59,13 +59,40 @@ func (s *memSource) Readers(ctx context.Context, hour int64) ([]*Reader, error) 
 	s.mu.Lock()
 	s.calls[hour]++
 	hook := s.beforeReaders
-	files := s.hours[hour]
 	s.mu.Unlock()
 	if hook != nil {
 		if err := hook(ctx, hour); err != nil {
 			return nil, err
 		}
 	}
+
+	return s.open(ctx, hour)
+}
+
+// memView is a memSource read without counting its calls or running its hook,
+// so a check beside a test does not change what the test counts.
+type memView struct {
+	s *memSource
+}
+
+// view returns s read without counting or hook.
+func (s *memSource) view() PackSource {
+	return memView{s: s}
+}
+
+func (v memView) Readers(ctx context.Context, hour int64) ([]*Reader, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	return v.s.open(ctx, hour)
+}
+
+// open opens a fresh Reader for each pack given for hour, in the order given.
+func (s *memSource) open(ctx context.Context, hour int64) ([]*Reader, error) {
+	s.mu.Lock()
+	files := s.hours[hour]
+	s.mu.Unlock()
 
 	out := make([]*Reader, len(files))
 	for i, f := range files {

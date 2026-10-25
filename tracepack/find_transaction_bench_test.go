@@ -126,3 +126,34 @@ func (s *perfStats) reset() {
 	s.inflight.Store(0)
 	s.maxInflight.Store(0)
 }
+
+// BenchmarkFindTransactions pairs every primary of the first of two busy hours with one FindTransactions call,
+// against BenchmarkFindTransactionHour's lookup per primary.
+func BenchmarkFindTransactions(b *testing.B) {
+	packs := perfDay(b, 2, 0)
+	keys := perfPrimaries(perfHour(true, 0))
+	var stats perfStats
+	src := perfTxSource(b, packs, ReaderOptions{}, 0, &stats)
+	from := layoutStart
+	r := TxRange{Capture: perfCapture, From: from, To: from.Add(time.Hour)}
+	b.ReportAllocs()
+	var res TxRangeResult
+	var records int
+	for b.Loop() {
+		records = 0
+		var err error
+		res, err = FindTransactions(b.Context(), src, r, TxRangeOptions{}, func(p *TxPairing) error {
+			records += len(p.Result.Records)
+			return nil
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	if res.Primaries != len(keys) {
+		b.Fatalf("%d primaries paired, %d in the hour", res.Primaries, len(keys))
+	}
+	b.ReportMetric(float64(res.Primaries), "primaries")
+	b.ReportMetric(float64(records), "records")
+	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(res.Primaries), "ns/primary")
+}
