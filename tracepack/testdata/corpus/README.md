@@ -1,7 +1,7 @@
 # tracepack conformance corpus
 
-This directory is the conformance corpus of tracepack format 1.1:
-packs of format 1.0 and 1.1, and the results a conforming reader produces from them.
+This directory is the conformance corpus of tracepack format 1.2:
+packs of formats 1.0, 1.1 and 1.2, and the results a conforming reader produces from them.
 An implementation in any language proves conformance against the committed files;
 it never needs to regenerate them, and it needs no Go.
 
@@ -26,19 +26,25 @@ Its packs include packs masked at write, with encrypted originals, thinned packs
 
 | Key | Value |
 |---|---|
-| `corpus` | `tracepack-corpus/4`, the schema of every JSON file here |
-| `spec_version` | the spec version the goldens follow, `2.33` |
-| `format_version` | `1.1`, the format the corpus targets; a vector may hold a pack of another version, such as `basic-future-minor` (minor 2) |
+| `corpus` | `tracepack-corpus/5`, the schema of every JSON file here |
+| `spec_version` | the spec version the goldens follow, `2.37` |
+| `format_version` | `1.2`, the format the corpus targets; a vector may hold a pack of another version, such as `basic-future-minor` (minor 3) |
 | `zstd_encoder` | the zstd encoder that produced the corpus's encoder-made zstd blocks and footers (see [zstd](#zstd)) |
 | `vectors` | one entry per vector, ascending by `id` |
 
-The schema `tracepack-corpus/4` is a draft until tracepack v1.0.0.
+The schema `tracepack-corpus/5` is a draft until tracepack v1.0.0.
 A change to a schema, or to what an existing file states, takes a new `corpus` value;
 adding a vector or a case keeps it ([CORPUS §10]).
 
-`tracepack-corpus/4` moves `jsonl_schema` from the manifest into each vector of class `read` and `truncation`:
-`tracepack-jsonl/1` when the vector's pack has `format_minor` 0, and `tracepack-jsonl/2` otherwise ([JSONL §5]).
-`primitives.json` gains the published test keys and their known-answer cases,
+`tracepack-corpus/5` adds format 1.2: a vector's `jsonl_schema` is
+`tracepack-jsonl/1` when its pack has `format_minor` 0, `tracepack-jsonl/2` when it has 1, and `tracepack-jsonl/3` otherwise ([JSONL §5]).
+`basic-future-minor` moves to minor 3 and the unassigned tag 0x0035, so its `pack.tpk` and `export.jsonl` change;
+`basic-new-tags-segment-1-1` and `basic-recorder-instance-name` are added.
+Every other vector keeps its files byte for byte.
+
+`tracepack-corpus/4` moved `jsonl_schema` from the manifest into each vector of class `read` and `truncation`:
+`tracepack-jsonl/1` when the vector's pack has `format_minor` 0, and `tracepack-jsonl/2` otherwise, as `tracepack-jsonl/3` did not exist yet.
+Under it `primitives.json` gained the published test keys and their known-answer cases,
 and `footer.json` the `gap_start` and `gap_end` of each boundary and the F-5 `seq_ranges`, with the full order of [CORPUS §5.8].
 Every earlier key keeps its value, and every earlier vector its `pack.tpk` and `export.jsonl`, byte for byte.
 
