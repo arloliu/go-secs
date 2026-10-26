@@ -8,6 +8,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/arloliu/go-secs/tracepack/internal/format"
 	"github.com/stretchr/testify/require"
 )
 
@@ -209,7 +210,7 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 				kept, errs = append(kept, got), append(errs, errorChains(got))
 			}
 			rd.diagnostics(t, kept[1], kept[3], kept[5])
-			// The errors each read returned keep their text and the types of their chains, as errors.Is and errors.As see them.
+			// The errors each read returned keep their text, the types of their trees, and the sentinels they match.
 			for k := range kept {
 				require.Equal(t, errs[k], errorChains(kept[k]), "the errors of read %d, after the later reads", k)
 			}
@@ -266,12 +267,39 @@ func readResult(t *testing.T, v any) Result {
 	return res
 }
 
-// errorChains returns, for every error a read returned in v, its text and the type of each error in its chain, in order.
+// readSentinels are the sentinels a read's errors may wrap, which errorChains tests each error against with errors.Is.
+var readSentinels = []error{
+	ErrInvalidFooter, ErrReadLimit, ErrNotTracepack, ErrUnsupportedFormat, ErrChecksum, ErrRequiredTag, ErrFieldValue, ErrFieldLength,
+	ErrReservedTag, ErrRedactionDefect, format.ErrBadMagic, format.ErrCRC, format.ErrLimit, format.ErrSchema, format.ErrShort, format.ErrCorrupt,
+}
+
+// errorChains returns, for every error a read returned in v, the text and type of each error in its tree,
+// both single and multiple wraps followed, and which of readSentinels the error matches with errors.Is.
 func errorChains(v any) []string {
 	var out []string
+	var walk func(err error, depth int)
+	walk = func(err error, depth int) {
+		if err == nil {
+			return
+		}
+		out = append(out, fmt.Sprintf("%d %T: %v", depth, err, err))
+		// The node's own wraps, one level: errors.As would search the whole tree instead.
+		node := any(err)
+		if u, ok := node.(interface{ Unwrap() error }); ok {
+			walk(u.Unwrap(), depth+1)
+		}
+		if u, ok := node.(interface{ Unwrap() []error }); ok {
+			for _, e := range u.Unwrap() {
+				walk(e, depth+1)
+			}
+		}
+	}
 	chain := func(err error) {
-		for e := err; e != nil; e = errors.Unwrap(e) {
-			out = append(out, fmt.Sprintf("%T: %v", e, e))
+		walk(err, 0)
+		for i, sentinel := range readSentinels {
+			if errors.Is(err, sentinel) {
+				out = append(out, fmt.Sprintf("is %d", i))
+			}
 		}
 		out = append(out, "--")
 	}
@@ -285,6 +313,9 @@ func errorChains(v any) []string {
 		if res, ok := r[1].(Result); ok {
 			defects(res.Incomplete)
 			chain(res.FooterErr)
+			for i := range res.FooterErrs {
+				chain(res.FooterErrs[i].Err)
+			}
 		}
 	case VerifyReport:
 		defects(r.Failed)
