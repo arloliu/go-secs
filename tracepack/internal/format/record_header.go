@@ -109,21 +109,7 @@ func UnmarshalRecordHeader(b []byte, recordHeaderLen int) (RecordHeader, error) 
 		return RecordHeader{}, err
 	}
 
-	h := RecordHeader{
-		Seq:           binary.LittleEndian.Uint64(b[0:8]),
-		TSUTCNs:       int64(binary.LittleEndian.Uint64(b[8:16])),
-		MonoNs:        int64(binary.LittleEndian.Uint64(b[16:24])),
-		Epoch:         binary.LittleEndian.Uint32(b[24:28]),
-		PayloadLen:    binary.LittleEndian.Uint32(b[28:32]),
-		TrailingBytes: binary.LittleEndian.Uint32(b[32:36]),
-		Quality:       binary.LittleEndian.Uint16(b[36:38]),
-		Kind:          b[38],
-		Dir:           b[39],
-		Fidelity:      b[40],
-		DecodeStatus:  b[41],
-		FieldValidity: b[42],
-		RecordFlags:   b[43],
-	}
+	h := DecodeRecordHeader(b)
 
 	u64s := [...]u64Field{{name: "seq", off: recordHeaderSeqOff, value: h.Seq}}
 	if err := checkU64Fields(recordHeaderStructure, u64s[:]); err != nil {
@@ -140,4 +126,28 @@ func UnmarshalRecordHeader(b []byte, recordHeaderLen int) (RecordHeader, error) 
 	}
 
 	return h, nil
+}
+
+// DecodeRecordHeader decodes the 44 known bytes at the start of b, a record header already checked,
+// with none of UnmarshalRecordHeader's checks and with a nil Extra.
+// It is for a header that UnmarshalRecordHeader, or a check equivalent to it, has accepted before;
+// b holds at least RecordHeaderLen bytes.
+func DecodeRecordHeader(b []byte) RecordHeader {
+	b = b[:RecordHeaderLen]
+
+	return RecordHeader{
+		Seq:           binary.LittleEndian.Uint64(b[0:8]),
+		TSUTCNs:       int64(binary.LittleEndian.Uint64(b[8:16])),
+		MonoNs:        int64(binary.LittleEndian.Uint64(b[16:24])),
+		Epoch:         binary.LittleEndian.Uint32(b[24:28]),
+		PayloadLen:    binary.LittleEndian.Uint32(b[28:32]),
+		TrailingBytes: binary.LittleEndian.Uint32(b[32:36]),
+		Quality:       binary.LittleEndian.Uint16(b[36:38]),
+		Kind:          b[38],
+		Dir:           b[39],
+		Fidelity:      b[40],
+		DecodeStatus:  b[41],
+		FieldValidity: b[42],
+		RecordFlags:   b[43],
+	}
 }

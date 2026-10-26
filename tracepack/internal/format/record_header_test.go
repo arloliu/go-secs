@@ -318,3 +318,39 @@ func TestRecordHeader_Allocs(t *testing.T) {
 	})
 	require.InDelta(t, 1.0, extendedAllocs, 0, "UnmarshalRecordHeader of 52 bytes copies Extra once")
 }
+
+// TestDecodeRecordHeaderMatchesUnmarshal checks that DecodeRecordHeader decodes every header UnmarshalRecordHeader accepts
+// to the same fields, Extra aside.
+func TestDecodeRecordHeaderMatchesUnmarshal(t *testing.T) {
+	t.Parallel()
+
+	b := make([]byte, 52)
+	for k := range 2000 {
+		for i := range b {
+			b[i] = byte(k*131 + i*29 + k*i)
+		}
+		// Keep seq and payload_len within their limits, at the limit on some rounds.
+		b[7] &= 0x7F
+		b[31] &= 0x7F
+		if k%7 == 0 {
+			binary.LittleEndian.PutUint64(b[0:8], MaxU64)
+			binary.LittleEndian.PutUint32(b[28:32], MaxLen32)
+		}
+		for _, rhl := range []int{RecordHeaderLen, len(b)} {
+			want, err := UnmarshalRecordHeader(b, rhl)
+			require.NoError(t, err)
+			want.Extra = nil
+			require.Equal(t, want, DecodeRecordHeader(b), "round %d, record_header_len %d", k, rhl)
+		}
+	}
+	require.Equal(t, mustUnmarshalGolden(t), DecodeRecordHeader(goldenRecordHeader))
+}
+
+func mustUnmarshalGolden(t *testing.T) RecordHeader {
+	t.Helper()
+
+	h, err := UnmarshalRecordHeader(goldenRecordHeader, RecordHeaderLen)
+	require.NoError(t, err)
+
+	return h
+}
