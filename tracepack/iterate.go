@@ -115,10 +115,10 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 
 	capture := UUID(r.hdr.CaptureID)
 	gaps := crashGaps{from: f.TimeFrom, to: f.TimeTo}
-	var (
-		buf  blockBuf
-		item Item
-	)
+	var item Item
+	pool := r.blockBufs()
+	buf := pool.get()
+	defer pool.put(buf)
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {
 			return res, fmt.Errorf("tracepack: iterate: %w", err)
@@ -127,7 +127,7 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 			continue
 		}
 
-		d, def, err := r.readBlock(i, &buf)
+		d, def, err := r.readBlock(i, buf)
 		if err != nil {
 			return res, err
 		}

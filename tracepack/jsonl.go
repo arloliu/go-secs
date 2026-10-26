@@ -148,7 +148,9 @@ func writeJSONLRecord(jw *jsonlWriter, schema *jsonlSchema, d *decodedBlock, j i
 // and the crash gaps of each walked block's records after it.
 // It checks ctx before each block, and fails at a block over MaxBlockLen instead of listing it.
 func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, res Result) (Result, error) {
-	var buf blockBuf
+	pool := r.blockBufs()
+	buf := pool.get()
+	defer pool.put(buf)
 	schema := jsonlSchemaOf(r.hdr.FormatMinor)
 	capture := UUID(r.hdr.CaptureID)
 	gaps := crashGaps{from: f.TimeFrom, to: f.TimeTo}
@@ -160,7 +162,7 @@ func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, r
 			continue
 		}
 
-		d, def, err := r.readBlock(i, &buf)
+		d, def, err := r.readBlock(i, buf)
 		if err != nil {
 			return res, err
 		}
