@@ -134,6 +134,7 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 		poolTestPack(t, CodecNone, 2, 25, true),
 		poolTestPack(t, CodecZstd, 1, 7, true),
 	}
+	// Each read returns what it gives: the items' copies, the export and the Result, or the VerifyReport, kept across later reads.
 	reads := []struct {
 		name string
 		run  func(t *testing.T, r *Reader) any
@@ -141,20 +142,20 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 		{"iterate", func(t *testing.T, r *Reader) any {
 			items, res := iterateAll(t, r)
 
-			return fmt.Sprint(items, res)
+			return []any{items, res}
 		}},
 		{"export", func(t *testing.T, r *Reader) any {
 			var out bytes.Buffer
 			res, err := ExportJSONL(t.Context(), r, &out)
 			require.NoError(t, err)
 
-			return fmt.Sprint(out.String(), res)
+			return []any{out.String(), res}
 		}},
 		{"verify", func(t *testing.T, r *Reader) any {
 			rep, err := r.analyze(t.Context())
 			require.NoError(t, err)
 
-			return fmt.Sprint(rep)
+			return rep
 		}},
 	}
 	for _, rd := range reads {
@@ -163,12 +164,19 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 
 			buf := new(blockBuf)
 			pool := &listBlockBufs{free: []*blockBuf{buf}}
-			for _, file := range slices.Concat(files, files) {
+			all := slices.Concat(files, files)
+			kept, printed := make([]any, 0, len(all)), make([]string, 0, len(all))
+			for _, file := range all {
 				want := rd.run(t, mustOpen(t, file, ReaderOptions{}))
 				r := mustOpen(t, file, ReaderOptions{})
 				r.bufs = pool
-				require.Equal(t, want, rd.run(t, r))
+				got := rd.run(t, r)
+				require.Equal(t, want, got)
 				requirePooledBack(t, pool, buf)
+				kept, printed = append(kept, got), append(printed, fmt.Sprintf("%+v", got))
+				for k := range kept {
+					require.Equal(t, printed[k], fmt.Sprintf("%+v", kept[k]), "what read %d returned, after the later reads", k)
+				}
 			}
 		})
 	}
