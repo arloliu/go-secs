@@ -147,6 +147,8 @@ type Reader struct {
 	openDefects []Defect
 	// walkStop is the forward walk's stop: the envelope it could not account for; nil when it did not stop.
 	walkStop *Defect
+	// bufs lends the block buffer of each read that holds one block at a time; nil means defaultBlockBufs.
+	bufs blockBufPool
 	// held holds object bytes that serve reads in place of ReadAt:
 	// while Open runs, every buffer of its first round; once it returns, the buffers it retains (retain).
 	held []span

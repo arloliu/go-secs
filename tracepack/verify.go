@@ -226,14 +226,16 @@ func (r *Reader) analyze(ctx context.Context) (VerifyReport, error) {
 		hasPrev bool
 	)
 
-	var buf blockBuf
+	pool := r.blockBufs()
+	buf := pool.get()
+	defer pool.put(buf)
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {
 			return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", err)
 		}
 
 		info := &r.blocks[i]
-		d, def, err := r.readBlock(i, &buf)
+		d, def, err := r.readBlock(i, buf)
 		if err != nil {
 			return VerifyReport{}, err
 		}
