@@ -236,8 +236,12 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 	offs = append(slices.Grow(offs[:0], count+1), uint32(end))
 	var span recordSpan
 	for i := range count {
-		h, err := format.UnmarshalRecordHeader(section[i*rhl:], format.RecordHeaderLen)
-		if err != nil {
+		// The section holds count × rhl bytes, rhl at least 44, so only the two limits of UnmarshalRecordHeader can fail;
+		// it builds the error of a header outside them.
+		h := format.DecodeRecordHeader(section[i*rhl:])
+		if h.Seq > format.MaxU64 || h.PayloadLen > format.MaxLen32 {
+			_, err := format.UnmarshalRecordHeader(section[i*rhl:], format.RecordHeaderLen)
+
 			return offs, span, fmt.Errorf("record %d: %w", i, err)
 		}
 		if err := checkBlockSeq(i, h.Seq, span.lastSeq, env.FirstSeq); err != nil {
@@ -356,8 +360,8 @@ func (d *decodedBlock) header(i int) format.RecordHeader {
 	rhl := int(d.env.RecordHeaderLen)
 	b := d.section[i*rhl : (i+1)*rhl : (i+1)*rhl]
 
-	// readBlock decoded every header of the block without error.
-	h, _ := format.UnmarshalRecordHeader(b, format.RecordHeaderLen)
+	// checkRecords accepted every header of the block before the block was made.
+	h := format.DecodeRecordHeader(b)
 	if rhl > format.RecordHeaderLen {
 		h.Extra = b[format.RecordHeaderLen:]
 	}
