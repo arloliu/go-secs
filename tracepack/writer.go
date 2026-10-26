@@ -168,6 +168,8 @@ type WriterOptions struct {
 	// (the tracepack format specification §14).
 	// The Writer writes the larger of it and the minor its own metadata needs, so a feature is never written under minor 0.
 	formatMinor uint16
+	// scratch, set only by tests, is the pool the Writer takes its buffers from and gives them back to; nil means defaultWriterScratch.
+	scratch scratchPool[writerScratch]
 }
 
 // clockAnchor is the clock anchor of the tracepack semantics specification §4:
@@ -235,6 +237,10 @@ type Writer struct {
 	bodyBuf []byte
 	encBuf  []byte
 	valBuf  validateBuf
+	// scratch is the pool the Writer's buffers came from, and sc the scratch that held them;
+	// a successful Close gives them back through sc.
+	scratch scratchPool[writerScratch]
+	sc      *writerScratch
 	// encodedHook, set only by tests, changes an encoded block body before it is validated and written.
 	encodedHook func(enc []byte) []byte
 	// maxF3ListLen is the longest F-3 entry list the footer's u32 summary_len can state;
@@ -374,6 +380,7 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 			thinned:          thinnedSFs(meta.Thinning),
 		},
 	}
+	wr.takeScratch(opts.scratch)
 	if opts.Uncompressed {
 		wr.codec = CodecNone
 	}
@@ -906,6 +913,7 @@ func (w *Writer) Close() (Continuation, error) {
 	}
 
 	w.closed = true
+	w.giveScratch()
 	if w.nextSeq > format.MaxU64 {
 		return Continuation{}, nil
 	}
@@ -1359,4 +1367,31 @@ func (c *packCommitments) checkCommitmentFacts(classified, oversized, redacted b
 	}
 
 	return &FieldError{Field: field, Err: ErrMetadataCommitment}
+}
+
+// takeScratch takes the Writer's buffers from pool, or from defaultWriterScratch when pool is nil.
+func (w *Writer) takeScratch(pool scratchPool[writerScratch]) {
+	if pool == nil {
+		pool = defaultWriterScratch
+	}
+	sc := pool.get()
+	w.scratch, w.sc = pool, sc
+	w.block.headers, w.block.payloads, w.bodyBuf, w.encBuf = sc.headers[:0], sc.payloads[:0], sc.body[:0], sc.enc[:0]
+	w.valBuf = validateBuf{decoded: sc.val.decoded[:0], rows: sc.val.rows[:0], offs: sc.val.offs[:0]}
+	*sc = writerScratch{}
+}
+
+// giveScratch gives the buffers of w, closed, back to its pool, unless they hold more than maxPooledWriterScratch bytes,
+// and drops them from w.
+// Nothing reads them once w is closed: every call after Close returns ErrClosed, and Close copied what it returns.
+func (w *Writer) giveScratch() {
+	sc := w.sc
+	*sc = writerScratch{
+		headers: w.block.headers[:0], payloads: w.block.payloads[:0], body: w.bodyBuf[:0], enc: w.encBuf[:0],
+		val: validateBuf{decoded: w.valBuf.decoded[:0], rows: w.valBuf.rows[:0], offs: w.valBuf.offs[:0]},
+	}
+	w.block.headers, w.block.payloads, w.bodyBuf, w.encBuf, w.valBuf, w.sc = nil, nil, nil, nil, validateBuf{}, nil
+	if sc.bytes() <= maxPooledWriterScratch {
+		w.scratch.put(sc)
+	}
 }

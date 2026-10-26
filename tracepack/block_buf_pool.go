@@ -36,16 +36,26 @@ func (s *syncBlockBufPool) put(buf *blockBuf) {
 	}
 }
 
-// readyForPool empties buf's slices and its decoded block, keeping their storage,
-// and reports whether buf is small enough to pool (blockBufBytes within maxPooledBlockBuf).
+// readyForPool empties buf (emptyBlockBuf) and reports whether it is small enough to pool,
+// blockBufBytes within maxPooledBlockBuf.
 func readyForPool(buf *blockBuf) bool {
-	if blockBufBytes(cap(buf.raw), cap(buf.decoded), cap(buf.rows), cap(buf.offs)) > maxPooledBlockBuf {
+	if buf.bytes() > maxPooledBlockBuf {
 		return false
 	}
-	buf.raw, buf.decoded, buf.rows, buf.offs = buf.raw[:0], buf.decoded[:0], buf.rows[:0], buf.offs[:0]
-	buf.blk = decodedBlock{}
+	emptyBlockBuf(buf)
 
 	return true
+}
+
+// emptyBlockBuf empties buf's slices and its decoded block, keeping their storage.
+func emptyBlockBuf(buf *blockBuf) {
+	buf.raw, buf.decoded, buf.rows, buf.offs = buf.raw[:0], buf.decoded[:0], buf.rows[:0], buf.offs[:0]
+	buf.blk = decodedBlock{}
+}
+
+// bytes returns the bytes of buf's storage (blockBufBytes).
+func (buf *blockBuf) bytes() int64 {
+	return blockBufBytes(cap(buf.raw), cap(buf.decoded), cap(buf.rows), cap(buf.offs))
 }
 
 // blockBufBytes returns the bytes of block buffers of the given capacities, offs counted in offsets,

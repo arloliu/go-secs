@@ -75,6 +75,9 @@ type mergeRun struct {
 	// resolved counts the records every resolution of the merge resolved, one per seq,
 	// for the check of ctx every resolveCtxRecords records.
 	resolved int
+	// pool is where free, unit, enc and group came from, and sc the scratch that held them; stash gives them back through sc.
+	pool scratchPool[mergeScratch]
+	sc   *mergeScratch
 }
 
 // newMergeUnit returns the unit of an input block read as d, whose envelope and on-disk body raw holds:
@@ -98,6 +101,7 @@ func (p *mergePlan) write(ctx context.Context, dst io.Writer, opts *MergeOptions
 	if err != nil {
 		return MergeReport{}, err
 	}
+	defer m.stash()
 	for k := range p.clusters {
 		if err := m.writeCluster(ctx, &p.clusters[k]); err != nil {
 			return MergeReport{Conflicts: m.rep.Conflicts}, err
@@ -145,6 +149,13 @@ func (p *mergePlan) startRun(dst io.Writer, opts *MergeOptions) (*mergeRun, erro
 		p: p, w: w, codec: w.codec, onConflict: opts.OnConflict, coalesce: !opts.NoCoalesce,
 		rep: MergeReport{PackID: p.packID, ReplacementSetID: *p.meta.ReplacementSetID, Inputs: len(p.inputs)},
 	}
+	m.pool = p.scratch
+	if m.pool == nil {
+		m.pool = defaultMergeScratch
+	}
+	m.sc = m.pool.get()
+	m.free, m.unit, m.enc, m.group = m.sc.free, m.sc.unit, m.sc.enc, m.sc.group
+	*m.sc = mergeScratch{}
 	m.enc.hook = p.encodedHook
 	m.group.enc.hook = p.coalescedHook
 
@@ -321,6 +332,9 @@ func (m *mergeRun) buffer() *blockBuf {
 		return new(blockBuf)
 	}
 	buf := m.free[n-1]
+	// The slot is cleared so that the free list never points at a buffer a block holds,
+	// which a run ending on an error drops instead of pooling.
+	m.free[n-1] = nil
 	m.free = m.free[:n-1]
 
 	return buf
@@ -332,4 +346,29 @@ func (m *mergeRun) release(buf *blockBuf) {
 		m.p.releaseHook(buf)
 	}
 	m.free = append(m.free, buf)
+}
+
+// stash gives the run's buffers back to its pool once the run has returned, whatever its outcome,
+// unless they hold more than maxPooledMergeScratch bytes.
+// Only the free block buffers go back: a buffer a block still holds, when the run ended on an error, is dropped.
+// No view, check, hook or F-3 alias keeps another run's or an input's storage alive in the pool.
+func (m *mergeRun) stash() {
+	clear(m.free[len(m.free):cap(m.free)])
+	for _, buf := range m.free {
+		emptyBlockBuf(buf)
+	}
+	m.unit.reset()
+	m.unit.clearViews()
+	m.group.reset()
+	m.group.records.clearViews()
+	clear(m.group.units[:cap(m.group.units)])
+	m.enc.detach()
+	m.group.enc.detach()
+
+	sc := m.sc
+	*sc = mergeScratch{free: m.free, unit: m.unit, enc: m.enc, group: m.group}
+	m.free, m.unit, m.enc, m.group, m.sc = nil, unitBuilder{}, encodeBuf{}, coalesceGroup{}, nil
+	if sc.bytes() <= maxPooledMergeScratch {
+		m.pool.put(sc)
+	}
 }
