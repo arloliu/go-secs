@@ -2,6 +2,8 @@ package tracepack
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"testing"
@@ -138,25 +140,31 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 	}, crashGapSteps(t, BoundaryKindStopUnclean, new(crashGapStart), new(crashGapEnd)))
 	walked := invalidFooterFile(t, diag.file)
 	bad := flipByte(diag.file, diag.bodyByteOf(0))
+	// writer holds valid blocks, one with a transport event whose payload is not a TLV body: a writer defect.
+	writer := editBlock(t, defectTestPack(t).file, 0, func(b *testBlock) {
+		b.payloads[2] = []byte{0xFF}
+		b.headers[2].PayloadLen = 1
+	})
 	files := [][]byte{
 		poolTestPack(t, CodecZstd, 3, 40, false),
 		walked,
 		poolTestPack(t, CodecNone, 2, 25, true),
 		bad,
 		poolTestPack(t, CodecZstd, 1, 7, true),
+		writer,
 	}
 	// Each read returns what it gives: the items' copies, the export and the Result, or the VerifyReport;
 	// diagnostics checks that the read of walked or bad reports what the test keeps across the later reads.
 	reads := []struct {
 		name        string
 		run         func(t *testing.T, r *Reader) any
-		diagnostics func(t *testing.T, walked, bad any)
+		diagnostics func(t *testing.T, walked, bad, writer any)
 	}{
 		{"iterate", func(t *testing.T, r *Reader) any {
 			items, res := iterateAll(t, r)
 
 			return []any{items, res}
-		}, func(t *testing.T, walked, bad any) {
+		}, func(t *testing.T, walked, bad, _ any) {
 			requireReadDiagnostics(t, readResult(t, walked), readResult(t, bad))
 		}},
 		{"export", func(t *testing.T, r *Reader) any {
@@ -165,7 +173,7 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 			require.NoError(t, err)
 
 			return []any{out.String(), res}
-		}, func(t *testing.T, walked, bad any) {
+		}, func(t *testing.T, walked, bad, _ any) {
 			requireReadDiagnostics(t, readResult(t, walked), readResult(t, bad))
 		}},
 		{"verify", func(t *testing.T, r *Reader) any {
@@ -173,11 +181,14 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 			require.NoError(t, err)
 
 			return rep
-		}, func(t *testing.T, _, bad any) {
+		}, func(t *testing.T, _, bad, writer any) {
 			rep, ok := bad.(VerifyReport)
 			require.True(t, ok)
 			require.NotEmpty(t, rep.Failed, "the corrupt block failed")
 			require.NotEmpty(t, rep.Lost, "its records are lost")
+			rep, ok = writer.(VerifyReport)
+			require.True(t, ok)
+			require.NotEmpty(t, rep.WriterDefects, "the event payload's writer defect")
 		}},
 	}
 	for _, rd := range reads {
@@ -187,7 +198,7 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 			buf := new(blockBuf)
 			pool := &listBlockBufs{free: []*blockBuf{buf}}
 			all := slices.Concat(files, files)
-			kept := make([]any, 0, len(all))
+			kept, errs := make([]any, 0, len(all)), make([][]string, 0, len(all))
 			for _, file := range all {
 				want := rd.run(t, mustOpen(t, file, ReaderOptions{}))
 				r := mustOpen(t, file, ReaderOptions{})
@@ -195,9 +206,13 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 				got := rd.run(t, r)
 				require.Equal(t, want, got)
 				requirePooledBack(t, pool, buf)
-				kept = append(kept, got)
+				kept, errs = append(kept, got), append(errs, errorChains(got))
 			}
-			rd.diagnostics(t, kept[1], kept[3])
+			rd.diagnostics(t, kept[1], kept[3], kept[5])
+			// The errors each read returned keep their text and the types of their chains, as errors.Is and errors.As see them.
+			for k := range kept {
+				require.Equal(t, errs[k], errorChains(kept[k]), "the errors of read %d, after the later reads", k)
+			}
 			// What each read returned is compared in depth with a fresh read's, after every later read reused the buffer.
 			for k, file := range all {
 				require.Equal(t, rd.run(t, mustOpen(t, file, ReaderOptions{})), kept[k], "what read %d returned, after the later reads", k)
@@ -249,4 +264,38 @@ func readResult(t *testing.T, v any) Result {
 	require.True(t, ok)
 
 	return res
+}
+
+// errorChains returns, for every error a read returned in v, its text and the type of each error in its chain, in order.
+func errorChains(v any) []string {
+	var out []string
+	chain := func(err error) {
+		for e := err; e != nil; e = errors.Unwrap(e) {
+			out = append(out, fmt.Sprintf("%T: %v", e, e))
+		}
+		out = append(out, "--")
+	}
+	defects := func(ds []Defect) {
+		for i := range ds {
+			chain(ds[i].Err)
+		}
+	}
+	switch r := v.(type) {
+	case []any:
+		if res, ok := r[1].(Result); ok {
+			defects(res.Incomplete)
+			chain(res.FooterErr)
+		}
+	case VerifyReport:
+		defects(r.Failed)
+		defects(r.Disagreements)
+		for i := range r.WriterDefects {
+			chain(r.WriterDefects[i].Err)
+		}
+		chain(r.FooterErr)
+	default:
+		panic(fmt.Sprintf("errorChains: %T", v))
+	}
+
+	return out
 }
