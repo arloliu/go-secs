@@ -13,7 +13,7 @@ type txHourSource interface {
 	// each item to fn, its record_flags as stored through flags before fn sees it,
 	// and through header its record's HSMS header when the source holds it decoded, else nothing,
 	// each conflict reserved through reserveConflict before it is listed, then the read's Result.
-	// A lookup treats the Result as read-only and keeps no reference into it.
+	// A lookup treats each Item and the Result as read-only and keeps no reference into them.
 	read(ctx context.Context, hour int64, readers []*Reader, maxHeld int64,
 		reserveConflict func() error, flags *uint8, header *txCachedHeader, fn func(*Item) error) (Result, error)
 }

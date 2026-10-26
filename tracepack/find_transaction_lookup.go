@@ -66,8 +66,10 @@ type txLookup struct {
 // txScopeRead is one hour a transaction lookup reads: the packs the source gave for it and the status of its read.
 // Once the read's status is added to the result, its readers, its Result and its group buffer are dropped.
 type txScopeRead struct {
-	hour    int64
-	readers []*Reader
+	hour int64
+	// start and end bound the hour's ts_utc_ns, [start, end).
+	start, end int64
+	readers    []*Reader
 	// packs holds the pack_id of each reader, in the order the source gave them.
 	packs []UUID
 	res   Result
@@ -132,7 +134,7 @@ func coverageMeets(c *Coverage, first, last uint64, from, to int64) bool {
 //   - error: an error of the source or of a read, wrapped; an error wrapping ErrNotPrimary;
 //     ctx's error, wrapped.
 func (l *txLookup) run(ctx context.Context) error {
-	rd, err := l.readScope(ctx, l.key.Hour, l.collect)
+	rd, err := l.readScope(ctx, l.key.Hour)
 	if err != nil {
 		return err
 	}
@@ -160,7 +162,7 @@ func (l *txLookup) run(ctx context.Context) error {
 }
 
 // readScope reads hour with one MergeIterate in capture order, a zero filter and payloads,
-// over the readers the source gives for it, passing each item to fn with the read;
+// over the readers the source gives for it, passing each item to collect with the read;
 // it then ends the read's last seq group and adds the read's status to the result (mapScope), also after the read failed.
 // The conflicts of the read are reserved against the lookup's MaxConflicts,
 // and the hour, with a pack_id for each reader, is charged against MaxStateBytes before its pack_ids are taken;
@@ -172,9 +174,7 @@ func (l *txLookup) run(ctx context.Context) error {
 //   - error: ctx's error, wrapped; the source's error, wrapped with the hour;
 //     the read's error, else the error of its mapping, wrapped with the hour;
 //     an error wrapping ErrReadLimit when a charge passes MaxStateBytes.
-func (l *txLookup) readScope(ctx context.Context, hour int64,
-	fn func(ctx context.Context, rd *txScopeRead, it *Item) error,
-) (*txScopeRead, error) {
+func (l *txLookup) readScope(ctx context.Context, hour int64) (*txScopeRead, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("tracepack: find transaction: %w", err)
 	}
@@ -188,7 +188,8 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	if err := l.state.reserve(cost); err != nil {
 		return nil, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
 	}
-	rd := &txScopeRead{hour: hour, readers: readers, runs: &txRuns{hour: hour}}
+	start, end := txHourBounds(hour)
+	rd := &txScopeRead{hour: hour, start: start, end: end, readers: readers, runs: &txRuns{hour: hour}}
 	if len(readers) > 0 {
 		rd.packs = make([]UUID, len(readers))
 		for i, r := range readers {
@@ -207,7 +208,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	}
 	l.reads = append(l.reads, rd)
 	rd.res, err = l.hours.read(ctx, hour, readers, l.opts.MaxHeldBytes, l.reserveConflict, &l.flags, &l.header,
-		func(it *Item) error { return fn(ctx, rd, it) })
+		func(it *Item) error { return l.collect(ctx, rd, it) })
 	gerr := l.endGroup(ctx, rd)
 	if err == nil {
 		err = gerr
@@ -730,4 +731,15 @@ func (l *txLookup) keyGap(reason TxGapReason, why string) TxGap {
 	return TxGap{
 		Reason: reason, Hours: []int64{l.key.Hour}, Block: -1, Offset: -1, Seq: new(l.key.Seq), Err: errors.New(why),
 	}
+}
+
+// outside reports whether ts lies outside the hour rd reads, as hourOf(ts) != rd.hour does.
+func (rd *txScopeRead) outside(ts int64) bool {
+	return ts < rd.start || ts >= rd.end
+}
+
+// txHourBounds returns the ts_utc_ns range of hour, [start, end): a ts lies in it exactly when hourOf(ts) is hour.
+// hour lies in [MinTxHour, MaxTxHour], as every hour a lookup reads does, so both bounds fit an int64.
+func txHourBounds(hour int64) (start, end int64) {
+	return hour * hourNs, (hour + 1) * hourNs
 }

@@ -674,7 +674,7 @@ func (h txReplay) readers(ctx context.Context, hour int64) ([]*Reader, error) {
 }
 
 // read replays the read of hour: each reservation at its place between the items, through reserveConflict,
-// each item through fn after its stored flags and its record's HSMS header, each a copy, then the read's Result, shared and read-only.
+// each item through fn after its stored flags and its record's HSMS header, the item the record's own, then the read's Result, shared and read-only.
 // A refused reservation is wrapped as the live read wraps it; an error of fn is returned as is.
 func (h txReplay) read(_ context.Context, hour int64, _ []*Reader, _ int64,
 	reserveConflict func() error, flags *uint8, header *txCachedHeader, fn func(*Item) error,
@@ -694,17 +694,17 @@ func (h txReplay) read(_ context.Context, hour int64, _ []*Reader, _ int64,
 
 		return nil
 	}
-	// One Item serves every call of fn, as a live read reuses its Item: the lookup copies what it keeps.
-	var it Item
+	// fn gets the record's own item, which it reads only (txHourSource); the lookup copies what it keeps.
 	for i := range rec.items {
-		if err := reserve(i); err != nil {
-			return Result{}, err
+		if k < len(rec.reservations) && rec.reservations[k] == i {
+			if err := reserve(i); err != nil {
+				return Result{}, err
+			}
 		}
 		m := &rec.meta[i]
 		*flags = m.flags
 		*header = txCachedHeader{h: m.header, ok: true}
-		it = rec.items[i]
-		if err := fn(&it); err != nil {
+		if err := fn(&rec.items[i]); err != nil {
 			return Result{}, err
 		}
 	}
