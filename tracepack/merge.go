@@ -350,6 +350,8 @@ type mergePlan struct {
 	loadHook func(b *mergeBlock, open, resolved int)
 	// releaseHook, set only by tests, receives every block buffer the merge releases for a later read, as it releases it.
 	releaseHook func(buf *blockBuf)
+	// scratch, set only by tests, is the pool a run takes its buffers from and gives them back to; nil means defaultMergeScratch.
+	scratch scratchPool[mergeScratch]
 }
 
 // mergeBlock is one block of a merge input, as the input's validated footer indexes it.
