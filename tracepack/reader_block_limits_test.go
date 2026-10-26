@@ -48,6 +48,10 @@ func TestCheckRecordsLimitErrors(t *testing.T) {
 					_, _, err := checkRecords(section, &env, nil)
 					require.ErrorIs(t, err, format.ErrLimit)
 					require.EqualError(t, err, fmt.Sprintf("record %d: %v", at, uerr))
+					var oe, uoe *format.OffsetError
+					require.ErrorAs(t, err, &oe)
+					require.ErrorAs(t, uerr, &uoe)
+					require.Equal(t, uoe.Field, oe.Field)
 				})
 			}
 		}
