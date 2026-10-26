@@ -871,3 +871,19 @@ func TestFindTransactionStateBudgetCrossConflict(t *testing.T) {
 		}), "limit %d", tt.limit)
 	}
 }
+
+// TestTxHourBounds checks that a ts lies in txHourBounds(hour) exactly when hourOf(ts) is hour,
+// around the bounds of hours across the whole range a lookup reads.
+func TestTxHourBounds(t *testing.T) {
+	t.Parallel()
+
+	for _, hour := range []int64{MinTxHour, MinTxHour + 1, -2, -1, 0, 1, 2, MaxTxHour - 1, MaxTxHour} {
+		start, end := txHourBounds(hour)
+		for _, ts := range []int64{
+			math.MinInt64, math.MinInt64 + 1, start - hourNs, start - 1, start, start + 1, end - 1, end, end + 1, end + hourNs,
+			math.MaxInt64 - 1, math.MaxInt64,
+		} {
+			require.Equal(t, hourOf(ts) == hour, ts >= start && ts < end, "hour %d, ts %d", hour, ts)
+		}
+	}
+}

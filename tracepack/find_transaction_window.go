@@ -312,7 +312,7 @@ func (s *txRuns) contains(seq uint64) bool {
 //   - error: the error of a read, wrapped with its hour; ctx's error, wrapped; the error of the evaluation.
 func (l *txLookup) searchWindow(ctx context.Context) error {
 	for i := 1; i < l.opts.MaxScopes; i++ {
-		rd, err := l.readScope(ctx, l.key.Hour+int64(i), l.collect)
+		rd, err := l.readScope(ctx, l.key.Hour+int64(i))
 		if rd != nil {
 			if cerr := l.commitRead(ctx, rd); cerr != nil && err == nil {
 				err = fmt.Errorf("tracepack: find transaction: %w", cerr)
@@ -353,7 +353,7 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 		return err
 	}
 	rec := &it.Record
-	if hourOf(rec.TSUTCNs) != rd.hour && (!l.breachFromPrimary || rec.Seq >= l.key.Seq) {
+	if rd.outside(rec.TSUTCNs) && (!l.breachFromPrimary || rec.Seq >= l.key.Seq) {
 		if err := l.noteBreach(ctx, rd, it); err != nil {
 			return err
 		}

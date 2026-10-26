@@ -123,6 +123,24 @@ func TestFindTransactionScopeBreach(t *testing.T) {
 			records: []string{"12@0 primary", "13@0 candidate in eligible decidable valid"},
 		},
 		{
+			name:    "a reply at the first nanosecond of the next hour",
+			steps:   append(txBlock(txRecord(12, nil)), atTS((memTestHour+1)*hourNs, txBlock(txReply(13, nil)))...),
+			outcome: TxMatched, breaches: []string{"scope-breach@0/13"},
+			records: []string{"12@0 primary", "13@0 candidate in eligible decidable valid"},
+		},
+		{
+			name:    "a reply at the last nanosecond of the hour",
+			steps:   append(txBlock(txRecord(12, nil)), atTS((memTestHour+1)*hourNs-1, txBlock(txReply(13, nil)))...),
+			outcome: TxMatched, breaches: []string{},
+			records: []string{"12@0 primary", "13@0 candidate in eligible decidable valid"},
+		},
+		{
+			name:    "a record below the primary at the last nanosecond of the hour before",
+			steps:   append(atTS(memTestHour*hourNs-1, txBlock(txNote(10, nil))), txBlock(txRecord(12, nil), txRecord(13, nil))...),
+			outcome: TxNotFound, breaches: []string{"scope-breach@0/10"},
+			records: []string{"12@0 primary", "13@0 same-key-primary bound"},
+		},
+		{
 			name:    "a segment whose period starts in the middle of the hour",
 			steps:   txBlock(txRecord(12, nil), txRecord(13, nil)),
 			meta:    func(m *PackMeta) { m.PeriodStart += hourNs / 2 },
@@ -269,4 +287,17 @@ func TestTxTruthBreach(t *testing.T) {
 	}
 	res := TxResult{Outcome: TxNotFound, Incomplete: []TxGap{{Reason: TxGapScopeBreach}}}
 	assert.Empty(t, tr.violations(key, 1, &res, nil), "an incomplete lookup")
+}
+
+// atTS returns steps moved in time so that the first record's ts_utc_ns is ts, the others keeping their distance to it,
+// and the monotonic times moved with them.
+func atTS(ts int64, steps []footerTestStep) []footerTestStep {
+	out := slices.Clone(steps)
+	d := ts - out[0].rec.TSUTCNs
+	for i := range out {
+		out[i].rec.TSUTCNs += d
+		out[i].rec.MonoNs += d
+	}
+
+	return out
 }
