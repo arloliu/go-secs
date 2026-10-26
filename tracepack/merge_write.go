@@ -353,6 +353,9 @@ func (m *mergeRun) release(buf *blockBuf) {
 // Only the free block buffers go back: a buffer a block still holds, when the run ended on an error, is dropped.
 // No view, check, hook or F-3 alias keeps another run's or an input's storage alive in the pool.
 func (m *mergeRun) stash() {
+	if m.p.stashHook != nil {
+		m.p.stashHook(m)
+	}
 	clear(m.free[len(m.free):cap(m.free)])
 	for _, buf := range m.free {
 		emptyBlockBuf(buf)
@@ -368,7 +371,7 @@ func (m *mergeRun) stash() {
 	sc := m.sc
 	*sc = mergeScratch{free: m.free, unit: m.unit, enc: m.enc, group: m.group}
 	m.free, m.unit, m.enc, m.group, m.sc = nil, unitBuilder{}, encodeBuf{}, coalesceGroup{}, nil
-	if sc.bytes() <= maxPooledMergeScratch {
+	if keepScratch(sc.bytes(), maxPooledMergeScratch) {
 		m.pool.put(sc)
 	}
 }
