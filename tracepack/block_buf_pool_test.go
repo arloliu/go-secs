@@ -2,7 +2,6 @@ package tracepack
 
 import (
 	"bytes"
-	"fmt"
 	"math"
 	"slices"
 	"testing"
@@ -129,20 +128,36 @@ func requirePooledBack(t *testing.T, pool *listBlockBufs, buf *blockBuf) {
 func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 	t.Parallel()
 
+	// diag is a pack with a coverage entry carrying an unknown nested entry and a stop-unclean boundary with gap bounds;
+	// walked, read by the forward walk, reports both, and bad, with its first block corrupt, fails that block and loses its records.
+	diag := crashGapPack(t, seg0, captureLow, func(m *PackMeta) {
+		m.Coverage = []Coverage{{
+			CaptureID: new(captureLow), SeqFirst: new(uint64(10)), SeqLast: new(uint64(11)),
+			Unknown: []RawEntry{{Tag: 0x0050, Type: 7, Value: []byte{9, 8, 7}}},
+		}}
+	}, crashGapSteps(t, BoundaryKindStopUnclean, new(crashGapStart), new(crashGapEnd)))
+	walked := invalidFooterFile(t, diag.file)
+	bad := flipByte(diag.file, diag.bodyByteOf(0))
 	files := [][]byte{
 		poolTestPack(t, CodecZstd, 3, 40, false),
+		walked,
 		poolTestPack(t, CodecNone, 2, 25, true),
+		bad,
 		poolTestPack(t, CodecZstd, 1, 7, true),
 	}
-	// Each read returns what it gives: the items' copies, the export and the Result, or the VerifyReport, kept across later reads.
+	// Each read returns what it gives: the items' copies, the export and the Result, or the VerifyReport;
+	// diagnostics checks that the read of walked or bad reports what the test keeps across the later reads.
 	reads := []struct {
-		name string
-		run  func(t *testing.T, r *Reader) any
+		name        string
+		run         func(t *testing.T, r *Reader) any
+		diagnostics func(t *testing.T, walked, bad any)
 	}{
 		{"iterate", func(t *testing.T, r *Reader) any {
 			items, res := iterateAll(t, r)
 
 			return []any{items, res}
+		}, func(t *testing.T, walked, bad any) {
+			requireReadDiagnostics(t, readResult(t, walked), readResult(t, bad))
 		}},
 		{"export", func(t *testing.T, r *Reader) any {
 			var out bytes.Buffer
@@ -150,12 +165,19 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 			require.NoError(t, err)
 
 			return []any{out.String(), res}
+		}, func(t *testing.T, walked, bad any) {
+			requireReadDiagnostics(t, readResult(t, walked), readResult(t, bad))
 		}},
 		{"verify", func(t *testing.T, r *Reader) any {
 			rep, err := r.analyze(t.Context())
 			require.NoError(t, err)
 
 			return rep
+		}, func(t *testing.T, _, bad any) {
+			rep, ok := bad.(VerifyReport)
+			require.True(t, ok)
+			require.NotEmpty(t, rep.Failed, "the corrupt block failed")
+			require.NotEmpty(t, rep.Lost, "its records are lost")
 		}},
 	}
 	for _, rd := range reads {
@@ -165,7 +187,7 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 			buf := new(blockBuf)
 			pool := &listBlockBufs{free: []*blockBuf{buf}}
 			all := slices.Concat(files, files)
-			kept, printed := make([]any, 0, len(all)), make([]string, 0, len(all))
+			kept := make([]any, 0, len(all))
 			for _, file := range all {
 				want := rd.run(t, mustOpen(t, file, ReaderOptions{}))
 				r := mustOpen(t, file, ReaderOptions{})
@@ -173,13 +195,34 @@ func TestSingleBlockReadsReuseTheirBuffer(t *testing.T) {
 				got := rd.run(t, r)
 				require.Equal(t, want, got)
 				requirePooledBack(t, pool, buf)
-				kept, printed = append(kept, got), append(printed, fmt.Sprintf("%+v", got))
-				for k := range kept {
-					require.Equal(t, printed[k], fmt.Sprintf("%+v", kept[k]), "what read %d returned, after the later reads", k)
-				}
+				kept = append(kept, got)
+			}
+			rd.diagnostics(t, kept[1], kept[3])
+			// What each read returned is compared in depth with a fresh read's, after every later read reused the buffer.
+			for k, file := range all {
+				require.Equal(t, rd.run(t, mustOpen(t, file, ReaderOptions{})), kept[k], "what read %d returned, after the later reads", k)
 			}
 		})
 	}
+}
+
+// requireReadDiagnostics checks that walked's Result reports the coverage entry, with its unknown nested entry,
+// and the crash gap, with its bounds, and that bad's reports its corrupt block.
+func requireReadDiagnostics(t *testing.T, walked, bad Result) {
+	t.Helper()
+
+	var coverage, crash bool
+	for _, d := range walked.Incomplete {
+		if d.Reason == ReasonCoverage {
+			coverage = d.Coverage != nil && len(d.Coverage.Unknown) == 1 && len(d.Coverage.Unknown[0].Value) == 3
+		}
+		if d.Reason == ReasonCrashGap {
+			crash = d.Boundary != nil && d.Boundary.GapStart != nil && d.Boundary.GapEnd != nil
+		}
+	}
+	require.True(t, coverage, "the coverage defect with its unknown entry")
+	require.True(t, crash, "the crash gap with its bounds")
+	require.True(t, slices.ContainsFunc(bad.Incomplete, func(d Defect) bool { return d.Reason == ReasonCorruptBlock && d.Err != nil }))
 }
 
 // TestBlockBufBytes checks the capacity sum in int64, where an int sum would overflow on 32-bit platforms,
@@ -193,4 +236,17 @@ func TestBlockBufBytes(t *testing.T) {
 
 	require.True(t, readyForPool(&blockBuf{raw: make([]byte, 3, maxPooledBlockBuf)}))
 	require.False(t, readyForPool(&blockBuf{raw: make([]byte, 0, maxPooledBlockBuf), offs: make([]uint32, 0, 1)}))
+}
+
+// readResult returns the Result of what the iterate or export read of TestSingleBlockReadsReuseTheirBuffer returned.
+func readResult(t *testing.T, v any) Result {
+	t.Helper()
+
+	pair, ok := v.([]any)
+	require.True(t, ok)
+	require.Len(t, pair, 2)
+	res, ok := pair[1].(Result)
+	require.True(t, ok)
+
+	return res
 }

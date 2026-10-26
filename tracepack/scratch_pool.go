@@ -64,8 +64,14 @@ type writerScratch struct {
 
 // bytes returns the bytes of s's storage, summed in int64.
 func (s *writerScratch) bytes() int64 {
-	return int64(cap(s.headers)) + int64(cap(s.payloads)) + int64(cap(s.body)) + int64(cap(s.enc)) +
-		blockBufBytes(0, cap(s.val.decoded), cap(s.val.rows), cap(s.val.offs))
+	return writerScratchBytes(cap(s.headers), cap(s.payloads), cap(s.body), cap(s.enc),
+		blockBufBytes(0, cap(s.val.decoded), cap(s.val.rows), cap(s.val.offs)))
+}
+
+// writerScratchBytes returns the bytes of a writerScratch whose byte slices have the given capacities
+// and whose validation buffers hold val bytes, summed in int64.
+func writerScratchBytes(headers, payloads, body, enc int, val int64) int64 {
+	return int64(headers) + int64(payloads) + int64(body) + int64(enc) + val
 }
 
 // mergeScratch is what a merge run reuses across its blocks:
@@ -98,13 +104,28 @@ func (s *mergeScratch) bytes() int64 {
 
 // bytes returns the bytes of u's storage, summed in int64.
 func (u *unitBuilder) bytes() int64 {
-	return int64(cap(u.rows)) + int64(cap(u.payloads)) + int64(cap(u.ends))*intBytes +
-		(int64(cap(u.rowViews))+int64(cap(u.payloadViews)))*sliceBytes
+	return unitBuilderBytes(cap(u.rows), cap(u.payloads), cap(u.ends), cap(u.rowViews), cap(u.payloadViews))
 }
 
-// bytes returns the bytes of e's storage, summed in int64.
+// unitBuilderBytes returns the bytes of a unitBuilder whose slices have the given capacities, in elements, summed in int64.
+func unitBuilderBytes(rows, payloads, ends, rowViews, payloadViews int) int64 {
+	return int64(rows) + int64(payloads) + int64(ends)*intBytes + (int64(rowViews)+int64(payloadViews))*sliceBytes
+}
+
+// bytes returns the bytes of e's storage, its check's buffers included, summed in int64.
 func (e *encodeBuf) bytes() int64 {
-	return int64(cap(e.raw)) + int64(cap(e.body)) + int64(cap(e.enc)) + e.check.bytes()
+	return encodeBufBytes(cap(e.raw), cap(e.body), cap(e.enc), e.check.bytes())
+}
+
+// encodeBufBytes returns the bytes of an encodeBuf whose byte slices have the given capacities and whose check holds check bytes,
+// summed in int64.
+func encodeBufBytes(raw, body, enc int, check int64) int64 {
+	return int64(raw) + int64(body) + int64(enc) + check
+}
+
+// keepScratch reports whether a scratch of n bytes is small enough to pool under limit.
+func keepScratch(n, limit int64) bool {
+	return n <= limit
 }
 
 // clearViews empties u's views, clearing them over their whole capacity, so that the views hold no record's storage.

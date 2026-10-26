@@ -352,6 +352,8 @@ type mergePlan struct {
 	releaseHook func(buf *blockBuf)
 	// scratch, set only by tests, is the pool a run takes its buffers from and gives them back to; nil means defaultMergeScratch.
 	scratch scratchPool[mergeScratch]
+	// stashHook, set only by tests, receives the run as it ends, before its buffers are cleaned and given back.
+	stashHook func(m *mergeRun)
 }
 
 // mergeBlock is one block of a merge input, as the input's validated footer indexes it.

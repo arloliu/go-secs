@@ -1391,7 +1391,7 @@ func (w *Writer) giveScratch() {
 		val: validateBuf{decoded: w.valBuf.decoded[:0], rows: w.valBuf.rows[:0], offs: w.valBuf.offs[:0]},
 	}
 	w.block.headers, w.block.payloads, w.bodyBuf, w.encBuf, w.valBuf, w.sc = nil, nil, nil, nil, validateBuf{}, nil
-	if sc.bytes() <= maxPooledWriterScratch {
+	if keepScratch(sc.bytes(), maxPooledWriterScratch) {
 		w.scratch.put(sc)
 	}
 }

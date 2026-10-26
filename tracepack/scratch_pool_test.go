@@ -7,6 +7,7 @@ import (
 	"math"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/require"
 )
@@ -123,6 +124,8 @@ func TestMergeScratchReuse(t *testing.T) {
 		{name: "after a merge without coalescing", inputs: resolved, edit: func(o *MergeOptions) { o.NoCoalesce = true }},
 		{name: "after a block that fails its check", inputs: resolved, hooks: corrupt, err: "fails its check"},
 		{name: "after a MaxOpenBlocks failure", inputs: resolved, edit: func(o *MergeOptions) { o.MaxOpenBlocks = 1 }, err: "MaxOpenBlocks"},
+		{name: "after a conflict", inputs: inputsOf(early, a, mergePackCodec(t, CodecZstd, seg3, seqSteps(12, 13, 2, blockTestHour+1000))),
+			err: "conflicts"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -221,12 +224,41 @@ func TestWriterScratchReuse(t *testing.T) {
 	t.Parallel()
 
 	pool := &listScratch[writerScratch]{}
+	opts := scratchWriterOpts(pool)
+	scratchClock(opts.Meta)
+	opts.DetectClockSteps = true
 	var first bytes.Buffer
-	w1 := writeScratchPack(t, scratchWriterOpts(pool), &first, 40)
+	w1, err := NewWriter(&first, opts)
+	require.NoError(t, err)
+	for i := range 40 {
+		rec := testDataRecord(0, blockTestHour+int64(i), 1)
+		require.NoError(t, w1.Append(&rec))
+	}
+	id, capture, anchor := w1.PackID(), w1.CaptureID(), w1.anchor()
+	require.NotZero(t, anchor, "an active clock anchor")
+	headers, body := unsafe.SliceData(w1.block.headers), unsafe.SliceData(w1.bodyBuf)
+	cont, err := w1.Close()
+	require.NoError(t, err)
+
+	// A Writer through an empty pool, of the same options and records, returns the same Continuation.
+	fresh := scratchWriterOpts(&listScratch[writerScratch]{})
+	scratchClock(fresh.Meta)
+	fresh.DetectClockSteps = true
+	wf, err := NewWriter(&bytes.Buffer{}, fresh)
+	require.NoError(t, err)
+	for i := range 40 {
+		rec := testDataRecord(0, blockTestHour+int64(i), 1)
+		require.NoError(t, wf.Append(&rec))
+	}
+	wantCont, err := wf.Close()
+	require.NoError(t, err)
+	require.Equal(t, wantCont, cont)
+	require.True(t, cont.ok)
+
 	require.Len(t, pool.free, 1)
 	sc := pool.free[0]
-	require.Positive(t, cap(sc.headers))
-	require.Positive(t, cap(sc.body))
+	require.Same(t, headers, unsafe.SliceData(sc.headers), "the headers handed over")
+	require.Same(t, body, unsafe.SliceData(sc.body), "the body buffer handed over")
 	require.Positive(t, cap(sc.val.rows))
 	require.Nil(t, w1.block.headers)
 	require.Nil(t, w1.block.payloads)
@@ -234,7 +266,18 @@ func TestWriterScratchReuse(t *testing.T) {
 	require.Nil(t, w1.encBuf)
 	require.Equal(t, validateBuf{}, w1.valBuf)
 	require.Nil(t, w1.sc)
-	id, capture, anchor := w1.PackID(), w1.CaptureID(), w1.anchor()
+	require.Equal(t, id, w1.PackID())
+	require.Equal(t, capture, w1.CaptureID())
+	require.Equal(t, anchor, w1.anchor())
+
+	// The next Writer takes the same storage.
+	w2, err := NewWriter(&bytes.Buffer{}, scratchWriterOpts(pool))
+	require.NoError(t, err)
+	require.Empty(t, pool.free)
+	require.Same(t, body, unsafe.SliceData(w2.bodyBuf[:1]), "the next Writer writes its blocks in the same storage")
+	require.Equal(t, anchor, w1.anchor(), "while another Writer owns the storage")
+	_, err = w2.Close()
+	require.NoError(t, err)
 
 	for _, n := range []int{7, 90} {
 		var want, got bytes.Buffer
@@ -248,7 +291,7 @@ func TestWriterScratchReuse(t *testing.T) {
 	rec := testDataRecord(0, blockTestHour, 1)
 	require.ErrorIs(t, w1.Append(&rec), ErrClosed)
 	require.ErrorIs(t, w1.Flush(), ErrClosed)
-	_, err := w1.Close()
+	_, err = w1.Close()
 	require.ErrorIs(t, err, ErrClosed)
 	require.Equal(t, id, w1.PackID())
 	require.Equal(t, capture, w1.CaptureID())
@@ -287,4 +330,140 @@ func writeScratchPackTo(t *testing.T, opts WriterOptions, out io.Writer, n int) 
 	}
 	_, err = w.Close()
 	require.NoError(t, err)
+}
+
+// TestMergeScratchAfterPendingFailure fails a merge while its resolution holds resolved records in its unit,
+// its coalescing group holds the unit of an earlier cluster, and a block holds the buffer the pool lent, grown by the block's read:
+// the run gives back its scratch clean, without that buffer anywhere in its free list's storage,
+// and the next merge through the pool writes what a merge through an empty pool writes.
+func TestMergeScratchAfterPendingFailure(t *testing.T) {
+	t.Parallel()
+
+	// early is a cluster of its own, written first and kept in the coalescing group;
+	// a, b and c overlap three deep at seq 14, which MaxOpenBlocks 2 refuses after the resolution took seqs 10 to 13,
+	// while a, holding the lent buffer since its load at seq 10, is still open.
+	early := mergePack(t, seg4, nil, hourSteps(1, 4, 4))
+	a := mergePackCodec(t, CodecZstd, seg0, hourSteps(10, 20, 11))
+	b := mergePackCodec(t, CodecNone, seg1, hourSteps(12, 15, 4))
+	c := mergePackCodec(t, CodecZstd, seg2, hourSteps(14, 16, 3))
+
+	lent := &blockBuf{raw: make([]byte, 0, 1)}
+	sc := &mergeScratch{free: []*blockBuf{lent}}
+	pool := &listScratch[mergeScratch]{free: []*mergeScratch{sc}}
+	opts := mergeOpts()
+	opts.MaxOpenBlocks = 2
+	var unitRecords, groupUnits int
+	var lentGrew bool
+	_, err := mergeThrough(t, inputsOf(early, a, b, c), opts, pool, func(p *mergePlan) {
+		p.stashHook = func(m *mergeRun) {
+			unitRecords, groupUnits = len(m.unit.ends), len(m.group.units)
+			lentGrew = cap(lent.raw) > 1
+		}
+	})
+	require.ErrorContains(t, err, "overlap 3 deep at seq 14")
+	require.Equal(t, 4, unitRecords, "the resolution held seqs 10 to 13")
+	require.Equal(t, 1, groupUnits, "the group held the earlier cluster's unit")
+	require.True(t, lentGrew, "the lent buffer was read into")
+
+	require.Len(t, pool.free, 1)
+	require.Same(t, sc, pool.free[0])
+	requireMergeScratchClean(t, sc)
+	require.NotContains(t, sc.free[:cap(sc.free)], lent, "the buffer a block held when the run failed")
+
+	for _, next := range [][]MergeInput{inputsOf(early, a, b, c), inputsOf(a, b)} {
+		want, err := mergeThrough(t, next, mergeOpts(), &listScratch[mergeScratch]{}, nil)
+		require.NoError(t, err)
+		got, err := mergeThrough(t, next, mergeOpts(), pool, nil)
+		require.NoError(t, err)
+		require.Equal(t, want, got)
+		requireMergeScratchClean(t, sc)
+	}
+}
+
+// TestMergeRunBufferClearsItsSlot checks that the free list keeps no pointer to a buffer it lends.
+func TestMergeRunBufferClearsItsSlot(t *testing.T) {
+	t.Parallel()
+
+	x, y := new(blockBuf), new(blockBuf)
+	m := &mergeRun{free: []*blockBuf{x, y}}
+	require.Same(t, y, m.buffer())
+	require.Equal(t, []*blockBuf{x, nil}, m.free[:2])
+	require.Same(t, x, m.buffer())
+	require.Equal(t, []*blockBuf{nil, nil}, m.free[:2])
+	require.NotNil(t, m.buffer(), "an empty list lends a new buffer")
+}
+
+// TestScratchBytesTotals checks every charge of a scratch's byte total against a total built field by field,
+// each slice at its own capacity, so a charge left out or counted at the wrong element width shows.
+func TestScratchBytesTotals(t *testing.T) {
+	t.Parallel()
+
+	ws := &writerScratch{
+		headers: make([]byte, 0, 3), payloads: make([]byte, 0, 5), body: make([]byte, 0, 7), enc: make([]byte, 0, 11),
+		val: validateBuf{decoded: make([]byte, 0, 13), rows: make([]byte, 0, 17), offs: make([]uint32, 0, 19)},
+	}
+	require.Equal(t, int64(3+5+7+11+13+17+19*4), ws.bytes())
+
+	ptr, hdr, word := int64(unsafe.Sizeof((*blockBuf)(nil))), int64(unsafe.Sizeof([]byte(nil))), int64(unsafe.Sizeof(0))
+	gu := int64(unsafe.Sizeof(groupUnit{}))
+	buf := func(raw, decoded, rows, offs int) *blockBuf {
+		return &blockBuf{raw: make([]byte, 0, raw), decoded: make([]byte, 0, decoded), rows: make([]byte, 0, rows), offs: make([]uint32, 0, offs)}
+	}
+	unit := func(rows, payloads, ends, rowViews, payloadViews int) unitBuilder {
+		return unitBuilder{
+			rows: make([]byte, 0, rows), payloads: make([]byte, 0, payloads), ends: make([]int, 0, ends),
+			rowViews: make([][]byte, 0, rowViews), payloadViews: make([][]byte, 0, payloadViews),
+		}
+	}
+	enc := func(raw, body, e int, check *blockBuf) encodeBuf {
+		return encodeBuf{raw: make([]byte, 0, raw), body: make([]byte, 0, body), enc: make([]byte, 0, e), check: *check}
+	}
+	free := make([]*blockBuf, 2, 5)
+	free[0], free[1] = buf(1, 2, 3, 4), buf(5, 6, 7, 8)
+	ms := &mergeScratch{
+		free: free,
+		unit: unit(10, 20, 30, 40, 50),
+		enc:  enc(60, 70, 80, buf(90, 100, 110, 120)),
+		group: coalesceGroup{records: unit(130, 140, 150, 160, 170), raw: make([]byte, 0, 180), units: make([]groupUnit, 0, 3),
+			enc: enc(190, 200, 210, buf(220, 230, 240, 250))},
+	}
+	want := 5*ptr + (1 + 2 + 3 + 4*4) + (5 + 6 + 7 + 8*4) +
+		(10 + 20 + 30*word + (40+50)*hdr) +
+		(60 + 70 + 80 + (90 + 100 + 110 + 120*4)) +
+		(130 + 140 + 150*word + (160+170)*hdr) + 180 + 3*gu +
+		(190 + 200 + 210 + (220 + 230 + 240 + 250*4))
+	require.Equal(t, want, ms.bytes())
+}
+
+// TestScratchBytesWiden checks the capacity sums on values whose int sum, or product, overflows where int is 32 bits.
+func TestScratchBytesWiden(t *testing.T) {
+	t.Parallel()
+
+	const m = math.MaxInt32
+	word, hdr := int64(unsafe.Sizeof(0)), int64(unsafe.Sizeof([]byte(nil)))
+	require.Equal(t, int64(2)*m+m*word+2*m*hdr, unitBuilderBytes(m, m, m, m, m))
+	require.Equal(t, int64(3)*m+5, encodeBufBytes(m, m, m, 5))
+	require.Equal(t, int64(4)*m+7, writerScratchBytes(m, m, m, m, 7))
+}
+
+// TestScratchKeptUpToTheCap gives back a Writer's and a merge run's scratch holding exactly the cap, then one byte more:
+// the first is kept, the second dropped.
+func TestScratchKeptUpToTheCap(t *testing.T) {
+	for _, extra := range []int{0, 1} {
+		wpool := &listScratch[writerScratch]{}
+		w := &Writer{scratch: wpool, sc: new(writerScratch), bodyBuf: make([]byte, 0, maxPooledWriterScratch+extra)}
+		w.giveScratch()
+		require.Len(t, wpool.free, 1-extra, "a Writer scratch of %d bytes over the cap", extra)
+
+		mpool := &listScratch[mergeScratch]{}
+		m := &mergeRun{p: &mergePlan{}, pool: mpool, sc: new(mergeScratch), unit: unitBuilder{payloads: make([]byte, 0, maxPooledMergeScratch+extra)}}
+		m.stash()
+		require.Len(t, mpool.free, 1-extra, "a merge scratch of %d bytes over the cap", extra)
+	}
+}
+
+// scratchClock gives m the capture clock a Writer that detects clock steps needs, its origin 5 ns before the first record.
+func scratchClock(m *PackMeta) {
+	m.TimeSource = TimeSourceCaptureClock
+	m.CaptureOriginUTCNs, m.CaptureOriginMonoNs, m.ClockStepToleranceNs = new(blockTestHour-5), new(int64(0)), new(uint64(1000))
 }
