@@ -5,6 +5,20 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+### Performance
+
+No written byte, result or error changes; figures are at GOMAXPROCS 1 on the benchmark machine.
+
+- A block read parses each record header once it is checked, and gathers the header section eight records at a time:
+  `Iterate` over a busy hour (577 KB, zstd) takes about 21 % less time, a `FindTransaction` about 17 % less, and `Merge` of an hour's segments about 17 % less.
+- `FindTransactions` passes each lookup the cached records of an hour without copying them and tests their hour against bounds computed once:
+  about 13 % less time on a busy hour (6,202 primaries) and 17 % less when primaries share their keys heavily.
+- `Iterate`, `ExportJSONL` and `Verify` reuse their block buffer across calls, `Merge` reuses its buffers across merges,
+  and a closed `Writer` hands its buffers to the next one, which also runs about 12 % faster:
+  a busy hour allocates 0.58 MB instead of 3.2 MB to iterate, 1 MB instead of 21 MB to merge, and 0.13 MB instead of 14 MB to write.
+  A buffer kept for reuse lives until the garbage collector drops it, and a buffer over 16 MiB (64 MiB for a merge) is not kept.
+  `MergeIterate` and `FindTransaction` keep allocating each held block's buffers at its exact sizes, so `MaxHeldBytes` bounds what they hold, as before.
+
 ## [0.9.0] - 2026-10-26
 
 This release implements spec v2.38 and keeps format 1.2, every pack and its canonical export unchanged.
