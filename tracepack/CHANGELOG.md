@@ -5,9 +5,14 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-27
+
+This release keeps spec v2.38, format 1.2 and the public API.
+It changes no written byte, result or error; it only makes reads, merges and writes faster and allocate less.
+
 ### Performance
 
-No written byte, result or error changes; figures are at GOMAXPROCS 1 on the benchmark machine.
+Figures are at GOMAXPROCS 1 on the benchmark machine.
 
 - A block read parses each record header once it is checked, and gathers the header section eight records at a time:
   `Iterate` over a busy hour (577 KB, zstd) takes about 21 % less time, a `FindTransaction` about 17 % less, and `Merge` of an hour's segments about 17 % less.
