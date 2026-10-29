@@ -210,7 +210,7 @@ func TestValidateEncodedRejectsBrokenStream(t *testing.T) {
 	b := buildBlock([]Record{testDataRecord(0, blockTestHour, 1)})
 	body := b.body(nil)
 
-	enc, c, err := encodeBlock(CodecZstd, nil, body)
+	enc, c, err := encodeBlock(CodecZstd, CompressionDefault, nil, body)
 	require.NoError(t, err)
 	require.Equal(t, CodecZstd, c)
 
@@ -321,7 +321,7 @@ func TestBoundaryBitMakesNoBoundaryRecord(t *testing.T) {
 		payloads = append(payloads, recs[i].Payload)
 	}
 
-	raw, sum, err := encodeRawBlock(&encodeBuf{}, CodecZstd, format.RecordHeaderLen, rows, payloads)
+	raw, sum, err := encodeRawBlock(&encodeBuf{}, CodecZstd, CompressionDefault, format.RecordHeaderLen, rows, payloads)
 	require.NoError(t, err)
 	assert.Empty(t, sum.boundaries)
 	assert.True(t, sum.qualityUnion.Has(QualityCaptureBoundary))
@@ -727,7 +727,7 @@ func TestEncodeRawBlockKeepsRecordBytes(t *testing.T) {
 				t.Parallel()
 
 				rows, payloads := rawTestRecords(t, hl)
-				raw, sum, err := encodeRawBlock(&encodeBuf{}, c, hl, rows, payloads)
+				raw, sum, err := encodeRawBlock(&encodeBuf{}, c, CompressionDefault, hl, rows, payloads)
 				require.NoError(t, err)
 
 				env, err := format.UnmarshalBlockEnvelope(raw)
@@ -796,7 +796,7 @@ func TestEncodeRawBlockReusesItsBuffers(t *testing.T) {
 				rows, payloads = rows[:st.n], payloads[:st.n]
 				if st.fail {
 					e.hook = corrupt
-					raw, _, err := encodeRawBlock(&e, c, st.hl, rows, payloads)
+					raw, _, err := encodeRawBlock(&e, c, CompressionDefault, st.hl, rows, payloads)
 					e.hook = nil
 					require.ErrorContains(t, err, "fails its check", "record_header_len %d, %d records", st.hl, st.n)
 					assert.Nil(t, raw)
@@ -804,9 +804,9 @@ func TestEncodeRawBlockReusesItsBuffers(t *testing.T) {
 					continue
 				}
 
-				want, wantSum, err := encodeRawBlock(&encodeBuf{}, c, st.hl, rows, payloads)
+				want, wantSum, err := encodeRawBlock(&encodeBuf{}, c, CompressionDefault, st.hl, rows, payloads)
 				require.NoError(t, err)
-				raw, sum, err := encodeRawBlock(&e, c, st.hl, rows, payloads)
+				raw, sum, err := encodeRawBlock(&e, c, CompressionDefault, st.hl, rows, payloads)
 				require.NoError(t, err)
 				assert.Equal(t, want, raw, "record_header_len %d, %d records", st.hl, st.n)
 				assert.Equal(t, wantSum, sum, "record_header_len %d, %d records", st.hl, st.n)
@@ -933,7 +933,7 @@ func TestEncodeRawBlockRejectsRecords(t *testing.T) {
 				t.Error("a block was encoded")
 				return enc
 			}
-			raw, sum, err := encodeRawBlock(&encodeBuf{hook: encoded}, CodecZstd, hl, rows, payloads)
+			raw, sum, err := encodeRawBlock(&encodeBuf{hook: encoded}, CodecZstd, CompressionDefault, hl, rows, payloads)
 			require.ErrorContains(t, err, tt.want)
 			assert.Nil(t, raw)
 			assert.Zero(t, sum.recordCount)
@@ -1004,7 +1004,7 @@ func TestEncodeRawBlockCheckRejectsCorruption(t *testing.T) {
 
 				rows, payloads := rawTestRecords(t, hl)
 				require.Len(t, rows, n)
-				_, _, err := encodeRawBlock(&encodeBuf{}, c, hl, rows, payloads)
+				_, _, err := encodeRawBlock(&encodeBuf{}, c, CompressionDefault, hl, rows, payloads)
 				require.NoError(t, err, "the records encode without the hook")
 
 				uncompressedLen := n * hl
@@ -1020,7 +1020,7 @@ func TestEncodeRawBlockCheckRejectsCorruption(t *testing.T) {
 
 					return out
 				}
-				raw, sum, err := encodeRawBlock(&encodeBuf{hook: hook}, c, hl, rows, payloads)
+				raw, sum, err := encodeRawBlock(&encodeBuf{hook: hook}, c, CompressionDefault, hl, rows, payloads)
 				require.ErrorContains(t, err, "fails its check")
 				require.ErrorContains(t, err, tt.want)
 				assert.Nil(t, raw)

@@ -82,7 +82,7 @@ func (m *mergeRun) flushGroup() error {
 	}
 
 	rows, payloads := g.records.records()
-	raw, sum, err := encodeRawBlock(&g.enc, m.codec, g.records.headerLen, rows, payloads)
+	raw, sum, err := encodeRawBlock(&g.enc, m.codec, m.level, g.records.headerLen, rows, payloads)
 	if err != nil {
 		m.rep.CoalesceFallbacks++
 		return m.writeGroupUnits()

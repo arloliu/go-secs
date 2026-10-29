@@ -178,6 +178,10 @@ and a `Commit` that fails after the segment became visible returns an error wrap
 `SegmentWriter` and `Merge` are built on it.
 It writes block bodies and the footer with zstd, as the format specification §2 recommends, unless `WriterOptions.Uncompressed` is set;
 `Merge` does the same unless `MergeOptions.Uncompressed` is set.
+`CompressionLevel` on `WriterOptions`, `SegmentWriterOptions` and `MergeOptions` trades CPU for size:
+`CompressionFastest` encodes in about two thirds of the default's time for slightly larger output,
+`CompressionBest` writes the smallest output in three to four times the time;
+the zero value, `CompressionDefault`, writes what earlier versions wrote.
 It validates each block before writing it unless `WriterOptions.SkipValidation` is set.
 For every pack but an extract it refuses a period not inside one UTC hour, and a record of another hour, with `ErrScopeBreach`.
 It writes `format_minor` 2 when the pack metadata carries `recorder_instance_name` (format 1.2),

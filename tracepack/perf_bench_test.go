@@ -383,3 +383,48 @@ func BenchmarkOpenAllocs(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkCompressionLevels writes one hour of busy traffic with a Writer, and merges its 12 five-minute segments,
+// at each CompressionLevel, reporting the pack's or archive's size beside the time.
+func BenchmarkCompressionLevels(b *testing.B) {
+	recs := perfHour(true, 0)
+	segs := mergeBenchSegments(b, recs)
+	m := readerTestMeta()
+	m.PeriodStart, m.PeriodEnd = layoutStart.UnixNano(), layoutStart.Add(time.Hour).UnixNano()
+	for _, level := range []CompressionLevel{CompressionDefault, CompressionFastest, CompressionBest} {
+		b.Run("writer/"+level.String(), func(b *testing.B) {
+			var buf bytes.Buffer
+			b.SetBytes(perfContentBytes(recs))
+			b.ReportAllocs()
+			for b.Loop() {
+				buf.Reset()
+				w, err := NewWriter(&buf, WriterOptions{
+					Meta: m, Facts: PackFacts{AnyClassified: true}, AssignSeq: true, CaptureID: perfCapture, CompressionLevel: level,
+				})
+				require.NoError(b, err)
+				for i := range recs {
+					require.NoError(b, w.Append(&recs[i]))
+				}
+				_, err = w.Close()
+				require.NoError(b, err)
+			}
+			b.ReportMetric(float64(buf.Len()), "pack-B")
+		})
+		b.Run("merge/"+level.String(), func(b *testing.B) {
+			opts := MergeOptions{
+				Writer: "bench", ScopeGeneration: 1, PublisherEpoch: 1, CompressionLevel: level,
+				OnConflict: func(Conflict) {},
+			}
+			b.SetBytes(perfContentBytes(recs))
+			b.ReportAllocs()
+			var out bytes.Buffer
+			for b.Loop() {
+				out.Reset()
+				if _, err := Merge(b.Context(), &out, inputsOf(segs...), opts); err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportMetric(float64(out.Len()), "archive-bytes/op")
+		})
+	}
+}

@@ -67,6 +67,9 @@ type SegmentWriterOptions struct {
 	// Uncompressed writes the block bodies and the footer with CodecNone;
 	// otherwise they are written with CodecZstd.
 	Uncompressed bool
+	// CompressionLevel is the zstd level of every segment's block bodies and footer, as WriterOptions.CompressionLevel;
+	// an undefined value fails NewSegmentWriter, with Uncompressed or not.
+	CompressionLevel CompressionLevel
 	// BlockThreshold is WriterOptions.BlockThreshold for every segment.
 	BlockThreshold int
 	// SkipValidation is WriterOptions.SkipValidation for every segment.
@@ -151,6 +154,7 @@ type SegmentWriter struct {
 	params      segmentMetaParams
 	commitments packCommitments
 	codec       Codec
+	level       CompressionLevel
 	threshold   int
 	skipValid   bool
 	captureID   UUID
@@ -243,6 +247,9 @@ func prepareSegmentWriter(opts *SegmentWriterOptions) (*SegmentWriter, error) {
 	if opts.Sink == nil {
 		return nil, errors.New("tracepack: SegmentWriterOptions.Sink is nil")
 	}
+	if err := checkCompressionLevel("SegmentWriterOptions", opts.CompressionLevel); err != nil {
+		return nil, err
+	}
 
 	flush := opts.FlushInterval
 	if flush == 0 {
@@ -288,6 +295,7 @@ func prepareSegmentWriter(opts *SegmentWriterOptions) (*SegmentWriter, error) {
 			packRole:       PackRoleSegment,
 		},
 		codec:     CodecZstd,
+		level:     opts.CompressionLevel,
 		threshold: opts.BlockThreshold,
 		skipValid: opts.SkipValidation,
 	}
@@ -836,6 +844,7 @@ func (w *SegmentWriter) open(ctx context.Context, ts int64) error {
 		Meta:             w.desc.packMeta(p),
 		Facts:            p.facts(),
 		Uncompressed:     w.codec == CodecNone,
+		CompressionLevel: w.level,
 		BlockThreshold:   w.threshold,
 		SkipValidation:   w.skipValid,
 		Sync:             out,

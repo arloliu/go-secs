@@ -33,7 +33,8 @@
 // The SegmentWriter Godoc states which errors refuse a record and leave the writer usable, and which fail it;
 // an error wrapping ErrPublishUncertain reports a segment that is published but may not survive a system crash.
 // NewWriter writes one pack from pack metadata the caller assembles, the layer under SegmentWriter and Merge;
-// it and Merge write block bodies and the footer with zstd unless their options set Uncompressed.
+// it and Merge write block bodies and the footer with zstd unless their options set Uncompressed,
+// at the options' CompressionLevel, CompressionDefault unless set.
 // A Writer writes format_minor 2 when the pack metadata holds a feature of format 1.2,
 // else 1 when it holds a feature of format 1.1, else 0.
 // Writer.Close returns a Continuation, whose Next gives the seq the capture's next pack starts at,

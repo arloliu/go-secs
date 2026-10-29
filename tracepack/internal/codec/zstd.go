@@ -36,6 +36,28 @@ const windowFloor = 8 << 20
 // so a library upgrade that changed the default would not go unnoticed.
 var sharedEncoder = newSharedEncoder()
 
+// fastestEncoder and bestEncoder are the shared encoders of LevelFastest and LevelBest, built on their first use:
+// configured as sharedEncoder is, at the zstd library's SpeedFastest and SpeedBestCompression.
+// They keep the library's default window too, so their frames meet the same writer rule.
+var (
+	fastestEncoder = sync.OnceValue(func() *zstd.Encoder { return newEncoder(zstd.WithEncoderLevel(zstd.SpeedFastest)) })
+	bestEncoder    = sync.OnceValue(func() *zstd.Encoder { return newEncoder(zstd.WithEncoderLevel(zstd.SpeedBestCompression)) })
+)
+
+// encoderAt returns the shared encoder of level; nil for a level outside LevelDefault, LevelFastest and LevelBest.
+func encoderAt(level int) *zstd.Encoder {
+	switch level {
+	case LevelDefault:
+		return sharedEncoder
+	case LevelFastest:
+		return fastestEncoder()
+	case LevelBest:
+		return bestEncoder()
+	default:
+		return nil
+	}
+}
+
 // pooledDecoder is a streaming zstd decoder and the reader of the source it decodes, pooled together.
 type pooledDecoder struct {
 	*zstd.Decoder
@@ -56,12 +78,6 @@ var decoderPool = sync.Pool{
 
 		return &pooledDecoder{Decoder: dec}
 	},
-}
-
-// encodeZstd implements Encode for the Zstd codec:
-// it appends one RFC 8878 frame holding src, with no dictionary, to dst (§2).
-func encodeZstd(dst, src []byte) []byte {
-	return sharedEncoder.EncodeAll(src, dst[:0])
 }
 
 // decodeZstd implements Decode for the Zstd codec (§2):
@@ -167,7 +183,12 @@ func releaseDecoder(dec *pooledDecoder) {
 // It panics only if the fixed options below are themselves invalid,
 // which would be a bug in this file, not a runtime condition callers can hit.
 func newSharedEncoder() *zstd.Encoder {
-	enc, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
+	return newEncoder()
+}
+
+// newEncoder builds a shared encoder of concurrency 1 with opts, as newSharedEncoder does.
+func newEncoder(opts ...zstd.EOption) *zstd.Encoder {
+	enc, err := zstd.NewWriter(nil, append([]zstd.EOption{zstd.WithEncoderConcurrency(1)}, opts...)...)
 	if err != nil {
 		panic("codec: failed to create zstd encoder: " + err.Error())
 	}

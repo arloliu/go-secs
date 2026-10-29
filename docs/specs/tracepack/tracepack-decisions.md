@@ -1903,6 +1903,24 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   an in-memory index (G5-273 stands).
   Spec: `tracepack-go.md` §3 (a Go-mapping note), v2.38.
 
+## 2026-10-29 a compression level for writes (owner's choice)
+
+- G5-276 `CompressionLevel` on `WriterOptions`, `SegmentWriterOptions` and `MergeOptions` (2026-10-29, Go mapping):
+  `CompressionDefault`, the zero value, the zstd library's default level, as every earlier version wrote;
+  `CompressionFastest`, its fastest level; and `CompressionBest`, its best-compression level.
+  It applies to every block body and the footer the writer encodes, in Merge to the blocks it resolves or coalesces;
+  a block Merge copies verbatim keeps its bytes, and `WriteClose` stays uncompressed (G5-272).
+  An undefined value fails `NewWriter`, `NewSegmentWriter` and `Merge` before any I/O, whether or not `Uncompressed` is set;
+  a valid level has no effect with `Uncompressed`.
+  Equal options, the level included, write equal bytes with one version of the zstd library; no format rule changes.
+  Rationale *(editorial)*: on the busy benchmark hour the fastest level encodes in about 63 % of the default's time for 1–3 % larger output,
+  and the best level writes 6–8 % smaller output in about 3–4 times the time, the trade-offs a CPU-bound writer and an archiving merge want;
+  the zero value keeps every existing pack and option byte-identical.
+  Rejected *(editorial)*: the library's better-compression level, which costs about 41 % more time for 0.5 % less size at the default block size;
+  a numeric level, which ties the API to one library's scale;
+  a cgo zstd backend, faster but with backend-dependent bytes, no frame checksum and a build that the 386 leg cannot test (owner's choice, 2026-10-29).
+  Spec: `tracepack-go.md` §3, v2.38.
+
 ## 2026-10-29 reusing the buffers of held blocks (owner's choice)
 
 - G5-277 `MaxHeldBytes` reserves exact sizes; held blocks reuse buffers within an eighth (2026-10-29, Go mapping):
