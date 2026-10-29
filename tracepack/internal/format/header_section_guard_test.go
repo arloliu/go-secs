@@ -27,7 +27,7 @@ func guardedTail(t *testing.T, n int) []byte {
 // The kernels read no byte past the end of their input and write none past the end of their output,
 // each of which here ends at a page that faults.
 func TestTransposeHeadersGuardPage(t *testing.T) {
-	if !simdHeaders {
+	if !simdCapable {
 		t.Skip("this host does not run the kernels")
 	}
 	for _, shape := range []struct{ count, headerLen int }{{64, 44}, {128, 44}, {1489, 44}, {320, 64}} {

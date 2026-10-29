@@ -32,8 +32,8 @@ func TestSIMDHeadersOnCapableHost(t *testing.T) {
 		return slices.Contains(flags, f)
 	}
 	if !has("avx512f") || !has("avx512bw") {
-		require.False(t, simdHeaders, "the kernels are selected on a host without AVX-512 F and BW")
+		require.False(t, simdCapable, "the kernels are selected on a host without AVX-512 F and BW")
 		t.Skip("this host has no AVX-512 F and BW")
 	}
-	require.True(t, simdHeaders, "a host with AVX-512 F and BW selects the kernels")
+	require.True(t, simdCapable, "a host with AVX-512 F and BW selects the kernels")
 }

@@ -1,10 +1,14 @@
 package tracepack
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -46,22 +50,10 @@ func seedCap(k seedKind, n int) int {
 	return n
 }
 
-// seededPool returns a pool that lends, last in first out, count buffers of kind k against s, then fresh ones.
-func seededPool(k seedKind, s blockSizes, count int) *loanBufs {
-	pool := &loanBufs{reuse: true}
-	if k == seedEmpty {
-		return pool
-	}
-	for range count {
-		pool.free = append(pool.free, &blockBuf{
-			raw:     make([]byte, 0, seedCap(k, s.raw)),
-			decoded: make([]byte, 0, seedCap(k, s.decoded)),
-			rows:    make([]byte, 0, seedCap(k, s.rows)),
-			offs:    make([]uint32, 0, seedCap(k, s.offs)),
-		})
-	}
-
-	return pool
+// seededPool returns a pool that lends each held block a buffer of kind k against the block's own sizes.
+// s and count are unused: every loan is shaped for the block that takes it.
+func seededPool(k seedKind, _ blockSizes, _ int) *loanBufs {
+	return &loanBufs{reuse: true, shape: k}
 }
 
 // lentBytes returns the bytes of the slice capacities of every buffer l has lent and not been given back (blockBufBytes).
@@ -95,12 +87,38 @@ func (l *loanBufs) poison() {
 	}
 }
 
-// pooledRead is what one read over several packs yielded and returned, with the most its budget held at once.
+// pooledRead is what one read over several packs yielded and returned, with the most its budget held at once:
+// the error as its text and as the chain of its wrapped errors' types and texts, and whether it wraps ErrReadLimit.
 type pooledRead struct {
-	items []iterItem
-	res   Result
-	err   string
-	peak  int64
+	items   []iterItem
+	res     Result
+	err     string
+	chain   []string
+	isLimit bool
+	peak    int64
+}
+
+// errChain returns the type and text of err and of every error it wraps, depth first.
+func errChain(err error) []string {
+	var out []string
+	var walk func(err error, depth int)
+	walk = func(err error, depth int) {
+		if err == nil {
+			return
+		}
+		out = append(out, fmt.Sprintf("%d %T: %v", depth, err, err))
+		if u, ok := any(err).(interface{ Unwrap() error }); ok {
+			walk(u.Unwrap(), depth+1)
+		}
+		if u, ok := any(err).(interface{ Unwrap() []error }); ok {
+			for _, e := range u.Unwrap() {
+				walk(e, depth+1)
+			}
+		}
+	}
+	walk(err, 0)
+
+	return out
 }
 
 // pooledReadConfig configures readPooled.
@@ -182,16 +200,19 @@ func readPooled(t *testing.T, readers []*Reader, pool *loanBufs, cfg pooledReadC
 	pool.requireSettled(t, -1)
 	out.res, out.peak = p.res, p.loader.budget.peak
 	if err != nil {
-		out.err = err.Error()
+		out.err, out.chain, out.isLimit = err.Error(), errChain(err), errors.Is(err, ErrReadLimit)
 	}
 
 	return out
 }
 
-// poolFixture is a set of packs of one capture whose blocks overlap, all of about the same sizes.
+// poolFixture is a set of packs whose blocks overlap, all of about the same sizes;
+// retained, when set, gives for each pack whether its Reader retains it (overriding the case's own choice),
+// so a read mixes blocks the prefetch reads ahead with blocks a Reader serves from its retained bytes.
 type poolFixture struct {
-	name  string
-	files [][]byte
+	name     string
+	files    [][]byte
+	retained []bool
 }
 
 func poolFixtures(t *testing.T) []poolFixture {
@@ -202,13 +223,41 @@ func poolFixtures(t *testing.T) []poolFixture {
 			planTestPack(t, seg0, captureLow, false, blockAt(100, 5, 6, 7)),
 			planTestPack(t, seg1, captureLow, false, changed(blockAt(0, 6, 7, 8), 1, 6)),
 			planTestPack(t, seg2, captureLow, false, changed(blockAt(50, 7, 8, 9), 2, 7)),
-		}},
+		}, nil},
 		{"none overlap", [][]byte{
 			mergePackCodec(t, CodecNone, seg0, hourSteps(10, 20, 4)),
 			mergePackCodec(t, CodecNone, seg1, hourSteps(14, 24, 4)),
 			mergePackCodec(t, CodecNone, seg2, changed(hourSteps(18, 28, 4), 3, 19)),
-		}},
+		}, nil},
+		{"mixed retention", [][]byte{
+			planTestPack(t, seg0, captureLow, false, blockAt(100, 5, 6, 7)),
+			planTestPack(t, seg1, captureLow, false, changed(blockAt(0, 6, 7, 8), 1, 6)),
+			planTestPack(t, seg2, captureLow, false, changed(blockAt(50, 7, 8, 9), 2, 7)),
+			planTestPack(t, seg3, captureLow, false, blockAt(200, 8, 9, 10)),
+		}, []bool{false, true, false, true}},
+		{"two captures, walked", [][]byte{
+			planTestPack(t, seg0, captureLow, false, blockAt(100, 5, 6, 7)),
+			planTestPack(t, seg1, captureHigh, true, blockAt(0, 5, 6, 7)),
+			planTestPack(t, seg2, captureLow, true, changed(blockAt(50, 6, 7, 8), 1, 7)),
+			planTestPack(t, seg3, captureHigh, false, changed(blockAt(10, 6, 7), 2, 6)),
+		}, nil},
 	}
+}
+
+// distinctReservations returns every distinct exact reservation of the blocks of readers, sorted.
+func distinctReservations(t *testing.T, readers []*Reader) []int64 {
+	t.Helper()
+
+	seen := map[int64]bool{}
+	for _, r := range readers {
+		for i := range r.blocks {
+			s, def := r.preflightBlock(i)
+			require.Nil(t, def)
+			seen[s.total] = true
+		}
+	}
+
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // largestSizes returns, of every block of the readers, the largest of each size.
@@ -232,24 +281,29 @@ func largestSizes(t *testing.T, readers []*Reader) blockSizes {
 // the reservations stay each block's exact sizes, so the pool changes no admission,
 // and a pooled slice serves a block only within an eighth above the size it needs,
 // so what is lent stays within 9/8 of what is reserved.
+// The budgets are each block's exact reservation and the read's peak, each less one, exactly, and plus one;
+// the readers retain their packs, read every block with ReadAt, or mix both, and the packs hold two captures and walked ones.
 func TestHeldBlocksReusePooledBuffers(t *testing.T) {
 	t.Parallel()
 
 	for _, fx := range poolFixtures(t) {
 		for _, retained := range []bool{true, false} {
+			if fx.retained != nil && !retained {
+				continue // the fixture sets each Reader's retention itself
+			}
 			for _, order := range []Order{OrderCapture, OrderTime} {
 				for _, noPrefetch := range []bool{false, true} {
 					name := fmt.Sprintf("%s/retained=%v/%v/prefetch=%v", fx.name, retained, order, !noPrefetch)
 					t.Run(name, func(t *testing.T) {
 						t.Parallel()
 
-						ropts := uncachedWindows()
-						if retained {
-							ropts = ReaderOptions{}
-						}
 						open := func() []*Reader {
 							readers := make([]*Reader, len(fx.files))
 							for i, f := range fx.files {
+								ropts := uncachedWindows()
+								if (fx.retained == nil && retained) || (fx.retained != nil && fx.retained[i]) {
+									ropts = ReaderOptions{}
+								}
 								readers[i] = mustOpen(t, f, ropts)
 							}
 
@@ -260,17 +314,89 @@ func TestHeldBlocksReusePooledBuffers(t *testing.T) {
 						require.Empty(t, base.err)
 						require.NotEmpty(t, base.items)
 						s := largestSizes(t, open())
-						for _, limit := range []int64{base.peak - 1, base.peak, base.peak + 1} {
+						var limits []int64
+						for _, v := range append(distinctReservations(t, open()), base.peak) {
+							limits = append(limits, v-1, v, v+1)
+						}
+						refused := 0
+						for _, limit := range limits {
 							cfg := pooledReadConfig{opts: MergeIterateOptions{Order: order, MaxHeldBytes: limit}, noPrefetch: noPrefetch}
 							want := readPooled(t, open(), seededPool(seedEmpty, s, 0), cfg)
+							if want.isLimit {
+								refused++
+							}
 							for _, k := range []seedKind{seedSmall, seedEqual, seedWithin, seedOver} {
 								got := readPooled(t, open(), seededPool(k, s, 8), cfg)
 								assert.Equal(t, want, got, "limit %d (peak %d), pool %v", limit, base.peak, k)
 							}
 						}
+						assert.Positive(t, refused, "some budget refuses a block")
 					})
 				}
 			}
+		}
+	}
+}
+
+// Every lookup FindTransaction makes over generated captures, whose packs lend their held blocks' buffers from pools
+// seeded with buffers of every kind, gives the result and the error of the same lookup borrowing nothing,
+// at the least budget each lookup needs, one less, one more, and twice it.
+func TestFindTransactionReusesPooledBuffers(t *testing.T) {
+	t.Parallel()
+
+	for _, seed := range []uint64{1, 2, 3, 5} {
+		for _, retained := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%d/retained=%v", seed, retained), func(t *testing.T) {
+				t.Parallel()
+
+				g := genTxCapture(t, seed)
+				ropts := uncachedWindows()
+				if retained {
+					ropts = ReaderOptions{}
+				}
+				keys := g.keys
+				if len(keys) > 6 {
+					keys = keys[:6]
+				}
+				lookup := func(pool *loanBufs, key TxKey, limit int64) (string, []string) {
+					res, err := FindTransaction(t.Context(), optsSource{src: g.src, opts: ropts, pool: pool}, key,
+						TxOptions{MaxScopes: g.maxScopes, MaxHeldBytes: limit})
+					pool.requireSettled(t, -1)
+
+					return fmt.Sprintf("%v", res.Outcome), append(errChain(err), fmt.Sprintf("%#v", res.Records))
+				}
+				// least returns the smallest budget at which the lookup of key, borrowing nothing, passes every reservation.
+				least := func(key TxKey) int64 {
+					refused := func(limit int64) bool {
+						_, err := FindTransaction(t.Context(), optsSource{src: g.src, opts: ropts, pool: &loanBufs{}}, key,
+							TxOptions{MaxScopes: g.maxScopes, MaxHeldBytes: limit})
+
+						return errors.Is(err, ErrReadLimit)
+					}
+					lo, hi := int64(1), int64(1)<<24
+					require.False(t, refused(hi))
+					for lo < hi {
+						if mid := lo + (hi-lo)/2; refused(mid) {
+							lo = mid + 1
+						} else {
+							hi = mid
+						}
+					}
+
+					return lo
+				}
+				for _, key := range keys {
+					l := least(key)
+					for _, limit := range []int64{l - 1, l, l + 1, 2 * l} {
+						wantOutcome, want := lookup(&loanBufs{reuse: true}, key, limit)
+						for _, k := range []seedKind{seedSmall, seedEqual, seedWithin, seedOver} {
+							gotOutcome, got := lookup(seededPool(k, blockSizes{}, 0), key, limit)
+							assert.Equal(t, wantOutcome, gotOutcome, "key %v, limit %d, pool %v", key, limit, k)
+							assert.Equal(t, want, got, "key %v, limit %d, pool %v", key, limit, k)
+						}
+					}
+				}
+			})
 		}
 	}
 }
@@ -506,6 +632,31 @@ func (s poolSource) Readers(ctx context.Context, hour int64) ([]*Reader, error) 
 	}
 
 	return readers, err
+}
+
+// optsSource is a PackSource over the packs of a memSource whose readers it opens with opts,
+// lending their held blocks' buffers from pool.
+type optsSource struct {
+	src  *memSource
+	opts ReaderOptions
+	pool blockBufPool
+}
+
+func (s optsSource) Readers(ctx context.Context, hour int64) ([]*Reader, error) {
+	s.src.mu.Lock()
+	files := s.src.hours[hour]
+	s.src.mu.Unlock()
+	out := make([]*Reader, len(files))
+	for i, f := range files {
+		r, err := Open(ctx, bytes.NewReader(f), int64(len(f)), s.opts)
+		if err != nil {
+			return nil, err
+		}
+		r.bufs = s.pool
+		out[i] = r
+	}
+
+	return out, nil
 }
 
 // FindTransactions copies the records of each hour it reads into its cache,

@@ -227,7 +227,7 @@ func (r *Reader) analyze(ctx context.Context) (VerifyReport, error) {
 	)
 
 	pool := r.blockBufs()
-	buf := pool.get()
+	buf := pool.get(nil)
 	defer pool.put(buf)
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {

@@ -1,3 +1,5 @@
+//go:build amd64 && !purego
+
 #include "textflag.h"
 
 // The AVX-512 F and BW kernels of TransposeHeaders and UntransposeHeaders (header_section_amd64.go).
