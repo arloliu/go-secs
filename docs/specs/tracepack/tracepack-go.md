@@ -356,9 +356,12 @@ The query service, its catalog database and the live-tail interface are designed
   Capture order streams: it holds, per capture, the blocks of its current cluster that are open and the representatives of the versions it has yet to yield.
   Time order holds the blocks of the cluster being read and the representative of every selected record not yet yielded;
   a cluster can span hours, since a pack's seqs may have gaps (I-12), so this is not bounded by one hour per capture.
-  `MaxHeldBytes` bounds the bytes of the block buffers held at once, reserved before each block is read;
-  it does not bound the process heap:
-  the readers, with the bootstrap bytes each retains, the block descriptors and clusters it builds before reading, its queues, codec state and the conflict list lie outside it.
+  `MaxHeldBytes` bounds the bytes of the block buffers held at once, each block's exact sizes reserved before it is read, and decides admission on those sizes alone;
+  a held block may reuse a buffer an earlier read gave back when each of its slices is at most an eighth larger than the block needs,
+  so the capacities of the buffers held stay within 9/8 of it (G5-277).
+  It does not bound the process heap:
+  the readers, with the bootstrap bytes each retains, the block descriptors and clusters it builds before reading, its queues, codec state, the conflict list,
+  buffers given back and not yet reused, and allocator rounding lie outside it.
   `MaxConflicts` bounds how many conflicts are listed, not the size of one.
   Either limit ends the read with an error wrapping `ErrReadLimit`, returned with the `Result` found so far, instead of exceeding it or omitting a conflict.
   A block over the reader's `MaxBlockLen`, or whose stated dimensions cannot be consistent, is a defect and is skipped, as in `Iterate`.

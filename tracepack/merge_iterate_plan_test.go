@@ -592,15 +592,14 @@ func TestMergeIteratePlanPreReadDropsEachBuffer(t *testing.T) {
 			defer cancel()
 			q := Query{}
 			readers := []*Reader{tt.reader(t)}
+			pool := &loanBufs{reuse: true}
+			readers[0].bufs = pool
 			o, err := checkMergeIterate(ctx, readers, &q, MergeIterateOptions{Order: OrderCapture}, acceptItems)
 			require.NoError(t, err)
 			p := newMergeIteratePlan(o)
 			var bufs []*blockBuf
 			p.loader.readHook = func(_, block int, buf *blockBuf) {
-				for k, prev := range bufs {
-					assert.True(t, prev.raw == nil && prev.decoded == nil && prev.rows == nil && prev.offs == nil,
-						"block %d: the buffers of block %d dropped before it is allocated", block, k)
-				}
+				assert.Equal(t, 1, pool.outstanding(), "block %d: the buffer of every block before it given back before its own is borrowed", block)
 				assert.Equal(t, sizes[block].total, p.loader.budget.held, "block %d: only its reservation held", block)
 				bufs = append(bufs, buf)
 				if block == tt.cancelAt {
@@ -624,6 +623,7 @@ func TestMergeIteratePlanPreReadDropsEachBuffer(t *testing.T) {
 			for _, buf := range bufs {
 				requireDropped(t, buf)
 			}
+			pool.requireSettled(t, len(bufs))
 			assert.Zero(t, p.loader.budget.held)
 		})
 	}

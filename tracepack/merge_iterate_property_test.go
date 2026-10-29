@@ -642,6 +642,15 @@ func readCheckedWith(t *testing.T, readers []*Reader, q Query, opts MergeIterate
 
 	ctx := t.Context()
 	out := checkedRead{reads: map[[2]int]int{}}
+	// Each reader lends its held blocks' buffers from one pool of the read's own, reusing them, which records every loan.
+	pool := &loanBufs{reuse: true}
+	own := make([]*Reader, len(readers))
+	for i, r := range readers {
+		c := *r
+		c.bufs = pool
+		own[i] = &c
+	}
+	readers = own
 	o, err := checkMergeIterate(ctx, readers, &q, opts, acceptItems)
 	require.NoError(t, err)
 	p := newMergeIteratePlan(o)
@@ -656,6 +665,7 @@ func readCheckedWith(t *testing.T, readers []*Reader, q Query, opts MergeIterate
 		buf := latest[[2]int{it.Pack, it.Block}]
 		require.NotNil(t, buf, "pack %d, block %d: the representative was read", it.Pack, it.Block)
 		require.NotNil(t, buf.view, "pack %d, block %d: the representative is held while fn runs", it.Pack, it.Block)
+		require.True(t, pool.lent(buf), "pack %d, block %d: the representative's buffer is lent while fn runs", it.Pack, it.Block)
 		out.items = append(out.items, copyItem(it))
 		if call != nil {
 			return call(it)
@@ -676,6 +686,9 @@ func readCheckedWith(t *testing.T, readers []*Reader, q Query, opts MergeIterate
 	for _, buf := range bufs {
 		requireDropped(t, buf)
 	}
+	// A block the prefetch admitted but the read never demanded borrowed a buffer too, which no read used.
+	pool.requireSettled(t, -1)
+	assert.GreaterOrEqual(t, pool.loans, len(bufs))
 	out.res, out.err = p.res, err
 
 	return out

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
@@ -34,6 +35,82 @@ func (l *listBlockBufs) put(buf *blockBuf) {
 	if readyForPool(buf) {
 		l.free = append(l.free, buf)
 	}
+}
+
+// loanBufs is a blockBufPool that records every loan and every return, safe for concurrent use.
+// It lends a fresh buffer, or, with reuse, the buffer returned last.
+type loanBufs struct {
+	reuse bool
+
+	mu      sync.Mutex
+	free    []*blockBuf
+	out     map[*blockBuf]bool
+	loans   int
+	returns int
+	faults  []string
+}
+
+func (l *loanBufs) get() *blockBuf {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	buf := new(blockBuf)
+	if n := len(l.free); l.reuse && n > 0 {
+		buf = l.free[n-1]
+		l.free = l.free[:n-1]
+	}
+	if l.out == nil {
+		l.out = map[*blockBuf]bool{}
+	}
+	l.out[buf] = true
+	l.loans++
+
+	return buf
+}
+
+func (l *loanBufs) put(buf *blockBuf) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if !l.out[buf] {
+		l.faults = append(l.faults, fmt.Sprintf("a buffer given back that is not lent: %p", buf))
+	}
+	delete(l.out, buf)
+	l.returns++
+	if readyForPool(buf) {
+		l.free = append(l.free, buf)
+	}
+}
+
+// lent reports whether buf is lent and not given back.
+func (l *loanBufs) lent(buf *blockBuf) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.out[buf]
+}
+
+// outstanding returns the number of buffers lent and not given back.
+func (l *loanBufs) outstanding() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return len(l.out)
+}
+
+// requireSettled requires every buffer l lent to have been given back exactly once, loans of them in all,
+// or any number when loans is negative.
+func (l *loanBufs) requireSettled(t *testing.T, loans int) {
+	t.Helper()
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	require.Empty(t, l.faults)
+	require.Empty(t, l.out, "every buffer lent given back")
+	if loans >= 0 {
+		require.Equal(t, loans, l.loans, "loans")
+	}
+	require.Equal(t, l.loans, l.returns, "each loan given back once")
 }
 
 // poolTestPack returns a pack of hours hours of perHour data records with codec c, every record header widened when wide is set.
