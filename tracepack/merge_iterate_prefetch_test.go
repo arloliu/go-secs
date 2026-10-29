@@ -713,7 +713,8 @@ func TestMergeIteratePrefetchPhysicalReads(t *testing.T) {
 // and B holds twice A's records, C as many as A, so B's reservation is about twice A's and C's about A's.
 // Every A and B timestamp lies below C's, so in time order A and B are released before C is loaded.
 // Under a MaxHeldBytes of A's and B's reservations the read succeeds; one byte less, it fails with ErrReadLimit at B;
-// both as without prefetch, the bytes held never over the limit, no block read twice and B never read with ReadAt.
+// both as without prefetch, the bytes held never over the limit, no block read twice and B never read with ReadAt,
+// whatever the capacities of the buffers the held blocks borrow, every loan given back.
 // The same holds with two blocks served from retained bytes, B and B2, between A and C,
 // the limit then the sum of the three reservations and the refusal at B2.
 func TestMergeIteratePrefetchCachedDemand(t *testing.T) {
@@ -763,21 +764,30 @@ func TestMergeIteratePrefetchCachedDemand(t *testing.T) {
 
 		for _, order := range []Order{OrderTime, OrderCapture} {
 			for _, held := range []int64{limit, limit - 1} {
-				opts := MergeIterateOptions{Order: order, MaxHeldBytes: held}
-				want := prefetchRead(t, t.Context(), nil, open(passingGate()), Query{}, opts, true, nil)
-				g := passingGate()
-				got := prefetchRead(t, t.Context(), g, open(g), Query{}, opts, false, nil)
-				requirePrefetchSame(t, want, got)
-				if held == limit {
-					require.NoError(t, got.err, "%d cached, order %v", len(cached), order)
-				} else {
-					require.ErrorIs(t, got.err, ErrReadLimit, "%d cached, order %v", len(cached), order)
-					require.ErrorContains(t, got.err, fmt.Sprintf("tracepack: pack %d, block 0:", len(cached)), "the refusal at the last block served")
-				}
-				assert.LessOrEqual(t, got.peak, held)
-				for k, n := range g.calls {
-					assert.Equal(t, 0, k.reader, "only A and C need a ReadAt")
-					assert.Equal(t, 1, n, "the block at %d read once", k.off)
+				for _, k := range []seedKind{seedEmpty, seedSmall, seedEqual, seedWithin, seedOver} {
+					opts := MergeIterateOptions{Order: order, MaxHeldBytes: held}
+					want := prefetchRead(t, t.Context(), nil, open(passingGate()), Query{}, opts, true, nil)
+					g := passingGate()
+					pool := seededPool(k, blockSizes{}, 0)
+					readers := open(g)
+					for _, r := range readers {
+						r.bufs = pool
+					}
+					got := prefetchRead(t, t.Context(), g, readers, Query{}, opts, false, nil)
+					requirePrefetchSame(t, want, got)
+					assert.Equal(t, errChain(want.err), errChain(got.err), "pool %v", k)
+					pool.requireSettled(t, -1)
+					if held == limit {
+						require.NoError(t, got.err, "%d cached, order %v, pool %v", len(cached), order, k)
+					} else {
+						require.ErrorIs(t, got.err, ErrReadLimit, "%d cached, order %v, pool %v", len(cached), order, k)
+						require.ErrorContains(t, got.err, fmt.Sprintf("tracepack: pack %d, block 0:", len(cached)), "the refusal at the last block served")
+					}
+					assert.LessOrEqual(t, got.peak, held)
+					for key, n := range g.calls {
+						assert.Equal(t, 0, key.reader, "only A and C need a ReadAt")
+						assert.Equal(t, 1, n, "the block at %d read once", key.off)
+					}
 				}
 			}
 		}
@@ -786,7 +796,8 @@ func TestMergeIteratePrefetchCachedDemand(t *testing.T) {
 
 // TestMergeIteratePrefetchMandatoryRefusal reads a block whose reservation alone exceeds MaxHeldBytes after one that fits:
 // the prefetch never admits it, so its demand is made with the queue empty and fails with ErrReadLimit
-// as without prefetch, the Result equal, nothing queued or in flight, and nothing held once the read returned.
+// as without prefetch, the Result equal, nothing queued or in flight, and nothing held once the read returned,
+// whatever the capacities of the buffers the held blocks borrow, every loan given back.
 func TestMergeIteratePrefetchMandatoryRefusal(t *testing.T) {
 	t.Parallel()
 
@@ -796,24 +807,33 @@ func TestMergeIteratePrefetchMandatoryRefusal(t *testing.T) {
 	require.Less(t, sizes[0], limit)
 
 	for _, order := range []Order{OrderTime, OrderCapture} {
-		opts := MergeIterateOptions{Order: order, MaxHeldBytes: limit}
-		want := prefetchRead(t, t.Context(), nil, openAll(t, file), Query{}, opts, true, nil)
-		require.ErrorIs(t, want.err, ErrReadLimit)
+		for _, k := range []seedKind{seedEmpty, seedSmall, seedEqual, seedWithin, seedOver} {
+			opts := MergeIterateOptions{Order: order, MaxHeldBytes: limit}
+			want := prefetchRead(t, t.Context(), nil, openAll(t, file), Query{}, opts, true, nil)
+			require.ErrorIs(t, want.err, ErrReadLimit)
 
-		g := passingGate()
-		got := prefetchRead(t, t.Context(), g, openBehindGate(t, g, uncachedWindows(), file), Query{}, opts, false,
-			func(p *mergeIteratePlan, _ *Item) error {
-				assert.Empty(t, p.loader.pf.queue, "the second block is not admitted")
-				assert.Zero(t, p.loader.pf.inflight.Load())
+			g := passingGate()
+			pool := seededPool(k, blockSizes{}, 0)
+			readers := openBehindGate(t, g, uncachedWindows(), file)
+			for _, r := range readers {
+				r.bufs = pool
+			}
+			got := prefetchRead(t, t.Context(), g, readers, Query{}, opts, false,
+				func(p *mergeIteratePlan, _ *Item) error {
+					assert.Empty(t, p.loader.pf.queue, "the second block is not admitted")
+					assert.Zero(t, p.loader.pf.inflight.Load())
 
-				return nil
-			})
-		requirePrefetchSame(t, want, got)
-		assert.Len(t, got.items, 2)
-		assert.Zero(t, got.queued)
-		assert.Zero(t, got.inflight)
-		assert.Equal(t, map[gateKey]int{{reader: 0, off: int64(mustOpen(t, file, ReaderOptions{}).blocks[0].Offset)}: 1}, g.calls,
-			"the refused block is never read")
+					return nil
+				})
+			requirePrefetchSame(t, want, got)
+			assert.Len(t, got.items, 2)
+			assert.Zero(t, got.queued)
+			assert.Zero(t, got.inflight)
+			assert.Equal(t, map[gateKey]int{{reader: 0, off: int64(mustOpen(t, file, ReaderOptions{}).blocks[0].Offset)}: 1}, g.calls,
+				"the refused block is never read")
+			assert.Equal(t, errChain(want.err), errChain(got.err), "pool %v", k)
+			pool.requireSettled(t, -1)
+		}
 	}
 }
 
