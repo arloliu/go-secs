@@ -5,6 +5,33 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+### Added
+
+- `CompressionLevel` on `WriterOptions`, `SegmentWriterOptions` and `MergeOptions` selects the zstd level of the block bodies and the footer a writer encodes (G5-276):
+  `CompressionDefault`, the zero value, writes what every earlier version wrote;
+  `CompressionFastest` writes a busy hour in about 74 % of the default's time (Merge 79 %) for 1.3 % larger output;
+  `CompressionBest` writes 6.2 % smaller output in about 2.5 to 2.9 times the time.
+  Merge applies it to the blocks it resolves or coalesces and keeps the bytes of a block it copies verbatim; `WriteClose` stays uncompressed.
+  An undefined value fails `NewWriter`, `NewSegmentWriter` and `Merge` before any I/O, whether or not `Uncompressed` is set.
+
+### Changed
+
+- `MergeIterate`, and the reads of `FindTransaction` and `FindTransactions`, reuse the buffers of held blocks across reads (G5-277).
+  `MaxHeldBytes` still reserves each block's exact sizes and decides admission on them alone, so a read fails with `ErrReadLimit` exactly where it did;
+  a reused slice serves a block only when it is at most an eighth larger than the block needs,
+  so the buffers of the held blocks may take up to 9/8 of `MaxHeldBytes`.
+
+### Performance
+
+No written byte, result or error changes at the zero-value options; figures are at GOMAXPROCS 1 on the benchmark machine, against tracepack/v0.10.0.
+
+- `FindTransaction` takes about 13 % less time and allocates 23 KB instead of 5.2 MB:
+  held blocks reuse their buffers, and a compressed block within the bytes a Reader retains is decoded from them in place instead of copied first.
+  `MergeIterate` over a day of busy hours allocates 29 MB instead of 80 MB and takes about 4 % less time.
+- `Iterate` over a busy hour takes about 9 % less time: each `Item` is built in place, and on amd64 hosts with AVX-512 F and BW
+  the header section is transposed by assembly kernels, about three times as fast as the pure-Go code, which every other host and the `purego` build tag use.
+  The Writer and `Merge` take about 2 % less time from the same kernels.
+
 ## [0.10.0] - 2026-10-27
 
 This release keeps spec v2.38, format 1.2 and the public API.
