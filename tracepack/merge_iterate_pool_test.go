@@ -636,11 +636,11 @@ func (s poolSource) Readers(ctx context.Context, hour int64) ([]*Reader, error) 
 }
 
 // txErrSnapshot returns the error chain of err and of every gap and pack error of res,
-// each with the read sentinels it matches (errors.Is).
+// each with the read sentinels, and ErrNotPrimary, it matches (errors.Is).
 func txErrSnapshot(res *TxResult, err error) []string {
 	snap := func(e error) []string {
 		out := errChain(e)
-		for i, sentinel := range readSentinels {
+		for i, sentinel := range append(slices.Clone(readSentinels), ErrNotPrimary) {
 			if e != nil && errors.Is(e, sentinel) {
 				out = append(out, fmt.Sprintf("is %d", i))
 			}
