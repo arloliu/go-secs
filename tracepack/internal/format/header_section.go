@@ -12,7 +12,15 @@ import (
 //
 // rows holds exactly count × headerLen bytes; the caller checked that product with HeaderSectionLen.
 // A block of one record is laid out as its header's bytes in order.
+// On a host with AVX-512 (simdHeaders) the tiles of 64 records by 8 header bytes are transposed by an assembly kernel,
+// which places every byte where the pure-Go code places it.
 func TransposeHeaders(dst, rows []byte, count, headerLen int) []byte {
+	return transposeWith(dst, rows, count, headerLen, simdHeaders)
+}
+
+// transposeWith is TransposeHeaders, the AVX-512 kernel used when simd is set;
+// simd may be set only where simdHeaders is, the kernel's instructions faulting on any other host.
+func transposeWith(dst, rows []byte, count, headerLen int, simd bool) []byte {
 	if count <= 1 {
 		return append(dst, rows...)
 	}
@@ -20,9 +28,28 @@ func TransposeHeaders(dst, rows []byte, count, headerLen int) []byte {
 	start := len(dst)
 	dst = slices.Grow(dst, len(rows))[:start+len(rows)]
 	section := dst[start:]
+	from := 0
+	if simd {
+		from = transposeTiles64(section, rows, count, headerLen)
+	}
+	transposeFrom(section, rows, count, headerLen, from)
+
+	return dst
+}
+
+// transposeFrom places in section the bytes of rows the kernel did not:
+// every byte of the records from on, and the bytes behind the last full 8-byte column of the records before from.
+// from is a multiple of 64; zero places every byte.
+func transposeFrom(section, rows []byte, count, headerLen, from int) {
 	full, cols := count&^7, headerLen&^7
+	for j := cols; j < headerLen; j++ {
+		col := section[j*count : j*count+from]
+		for r := range col {
+			col[r] = rows[r*headerLen+j]
+		}
+	}
 	le := binary.LittleEndian
-	for i := 0; i < full; i += 8 {
+	for i := from; i < full; i += 8 {
 		in := rows[i*headerLen : (i+8)*headerLen]
 		for j := 0; j < cols; j += 8 {
 			r := in[j:]
@@ -46,14 +73,12 @@ func TransposeHeaders(dst, rows []byte, count, headerLen int) []byte {
 			}
 		}
 	}
-	for i := full; i < count; i++ {
+	for i := max(full, from); i < count; i++ {
 		row := rows[i*headerLen : (i+1)*headerLen]
 		for j, b := range row {
 			section[j*count+i] = b
 		}
 	}
-
-	return dst
 }
 
 // UntransposeHeaders appends to dst the count record headers of headerLen bytes each gathered from section,
@@ -61,7 +86,14 @@ func TransposeHeaders(dst, rows []byte, count, headerLen int) []byte {
 // as consecutive rows, and returns the extended slice: TransposeHeaders reversed.
 //
 // section holds exactly count × headerLen bytes; the caller checked that product with HeaderSectionLen.
+// On a host with AVX-512 (simdHeaders) the tiles of 64 records by 8 header bytes are gathered by an assembly kernel,
+// which places every byte where the pure-Go code places it.
 func UntransposeHeaders(dst, section []byte, count, headerLen int) []byte {
+	return untransposeWith(dst, section, count, headerLen, simdHeaders)
+}
+
+// untransposeWith is UntransposeHeaders, the AVX-512 kernel used when simd is set, as for transposeWith.
+func untransposeWith(dst, section []byte, count, headerLen int, simd bool) []byte {
 	if count <= 1 {
 		return append(dst, section...)
 	}
@@ -69,9 +101,26 @@ func UntransposeHeaders(dst, section []byte, count, headerLen int) []byte {
 	start := len(dst)
 	dst = slices.Grow(dst, len(section))[:start+len(section)]
 	rows := dst[start:]
+	from := 0
+	if simd {
+		from = untransposeTiles64(rows, section, count, headerLen)
+	}
+	untransposeFrom(rows, section, count, headerLen, from)
+
+	return dst
+}
+
+// untransposeFrom places in rows the bytes of section the kernel did not, as transposeFrom does in reverse.
+func untransposeFrom(rows, section []byte, count, headerLen, from int) {
 	full, cols := count&^7, headerLen&^7
+	for j := cols; j < headerLen; j++ {
+		col := section[j*count : j*count+from]
+		for r, b := range col {
+			rows[r*headerLen+j] = b
+		}
+	}
 	le := binary.LittleEndian
-	for i := 0; i < full; i += 8 {
+	for i := from; i < full; i += 8 {
 		out := rows[i*headerLen : (i+8)*headerLen]
 		for j := 0; j < cols; j += 8 {
 			c := section[j*count+i:]
@@ -95,14 +144,12 @@ func UntransposeHeaders(dst, section []byte, count, headerLen int) []byte {
 			}
 		}
 	}
-	for i := full; i < count; i++ {
+	for i := max(full, from); i < count; i++ {
 		row := rows[i*headerLen : (i+1)*headerLen]
 		for j := range row {
 			row[j] = section[j*count+i]
 		}
 	}
-
-	return dst
 }
 
 // transpose8x8 transposes the 8×8 byte matrix whose row k is the little-endian word ak:

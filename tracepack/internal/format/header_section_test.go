@@ -51,15 +51,59 @@ func TestTransposeHeadersRoundTrip(t *testing.T) {
 	}
 }
 
-// TestUntransposeHeadersReusesDst checks that a buffer with room for the rows is reused, so a reader allocates it once.
+// TestUntransposeHeadersReusesDst checks that a buffer with room for the rows is reused, so a reader allocates it once,
+// on every path of the host, in both directions.
 func TestUntransposeHeadersReusesDst(t *testing.T) {
-	section := make([]byte, 64*44)
+	section := make([]byte, 200*44)
 	dst := make([]byte, 0, len(section))
 
-	allocs := testing.AllocsPerRun(100, func() {
-		dst = UntransposeHeaders(dst[:0], section, 64, 44)
-	})
-	require.Zero(t, allocs)
+	for _, simd := range headerPaths() {
+		allocs := testing.AllocsPerRun(100, func() {
+			dst = untransposeWith(dst[:0], section, 200, 44, simd)
+		})
+		require.Zero(t, allocs, "untranspose, simd %v", simd)
+		allocs = testing.AllocsPerRun(100, func() {
+			dst = transposeWith(dst[:0], section, 200, 44, simd)
+		})
+		require.Zero(t, allocs, "transpose, simd %v", simd)
+	}
+}
+
+// The transposes on every path read only the count × headerLen bytes of their input and write only that many after dst,
+// wherever the buffers start: the bytes around them, canaries, stay as they were.
+func TestTransposeHeadersStayInBounds(t *testing.T) {
+	t.Parallel()
+
+	for _, simd := range headerPaths() {
+		for _, shape := range []struct{ count, headerLen int }{{64, 44}, {200, 44}, {129, 52}, {1489, 44}, {300, 100}} {
+			n := shape.count * shape.headerLen
+			for off := range 8 {
+				in := make([]byte, n+16)
+				for k := range in {
+					in[k] = byte(k*13 + 1)
+				}
+				src := in[off : off+n]
+				out := make([]byte, n+32)
+				for k := range out {
+					out[k] = 0xC5
+				}
+				dst := out[off : off+3 : off+3+n+8]
+				want := refTransposeHeaders(src, shape.count, shape.headerLen)
+
+				got := transposeWith(dst, src, shape.count, shape.headerLen, simd)
+				require.Equal(t, want, got[3:], "transpose %v, offset %d, simd %v", shape, off, simd)
+				for k := off + 3 + n; k < len(out); k++ {
+					require.Equal(t, byte(0xC5), out[k], "transpose wrote byte %d past its section, simd %v", k-off-3-n, simd)
+				}
+
+				back := untransposeWith(out[off:off+3:off+3+n+8], want, shape.count, shape.headerLen, simd)
+				require.Equal(t, src, back[3:], "untranspose %v, offset %d, simd %v", shape, off, simd)
+				for k := off + 3 + n; k < len(out); k++ {
+					require.Equal(t, byte(0xC5), out[k], "untranspose wrote byte %d past its rows, simd %v", k-off-3-n, simd)
+				}
+			}
+		}
+	}
 }
 
 // refTransposeHeaders and refUntransposeHeaders place every byte by the rule of §6 one at a time,
@@ -86,7 +130,18 @@ func refUntransposeHeaders(section []byte, count, headerLen int) []byte {
 	return rows
 }
 
-// checkTransposeHeaders compares both functions with the references on the rows seed fills, appended after a prefix byte.
+// headerPaths are the paths a transpose may take on this host: the pure-Go code, and the AVX-512 kernel where simdHeaders is set.
+// No test selects the kernel on a host without it, whose instructions would fault.
+func headerPaths() []bool {
+	if simdHeaders {
+		return []bool{false, true}
+	}
+
+	return []bool{false}
+}
+
+// checkTransposeHeaders compares both functions, on every path of the host, with the references
+// on the rows seed fills, appended after a prefix byte.
 func checkTransposeHeaders(t *testing.T, count, headerLen int, seed uint64) {
 	t.Helper()
 
@@ -96,14 +151,17 @@ func checkTransposeHeaders(t *testing.T, count, headerLen int, seed uint64) {
 		rows[k] = byte(rng.Uint32())
 	}
 	want := refTransposeHeaders(rows, count, headerLen)
-	section := TransposeHeaders([]byte{0xAA}, rows, count, headerLen)
-	require.Equal(t, byte(0xAA), section[0])
-	require.Equal(t, want, section[1:], "transpose: count %d, header length %d", count, headerLen)
+	for _, simd := range headerPaths() {
+		section := transposeWith([]byte{0xAA}, rows, count, headerLen, simd)
+		require.Equal(t, byte(0xAA), section[0])
+		require.Equal(t, want, section[1:], "transpose: count %d, header length %d, simd %v", count, headerLen, simd)
 
-	got := UntransposeHeaders([]byte{0xBB}, want, count, headerLen)
-	require.Equal(t, byte(0xBB), got[0])
-	require.Equal(t, refUntransposeHeaders(want, count, headerLen), got[1:], "untranspose: count %d, header length %d", count, headerLen)
-	require.Equal(t, rows, got[1:])
+		got := untransposeWith([]byte{0xBB}, want, count, headerLen, simd)
+		require.Equal(t, byte(0xBB), got[0])
+		require.Equal(t, refUntransposeHeaders(want, count, headerLen), got[1:],
+			"untranspose: count %d, header length %d, simd %v", count, headerLen, simd)
+		require.Equal(t, rows, got[1:])
+	}
 }
 
 // TestTransposeHeadersMatchesReference sweeps counts and header lengths around the 8-record, 8-byte tiles.
@@ -114,9 +172,9 @@ func TestTransposeHeadersMatchesReference(t *testing.T) {
 	for c := range 21 {
 		counts = append(counts, c)
 	}
-	counts = append(counts, 63, 64, 65, 1000, 12345)
+	counts = append(counts, 63, 64, 65, 127, 128, 129, 191, 200, 1000, 1489, 12345, 12644)
 	for _, count := range counts {
-		for _, headerLen := range []int{1, 4, 7, 8, 9, 15, 16, 17, 44, 45, 52, 64, 300} {
+		for _, headerLen := range []int{1, 4, 7, 8, 9, 15, 16, 17, 44, 45, 48, 52, 60, 64, 100, 300} {
 			checkTransposeHeaders(t, count, headerLen, 1)
 		}
 	}

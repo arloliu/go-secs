@@ -26,6 +26,8 @@ line numbers are avoided because they drift.
   so a program that does not import `redact` links no Tink code;
   the module's tests check Wycheproof's AES-SIV-CMAC vectors for 512-bit keys and the corpus's cases.
   No CGO.
+  On amd64 the header-section transpose ([FMT §6]) has AVX-512 F and BW assembly kernels, chosen once at start-up when CPUID and XCR0 show the CPU and the OS support them;
+  they place every byte where the pure-Go code does, which every other host and the `purego` build tag use.
 
 ## 2. Recorders and their capture descriptors
 
