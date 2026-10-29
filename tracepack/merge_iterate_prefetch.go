@@ -223,6 +223,7 @@ func (pf *prefetcher) close() {
 func (s *blockSizes) bufFor(e *prefetchEntry) *blockBuf {
 	return &blockBuf{
 		raw:  e.raw,
+		view: e.raw,
 		rows: make([]byte, 0, s.rows),
 		offs: make([]uint32, 0, s.offs),
 	}

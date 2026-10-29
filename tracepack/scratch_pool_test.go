@@ -353,17 +353,18 @@ func TestMergeScratchAfterPendingFailure(t *testing.T) {
 	opts := mergeOpts()
 	opts.MaxOpenBlocks = 2
 	var unitRecords, groupUnits int
-	var lentGrew bool
+	var lentUsed bool
 	_, err := mergeThrough(t, inputsOf(early, a, b, c), opts, pool, func(p *mergePlan) {
 		p.stashHook = func(m *mergeRun) {
 			unitRecords, groupUnits = len(m.unit.ends), len(m.group.units)
-			lentGrew = cap(lent.raw) > 1
+			// a's block is read in place from its Reader's retained bytes (zstd), or into raw.
+			lentUsed = cap(lent.raw) > 1 || lent.view != nil
 		}
 	})
 	require.ErrorContains(t, err, "overlap 3 deep at seq 14")
 	require.Equal(t, 4, unitRecords, "the resolution held seqs 10 to 13")
 	require.Equal(t, 1, groupUnits, "the group held the earlier cluster's unit")
-	require.True(t, lentGrew, "the lent buffer was read into")
+	require.True(t, lentUsed, "the lent buffer was read into")
 
 	require.Len(t, pool.free, 1)
 	require.Same(t, sc, pool.free[0])

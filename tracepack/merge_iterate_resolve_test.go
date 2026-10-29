@@ -916,7 +916,7 @@ func TestClusterResolverOwnership(t *testing.T) {
 	assert.Equal(t, total, run.p.loader.budget.held, "only the candidates hold blocks: a0 and b0, a1 no representative")
 
 	cands[0].release(&run.p.loader)
-	assert.NotNil(t, a0.buf.raw, "a0 held while seq 11's candidate is pending")
+	assert.NotNil(t, a0.buf.view, "a0 held while seq 11's candidate is pending")
 	assert.Equal(t, total, run.p.loader.budget.held)
 	cands[1].release(&run.p.loader)
 	requireDropped(t, a0.buf)

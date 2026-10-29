@@ -66,7 +66,8 @@ type ReaderOptions struct {
 	// WholeReadThreshold is the object size up to which Open reads the whole object in one request;
 	// default 4 MiB.
 	// A Reader keeps, for its lifetime, the bytes of Open's first round that hold blocks,
-	// and serves every block read and forward-walk envelope read lying wholly inside them with a copy instead of a ReadAt,
+	// and serves every block read and forward-walk envelope read lying wholly inside them from those bytes instead of a ReadAt:
+	// a compressed block is checked and decoded from them in place, any other read copies them,
 	// so a pack up to the threshold costs one request for Open, and every later read of it costs none.
 	// The bytes kept are the whole object, or else the head and tail windows, never a FooterOffset suffix:
 	// at most max(WholeReadThreshold, HeadWindow + TailWindow) bytes per Reader, 4 MiB with the defaults,
@@ -116,7 +117,10 @@ type ReaderOptions struct {
 //
 // Besides that snapshot a Reader keeps, for its lifetime, the bytes of Open's first round that hold blocks
 // (see ReaderOptions.WholeReadThreshold for which and how many),
-// and copies a block it reads from them when they hold it whole;
+// and reads a block from them when they hold it whole:
+// a compressed block is checked and decoded from them in place, into buffers of the read's own,
+// and a None block, whose body is its records' payloads, is copied first,
+// so nothing a read hands its callback aliases them;
 // any other block is read with one ReadAt.
 // The other buffers Open reads into are dropped when it returns:
 // a FooterOffset suffix, the second round's reads, and the chunks of a streamed footer CRC.
@@ -356,7 +360,7 @@ func (r *Reader) heldRange(off, n int64) []byte {
 		if n >= 0 && n <= size && off >= s.off && off-s.off <= size-n {
 			at := off - s.off
 
-			return s.data[at : at+n]
+			return s.data[at : at+n : at+n]
 		}
 	}
 

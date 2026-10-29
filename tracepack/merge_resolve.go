@@ -206,7 +206,7 @@ func (r *resolution) load(ctx context.Context, pos int, open []*openBlock) (*ope
 		return nil, err
 	}
 	for _, o := range open {
-		if r.c.blocks[o.pos].first == b.first && bytes.Equal(o.buf.raw, buf.raw) {
+		if r.c.blocks[o.pos].first == b.first && bytes.Equal(o.buf.view, buf.view) {
 			o.origins = append(o.origins, b.input)
 			m.rep.Duplicates++
 			m.release(buf)

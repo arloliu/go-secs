@@ -310,7 +310,8 @@ The query service, its catalog database and the live-tail interface are designed
   the bytes it reads at bootstrap serve later block reads, so a pack up to the whole-read threshold (4 MiB by default) costs one request (G5-211).
   The `Reader` keeps, for its lifetime, only the first round's buffers that hold blocks, the whole object or else the head and tail windows, never a footer-hint suffix:
   at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`) bytes, outside `MergeIterateOptions.MaxHeldBytes`, `TxOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`;
-  it copies a block lying wholly inside them, never aliasing them, and reads any other block with one `ReadAt`.
+  it reads a block lying wholly inside them from them, a compressed block decoded in place into the read's own buffers and a None block copied first,
+  so no `Item` aliases them, and reads any other block with one `ReadAt`.
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`,
   and `Stats() (PackStats, bool)` (G5-131): the F-5 statistics of a pack whose footer it uses — counts, time and seq ranges, per-epoch summaries with `close_seq`, capture-boundary entries — as a fresh value, false without a used footer.
   `Open` decodes the pack metadata against the registry of the pack's `format_minor` ([FMT §5]),

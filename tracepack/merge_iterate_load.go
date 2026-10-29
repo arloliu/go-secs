@@ -102,14 +102,19 @@ func (r *Reader) preflightBlock(i int) (blockSizes, *Defect) {
 	return s, nil
 }
 
-// newBuf returns a blockBuf of empty buffers with exactly the capacities of s, but for decoded:
-// decodeBody allocates it at exactly s.decoded bytes for a block whose codec is not None, and never for a None block.
-func (s *blockSizes) newBuf() *blockBuf {
-	return &blockBuf{
-		raw:  make([]byte, 0, s.raw),
+// newBuf returns a blockBuf of empty buffers with exactly the capacities of s, but for decoded and, for a retained block, raw:
+// decodeBody allocates decoded at exactly s.decoded bytes for a block whose codec is not None, and never for a None block;
+// a block within its Reader's retained bytes is read in place there, raw being allocated, exactly, only for a None block (ownView).
+func (s *blockSizes) newBuf(retained bool) *blockBuf {
+	buf := &blockBuf{
 		rows: make([]byte, 0, s.rows),
 		offs: make([]uint32, 0, s.offs),
 	}
+	if !retained {
+		buf.raw = make([]byte, 0, s.raw)
+	}
+
+	return buf
 }
 
 // heldBlock is a block read in full into buffers of its own, which stay reserved against a heldBudget until dropped.
@@ -189,7 +194,8 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 		<-queued.done
 		h.buf = s.bufFor(queued)
 	} else {
-		h.buf = s.newBuf()
+		info := &r.blocks[i]
+		h.buf = s.newBuf(r.heldRange(int64(info.Offset), int64(info.OnDiskLen)) != nil)
 	}
 	if l.readHook != nil {
 		l.readHook(pack, i, h.buf)

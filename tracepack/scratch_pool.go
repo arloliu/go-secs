@@ -139,6 +139,6 @@ func (u *unitBuilder) clearViews() {
 func (e *encodeBuf) detach() {
 	e.raw, e.body, e.enc = e.raw[:0], e.body[:0], e.enc[:0]
 	emptyBlockBuf(&e.check)
-	e.check.raw = nil
+	e.check.raw, e.check.view = nil, nil
 	e.hook = nil
 }
