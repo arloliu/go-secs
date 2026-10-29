@@ -9,8 +9,9 @@ const maxPooledBlockBuf = 16 << 20
 // which take them back once the read returns, and to the held blocks of a read over several packs, taken back when each is dropped,
 // so that the next read does not allocate its buffers afresh.
 type blockBufPool interface {
-	// get returns a buffer with empty slices, of any capacity.
-	get() *blockBuf
+	// get returns a buffer with empty slices, of any capacity;
+	// hint, when not nil, holds the sizes of the held block the buffer is for, which the package's pool ignores.
+	get(hint *blockSizes) *blockBuf
 	// put takes back a buffer no read uses any more.
 	put(buf *blockBuf)
 }
@@ -23,7 +24,7 @@ type syncBlockBufPool struct {
 // defaultBlockBufs is the pool of every Reader that Open returns.
 var defaultBlockBufs blockBufPool = &syncBlockBufPool{}
 
-func (s *syncBlockBufPool) get() *blockBuf {
+func (s *syncBlockBufPool) get(*blockSizes) *blockBuf {
 	if buf, ok := s.p.Get().(*blockBuf); ok {
 		return buf
 	}

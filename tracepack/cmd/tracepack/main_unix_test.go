@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
 // mainEnv, set in the environment of the test binary, makes it run main instead of the tests,
@@ -20,6 +22,7 @@ import (
 const mainEnv = "TRACEPACK_TEST_RUN_MAIN"
 
 func TestMain(m *testing.M) {
+	format.ApplyHeaderKernelsEnv()
 	if os.Getenv(mainEnv) == "1" {
 		main()
 	}

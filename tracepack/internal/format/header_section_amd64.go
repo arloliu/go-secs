@@ -2,8 +2,12 @@
 
 package format
 
-// simdHeaders reports whether this host runs the AVX-512 transpose kernels (avx512Usable), read once at start-up.
-var simdHeaders = avx512Usable(cpuid, xcr0)
+// simdCapable reports whether this host runs the AVX-512 transpose kernels (avx512Usable), read once at start-up;
+// simdHeaders, whether TransposeHeaders and UntransposeHeaders use them, which SetHeaderKernels may turn off.
+var (
+	simdCapable = avx512Usable(cpuid, xcr0)
+	simdHeaders = simdCapable
+)
 
 // cpuid executes CPUID for leaf and sub-leaf sub.
 //

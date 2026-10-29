@@ -98,3 +98,24 @@ func TestTileIndex(t *testing.T) {
 	assert.Equal(t, int64(16*44), idx[2])
 	assert.Equal(t, int64(2*44), idx[8])
 }
+
+// SetHeaderKernels turns the kernels off, and back on only where the host runs them;
+// HeaderKernelsEnv set to "off" turns them off through ApplyHeaderKernelsEnv.
+// It does not run in parallel: it changes which path every transpose of the package takes.
+func TestSetHeaderKernels(t *testing.T) {
+	saved := simdHeaders
+	t.Cleanup(func() { simdHeaders = saved })
+
+	SetHeaderKernels(false)
+	assert.False(t, HeaderKernels())
+	SetHeaderKernels(true)
+	assert.Equal(t, simdCapable, HeaderKernels(), "on only where the host runs them")
+
+	t.Setenv(HeaderKernelsEnv, "off")
+	ApplyHeaderKernelsEnv()
+	assert.False(t, HeaderKernels())
+	SetHeaderKernels(true)
+	t.Setenv(HeaderKernelsEnv, "on")
+	ApplyHeaderKernelsEnv()
+	assert.Equal(t, simdCapable, HeaderKernels(), "any other value leaves them as they are")
+}

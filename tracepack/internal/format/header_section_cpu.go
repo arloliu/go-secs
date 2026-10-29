@@ -1,5 +1,31 @@
 package format
 
+import "os"
+
+// HeaderKernelsEnv is the environment variable a test binary reads through ApplyHeaderKernelsEnv:
+// the value "off" runs every transpose of the binary on the pure-Go path.
+const HeaderKernelsEnv = "TRACEPACK_HEADER_KERNELS"
+
+// SetHeaderKernels turns the AVX-512 kernels of TransposeHeaders and UntransposeHeaders off, or back on where the host runs them;
+// it never turns them on where the host does not.
+// Tests call it before any transpose runs, so that a whole package's tests take the pure-Go path on a host with AVX-512;
+// it is not safe to call while a transpose runs.
+func SetHeaderKernels(on bool) {
+	simdHeaders = on && simdCapable
+}
+
+// HeaderKernels reports whether TransposeHeaders and UntransposeHeaders use the AVX-512 kernels.
+func HeaderKernels() bool {
+	return simdHeaders
+}
+
+// ApplyHeaderKernelsEnv turns the kernels off when HeaderKernelsEnv is "off"; a test binary's TestMain calls it.
+func ApplyHeaderKernelsEnv() {
+	if os.Getenv(HeaderKernelsEnv) == "off" {
+		SetHeaderKernels(false)
+	}
+}
+
 // The CPUID and XCR0 bits avx512Usable tests, as the Intel SDM and Go's own internal/cpu name them.
 const (
 	cpuidOSXSAVE   = 1 << 27 // leaf 1, ECX: the OS enabled XGETBV

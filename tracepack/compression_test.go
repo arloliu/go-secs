@@ -34,9 +34,9 @@ var oracleLevels = map[CompressionLevel]zstd.EncoderLevel{
 	CompressionBest:    zstd.SpeedBestCompression,
 }
 
-// requireEncodedAt requires every zstd block body and the zstd footer of file to be what enc writes for its decoded bytes,
-// except the blocks whose bytes, envelope and body, are in copied, which are compared by the caller.
-// It returns the number of block bodies and footers it compared.
+// requireEncodedAt requires every block body of file but those in copied, and the footer, to be zstd,
+// each what enc writes for its decoded bytes; the blocks in copied, whose bytes, envelope and body, are an input's, the caller compares.
+// It returns the number of block bodies it compared.
 func requireEncodedAt(t *testing.T, file []byte, enc *zstd.Encoder, copied map[string]bool) int {
 	t.Helper()
 
@@ -49,9 +49,7 @@ func requireEncodedAt(t *testing.T, file []byte, enc *zstd.Encoder, copied map[s
 		}
 		env, err := format.UnmarshalBlockEnvelope(raw)
 		require.NoError(t, err)
-		if env.Codec != codec.Zstd {
-			continue
-		}
+		require.Equal(t, codec.Zstd, env.Codec, "block %d: a block the writer encodes is zstd", i)
 		body := raw[format.EnvelopeLen:]
 		decoded, err := codec.Decode(codec.Zstd, nil, body, int(env.UncompressedLen))
 		require.NoError(t, err)
@@ -60,13 +58,11 @@ func requireEncodedAt(t *testing.T, file []byte, enc *zstd.Encoder, copied map[s
 	}
 	tr, err := format.UnmarshalTrailer(file[len(file)-format.TrailerLen:])
 	require.NoError(t, err)
-	if tr.FooterCodec == codec.Zstd {
-		footer := file[tr.FooterOffset : tr.FooterOffset+tr.FooterLen]
-		decoded, err := codec.Decode(codec.Zstd, nil, footer, int(tr.FooterUncompressedLen))
-		require.NoError(t, err)
-		require.True(t, bytes.Equal(enc.EncodeAll(decoded, nil), footer), "the footer encoded at the level")
-		n++
-	}
+	require.Equal(t, codec.Zstd, tr.FooterCodec, "the footer is zstd")
+	footer := file[tr.FooterOffset : tr.FooterOffset+tr.FooterLen]
+	decoded, err := codec.Decode(codec.Zstd, nil, footer, int(tr.FooterUncompressedLen))
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(enc.EncodeAll(decoded, nil), footer), "the footer encoded at the level")
 
 	return n
 }
@@ -110,7 +106,9 @@ func TestWriterCompressionLevels(t *testing.T) {
 			mutate := func(o *WriterOptions) { o.CompressionLevel = level }
 			file := goldenWriterPack(t, true, mutate)
 			assert.Equal(t, file, goldenWriterPack(t, true, mutate), "deterministic")
-			assert.Positive(t, requireEncodedAt(t, file, oracleEncoder(t, zl), nil))
+			r := mustOpen(t, file, ReaderOptions{})
+			assert.Equal(t, len(r.blocks), requireEncodedAt(t, file, oracleEncoder(t, zl), nil), "every block body")
+			assert.Positive(t, len(r.blocks))
 			assert.Equal(t, want, iterate(t, mustOpen(t, file, ReaderOptions{}), Query{Payloads: true}))
 			if level != CompressionDefault {
 				assert.NotEqual(t, defaults, file, "the level changes the bytes")
@@ -143,7 +141,9 @@ func TestSegmentWriterCompressionLevels(t *testing.T) {
 			require.GreaterOrEqual(t, len(sink.keys), 3, "the writer rolled over")
 			enc := oracleEncoder(t, zl)
 			for _, k := range sink.keys {
-				assert.Positive(t, requireEncodedAt(t, sink.published[k], enc, nil), "segment %s", k)
+				r := mustOpen(t, sink.published[k], ReaderOptions{})
+				assert.Equal(t, len(r.blocks), requireEncodedAt(t, sink.published[k], enc, nil), "segment %s: every block body", k)
+				assert.Positive(t, len(r.blocks), "segment %s", k)
 			}
 		})
 	}
@@ -164,7 +164,6 @@ func TestMergeCompressionLevels(t *testing.T) {
 				assert.Equal(t, out, goldenMerge(t, c, mutate), "deterministic")
 				inputs := blockBytesOf(t, c.inputs...)
 				encoded := requireEncodedAt(t, out, oracleEncoder(t, zl), inputs)
-				assert.Positive(t, encoded, "the footer at least")
 				if c.name == "verbatim" {
 					r := mustOpen(t, out, ReaderOptions{})
 					for i, b := range r.blocks {
@@ -172,7 +171,7 @@ func TestMergeCompressionLevels(t *testing.T) {
 					}
 				} else if level != CompressionDefault {
 					// At the default level a block the merge encodes from one input block's records can equal it byte for byte.
-					assert.Greater(t, encoded, 1, "the merge encodes blocks of its own")
+					assert.Positive(t, encoded, "the merge encodes blocks of its own")
 				}
 				want, _, err := collectMergeIterate(t.Context(), openAll(t, c.inputs...), Query{Payloads: true}, MergeIterateOptions{Order: OrderCapture})
 				require.NoError(t, err)
@@ -183,6 +182,51 @@ func TestMergeCompressionLevels(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// A coalescing group whose new encoding fails is written as its blocks were:
+// a block the resolution encoded, at the merge's level, beside a block copied verbatim.
+func TestMergeCompressionLevelFallback(t *testing.T) {
+	t.Parallel()
+
+	for _, level := range []CompressionLevel{CompressionFastest, CompressionBest} {
+		t.Run(level.String(), func(t *testing.T) {
+			t.Parallel()
+
+			files := [][]byte{
+				mergePackCodec(t, CodecZstd, seg4, hourSteps(1, 2, 2)),
+				mergePackCodec(t, CodecZstd, seg0, hourSteps(10, 13, 4)),
+				mergePackCodec(t, CodecZstd, seg1, hourSteps(12, 15, 4)),
+			}
+			opts := mergeOpts()
+			opts.CompressionLevel = level
+			opts.Now = func() time.Time { return goldenNow }
+			var calls int
+			out, rep, err := writeWithHooks(t, inputsOf(files...), opts, func(p *mergePlan) {
+				p.coalescedHook = func(enc []byte) []byte {
+					calls++
+					bad := bytes.Clone(enc)
+					bad[len(bad)-1] ^= 1
+
+					return bad
+				}
+			})
+			require.NoError(t, err)
+			assert.Equal(t, 1, calls, "one group encoded")
+			requireCounts(t, rep, mergeCounts{blocks: 2, records: 8, copied: 1, resolved: 2, fallbacks: 1})
+			inputs := blockBytesOf(t, files...)
+			assert.Equal(t, 1, requireEncodedAt(t, out, oracleEncoder(t, oracleLevels[level]), inputs),
+				"the block the resolution encoded, at the level")
+			copied := 0
+			r := mustOpen(t, out, ReaderOptions{})
+			for _, b := range r.blocks {
+				if inputs[string(out[b.Offset:b.Offset+uint64(b.OnDiskLen)])] {
+					copied++
+				}
+			}
+			assert.Equal(t, 1, copied, "the copied block verbatim")
+		})
 	}
 }
 

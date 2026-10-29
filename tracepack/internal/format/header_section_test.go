@@ -130,10 +130,10 @@ func refUntransposeHeaders(section []byte, count, headerLen int) []byte {
 	return rows
 }
 
-// headerPaths are the paths a transpose may take on this host: the pure-Go code, and the AVX-512 kernel where simdHeaders is set.
+// headerPaths are the paths a transpose may take on this host: the pure-Go code, and the AVX-512 kernel where simdCapable is set.
 // No test selects the kernel on a host without it, whose instructions would fault.
 func headerPaths() []bool {
-	if simdHeaders {
+	if simdCapable {
 		return []bool{false, true}
 	}
 

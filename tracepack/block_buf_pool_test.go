@@ -19,7 +19,7 @@ type listBlockBufs struct {
 	free []*blockBuf
 }
 
-func (l *listBlockBufs) get() *blockBuf {
+func (l *listBlockBufs) get(*blockSizes) *blockBuf {
 	n := len(l.free)
 	if n == 0 {
 		return new(blockBuf)
@@ -38,9 +38,11 @@ func (l *listBlockBufs) put(buf *blockBuf) {
 }
 
 // loanBufs is a blockBufPool that records every loan and every return, safe for concurrent use.
-// It lends a fresh buffer, or, with reuse, the buffer returned last.
+// It lends a fresh buffer, or, with reuse, the buffer returned last;
+// with a shape, a held block's loan is instead a fresh buffer whose slices have the capacities of that shape against the block's sizes.
 type loanBufs struct {
 	reuse bool
+	shape seedKind
 
 	mu      sync.Mutex
 	free    []*blockBuf
@@ -50,12 +52,19 @@ type loanBufs struct {
 	faults  []string
 }
 
-func (l *loanBufs) get() *blockBuf {
+func (l *loanBufs) get(hint *blockSizes) *blockBuf {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	buf := new(blockBuf)
-	if n := len(l.free); l.reuse && n > 0 {
+	if hint != nil && l.shape != seedEmpty {
+		buf = &blockBuf{
+			raw:     make([]byte, 0, seedCap(l.shape, hint.raw)),
+			decoded: make([]byte, 0, seedCap(l.shape, hint.decoded)),
+			rows:    make([]byte, 0, seedCap(l.shape, hint.rows)),
+			offs:    make([]uint32, 0, seedCap(l.shape, hint.offs)),
+		}
+	} else if n := len(l.free); l.reuse && n > 0 {
 		buf = l.free[n-1]
 		l.free = l.free[:n-1]
 	}
