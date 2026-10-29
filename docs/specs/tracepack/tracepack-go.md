@@ -74,7 +74,9 @@ The query service, its catalog database and the live-tail interface are designed
   `DecodeStatus.Malformed` is true only for known malformed values, and `DecodeStatus.Clean` only for known values outside the malformed set;
   an unknown value is neither, so `!Malformed()` never proves a clean decode ([SEM §6]).
 - `Writer`: `NewWriter(w io.Writer, WriterOptions)`, the layer under `SegmentWriter` and `Merge`;
-  options: the pack metadata, `Uncompressed` (false writes block bodies and the footer with `zstd`, true with `none`, as in `SegmentWriterOptions` and `MergeOptions`, G5-211), block size threshold,
+  options: the pack metadata, `Uncompressed` (false writes block bodies and the footer with `zstd`, true with `none`, as in `SegmentWriterOptions` and `MergeOptions`, G5-211),
+  `CompressionLevel` (the zstd level of those bodies and the footer: `CompressionDefault`, the zero value, `CompressionFastest` or `CompressionBest`, as in `SegmentWriterOptions` and `MergeOptions`;
+  an undefined value fails the constructor before any I/O, `Uncompressed` or not, G5-276), block size threshold,
   `Now` (G5-174: the clock that stamps `writer_start_utc_ns` and gives the time part of a `pack_id` or `capture_id` the writer generates as a UUIDv7; nil means `time.Now`),
   and validation, on unless `SkipValidation` is set (G5-152): a validating writer decodes each encoded block, gathers its record headers and checks I-2 before writing it,
   and on a failed check returns an error without writing the block or the trailer ([FMT §12]); nothing is committed to the pack metadata.
@@ -194,7 +196,7 @@ The query service, its catalog database and the live-tail interface are designed
   `pack_role = segment`, `compaction_level = 0` and `scope_generation = 0`, a `capture_id` it generates, and the capture's seq counter.
   `CaptureID()` returns that `capture_id` from construction on, so a recorder can persist it as the next capture's `PreviousCaptureID`.
   Options: `Capture` (a `CaptureDescriptor`, required), `Sink` (required), `FlushInterval` (divides one hour; default 5 minutes),
-  `MaxSegmentBytes` (default 64 MiB), `Classifier` (optional), `Uncompressed` (false writes zstd, true writes `none`), `BlockThreshold`, `SkipValidation`,
+  `MaxSegmentBytes` (default 64 MiB), `Classifier` (optional), `Uncompressed` (false writes zstd, true writes `none`), `CompressionLevel` (G5-276), `BlockThreshold`, `SkipValidation`,
   and `Now` (default `time.Now`, for tests).
   `Now` also reaches each segment `Writer` as its `WriterOptions.Now` (G5-174),
   and gives the time part of the `capture_id` and of every segment `pack_id` the writer generates, also those it generates before a segment's `Writer` exists.
@@ -409,6 +411,7 @@ The query service, its catalog database and the live-tail interface are designed
   A block that overlaps no other block is copied verbatim with its F-3 list;
   duplicates are dropped only on equal envelope and body bytes; every other overlap is resolved record by record;
   small blocks are coalesced by the greedy grouping of [STO §4], each new encoding validated in memory before it is written.
+  Every block Merge encodes, resolved or coalesced, and the footer are encoded at `MergeOptions.CompressionLevel` (G5-276); a block copied verbatim keeps its bytes.
   The output is one archive per scope, with `replacement_set_size` 1 and `replacement_set_index` 0 ([STO §6]).
   `MergeOptions.Now` (G5-179) is the clock of the archive's `Writer`, which stamps its `writer_start_utc_ns`,
   and of the `ReplacementSetID` and `PackID` that `Merge` generates for a zero option; an id the caller supplies is kept.

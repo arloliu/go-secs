@@ -175,6 +175,10 @@ type MergeOptions struct {
 	// otherwise they are written with CodecZstd, as the tracepack format specification §2 recommends.
 	// A block copied verbatim keeps its own codec either way.
 	Uncompressed bool
+	// CompressionLevel is the zstd level of the blocks Merge encodes, resolved or coalesced, and of the footer,
+	// as WriterOptions.CompressionLevel; a block copied verbatim keeps its bytes.
+	// An undefined value fails Merge before it reads any input, with Uncompressed or not.
+	CompressionLevel CompressionLevel
 	// BlockThreshold is the decoded block size, in bytes, up to which Merge coalesces blocks and fills the blocks it encodes
 	// (the tracepack storage specification §4 Merge); zero means DefaultBlockThreshold.
 	// A record whose decoded size alone reaches it is written whole, in a block of its own,
@@ -582,6 +586,9 @@ func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions) (*m
 
 // checkMergeOptions rejects options Merge cannot honor, no inputs, and an input without a ReaderAt.
 func checkMergeOptions(inputs []MergeInput, opts *MergeOptions) error {
+	if err := checkCompressionLevel("MergeOptions", opts.CompressionLevel); err != nil {
+		return err
+	}
 	switch {
 	case opts.Writer == "":
 		return errors.New("tracepack: MergeOptions.Writer is empty")

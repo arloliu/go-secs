@@ -79,7 +79,7 @@ func (m *mergeRun) flushUnit() error {
 	}
 
 	rows, payloads := u.records()
-	raw, sum, err := encodeRawBlock(&m.enc, m.codec, u.headerLen, rows, payloads)
+	raw, sum, err := encodeRawBlock(&m.enc, m.codec, m.level, u.headerLen, rows, payloads)
 	if err != nil {
 		// The error names the new block by its first seq, as the Writer's errors writeUnit returns name a block.
 		return err

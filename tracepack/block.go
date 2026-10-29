@@ -178,18 +178,18 @@ func countEnum(counts []uint32, v uint8) []uint32 {
 	return counts
 }
 
-// encodeBlock encodes body with c and returns the on-disk body and the codec actually used.
+// encodeBlock encodes body with c, at level for zstd, and returns the on-disk body and the codec actually used.
 //
 // A zstd frame of incompressible input can be longer than the input;
 // when it would exceed the 2^31-1 body_len limit of the tracepack format specification §2,
 // the block is stored with the none codec instead, which the per-block codec field allows.
 // For the none codec the on-disk body is body itself, not a copy.
-func encodeBlock(c Codec, dst, body []byte) ([]byte, Codec, error) {
+func encodeBlock(c Codec, level CompressionLevel, dst, body []byte) ([]byte, Codec, error) {
 	if c == CodecNone {
 		return body, CodecNone, nil
 	}
 
-	enc, err := codec.Encode(uint8(c), dst, body)
+	enc, err := codec.EncodeLevel(uint8(c), level.codecLevel(), dst, body)
 	if err != nil {
 		return nil, c, err
 	}
@@ -200,7 +200,7 @@ func encodeBlock(c Codec, dst, body []byte) ([]byte, Codec, error) {
 	return enc, c, nil
 }
 
-// encodeRawBlock encodes one block from records of another pack, given as stored, with codec c,
+// encodeRawBlock encodes one block from records of another pack, given as stored, with codec c at level,
 // and checks the encoding in memory before it returns it
 // (the tracepack storage specification §4: a merger validates every new encoding before it writes it).
 //
@@ -220,6 +220,7 @@ func encodeBlock(c Codec, dst, body []byte) ([]byte, Codec, error) {
 // Parameters:
 //   - e: the buffers to build and check the block in, reused from one call to the next.
 //   - c: CodecNone or CodecZstd.
+//   - level: the zstd level, for CodecZstd.
 //   - headerLen: the record_header_len of the rows.
 //   - rows: the records' header rows as stored, in seq order.
 //   - payloads: the records' payloads, parallel to rows.
@@ -228,13 +229,13 @@ func encodeBlock(c Codec, dst, body []byte) ([]byte, Codec, error) {
 //   - []byte: the block's envelope and on-disk body, for appendBlock, aliasing e until its next use.
 //   - blockSummary: the summary of its records, as summaryOf gives it, sharing no memory with e.
 //   - error: the failed check; no block is returned.
-func encodeRawBlock(e *encodeBuf, c Codec, headerLen int, rows, payloads [][]byte) ([]byte, blockSummary, error) {
+func encodeRawBlock(e *encodeBuf, c Codec, level CompressionLevel, headerLen int, rows, payloads [][]byte) ([]byte, blockSummary, error) {
 	uncompressedLen, firstSeq, err := checkRawRecords(headerLen, rows, payloads)
 	if err != nil {
 		return nil, blockSummary{}, fmt.Errorf("tracepack: encode a block: %w", err)
 	}
 
-	raw, used, err := e.build(c, headerLen, uncompressedLen, rows, payloads)
+	raw, used, err := e.build(c, level, headerLen, uncompressedLen, rows, payloads)
 	if err != nil {
 		return nil, blockSummary{}, fmt.Errorf("tracepack: encode a block: %w", err)
 	}
@@ -412,9 +413,9 @@ func validateEncoded(c Codec, buf *validateBuf, enc []byte, s *blockSummary, unc
 }
 
 // build builds in e's buffers the block of the records rows and payloads, whose decoded body is uncompressedLen bytes,
-// with its envelope left to fill: 40 bytes, then the on-disk body, the decoded body encoded with c.
+// with its envelope left to fill: 40 bytes, then the on-disk body, the decoded body encoded with c at level.
 // It returns the block, which aliases e.raw, and the codec encodeBlock used.
-func (e *encodeBuf) build(c Codec, headerLen, uncompressedLen int, rows, payloads [][]byte) ([]byte, Codec, error) {
+func (e *encodeBuf) build(c Codec, level CompressionLevel, headerLen, uncompressedLen int, rows, payloads [][]byte) ([]byte, Codec, error) {
 	if c == CodecNone {
 		raw := slices.Grow(e.raw[:0], format.EnvelopeLen+uncompressedLen)[:format.EnvelopeLen]
 		e.raw = appendRawBody(raw, headerLen, rows, payloads)
@@ -423,7 +424,7 @@ func (e *encodeBuf) build(c Codec, headerLen, uncompressedLen int, rows, payload
 	}
 
 	e.body = appendRawBody(slices.Grow(e.body[:0], uncompressedLen), headerLen, rows, payloads)
-	enc, used, err := encodeBlock(c, e.enc, e.body)
+	enc, used, err := encodeBlock(c, level, e.enc, e.body)
 	if err != nil {
 		return nil, c, err
 	}

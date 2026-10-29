@@ -3,6 +3,7 @@ package codec_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/arloliu/go-secs/tracepack/internal/codec"
@@ -46,7 +47,7 @@ func requireZstdWindowBound(t *testing.T, frame []byte, decodedLen int) {
 	require.LessOrEqual(t, window, uint64(zstdWindowCap), "window above 64 MiB")
 }
 
-// TestZstdEncoderWindowBound checks that every frame Encode writes declares a window
+// TestZstdEncoderWindowBound checks that every frame Encode writes, and EncodeLevel at each level, declares a window
 // no larger than the larger of 8 MiB and its decoded length, and never one above 64 MiB,
 // at the sizes around the 8 MiB floor and above the 64 MiB cap,
 // and that Decode accepts each frame.
@@ -67,18 +68,25 @@ func TestZstdEncoderWindowBound(t *testing.T) {
 		{name: "8 MiB + 1", size: zstdWindowFloor + 1},
 		{name: "65 MiB", size: largest},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			body := all[:tt.size]
-			frame, err := codec.Encode(codec.Zstd, nil, body)
-			require.NoError(t, err)
+	for _, level := range []int{codec.LevelDefault, codec.LevelFastest, codec.LevelBest} {
+		for _, tt := range tests {
+			t.Run(fmt.Sprintf("level %d/%s", level, tt.name), func(t *testing.T) {
+				body := all[:tt.size]
+				frame, err := codec.EncodeLevel(codec.Zstd, level, nil, body)
+				require.NoError(t, err)
+				if level == codec.LevelDefault {
+					same, err := codec.Encode(codec.Zstd, nil, body)
+					require.NoError(t, err)
+					require.True(t, bytes.Equal(same, frame), "Encode is EncodeLevel at LevelDefault")
+				}
 
-			requireZstdWindowBound(t, frame, len(body))
+				requireZstdWindowBound(t, frame, len(body))
 
-			decoded, err := codec.Decode(codec.Zstd, nil, frame, len(body))
-			require.NoError(t, err)
-			require.True(t, bytes.Equal(body, decoded), "round trip")
-		})
+				decoded, err := codec.Decode(codec.Zstd, nil, frame, len(body))
+				require.NoError(t, err)
+				require.True(t, bytes.Equal(body, decoded), "round trip")
+			})
+		}
 	}
 }
 

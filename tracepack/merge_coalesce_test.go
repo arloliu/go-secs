@@ -120,7 +120,7 @@ func TestMergeCoalescesSmallBlocks(t *testing.T) {
 					if _, ok := tt.verbatim[k]; !ok {
 						body, err := codec.Decode(env.Codec, nil, b[format.EnvelopeLen:], int(env.UncompressedLen))
 						require.NoError(t, err)
-						_, want, err = encodeBlock(c, nil, body)
+						_, want, err = encodeBlock(c, CompressionDefault, nil, body)
 						require.NoError(t, err)
 					}
 					assert.Equal(t, want, Codec(env.Codec), "block %d's codec", k)

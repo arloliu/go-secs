@@ -119,6 +119,9 @@ type WriterOptions struct {
 	// Uncompressed writes the block bodies and the footer with CodecNone;
 	// otherwise they are written with CodecZstd, as the tracepack format specification §2 recommends.
 	Uncompressed bool
+	// CompressionLevel is the zstd level of the block bodies and the footer; the zero value is CompressionDefault.
+	// It has no effect with Uncompressed, but an undefined value fails NewWriter either way.
+	CompressionLevel CompressionLevel
 	// BlockThreshold is the uncompressed block size, in bytes, at which a block is closed;
 	// zero means DefaultBlockThreshold.
 	// A block never exceeds it, except a block holding a single record larger than it.
@@ -209,6 +212,7 @@ type Writer struct {
 	captureID UUID
 	syncer    Syncer
 	codec     Codec
+	level     CompressionLevel
 	threshold int
 	validate  bool
 	assignSeq bool
@@ -381,6 +385,7 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 		},
 	}
 	wr.takeScratch(opts.scratch)
+	wr.level = opts.CompressionLevel
 	if opts.Uncompressed {
 		wr.codec = CodecNone
 	}
@@ -404,6 +409,9 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 func checkOptions(opts *WriterOptions) error {
 	if opts.Meta == nil {
 		return errors.New("tracepack: WriterOptions.Meta is nil")
+	}
+	if err := checkCompressionLevel("WriterOptions", opts.CompressionLevel); err != nil {
+		return err
 	}
 	if opts.BlockThreshold < 0 || int64(opts.BlockThreshold) > int64(format.MaxLen32) {
 		return fmt.Errorf("tracepack: WriterOptions.BlockThreshold %d outside 0 to %d", opts.BlockThreshold, format.MaxLen32)
@@ -1054,7 +1062,7 @@ func (w *Writer) writeBlock() error {
 	w.bodyBuf = w.block.body(w.bodyBuf)
 	uncompressedLen := len(w.bodyBuf)
 
-	enc, c, err := encodeBlock(w.codec, w.encBuf, w.bodyBuf)
+	enc, c, err := encodeBlock(w.codec, w.level, w.encBuf, w.bodyBuf)
 	if err != nil {
 		return fmt.Errorf("tracepack: encode block: %w", err)
 	}
@@ -1227,7 +1235,7 @@ func (w *Writer) checkAppendBlock(raw []byte, s *blockSummary) (format.BlockEnve
 	return env, nil
 }
 
-// finalize writes the footer built from the written blocks, encoded with the Writer's codec,
+// finalize writes the footer built from the written blocks, encoded with the Writer's codec and level,
 // then the trailer, then syncs (the tracepack format specification §12 step 3).
 // It writes nothing when the header set redaction-present but the pack's quality_union lacks quality.redacted:
 // the flag promised a redacted record, so the pack cannot be finalized under it (the tracepack format specification §4).
@@ -1249,7 +1257,7 @@ func (w *Writer) finalize() error {
 		return &FieldError{Field: "redaction-present", Err: ErrMetadataCommitment}
 	}
 
-	enc, err := codec.Encode(uint8(w.codec), nil, footer)
+	enc, err := codec.EncodeLevel(uint8(w.codec), w.level.codecLevel(), nil, footer)
 	if err != nil {
 		return fmt.Errorf("tracepack: encode footer: %w", err)
 	}

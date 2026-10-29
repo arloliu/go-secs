@@ -18,6 +18,17 @@ func Known(id uint8) bool {
 	return id == None || id == Zstd
 }
 
+// Levels select how hard the Zstd encoder works (EncodeLevel); None ignores them.
+// LevelDefault is the encoder Encode uses, the zstd library's default level.
+const (
+	LevelDefault = 0
+	LevelFastest = 1
+	LevelBest    = 2
+)
+
+// ErrUnknownLevel reports an encoder level outside LevelDefault, LevelFastest and LevelBest.
+var ErrUnknownLevel = errors.New("codec: unknown level")
+
 // ErrUnknownCodec reports a codec value outside the registry of the tracepack format specification §2.
 // Adding a codec value is a major format version change, so a reader never guesses at an unknown value's meaning.
 var ErrUnknownCodec = errors.New("codec: unknown codec")
@@ -65,11 +76,27 @@ var ErrLengthMismatch = errors.New("codec: length mismatch")
 //   - []byte: the encoded bytes, appended to dst.
 //   - error: ErrUnknownCodec for a codecID outside the registry.
 func Encode(codecID uint8, dst, src []byte) ([]byte, error) {
+	return EncodeLevel(codecID, LevelDefault, dst, src)
+}
+
+// EncodeLevel is Encode with the Zstd encoder at level: LevelDefault, LevelFastest or LevelBest.
+// Every level writes one frame with no dictionary and a window of at most 8 MiB,
+// which every reader of the format decodes alike; only the encoded bytes and their length differ.
+//
+// Returns:
+//   - []byte: the encoded bytes, appended to dst.
+//   - error: ErrUnknownCodec for a codecID outside the registry; ErrUnknownLevel for another level.
+func EncodeLevel(codecID uint8, level int, dst, src []byte) ([]byte, error) {
 	switch codecID {
 	case None:
 		return append(dst[:0], src...), nil
 	case Zstd:
-		return encodeZstd(dst, src), nil
+		enc := encoderAt(level)
+		if enc == nil {
+			return dst[:0], fmt.Errorf("codec: encode: level %d: %w", level, ErrUnknownLevel)
+		}
+
+		return enc.EncodeAll(src, dst[:0]), nil
 	default:
 		return dst[:0], fmt.Errorf("codec: encode: value %d: %w", codecID, ErrUnknownCodec)
 	}

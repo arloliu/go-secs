@@ -79,6 +79,7 @@ The decision log and the outcome of every proposal are listed in `README.md`.
 - 2026-10-30: the §3 `Reader` bullet says how it reads a block lying wholly inside its retained bytes:
   a compressed block is decoded from them in place, into the read's own buffers, and a None block is copied first, so no `Item` aliases them.
   No rule changed.
+- 2026-10-30: the §3 `Writer`, `SegmentWriter` and `Merge` bullets name `CompressionLevel`, the zstd level of the bodies and footer they encode (G5-276).
 - 2026-10-30: the §3 `MergeIterate` bullet says `MaxHeldBytes` reserves each held block's exact sizes and decides admission on them alone,
   and that a held block may reuse a buffer given back by an earlier read when each slice is at most an eighth larger than it needs,
   the capacities held staying within 9/8 of the limit (G5-277).
