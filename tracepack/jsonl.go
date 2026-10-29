@@ -149,7 +149,7 @@ func writeJSONLRecord(jw *jsonlWriter, schema *jsonlSchema, d *decodedBlock, j i
 // It checks ctx before each block, and fails at a block over MaxBlockLen instead of listing it.
 func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, res Result) (Result, error) {
 	pool := r.blockBufs()
-	buf := pool.get(nil)
+	buf := pool.get(blockSizes{})
 	defer pool.put(buf)
 	schema := jsonlSchemaOf(r.hdr.FormatMinor)
 	capture := UUID(r.hdr.CaptureID)

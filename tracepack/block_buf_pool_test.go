@@ -19,7 +19,7 @@ type listBlockBufs struct {
 	free []*blockBuf
 }
 
-func (l *listBlockBufs) get(*blockSizes) *blockBuf {
+func (l *listBlockBufs) get(blockSizes) *blockBuf {
 	n := len(l.free)
 	if n == 0 {
 		return new(blockBuf)
@@ -52,12 +52,12 @@ type loanBufs struct {
 	faults  []string
 }
 
-func (l *loanBufs) get(hint *blockSizes) *blockBuf {
+func (l *loanBufs) get(hint blockSizes) *blockBuf {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	buf := new(blockBuf)
-	if hint != nil && l.shape != seedEmpty {
+	if hint != (blockSizes{}) && l.shape != seedEmpty {
 		buf = &blockBuf{
 			raw:     make([]byte, 0, seedCap(l.shape, hint.raw)),
 			decoded: make([]byte, 0, seedCap(l.shape, hint.decoded)),

@@ -105,7 +105,7 @@ func (r *Reader) preflightBlock(i int) (blockSizes, *Defect) {
 // borrowBuf returns a buffer for block i of r, of sizes s, from r's pool, sized by fitBuf, and that pool, which takes it back.
 func (s *blockSizes) borrowBuf(r *Reader, i int) (*blockBuf, blockBufPool) {
 	pool := r.blockBufs()
-	buf := pool.get(s)
+	buf := pool.get(*s)
 	info := &r.blocks[i]
 	s.fitBuf(buf, r.heldRange(int64(info.Offset), int64(info.OnDiskLen)) != nil)
 

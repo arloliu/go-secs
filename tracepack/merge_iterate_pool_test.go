@@ -340,7 +340,8 @@ func TestHeldBlocksReusePooledBuffers(t *testing.T) {
 
 // Every lookup FindTransaction makes over generated captures, whose packs lend their held blocks' buffers from pools
 // seeded with buffers of every kind, gives the result and the error of the same lookup borrowing nothing,
-// at the least budget each lookup needs, one less, one more, and twice it.
+// at the least budget each lookup needs, one less, one more, and twice it:
+// the whole result in its strict form, and every error's chain and sentinels.
 func TestFindTransactionReusesPooledBuffers(t *testing.T) {
 	t.Parallel()
 
@@ -358,12 +359,12 @@ func TestFindTransactionReusesPooledBuffers(t *testing.T) {
 				if len(keys) > 6 {
 					keys = keys[:6]
 				}
-				lookup := func(pool *loanBufs, key TxKey, limit int64) (string, []string) {
+				lookup := func(pool *loanBufs, key TxKey, limit int64) (txStrictForm, []string) {
 					res, err := FindTransaction(t.Context(), optsSource{src: g.src, opts: ropts, pool: pool}, key,
 						TxOptions{MaxScopes: g.maxScopes, MaxHeldBytes: limit})
 					pool.requireSettled(t, -1)
 
-					return fmt.Sprintf("%v", res.Outcome), append(errChain(err), fmt.Sprintf("%#v", res.Records))
+					return strictForm(&res), txErrSnapshot(&res, err)
 				}
 				// least returns the smallest budget at which the lookup of key, borrowing nothing, passes every reservation.
 				least := func(key TxKey) int64 {
@@ -388,11 +389,11 @@ func TestFindTransactionReusesPooledBuffers(t *testing.T) {
 				for _, key := range keys {
 					l := least(key)
 					for _, limit := range []int64{l - 1, l, l + 1, 2 * l} {
-						wantOutcome, want := lookup(&loanBufs{reuse: true}, key, limit)
+						want, wantErr := lookup(&loanBufs{reuse: true}, key, limit)
 						for _, k := range []seedKind{seedSmall, seedEqual, seedWithin, seedOver} {
-							gotOutcome, got := lookup(seededPool(k, blockSizes{}, 0), key, limit)
-							assert.Equal(t, wantOutcome, gotOutcome, "key %v, limit %d, pool %v", key, limit, k)
-							assert.Equal(t, want, got, "key %v, limit %d, pool %v", key, limit, k)
+							got, gotErr := lookup(seededPool(k, blockSizes{}, 0), key, limit)
+							requireStrictEqual(t, want, got, "key %v, limit %d, pool %v", key, limit, k)
+							assert.Equal(t, wantErr, gotErr, "key %v, limit %d, pool %v", key, limit, k)
 						}
 					}
 				}
@@ -632,6 +633,30 @@ func (s poolSource) Readers(ctx context.Context, hour int64) ([]*Reader, error) 
 	}
 
 	return readers, err
+}
+
+// txErrSnapshot returns the error chain of err and of every gap and pack error of res,
+// each with the read sentinels it matches (errors.Is).
+func txErrSnapshot(res *TxResult, err error) []string {
+	snap := func(e error) []string {
+		out := errChain(e)
+		for i, sentinel := range readSentinels {
+			if e != nil && errors.Is(e, sentinel) {
+				out = append(out, fmt.Sprintf("is %d", i))
+			}
+		}
+
+		return append(out, "--")
+	}
+	out := snap(err)
+	for i := range res.Incomplete {
+		out = append(out, snap(res.Incomplete[i].Err)...)
+	}
+	for i := range res.FooterErrs {
+		out = append(out, snap(res.FooterErrs[i].Err)...)
+	}
+
+	return out
 }
 
 // optsSource is a PackSource over the packs of a memSource whose readers it opens with opts,

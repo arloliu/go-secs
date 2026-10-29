@@ -117,7 +117,7 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 	gaps := crashGaps{from: f.TimeFrom, to: f.TimeTo}
 	var item Item
 	pool := r.blockBufs()
-	buf := pool.get(nil)
+	buf := pool.get(blockSizes{})
 	defer pool.put(buf)
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {
