@@ -22,9 +22,12 @@ type prefetchEntry struct {
 	// size is the bytes reserved for the block, its blockSizes.total; 0 for a block failing its preflight,
 	// which reserves nothing and is never read.
 	size int64
-	// raw is the buffer the speculative read fills, at the block's on_disk_len;
-	// nil for a block the Reader's retained bytes serve, read only when the run demands it.
-	raw []byte
+	// buf is the block's buffer, borrowed from pool and sized by fitBuf at admission, which the block takes over when the run demands it;
+	// the speculative read fills only its raw, at the block's on_disk_len.
+	// A block the Reader's retained bytes serve has no raw and no speculative read: it is read in place when the run demands it.
+	// nil for a block failing its preflight, and once the block is demanded.
+	buf  *blockBuf
+	pool blockBufPool
 	// done is closed once the speculative read returned, err holding its error; nil without a speculative read.
 	done chan struct{}
 	err  error
@@ -152,6 +155,7 @@ func (pf *prefetcher) fill() {
 			}
 			_ = pf.budget.reserve(s.total) // fits checked it
 			e.size = s.total
+			e.buf, e.pool = s.borrowBuf(r, ref.block)
 			info := &r.blocks[ref.block]
 			if r.heldRange(int64(info.Offset), int64(info.OnDiskLen)) == nil {
 				pf.issue(r, e, int64(info.Offset), s.raw)
@@ -161,15 +165,16 @@ func (pf *prefetcher) fill() {
 	}
 }
 
-// issue starts the speculative read of the n bytes at off of r into a new buffer of e.
+// issue starts the speculative read of the n bytes at off of r into the raw of e's buffer, which fitBuf sized to hold them.
 func (pf *prefetcher) issue(r *Reader, e *prefetchEntry, off int64, n int) {
-	e.raw = make([]byte, n)
+	raw := e.buf.raw[:n]
+	e.buf.raw = raw
 	e.done = make(chan struct{})
 	pf.wg.Add(1)
 	pf.inflight.Add(1)
 	go func() {
 		defer pf.wg.Done()
-		e.err = r.fetch(e.raw, off)
+		e.err = readAt(r.ra, raw, off)
 		pf.inflight.Add(-1)
 		close(e.done)
 	}()
@@ -202,7 +207,7 @@ func (pf *prefetcher) take(pack, i int) *prefetchEntry {
 }
 
 // close stops the prefetch: it admits nothing more, waits for every speculative read in flight,
-// then releases the reservation of every block still queued, discarding its bytes and its error.
+// then releases the reservation of every block still queued and gives its buffer back to its pool, discarding its bytes and its error.
 // No ReadAt of the prefetch is in flight once it returns.
 // A nil prefetcher, or one closed before, does nothing more.
 func (pf *prefetcher) close() {
@@ -213,18 +218,11 @@ func (pf *prefetcher) close() {
 	pf.wg.Wait()
 	for k, e := range pf.queue {
 		pf.budget.release(e.size)
+		if e.buf != nil {
+			e.pool.put(e.buf)
+			e.buf, e.pool = nil, nil
+		}
 		pf.queue[k] = nil
 	}
 	pf.queue = pf.queue[:0]
-}
-
-// bufFor returns the buffers of a block of sizes s whose raw bytes e's speculative read filled:
-// raw is e's, the others empty at exactly the capacities of s, as newBuf allocates them.
-func (s *blockSizes) bufFor(e *prefetchEntry) *blockBuf {
-	return &blockBuf{
-		raw:  e.raw,
-		view: e.raw,
-		rows: make([]byte, 0, s.rows),
-		offs: make([]uint32, 0, s.offs),
-	}
 }

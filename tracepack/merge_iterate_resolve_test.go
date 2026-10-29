@@ -880,6 +880,9 @@ func TestClusterResolverOwnership(t *testing.T) {
 	a := mergePack(t, seg0, nil, hourSteps(10, 13, 2))
 	b := mergePack(t, seg1, nil, hourSteps(10, 13, 4))
 	run, _ := planResolve(t, t.Context(), Query{Payloads: true}, 0, nil, a, b)
+	for _, r := range run.p.readers {
+		r.bufs = &loanBufs{} // buffers of the test's own, inspected after they are given back
+	}
 	records := recordsOf(t, a)
 	pc := &run.p.captures[0]
 	cr := newClusterResolver(run, pc.id, &pc.clusters[0])
@@ -918,8 +921,10 @@ func TestClusterResolverOwnership(t *testing.T) {
 	cands[0].release(&run.p.loader)
 	assert.NotNil(t, a0.buf.view, "a0 held while seq 11's candidate is pending")
 	assert.Equal(t, total, run.p.loader.budget.held)
+	a0buf := a0.buf
 	cands[1].release(&run.p.loader)
-	requireDropped(t, a0.buf)
+	assert.Nil(t, a0.buf, "a0 gave its buffer back")
+	requireDropped(t, a0buf)
 	assert.Equal(t, heldSize(t, b), run.p.loader.budget.held)
 	releaseAll(t, run, cr, cands[2:])
 }

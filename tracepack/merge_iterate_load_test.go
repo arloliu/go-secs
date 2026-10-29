@@ -57,15 +57,18 @@ func capsOf(buf *blockBuf) bufCaps {
 	return c
 }
 
-// requireDropped requires the buffers of buf to have been dropped.
+// requireDropped requires buf to have been given back to its pool: emptied, its view and decoded block dropped.
 func requireDropped(t *testing.T, buf *blockBuf) {
 	t.Helper()
 
 	require.NotNil(t, buf)
-	assert.Nil(t, buf.raw)
-	assert.Nil(t, buf.decoded)
-	assert.Nil(t, buf.rows)
-	assert.Nil(t, buf.offs)
+	assert.Empty(t, buf.raw)
+	assert.Empty(t, buf.decoded)
+	assert.Empty(t, buf.rows)
+	assert.Empty(t, buf.offs)
+	assert.Nil(t, buf.view)
+	assert.False(t, buf.retained)
+	assert.Equal(t, decodedBlock{}, buf.blk)
 }
 
 // hugeBlock is the block hugeSectionPack makes state 2^24 records, its last.
@@ -246,6 +249,8 @@ func TestHeldLoaderValidBlock(t *testing.T) {
 					opts = ReaderOptions{}
 				}
 				r := mustOpen(t, p.file, opts)
+				pool := &loanBufs{}
+				r.bufs = pool
 				info := &r.blocks[1]
 				require.Equal(t, retained, r.heldRange(int64(info.Offset), int64(info.OnDiskLen)) != nil)
 				l := newReadAttempts(math.MaxInt64)
@@ -309,6 +314,8 @@ func TestHeldLoaderValidBlock(t *testing.T) {
 				buf := h.buf
 				l.drop(h)
 				requireDropped(t, buf)
+				assert.Nil(t, h.buf)
+				pool.requireSettled(t, 1)
 				assert.Nil(t, h.d)
 				assert.Zero(t, h.size)
 				assert.Zero(t, l.budget.held)
@@ -356,6 +363,7 @@ func TestHeldLoaderFailedBlock(t *testing.T) {
 	b := p.blocks[1]
 	file := flipByte(p.file, b.offset+format.EnvelopeLen+uint64(b.onDiskLen-format.EnvelopeLen)/2)
 	r := mustOpen(t, file, ReaderOptions{})
+	r.bufs = &loanBufs{} // a buffer of the test's own, inspected after it is given back
 	require.True(t, r.blocks[1].Indexed)
 
 	l := newReadAttempts(math.MaxInt64)
@@ -397,6 +405,7 @@ func TestHeldLoaderBodyDefect(t *testing.T) {
 				}
 			})
 			r := mustOpen(t, file, ReaderOptions{})
+			r.bufs = &loanBufs{} // a buffer of the test's own, inspected after it is given back
 			require.NoError(t, r.Header().FooterErr, "the footer must stay valid")
 
 			l := newReadAttempts(math.MaxInt64)
@@ -419,6 +428,7 @@ func TestHeldLoaderIndexMismatch(t *testing.T) {
 
 	file, _ := indexMismatchPack(t, func(b *testBlock) { b.headers[0].TSUTCNs++ })
 	r := mustOpen(t, file, ReaderOptions{})
+	r.bufs = &loanBufs{} // a buffer of the test's own, inspected after it is given back
 	require.NoError(t, r.Header().FooterErr, "the footer must stay valid")
 
 	l := newReadAttempts(math.MaxInt64)
@@ -443,6 +453,7 @@ func TestHeldLoaderReadError(t *testing.T) {
 	g := newGatedReader(p.file)
 	r, err := openReader(t.Context(), g, int64(len(p.file)), uncachedWindows(), false)
 	require.NoError(t, err)
+	r.bufs = &loanBufs{} // a buffer of the test's own, inspected after it is given back
 	at := int64(r.blocks[1].Offset)
 	g.fail = func(off int64, _ int) bool { return off == at }
 

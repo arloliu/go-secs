@@ -102,19 +102,14 @@ func (r *Reader) preflightBlock(i int) (blockSizes, *Defect) {
 	return s, nil
 }
 
-// newBuf returns a blockBuf of empty buffers with exactly the capacities of s, but for decoded and, for a retained block, raw:
-// decodeBody allocates decoded at exactly s.decoded bytes for a block whose codec is not None, and never for a None block;
-// a block within its Reader's retained bytes is read in place there, raw being allocated, exactly, only for a None block (ownView).
-func (s *blockSizes) newBuf(retained bool) *blockBuf {
-	buf := &blockBuf{
-		rows: make([]byte, 0, s.rows),
-		offs: make([]uint32, 0, s.offs),
-	}
-	if !retained {
-		buf.raw = make([]byte, 0, s.raw)
-	}
+// borrowBuf returns a buffer for block i of r, of sizes s, from r's pool, sized by fitBuf, and that pool, which takes it back.
+func (s *blockSizes) borrowBuf(r *Reader, i int) (*blockBuf, blockBufPool) {
+	pool := r.blockBufs()
+	buf := pool.get()
+	info := &r.blocks[i]
+	s.fitBuf(buf, r.heldRange(int64(info.Offset), int64(info.OnDiskLen)) != nil)
 
-	return buf
+	return buf, pool
 }
 
 // heldBlock is a block read in full into buffers of its own, which stay reserved against a heldBudget until dropped.
@@ -123,6 +118,8 @@ type heldBlock struct {
 	pack  int
 	block int
 	buf   *blockBuf
+	// pool is the pool buf was borrowed from, which takes it back when the block is dropped.
+	pool blockBufPool
 	// d is the validated block, aliasing buf.
 	d *decodedBlock
 	// size is the bytes reserved for buf; 0 once the block is dropped.
@@ -144,6 +141,8 @@ type heldLoader struct {
 	// before the read, or for a block the prefetch read ahead, before its decode:
 	// a block failing its preflight or its reservation is not read.
 	readHook func(pack, block int, buf *blockBuf)
+	// dropHook, set only by tests, receives every block the loader drops with its buffer, before the buffer is given back.
+	dropHook func(h *heldBlock)
 }
 
 // hold adds an owner to h.
@@ -153,10 +152,10 @@ func (h *heldBlock) hold() {
 
 // load reads block i of r, the Reader at index pack among the readers of the read, into buffers of its own.
 //
-// It runs preflightBlock, reserves the block's buffer sizes against the budget,
-// allocates the buffers at exactly those capacities, decoded only once the decode needs it,
-// and reads the block with readBlock.
-// When the prefetch queued the block, the block takes over the queued reservation instead of reserving again,
+// It runs preflightBlock, reserves the block's exact buffer sizes against the budget,
+// borrows a buffer from its Reader's pool, keeping each pooled slice that fits the block and allocating any other at exactly its size,
+// decoded only once the decode needs it (fitBuf), and reads the block with readBlock.
+// When the prefetch queued the block, the block takes over the queued reservation and the queued buffer instead of reserving and borrowing again,
 // and a block read ahead is checked and decoded from the bytes read, after waiting for that read.
 // After a load that returns no error, the prefetch admits the next blocks it can.
 // The read never grows a buffer past its capacity:
@@ -190,12 +189,18 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 	h := &heldBlock{pack: pack, block: i, size: s.total, owners: 1}
 	// fetched is set for a block read ahead, whose read is waited for before its buffers are used.
 	fetched := queued != nil && queued.done != nil
-	if fetched {
-		<-queued.done
-		h.buf = s.bufFor(queued)
+	if queued != nil {
+		// The block takes over the entry's loan, borrowed and sized at the entry's admission.
+		if fetched {
+			<-queued.done
+		}
+		h.buf, h.pool = queued.buf, queued.pool
+		queued.buf, queued.pool = nil, nil
+		if fetched {
+			h.buf.view = h.buf.raw
+		}
 	} else {
-		info := &r.blocks[i]
-		h.buf = s.newBuf(r.heldRange(int64(info.Offset), int64(info.OnDiskLen)) != nil)
+		h.buf, h.pool = s.borrowBuf(r, i)
 	}
 	if l.readHook != nil {
 		l.readHook(pack, i, h.buf)
@@ -231,11 +236,18 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 	return h, def, nil
 }
 
-// drop drops the buffers of h for the garbage collector, then releases their reservation.
+// drop gives the buffer of h back to the pool it was borrowed from, then releases its reservation.
 // A second drop of h does nothing.
 func (l *heldLoader) drop(h *heldBlock) {
+	if h.buf != nil && l.dropHook != nil {
+		l.dropHook(h)
+	}
 	h.d = nil
-	*h.buf = blockBuf{}
+	if buf := h.buf; buf != nil {
+		h.buf = nil
+		h.pool.put(buf)
+		h.pool = nil
+	}
 	l.budget.release(h.size)
 	h.size = 0
 }

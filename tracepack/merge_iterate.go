@@ -35,11 +35,14 @@ type MergeIterateOptions struct {
 	Order Order
 	// MaxHeldBytes bounds the bytes of the block buffers MergeIterate holds at once,
 	// those of the blocks it reads ahead included,
-	// reserved before each block is read;
+	// each block's exact sizes reserved before it is read;
 	// zero or negative means DefaultMaxHeldBytes.
+	// A held block may reuse a buffer an earlier read gave back when each of its slices is at most an eighth larger than the block needs,
+	// so the capacities of the buffers held stay within 9/8 of MaxHeldBytes,
+	// while what the limit admits is decided on the exact sizes alone.
 	// It does not bound the process heap:
 	// the readers, the block descriptors and clusters MergeIterate builds before reading,
-	// its queues, codec state and Result.Conflicts lie outside it,
+	// its queues, codec state and Result.Conflicts lie outside it, as do buffers given back for reuse and not yet reused,
 	// and so do the bootstrap bytes each Reader retains,
 	// at most max(WholeReadThreshold, HeadWindow + TailWindow) of its ReaderOptions per Reader.
 	// A read that would exceed it ends with an error wrapping ErrReadLimit, returned with the Result found so far.

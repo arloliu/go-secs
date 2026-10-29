@@ -1902,3 +1902,19 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   a total budget across concurrent lookups, which would make a lookup's failure depend on its neighbours;
   an in-memory index (G5-273 stands).
   Spec: `tracepack-go.md` §3 (a Go-mapping note), v2.38.
+
+## 2026-10-29 reusing the buffers of held blocks (owner's choice)
+
+- G5-277 `MaxHeldBytes` reserves exact sizes; held blocks reuse buffers within an eighth (2026-10-29, Go mapping):
+  `MergeIterate`, and every read `FindTransaction` and `FindTransactions` make through it, reserves each held block's exact buffer sizes against `MaxHeldBytes`,
+  as before, and admits or refuses a block on those sizes alone, so a read fails with `ErrReadLimit` exactly where it did.
+  A held block may take a buffer an earlier read gave back, keeping each of its slices only when its capacity is at least the size the block needs and at most an eighth more,
+  and allocating any other at exactly that size;
+  so the slice capacities of the held blocks stay within 9/8 of what is reserved, and within 9/8 of `MaxHeldBytes`.
+  The bound covers the held blocks' buffers only: buffers given back and not yet reused, allocator rounding, the readers' retained bytes and codec state lie outside it, as the heap outside it did.
+  Rationale *(editorial)*: charging a reused buffer's extra capacity makes a later block's reservation fail where it fits today
+  (a limit of 100, a block of 40 in a pooled buffer of 60, then a block of 50), which no caller expects from a memory optimization;
+  an eighth keeps the overshoot small while reusing the buffers of blocks of about the same sizes, which consecutive hours of one capture give.
+  Rejected *(editorial)*: charging the pooled capacity; reusing only buffers of exactly the sizes needed, which reads across packs almost never meet;
+  not pooling held blocks.
+  Spec: `tracepack-go.md` §3, v2.38.
