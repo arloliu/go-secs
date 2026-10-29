@@ -229,18 +229,18 @@ func (r *Reader) yield(q *Query, i int, d *decodedBlock, item *Item, fn func(*It
 			continue
 		}
 
-		rec := storedRecord(&h, d.payload(j))
+		rec := &item.Record
+		*rec = storedRecord(&h, d.payload(j))
 		if fields {
 			if h := rec.HSMSHeader(); !f.matchFields(&h) {
 				continue
 			}
 		}
-		redaction := r.redaction.record(&rec)
+		item.Redaction = r.redaction.record(rec)
 		if !q.Payloads {
 			rec.Payload = nil
 		}
-
-		*item = Item{Record: rec, HeaderExtra: h.Extra, Block: i, Redaction: redaction}
+		item.HeaderExtra, item.Pack, item.Block, item.Conflict = h.Extra, 0, i, false
 		if err := fn(item); err != nil {
 			return err
 		}
