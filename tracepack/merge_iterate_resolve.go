@@ -111,11 +111,12 @@ func newClusterResolver(run *mergeIterateRun, capture UUID, c *planCluster) *clu
 func (c *candidate) item(q *Query, it *Item) uint8 {
 	d := c.h.d
 	h := d.header(c.rec)
-	rec := storedRecord(&h, d.payload(c.rec))
+	rec := &it.Record
+	*rec = storedRecord(&h, d.payload(c.rec))
 	if !q.Payloads {
 		rec.Payload = nil
 	}
-	*it = Item{Record: rec, HeaderExtra: h.Extra, Pack: c.h.pack, Block: c.h.block, Conflict: c.conflict}
+	it.HeaderExtra, it.Pack, it.Block, it.Conflict, it.Redaction = h.Extra, c.h.pack, c.h.block, c.conflict, nil
 
 	return h.RecordFlags
 }
