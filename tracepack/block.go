@@ -355,7 +355,7 @@ func checkRawBlock(buf *blockBuf, raw []byte, rows, payloads [][]byte) (blockSum
 	if err != nil {
 		return blockSummary{}, err
 	}
-	buf.raw = raw
+	buf.raw, buf.view, buf.retained = raw, raw, false
 	d, _, err := decodeBlock(&env, buf)
 	if err != nil {
 		return blockSummary{}, err

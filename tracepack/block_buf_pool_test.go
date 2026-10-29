@@ -118,7 +118,7 @@ func requirePooledBack(t *testing.T, pool *listBlockBufs, buf *blockBuf) {
 	require.Len(t, pool.free, 1)
 	require.Same(t, buf, pool.free[0], "the read returned the buffer it was lent")
 	require.Empty(t, buf.raw)
-	require.Positive(t, cap(buf.raw), "the read used the buffer")
+	require.Positive(t, cap(buf.rows), "the read used the buffer")
 	require.Empty(t, buf.decoded)
 	require.Empty(t, buf.rows)
 	require.Empty(t, buf.offs)

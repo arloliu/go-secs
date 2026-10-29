@@ -561,7 +561,7 @@ func TestMergeDuplicateCandidateWhoseBytesDiffer(t *testing.T) {
 		assert.Equal(t, []UUID{seg0, seg1, seg2}, originIDs(p, first), "the origins of every block dropped as its duplicate")
 		assert.Equal(t, []UUID{seg3}, originIDs(p, differs))
 		assert.Equal(t, 2, m.rep.Duplicates)
-		assert.Equal(t, blockBytes(t, base, allBlocks)[0], first.buf.raw)
+		assert.Equal(t, blockBytes(t, base, allBlocks)[0], first.buf.view)
 		assert.Equal(t, blockBytes(t, s3, allBlocks)[0], differs.buf.raw)
 		for i, f := range files[1:] {
 			assert.Equal(t, []int{1}, blockReads(t, f, readers[i+1]), "input %d", i+1)

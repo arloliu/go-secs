@@ -47,9 +47,10 @@ func readyForPool(buf *blockBuf) bool {
 	return true
 }
 
-// emptyBlockBuf empties buf's slices and its decoded block, keeping their storage.
+// emptyBlockBuf empties buf's slices and its decoded block, keeping their storage, and drops its view.
 func emptyBlockBuf(buf *blockBuf) {
 	buf.raw, buf.decoded, buf.rows, buf.offs = buf.raw[:0], buf.decoded[:0], buf.rows[:0], buf.offs[:0]
+	buf.view, buf.retained = nil, false
 	buf.blk = decodedBlock{}
 }
 

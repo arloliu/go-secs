@@ -169,7 +169,7 @@ func (p *mergePlan) readUnit(ctx context.Context, b *mergeBlock, buf *blockBuf) 
 		return mergeUnit{}, err
 	}
 
-	return newMergeUnit(buf.raw, d, s, b.f3), nil
+	return newMergeUnit(buf.view, d, s, b.f3), nil
 }
 
 // readInputBlock checks ctx, then reads block b of its input in full into buf
@@ -314,7 +314,7 @@ func (m *mergeRun) writeCluster(ctx context.Context, c *mergeCluster) error {
 		}
 		if len(r.open) == 1 {
 			o := r.open[0]
-			u := newMergeUnit(o.buf.raw, o.d, r.sums[o.pos], c.blocks[o.pos].f3)
+			u := newMergeUnit(o.buf.view, o.d, r.sums[o.pos], c.blocks[o.pos].f3)
 			err := m.emit(&u)
 			m.release(o.buf)
 

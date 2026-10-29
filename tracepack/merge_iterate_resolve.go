@@ -283,7 +283,7 @@ func (cr *clusterResolver) load(ctx context.Context, pos int, open []*openBlock)
 		return nil, nil //nolint:nilnil // a block without records contributes none
 	}
 	for _, o := range open {
-		if cr.c.blocks[o.pos].first == b.first && bytes.Equal(o.buf.raw, h.buf.raw) {
+		if cr.c.blocks[o.pos].first == b.first && bytes.Equal(o.buf.view, h.buf.view) {
 			o.origins = append(o.origins, b.pack)
 			p.loader.release(h)
 

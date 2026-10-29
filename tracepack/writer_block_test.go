@@ -55,7 +55,7 @@ func readBlocksOf(t testing.TB, r *Reader) []sourceBlock {
 		d, def, err := r.readBlock(i, &buf)
 		require.NoError(t, err)
 		require.NotNil(t, d, "block %d fails: %v", i, def)
-		out[i] = sourceBlock{raw: bytes.Clone(buf.raw), sum: summaryOf(d)}
+		out[i] = sourceBlock{raw: bytes.Clone(buf.view), sum: summaryOf(d)}
 	}
 
 	return out

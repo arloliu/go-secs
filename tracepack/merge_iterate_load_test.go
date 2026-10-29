@@ -1,6 +1,7 @@
 package tracepack
 
 import (
+	"fmt"
 	"math"
 	"slices"
 	"testing"
@@ -42,12 +43,18 @@ type bufCaps struct {
 	bases [3]any
 }
 
-// capsOf returns the capacities and backing arrays of raw, rows and offs of buf, each of capacity at least 1.
+// capsOf returns the capacities and backing arrays of raw, rows and offs of buf, rows and offs of capacity at least 1;
+// a raw of no capacity has a nil base.
 func capsOf(buf *blockBuf) bufCaps {
-	return bufCaps{
+	c := bufCaps{
 		caps:  [3]int{cap(buf.raw), cap(buf.rows), cap(buf.offs)},
-		bases: [3]any{&buf.raw[:1][0], &buf.rows[:1][0], &buf.offs[:1][0]},
+		bases: [3]any{nil, &buf.rows[:1][0], &buf.offs[:1][0]},
 	}
+	if cap(buf.raw) > 0 {
+		c.bases[0] = &buf.raw[:1][0]
+	}
+
+	return c
 }
 
 // requireDropped requires the buffers of buf to have been dropped.
@@ -229,58 +236,86 @@ func TestHeldLoaderValidBlock(t *testing.T) {
 	t.Parallel()
 
 	for _, c := range []Codec{CodecNone, CodecZstd} {
-		t.Run(c.String(), func(t *testing.T) {
-			t.Parallel()
+		for _, retained := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%v/retained=%v", c, retained), func(t *testing.T) {
+				t.Parallel()
 
-			p := writeReaderPack(t, readerPackConfig{codec: c}, hourRecords(3, 40))
-			r := mustOpen(t, p.file, ReaderOptions{})
-			l := newReadAttempts(math.MaxInt64)
-			var before bufCaps
-			hook := l.readHook
-			l.readHook = func(pack, block int, buf *blockBuf) {
-				hook(pack, block, buf)
-				before = capsOf(buf)
-				assert.Nil(t, buf.decoded, "decoded is allocated only by the decode")
-			}
+				p := writeReaderPack(t, readerPackConfig{codec: c}, hourRecords(3, 40))
+				opts := uncachedWindows()
+				if retained {
+					opts = ReaderOptions{}
+				}
+				r := mustOpen(t, p.file, opts)
+				info := &r.blocks[1]
+				require.Equal(t, retained, r.heldRange(int64(info.Offset), int64(info.OnDiskLen)) != nil)
+				l := newReadAttempts(math.MaxInt64)
+				var before bufCaps
+				hook := l.readHook
+				l.readHook = func(pack, block int, buf *blockBuf) {
+					hook(pack, block, buf)
+					before = capsOf(buf)
+					assert.Nil(t, buf.decoded, "decoded is allocated only by the decode")
+				}
 
-			h, def, err := l.load(r, loadTestPack, 1)
-			require.NoError(t, err)
-			require.Nil(t, def)
-			require.NotNil(t, h)
-			assert.Equal(t, loadTestPack, h.pack)
-			assert.Equal(t, 1, h.block)
-			assert.Equal(t, 1, l.reads[[2]int{loadTestPack, 1}])
-			requireBlockConsistent(t, &r.blocks[1], h.d)
+				h, def, err := l.load(r, loadTestPack, 1)
+				require.NoError(t, err)
+				require.Nil(t, def)
+				require.NotNil(t, h)
+				assert.Equal(t, loadTestPack, h.pack)
+				assert.Equal(t, 1, h.block)
+				assert.Equal(t, 1, l.reads[[2]int{loadTestPack, 1}])
+				requireBlockConsistent(t, &r.blocks[1], h.d)
 
-			s, _ := r.preflightBlock(1)
-			assert.Equal(t, [3]int{s.raw, s.rows, s.offs}, before.caps, "allocated at exactly the reserved sizes")
-			assert.Equal(t, before, capsOf(h.buf), "the read grew no buffer")
-			if c == CodecNone {
-				assert.Nil(t, h.buf.decoded, "a None block never allocates decoded")
-			} else {
-				assert.Equal(t, s.decoded, cap(h.buf.decoded), "decoded allocated at exactly uncompressed_len")
-			}
-			assert.Equal(t, s.total, h.size)
-			assert.Equal(t, h.size, l.budget.held)
+				s, _ := r.preflightBlock(1)
+				rawCap := s.raw
+				if retained {
+					rawCap = 0
+				}
+				assert.Equal(t, [3]int{rawCap, s.rows, s.offs}, before.caps, "allocated at exactly the reserved sizes, raw only when read with ReadAt")
+				after := capsOf(h.buf)
+				if retained && c == CodecNone {
+					// A None block in retained bytes is copied into a raw of its own, exactly as long as the block.
+					assert.Equal(t, s.raw, after.caps[0])
+					assert.Len(t, h.buf.raw, s.raw)
+					after.caps[0], after.bases[0] = 0, nil
+				}
+				assert.Equal(t, before, after, "the read grew no buffer")
+				if c == CodecNone {
+					assert.Nil(t, h.buf.decoded, "a None block never allocates decoded")
+				} else {
+					assert.Equal(t, s.decoded, cap(h.buf.decoded), "decoded allocated at exactly uncompressed_len")
+				}
+				assert.Equal(t, s.total, h.size)
+				assert.Equal(t, h.size, l.budget.held)
 
-			// The block aliases its held buffers: a None body is used in place in raw, any other in decoded.
-			assert.Same(t, &h.buf.rows[0], &h.d.section[0])
-			assert.Same(t, &h.buf.offs[0], &h.d.offs[0])
-			if c == CodecNone {
-				assert.Same(t, &h.buf.raw[format.EnvelopeLen], &h.d.body[0])
-			} else {
-				assert.Same(t, &h.buf.decoded[0], &h.d.body[0])
-			}
+				// The block aliases its held buffers: a None body is used in place in raw, any other in decoded.
+				assert.Same(t, &h.buf.rows[0], &h.d.section[0])
+				assert.Same(t, &h.buf.offs[0], &h.d.offs[0])
+				if c == CodecNone {
+					assert.Same(t, &h.buf.raw[format.EnvelopeLen], &h.d.body[0])
+				} else {
+					assert.Same(t, &h.buf.decoded[0], &h.d.body[0])
+				}
+				// A compressed block in retained bytes is read in place there; no callback-visible slice aliases them.
+				held := r.heldRange(int64(info.Offset), int64(info.OnDiskLen))
+				if retained && c != CodecNone {
+					assert.True(t, h.buf.retained)
+					assert.Same(t, &held[0], &h.buf.view[0])
+				} else {
+					assert.False(t, h.buf.retained)
+					assert.Same(t, &h.buf.raw[0], &h.buf.view[0])
+				}
 
-			buf := h.buf
-			l.drop(h)
-			requireDropped(t, buf)
-			assert.Nil(t, h.d)
-			assert.Zero(t, h.size)
-			assert.Zero(t, l.budget.held)
-			l.drop(h)
-			assert.Zero(t, l.budget.held, "a second drop releases nothing")
-		})
+				buf := h.buf
+				l.drop(h)
+				requireDropped(t, buf)
+				assert.Nil(t, h.d)
+				assert.Zero(t, h.size)
+				assert.Zero(t, l.budget.held)
+				l.drop(h)
+				assert.Zero(t, l.budget.held, "a second drop releases nothing")
+			})
+		}
 	}
 }
 

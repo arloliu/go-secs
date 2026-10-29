@@ -15,8 +15,16 @@ import (
 // A held block of a read over several packs has a blockBuf of its own instead,
 // read into once and kept until the block is dropped.
 type blockBuf struct {
-	// raw holds the block as read: its envelope, then its on-disk body.
+	// raw holds the block as read with a ReadAt: its envelope, then its on-disk body.
+	// It is always storage of the read's own, never the Reader's retained bytes.
 	raw []byte
+	// view is the block's on-disk bytes, envelope then body, that the checks and the decode read:
+	// raw, or, for a compressed block within the Reader's retained bytes, those bytes themselves, read in place.
+	// A None block's body is used in place as its decoded body, so a None block is always copied into raw first:
+	// nothing a callback receives ever aliases the retained bytes.
+	view []byte
+	// retained reports that view is the Reader's retained bytes, not raw.
+	retained bool
 	// decoded holds the decoded body of a block whose codec is not None; a None block's body is used in place in raw.
 	decoded []byte
 	// rows holds the record headers gathered from the header section, one after another.
@@ -142,7 +150,7 @@ func envelopeAgrees(e *format.BlockEnvelope, info *BlockInfo) error {
 	return nil
 }
 
-// decodeBlock decodes the whole body of the block of env, read into buf.raw, to exactly uncompressed_len bytes,
+// decodeBlock decodes the whole body of the block of env, whose on-disk bytes buf.view holds, to exactly uncompressed_len bytes,
 // and checks its records with checkRecords.
 // The header section's length is checked against uncompressed_len before the decode.
 //
@@ -191,14 +199,14 @@ func headerSectionLen(count uint32, rhl uint16, ulen uint32) (int, error) {
 	return hsLen, nil
 }
 
-// decodeBody decodes the whole on-disk body in buf.raw of the block of env.
+// decodeBody decodes the whole on-disk body in buf.view of the block of env.
 // A None body is the decoded body itself, already covered by body_crc,
-// so it is used in place, aliasing buf.raw, instead of copied into buf.decoded.
+// so it is used in place, aliasing buf.view, which is then buf.raw, instead of copied into buf.decoded.
 // Any other body is decoded into buf.decoded,
 // first allocated at exactly uncompressed_len when buf.decoded has no capacity.
 func decodeBody(env *format.BlockEnvelope, buf *blockBuf) ([]byte, error) {
 	n := int(env.UncompressedLen)
-	body := buf.raw[format.EnvelopeLen:]
+	body := buf.view[format.EnvelopeLen:]
 
 	var err error
 	if env.Codec == codec.None {
@@ -294,16 +302,21 @@ func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error)
 		return nil, blockDefect(i, info, ReasonLimit, err), nil
 	}
 
-	buf.raw = slices.Grow(buf.raw[:0], int(info.OnDiskLen))[:info.OnDiskLen]
-	if err := r.fetch(buf.raw, int64(info.Offset)); err != nil {
-		return nil, nil, err
+	if held := r.heldRange(int64(info.Offset), int64(info.OnDiskLen)); held != nil {
+		buf.view, buf.retained = held, true
+	} else {
+		buf.raw = slices.Grow(buf.raw[:0], int(info.OnDiskLen))[:info.OnDiskLen]
+		if err := readAt(r.ra, buf.raw, int64(info.Offset)); err != nil {
+			return nil, nil, err
+		}
+		buf.view, buf.retained = buf.raw, false
 	}
 	d, def := r.checkAndDecode(i, buf)
 
 	return d, def, nil
 }
 
-// checkAndDecode checks and decodes block i, whose on-disk bytes buf.raw holds, as readBlock does once it has read them:
+// checkAndDecode checks and decodes block i, whose on-disk bytes buf.view holds, as readBlock does once it has read them:
 // the envelope's checks, the decode of the body and its records,
 // and for an indexed block the comparison of its records with its F-2 entry.
 // It does not check the block against MaxBlockLen, which its caller did before reading it.
@@ -315,9 +328,12 @@ func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error)
 //     or ReasonIndexMismatch beside the block.
 func (r *Reader) checkAndDecode(i int, buf *blockBuf) (*decodedBlock, *Defect) {
 	info := &r.blocks[i]
-	env, reason, err := checkEnvelope(buf.raw, info)
+	env, reason, err := checkEnvelope(buf.view, info)
 	if err != nil {
 		return nil, blockDefect(i, info, reason, err)
+	}
+	if env.Codec == codec.None && buf.retained {
+		buf.ownView()
 	}
 
 	d, span, err := decodeBlock(&env, buf)
@@ -331,6 +347,17 @@ func (r *Reader) checkAndDecode(i int, buf *blockBuf) (*decodedBlock, *Defect) {
 	}
 
 	return d, nil
+}
+
+// ownView copies the block's bytes in view into raw, exactly as long as they are when raw is too short, and points view at raw.
+func (buf *blockBuf) ownView() {
+	if cap(buf.raw) < len(buf.view) {
+		buf.raw = make([]byte, len(buf.view))
+	} else {
+		buf.raw = buf.raw[:len(buf.view)]
+	}
+	copy(buf.raw, buf.view)
+	buf.view, buf.retained = buf.raw, false
 }
 
 // checkBlockBudget checks the on-disk body length and uncompressed_len of the block of info against MaxBlockLen.

@@ -76,6 +76,9 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   No rule of [SEM §7.2] changed.
 - 2026-10-25: the §3 `WriteClose` bullet bounds its byte-identical retry to tracepack v0.9.0 and later:
   v0.8.0 and earlier wrote a zstd close by default, whose retry by a later version writes other bytes (G5-272 unchanged).
+- 2026-10-30: the §3 `Reader` bullet says how it reads a block lying wholly inside its retained bytes:
+  a compressed block is decoded from them in place, into the read's own buffers, and a None block is copied first, so no `Item` aliases them.
+  No rule changed.
 
 ## Changes vs v1 (summary)
 
