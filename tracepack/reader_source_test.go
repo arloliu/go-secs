@@ -164,8 +164,8 @@ func TestReaderSourceEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	primaryAt, replyAt := segAt(time.Hour-20*time.Second), segAt(time.Hour)
 	require.Equal(t, HourOf(primaryAt)+1, HourOf(replyAt), "the reply lies in the next hour")
-	require.NoError(t, w.AppendFrame(t.Context(), primaryAt, DirHostToEquipment, 1, e2eFrame(1, true)))
-	require.NoError(t, w.AppendFrame(t.Context(), replyAt, DirEquipmentToHost, 1, e2eFrame(2, false)))
+	require.NoError(t, w.AppendFrame(t.Context(), primaryAt, DirHostToEquipment, 1, e2eFrame(1, true), 0))
+	require.NoError(t, w.AppendFrame(t.Context(), replyAt, DirEquipmentToHost, 1, e2eFrame(2, false), 0))
 	require.NoError(t, w.Close(t.Context()))
 
 	keys, partial := dirFiles(t, root)

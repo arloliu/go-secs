@@ -189,7 +189,7 @@ func TestSegmentWriterLastSeq(t *testing.T) {
 	creates := sink.calls[sinkCreate]
 	next := segMonoRecord(time.Hour, time.Hour)
 	require.ErrorIs(t, w.Append(t.Context(), &next), ErrSeqOrder)
-	require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame), ErrSeqOrder)
+	require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0), ErrSeqOrder)
 	assert.Equal(t, creates, sink.calls[sinkCreate], "no segment opened")
 	assert.Equal(t, format.MaxU64+1, w.nextSeq)
 	assert.Equal(t, [][]uint64{{0}, {format.MaxU64}}, segSeqs(sink.records(t)), "no record at seq 0 again")

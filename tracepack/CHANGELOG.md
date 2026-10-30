@@ -68,6 +68,14 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   and `MergeIterate`, `FindTransaction` and `FindTransactions` an error wrapping `ErrInvalidQuery`, before any read or call of the source;
   an earlier argument error still wins.
   Migration: pass 0, not a negative value, for a default; neither tracekeep nor veq passes a negative option.
+- **Breaking:** `SegmentWriter.AppendFrame` takes the producer's quality bits as a last parameter,
+  `AppendFrame(ctx, at, dir, epoch, frame, quality)` (G5-285).
+  They go through the record path as `Append` treats `Record.Quality`:
+  undefined bits are dropped, capture-boundary and the epoch-0 correlation-incomplete are the writer's,
+  and unobserved and redacted are checked as for `Append`, with `ErrInvalidRecord` or `ErrMetadataCommitment`; no new check is added.
+  0 writes the record earlier versions wrote.
+  Migration: append `, 0` to every `AppendFrame` call, such as tracekeep's in `internal/sim/replay_test.go`;
+  veq does not call it.
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 

@@ -193,7 +193,7 @@ func TestSegmentWriterRepresentableAt(t *testing.T) {
 			t.Parallel()
 
 			w, sink := newSeg(t, nil)
-			err := w.AppendFrame(t.Context(), v.at, DirHostToEquipment, 1, blockTestFrame)
+			err := w.AppendFrame(t.Context(), v.at, DirHostToEquipment, 1, blockTestFrame, 0)
 			if !v.ok {
 				require.ErrorIs(t, err, ErrInvalidRecord)
 				assert.Equal(t, 1, sink.calls[sinkCreate], "no segment rolled or opened")
@@ -429,7 +429,7 @@ func preflightCases(d time.Duration) []preflightCase {
 			return w.AppendEvent(t.Context(), segAt(d), 0, &TransportEvent{Event: EventSocketClose, Detail: new("\xff")})
 		}, nil},
 		{"AppendFrame at a time not representable", func(t *testing.T, w *SegmentWriter) error {
-			return w.AppendFrame(t.Context(), time.Unix(0, math.MaxInt64), DirHostToEquipment, 1, blockTestFrame)
+			return w.AppendFrame(t.Context(), time.Unix(0, math.MaxInt64), DirHostToEquipment, 1, blockTestFrame, 0)
 		}, ErrInvalidRecord},
 	}
 }
@@ -453,7 +453,7 @@ func TestSegmentWriterSeqCapacity(t *testing.T) {
 
 	one := segMonoRecord(time.Hour, time.Hour)
 	require.NoError(t, w.Append(t.Context(), &one), "a record needing one seq takes the last")
-	require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame), ErrSeqOrder,
+	require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0), ErrSeqOrder,
 		"an exhausted capture refuses every record")
 
 	err := w.Close(t.Context())
@@ -500,7 +500,7 @@ func TestSegmentWriterCancellation(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		calls := sink.calls
-		require.ErrorIs(t, w.AppendFrame(ctx, segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame), context.Canceled)
+		require.ErrorIs(t, w.AppendFrame(ctx, segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0), context.Canceled)
 		require.ErrorIs(t, w.AppendEvent(ctx, segAt(time.Hour), 1, &TransportEvent{Event: EventSocketClose}), context.Canceled)
 		r := segMonoRecord(time.Hour, time.Hour)
 		require.ErrorIs(t, w.Append(ctx, &r), context.Canceled)
@@ -562,7 +562,7 @@ func TestSegmentWriterCancellation(t *testing.T) {
 			before := w.nextSeq
 
 			// A frame of the next hour rolls: Writer.Close, Commit, Create, then the head write.
-			err := w.AppendFrame(ctx, segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame)
+			err := w.AppendFrame(ctx, segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0)
 			require.ErrorIs(t, err, context.Canceled)
 			assert.Equal(t, tt.uncertain, errors.Is(err, ErrPublishUncertain), "ErrPublishUncertain")
 			assert.Equal(t, [2]int{tt.commits, tt.creates}, [2]int{sink.calls[sinkCommit], sink.calls[sinkCreate]}, "Commit and Create calls")
@@ -572,7 +572,7 @@ func TestSegmentWriterCancellation(t *testing.T) {
 			sink.noMisuse(t)
 
 			calls := sink.calls
-			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame), ErrWriterFailed)
+			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0), ErrWriterFailed)
 			assert.Equal(t, err, w.Close(t.Context()), "Close returns the failure")
 			assert.Equal(t, calls, sink.calls, "no sink call after the failure")
 		})
@@ -606,7 +606,7 @@ func TestSegmentWriterCancellationWithinSegment(t *testing.T) {
 			after := armCancel(ctx, cancel, sink, op)
 			calls := sink.calls[op]
 
-			err := w.AppendFrame(ctx, segAt(time.Second), DirHostToEquipment, 1, blockTestFrame)
+			err := w.AppendFrame(ctx, segAt(time.Second), DirHostToEquipment, 1, blockTestFrame, 0)
 			require.ErrorIs(t, err, context.Canceled)
 			assert.Equal(t, calls+1, sink.calls[op], "ctx canceled in the block's %s", op)
 			assert.Empty(t, *after, "no sink call but Abort once ctx is done")
@@ -615,7 +615,7 @@ func TestSegmentWriterCancellationWithinSegment(t *testing.T) {
 			sink.noMisuse(t)
 
 			before := sink.calls
-			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(2*time.Second), DirHostToEquipment, 1, blockTestFrame), ErrWriterFailed)
+			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(2*time.Second), DirHostToEquipment, 1, blockTestFrame, 0), ErrWriterFailed)
 			assert.Equal(t, err, w.Close(t.Context()), "Close returns the failure")
 			assert.Equal(t, before, sink.calls, "no sink call after the failure")
 		})
@@ -738,7 +738,7 @@ func TestSegmentWriterSinkFailures(t *testing.T) {
 			sink.fault = tt.fault(sink)
 			before := w.nextSeq
 
-			err := w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame)
+			err := w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0)
 			require.ErrorIs(t, err, errInjected)
 			assert.Equal(t, tt.uncertain, errors.Is(err, ErrPublishUncertain), "ErrPublishUncertain")
 			assert.Len(t, sink.keys, tt.published, "segments published")
@@ -756,7 +756,7 @@ func TestSegmentWriterSinkFailures(t *testing.T) {
 			}
 
 			calls := sink.calls
-			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame), ErrWriterFailed)
+			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0), ErrWriterFailed)
 			require.ErrorIs(t, w.Tick(t.Context(), segAt(2*time.Hour)), ErrWriterFailed)
 			assert.Equal(t, err, w.Close(t.Context()), "Close returns the failure")
 			assert.Equal(t, err, w.Close(t.Context()), "and again")

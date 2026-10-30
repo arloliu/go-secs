@@ -89,8 +89,9 @@ type CaptureDescriptor struct {
 	// and correlation-incomplete, added on epoch 0.
 	// The producer evaluates ordering-uncertain, direction-inferred
 	// and the other causes of correlation-incomplete, such as missing source metadata, before it sets the field:
-	// AppendFrame sets none of them, so a producer that uses it asserts that those conditions do not occur,
-	// and a record given to Append carries the producer's bits plus the derived ones.
+	// a record AppendFrame appends carries the bits of its quality argument, and a record given to Append those of Record.Quality,
+	// each with the derived ones,
+	// so a producer that gives AppendFrame a quality of 0 asserts that those conditions do not occur.
 	QualityEvaluated bool
 
 	// SourceTZ is the IANA time-zone name the source timestamps are parsed in (source_tz);

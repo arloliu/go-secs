@@ -49,8 +49,9 @@ the tool, the transport, how and where the capture was taken, the recorder's ide
 `NewSegmentWriter` checks it with `CaptureDescriptor.Validate` and writes the capture's `start` boundary;
 from then on it writes the records you append as segments, through a `SegmentSink`:
 
-- `AppendFrame(ctx, at, dir, epoch, frame)` for a captured HSMS frame, length prefix included,
-  classified by the `Classifier` when one is set;
+- `AppendFrame(ctx, at, dir, epoch, frame, quality)` for a captured HSMS frame, length prefix included,
+  classified by the `Classifier` when one is set,
+  with the quality bits you evaluated for it, kept as `Append` keeps a record's, or 0;
 - `AppendEvent(ctx, at, epoch, ev)` for a transport event;
 - `Append(ctx, r)` for a record you built yourself;
 - `Tick(ctx, now)` and `Rotate(ctx)` to commit the open segment;

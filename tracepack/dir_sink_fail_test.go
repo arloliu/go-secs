@@ -47,7 +47,7 @@ func requireDirSegFailed(t testing.TB, w *SegmentWriter, fsys *recordFS, err err
 	t.Helper()
 
 	n := len(fsys.calls)
-	require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame), ErrWriterFailed)
+	require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0), ErrWriterFailed)
 	require.ErrorIs(t, w.Rotate(t.Context()), ErrWriterFailed)
 	assert.Equal(t, err, w.Close(t.Context()), "Close returns the failure")
 	assert.Equal(t, fsys.calls[:n], fsys.calls, "no file-system call after the failure")
@@ -112,7 +112,7 @@ func TestDirSinkSegmentWriterFaults(t *testing.T) {
 			fsys.fail = tt.fail
 			n := len(fsys.calls)
 
-			err := w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame)
+			err := w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0)
 			require.ErrorIs(t, err, errInjected)
 			assert.Equal(t, tt.uncertain, errors.Is(err, ErrPublishUncertain), "ErrPublishUncertain")
 			assert.Equal(t, [2]int{1, 1}, [2]int{sink.commits, sink.aborts}, "Commit and Abort calls")
@@ -167,7 +167,7 @@ func TestDirSinkSegmentWriterCancellation(t *testing.T) {
 			}
 			n := len(fsys.calls)
 
-			err := w.AppendFrame(ctx, segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame)
+			err := w.AppendFrame(ctx, segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0)
 			require.ErrorIs(t, err, context.Canceled)
 			assert.Equal(t, tt.uncertain, errors.Is(err, ErrPublishUncertain), "ErrPublishUncertain")
 			assert.Equal(t, [2]int{1, tt.aborts}, [2]int{sink.commits, sink.aborts}, "Commit and Abort calls")

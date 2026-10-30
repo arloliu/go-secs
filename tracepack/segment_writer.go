@@ -423,15 +423,18 @@ func (w *SegmentWriter) CaptureID() UUID {
 // fidelity follows the capture method (wire-exact for raw-stream, re-encoded for decoded-message, synthesized for generator);
 // ts_utc_ns is at's wall clock, and for a capture-clock capture mono_ns is at − CaptureOrigin when both carry a monotonic reading;
 // decode_status and trailing_bytes come from the classifier, or are not-attempted and 0 without one.
-// No quality bit is set but the derived ones (see CaptureDescriptor.QualityEvaluated).
+// quality holds the bits the producer evaluated for the frame, such as QualityOrderingUncertain or QualityDirectionInferred,
+// or 0 when none of their conditions occurs;
+// its bits are kept as Append keeps Record.Quality's (see CaptureDescriptor.QualityEvaluated).
 // The classifier reads frame before AppendFrame copies it; the caller may reuse frame once AppendFrame returns.
 //
 // Returns:
 //   - error: ErrInvalidRecord for a log capture method, whose reconstructed frames hold placeholder bytes for identities its source lacks,
 //     for an unknown capture method, which has no fidelity rule,
-//     for an at that is not representable, or for a classifier's trailing_bytes outside 0 to 2^32-1;
+//     for an at that is not representable, for a classifier's trailing_bytes outside 0 to 2^32-1,
+//     or for a quality carrying QualityUnobserved on a frame that is not unobserved by design, as Append refuses it;
 //     or a refusal or failure as SegmentWriter describes.
-func (w *SegmentWriter) AppendFrame(ctx context.Context, at time.Time, dir Dir, epoch uint32, frame []byte) error {
+func (w *SegmentWriter) AppendFrame(ctx context.Context, at time.Time, dir Dir, epoch uint32, frame []byte, quality Quality) error {
 	if err := w.usable(); err != nil {
 		return err
 	}
@@ -448,7 +451,7 @@ func (w *SegmentWriter) AppendFrame(ctx context.Context, at time.Time, dir Dir, 
 
 	r := Record{
 		TSUTCNs: ts, Epoch: epoch, Kind: KindData, Dir: dir,
-		Fidelity: fidelity, DecodeStatus: DecodeStatusNotAttempted, Payload: frame,
+		Fidelity: fidelity, DecodeStatus: DecodeStatusNotAttempted, Quality: quality, Payload: frame,
 	}
 	if len(frame) >= fieldSTypeEnd && frame[fieldSTypeOff] != 0 {
 		r.Kind = KindControl
