@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 
@@ -19,10 +20,14 @@ import (
 type roundReader struct {
 	data []byte
 	acts map[int64]*roundAct
+	// calls counts every ReadAt call, at any offset.
+	calls atomic.Int64
 }
 
 // roundAct is the behavior of the ReadAt call at one offset; a test sets it up before Open runs.
 type roundAct struct {
+	// entered is closed when the call starts.
+	entered chan struct{}
 	// after, when not nil, is waited on before the call acts.
 	after <-chan struct{}
 	// err fails the call; panic, when not nil, makes it panic instead.
@@ -43,7 +48,7 @@ func newRoundReader(data []byte) *roundReader {
 func (r *roundReader) at(off int64) *roundAct {
 	a := r.acts[off]
 	if a == nil {
-		a = &roundAct{done: make(chan struct{})}
+		a = &roundAct{entered: make(chan struct{}), done: make(chan struct{})}
 		r.acts[off] = a
 	}
 
@@ -51,12 +56,14 @@ func (r *roundReader) at(off int64) *roundAct {
 }
 
 func (r *roundReader) ReadAt(p []byte, off int64) (int, error) {
+	r.calls.Add(1)
 	a := r.acts[off]
 	if a == nil {
 		return bytes.NewReader(r.data).ReadAt(p, off)
 	}
 	defer a.once.Do(func() { close(a.done) })
 	a.n = len(p)
+	close(a.entered)
 	if a.after != nil {
 		<-a.after
 	}
