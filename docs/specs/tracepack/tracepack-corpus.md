@@ -1,6 +1,6 @@
 # tracepack — conformance corpus
 
-Status: current (2026-10-31) — v2.39, tracepack format 1.2, schema `tracepack-corpus/5` (draft until tracepack v1.0.0).
+Status: current (2026-10-31) — v2.39, tracepack format 1.2, schema `tracepack-corpus/5` (fixed, G5-280).
 Normative.
 [FMT §16] states what the corpus holds; this document defines its files, their schemas and the vector catalogue.
 The format is documented for any reader;
@@ -554,7 +554,7 @@ its base pack and rows are those of `verify-truncation-none` under another ident
 ## 10. Schema versions
 
 The `corpus` value names the schemas of §3 and §5 together.
-It is a draft until tracepack v1.0.0: a change to a schema before then bumps the value, and the change is recorded in the spec changelog.
+The rule is permanent (G5-280): a change to a schema takes a new value, and the change is recorded in the spec changelog.
 Adding a vector or a case keeps the value; changing what an existing file states, a schema, or the classes and files a schema allows takes a new one.
 - `tracepack-corpus/1` (spec v2.27): the classes `read`, `rejection`, `truncation` and `repair`, and the schemas of §5.1–§5.9.
 - `tracepack-corpus/2` (spec v2.30): adds the class `multi-pack` and its files (§2, §3), the pack numbers and hours of §4,

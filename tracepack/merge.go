@@ -517,7 +517,7 @@ type mergeCluster = seqCluster[mergeBlock]
 //
 // Parameters:
 //   - ctx: cancels the merge while it opens the inputs, before it writes, before each block it reads,
-//     after every 4096 records it resolves, and before it writes the footer.
+//     periodically while it resolves records, currently every 4096 records, a period that may change, and before it writes the footer.
 //   - dst: the archive's output; bytes are written in file order and never rewritten.
 //   - inputs: the packs of one scope, segments and archives, in the order their lineage and coverage are listed.
 //   - opts: see MergeOptions.

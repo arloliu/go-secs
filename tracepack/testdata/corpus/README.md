@@ -32,8 +32,8 @@ Its packs include packs masked at write, with encrypted originals, thinned packs
 | `zstd_encoder` | the zstd encoder that produced the corpus's encoder-made zstd blocks and footers (see [zstd](#zstd)) |
 | `vectors` | one entry per vector, ascending by `id` |
 
-The schema `tracepack-corpus/5` is a draft until tracepack v1.0.0.
-A change to a schema, or to what an existing file states, takes a new `corpus` value;
+The schema `tracepack-corpus/5` is fixed, and this rule is permanent:
+a change to a schema, or to what an existing file states, takes a new `corpus` value;
 adding a vector or a case keeps it ([CORPUS §10]).
 
 `tracepack-corpus/5` adds format 1.2: a vector's `jsonl_schema` is

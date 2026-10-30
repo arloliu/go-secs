@@ -30,7 +30,7 @@ type TxRange struct {
 type TxRangeOptions struct {
 	// Lookup applies to the lookup of each primary as it applies to one FindTransaction:
 	// MaxScopes, and MaxHeldBytes, MaxConflicts and MaxStateBytes, each per lookup;
-	// up to GOMAXPROCS lookups run at once (see FindTransactions), so up to that many MaxStateBytes are charged at once.
+	// as many lookups as FindTransactions runs at once, currently up to GOMAXPROCS, are charged MaxStateBytes each at once (see FindTransactions).
 	// MaxHeldBytes also bounds the read of each hour into the cache, as it bounds a lookup's read of that hour.
 	Lookup TxOptions
 	// MaxCachedBytes bounds the hours FindTransactions holds at once, the records and diagnostics of each hour read,
@@ -92,8 +92,9 @@ type TxRangeResult struct {
 // Each hour is held, read once, while a primary's lookup still needs it, so at most MaxScopes hours at once,
 // bounded by TxRangeOptions.MaxCachedBytes.
 //
-// The lookups of an hour's primaries run on up to runtime.GOMAXPROCS(0) goroutines, read when the call starts,
-// and on the calling goroutine alone when that is 1 or less.
+// The lookups of an hour's primaries may run on several goroutines at once:
+// currently up to runtime.GOMAXPROCS(0), read when the call starts, and on the calling goroutine alone when that is 1 or less,
+// a count that may change.
 // fn is called from the calling goroutine, one pairing at a time, in the order above;
 // without cancellation, the pairings, the error and the result are those of the lookups run one after another,
 // and a panic in a lookup is raised again on the calling goroutine.

@@ -25,6 +25,19 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   For tracekeep: the sentinel list in `internal/ingest/flush.go` can become `errors.Is(err, tracepack.ErrRefused)`;
   `ErrMergeLimit` and `ErrReadLimit` in that list are unreachable from its flush,
   and it keeps checking `ErrReadLimit` where it reopens the working file.
+- The package documentation and the README state the v1 compatibility promise in a Compatibility section (G5-280).
+  Guaranteed: the exported identifiers and signatures, which sentinel an error wraps (`ErrRefused` included),
+  the documented outcomes, orders and determinism and the byte-identity promises of `WriteClose`, `ExportJSONL` and `redact`'s `Mask`,
+  reading every format 1.x pack, the JSONL schema values `tracepack-jsonl/1` to `/3`,
+  and the CLI's flags, exit codes, stdout/stderr split and `dump --jsonl` bytes.
+  Not guaranteed: error text, ctx-check cadence, read-ahead depth, goroutine and `ReadAt` counts, write piece sizes, buffer-reuse ratios,
+  default budget values, zstd output bytes across library versions, and the text of the `verify` and `find` reports, excluded for good.
+  Every enum may gain values in a format minor, so a `switch` needs a default.
+  The section also states the bound of a pack's redaction entries, which stay in the pack metadata (G5-279):
+  the readers' `ReaderOptions.MaxPackMetadataLen`, 64 MiB by default, a limit in bytes.
+  The Godoc that gave such implementation numbers as contract (`MergeIterate`'s read-ahead depth, ctx cadence and buffer-reuse bound,
+  `FindTransaction`'s and `Merge`'s ctx cadence, `FindTransactions`' goroutine count, `ExportJSONL`'s write pieces, `Open`'s `ReadAt` count, `PackError.Error`'s text)
+  now says what the implementation currently does; no behavior changed.
 
 ### Changed
 

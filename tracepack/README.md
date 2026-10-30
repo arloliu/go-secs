@@ -12,7 +12,8 @@ The module is versioned on its own, with tags `tracepack/vX.Y.Z`.
 It is pre-v1: its API may still change between minor versions, as [CHANGELOG.md](CHANGELOG.md) records.
 The specification in [docs/specs/tracepack/](../docs/specs/tracepack/) defines every field and rule;
 where this package and the specification disagree, the specification wins.
-This page is a map by audience; the Godoc states each contract in full.
+This page is a map by audience; the Godoc states each contract in full,
+and [Compatibility](#compatibility) says what the v1 promise covers.
 
 ## Concepts
 
@@ -274,7 +275,7 @@ For readers and troubleshooters working on local files:
   `Reader.Header` returns the pack metadata, and `Reader.Iterate` yields the records a `Query` selects, in file order.
   A damaged block does not fail the read: it is reported in the `Result`, beside the records that could be read.
   See `ExampleOpen`.
-- A pack of up to `ReaderOptions.WholeReadThreshold` bytes, 4 MiB by default, costs one `ReadAt` for `Open` and none for any later read of it:
+- A pack of up to `ReaderOptions.WholeReadThreshold` bytes, 4 MiB by default, currently costs one `ReadAt` for `Open` and none for any later read of it:
   the `Reader` keeps the bytes of `Open`'s first round that hold blocks, the whole object or else the head and tail windows,
   and reads each block from them when they hold it whole:
   a compressed block is decoded from them in place, any other block copied first.
@@ -285,7 +286,7 @@ For readers and troubleshooters working on local files:
   a plain error from `Open`, `Verify` and `Merge`, an error wrapping `ErrInvalidQuery` from `MergeIterate`, `FindTransaction` and `FindTransactions`.
 - `MergeIterate` reads several packs as one read, in capture or time order.
   It compares the copies of each record across the packs, yields identical copies once, and reports copies that differ as conflicts.
-  It reads up to 8 blocks ahead of the one it resolves, within `MaxHeldBytes`,
+  It reads blocks ahead of the one it resolves, currently up to 8, within `MaxHeldBytes`,
   in time order, and in capture order when at most one capture has a cluster to read,
   so it may issue several `ReadAt` calls at once on a Reader's `io.ReaderAt`, as `Open` does;
   whatever its outcome, it waits for every call it issued before it returns.
@@ -314,8 +315,8 @@ For readers and troubleshooters working on local files:
   Each `TxPairing` passed to `fn`, in ascending hour, then seq, holds the primary's key and the result `FindTransaction` gives it, as your own copy.
   It holds at most `MaxScopes` hours at once, bounded by `TxRangeOptions.MaxCachedBytes`;
   a primary near the end of the hours read can report an open window when a later hour is not written yet.
-  It runs an hour's lookups on up to `GOMAXPROCS` goroutines and calls `fn` from yours, one pairing at a time;
-  set `GOMAXPROCS` to 1 to run them on your goroutine alone.
+  It may run an hour's lookups on several goroutines, currently up to `GOMAXPROCS`, and calls `fn` from yours, one pairing at a time;
+  today a `GOMAXPROCS` of 1 runs them on your goroutine alone.
   See `ExampleFindTransactions`.
 - `ExportJSONL(ctx, r, w)` writes the canonical JSONL export of one pack,
   as the [JSONL specification](../docs/specs/tracepack/tracepack-jsonl.md) defines it:
@@ -327,7 +328,7 @@ For readers and troubleshooters working on local files:
   a failed block or a crash gap makes it incomplete, while a footer that is not used, with every block found by the forward walk, only adds an entry to `FooterErrs`.
   A reader budget that keeps part of the pack out fails the export with an error wrapping `ErrReadLimit` instead;
   after any error, discard what was written.
-  Each line is written in pieces of at most 64 KiB, so one line may take several `Write` calls.
+  A line may be written in several pieces, currently of at most 64 KiB each, so one line may take several `Write` calls.
   See `ExampleExportJSONL`.
 - `Verify` reads every block of a pack and reports its outcome, from finalized-consistent to corrupt.
 
@@ -417,8 +418,41 @@ tracepack find --capture <uuid> --seq <n> (--hour <n> | --at <time>) <path>...
 
 It exits 0 when the report is clean, 1 when it is not (an incomplete read or lookup, a `verify` outcome other than `finalized-consistent`),
 and 2 when the command could not run.
-The text of the `verify` and `find` reports is not a contract before tracepack v1.0.0;
-the command's Godoc states the rest.
+The flags, the exit codes, the split between stdout and stderr and the bytes of `dump --jsonl` are contract;
+the text of the `verify` and `find` reports is not, and may change in any release.
+The command's Godoc states the rest.
+
+## Compatibility
+
+From tracepack v1.0.0 on, every v1 release keeps what the Godoc states as contract:
+
+- the exported identifiers and their signatures;
+- which sentinel error an error wraps, `ErrRefused` included;
+- the outcomes, orders and determinism the Godoc states, and its byte-identity promises:
+  the close `WriteClose` writes, the export `ExportJSONL` writes, and the output of `redact`'s `Mask`;
+- reading every pack of format 1.x;
+- the JSONL schema values `tracepack-jsonl/1` to `tracepack-jsonl/3`, each naming fixed bytes:
+  any change to the bytes of an export takes a new schema value;
+- the flags and exit codes of the `tracepack` command, its split of output between stdout and stderr, and the bytes of `dump --jsonl`.
+
+These are not guaranteed, and may change in any release:
+
+- the text of error messages;
+- how often a call checks `ctx`, how far a read reads ahead, how many goroutines a call runs and how many `ReadAt` calls it issues,
+  the size of the pieces a write is made of, and how much larger than needed a reused buffer may be;
+  where the Godoc or this page gives such a number, it says what the implementation currently does;
+- the default values of the budgets, which may be tuned;
+- the bytes zstd compresses to, across versions of this module and of the zstd library it uses;
+- the text of the `verify` and `find` reports of the `tracepack` command.
+
+Every enum may gain values in a later format minor, so a `switch` over one needs a `default` case.
+
+A pack's redaction entries are part of its pack metadata,
+which a `Reader` opens only within `ReaderOptions.MaxPackMetadataLen`, `DefaultMaxPackMetadataLen` (64 MiB) by default.
+So 64 MiB is the default interoperability budget, since every reader of a deployment's packs must agree on the budget;
+`Merge` refuses an archive whose pack metadata would exceed the budget of `MergeOptions.Reader`, with `ErrMergeLimit`.
+The limit is in bytes, since an entry's size varies with its item path, domain and ranges:
+64 MiB holds about 450,000 entries of 147 bytes, as an example.
 
 ## Specification
 

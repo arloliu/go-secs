@@ -1,6 +1,6 @@
 # tracepack — canonical JSONL export
 
-Status: current (2026-10-31) — v2.39, tracepack format 1.2, schemas `tracepack-jsonl/1`, `tracepack-jsonl/2` and `tracepack-jsonl/3` (drafts until tracepack v1.0.0).
+Status: current (2026-10-31) — v2.39, tracepack format 1.2, schemas `tracepack-jsonl/1`, `tracepack-jsonl/2` and `tracepack-jsonl/3` (fixed, G5-280).
 Normative, language-agnostic. [FMT §15] states what the export is for; this document defines its bytes.
 
 Depends on: [FMT §1] conventions, [FMT §2] portable encoding, [FMT §4] file header, [FMT §5] TLV encoding and registries,
@@ -169,7 +169,7 @@ The corpus records the expected rejection of such a vector instead of JSONL ([FM
 ## 9. Schema versions
 
 The `schema` value names the byte form.
-`tracepack-jsonl/1`, `tracepack-jsonl/2` and `tracepack-jsonl/3` are drafts until tracepack v1.0.0: a change to the bytes one defines before then bumps its value, and the change is recorded in the spec changelog.
+`tracepack-jsonl/1`, `tracepack-jsonl/2` and `tracepack-jsonl/3` are fixed (G5-280): any change to the bytes one defines takes a new schema value, and the change is recorded in the spec changelog.
 - `tracepack-jsonl/1` (spec v2.26): the export of format 1.0.
 - `tracepack-jsonl/2` (spec v2.33): names the format 1.1 additions (§3.1, §3.2) and otherwise writes the bytes of `/1`.
   From spec v2.33 to v2.36 an exporter wrote `/1` for a pack whose `format_minor` is 0 and `/2` for every other value,

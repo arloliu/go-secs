@@ -69,7 +69,7 @@ var descriptorRegistry = func() tlv.Registry {
 //   - error: a *FieldError wrapping ErrFieldValue for a capture_method other than raw-stream or decoded-message,
 //     a time_source other than capture-clock, which layout 1 of the bus does not serve,
 //     or a thinning entry whose stream is above 127 or whose function is above 255;
-//     an error wrapping tlv.ErrMissing for a nil CaptureOriginUTCNs, CaptureOriginMonoNs or ClockStepToleranceNs;
+//     an error reporting a missing required tag for a nil CaptureOriginUTCNs, CaptureOriginMonoNs or ClockStepToleranceNs;
 //     or an error naming the first value the decoder would reject, such as a string that is not valid UTF-8.
 func EncodeDescriptor(m *PackMeta) ([]byte, error) {
 	if m == nil {
@@ -141,7 +141,7 @@ func EncodeDescriptor(m *PackMeta) ([]byte, error) {
 // Returns:
 //   - *PackMeta: the producer-owned values; nil on error.
 //   - error: a *FieldError naming the tag or field the descriptor breaks,
-//     or an error wrapping the TLV decoder's or registry check's *tlv.EntryError.
+//     or an error reporting the first entry that the TLV encoding or the descriptor's tag registry refuses.
 func DecodeDescriptor(b []byte) (*PackMeta, error) {
 	entries, err := tlv.Decode(b)
 	if err != nil {

@@ -42,7 +42,8 @@ import (
 // and when it reaches a block over MaxBlockLen, after the lines of the blocks before it.
 // No IncompleteReasonLimit defect is ever listed in the Result.
 //
-// ExportJSONL writes each line in pieces of at most 64 KiB, so a line may take several Write calls.
+// ExportJSONL may write a line in several pieces, so a line may take several Write calls;
+// the pieces are currently at most 64 KiB, a size that may change.
 // Beyond the block it reads, as Iterate holds it, and the Result's diagnostics,
 // its memory does not grow with the length of a payload, a value or an entry list.
 //

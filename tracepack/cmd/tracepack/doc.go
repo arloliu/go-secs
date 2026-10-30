@@ -35,7 +35,8 @@
 // It reads the primary's hour and the next, with the library's default limits.
 //
 // Every command runs with the library's default reader budgets.
-// The text of the verify and find reports is not a contract before tracepack v1.0.0.
+// The flags, the exit codes, the split between stdout and stderr and the bytes of dump --jsonl are contract;
+// the text of the verify and find reports is not, and may change in any release.
 //
 // Exit codes:
 //   - 0: the command ran and its report is clean.

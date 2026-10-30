@@ -150,6 +150,9 @@ The query service, its catalog database and the live-tail interface are designed
   `(*Compiled).PackPolicy()` gives the `redaction_policy` value, both encryption tags included under encryption, and `redact.Digest` the digest of [SEM §8].
   The caller masks its whole flush batch, which a bus consumer already holds ([STO §4]),
   collects the entries into `PackMeta.Redaction`, ordered by seq, then by first masked offset, and then constructs the `Writer`.
+  The entries stay in the pack metadata for format major 1 (G5-279), so their bound is the readers' `MaxPackMetadataLen`, 64 MiB by default,
+  the default interoperability budget, and `Merge` refuses an archive whose metadata would exceed its reader budget with `ErrMergeLimit`;
+  the Compatibility section of the package documentation states the limit in bytes, with 450,000 entries of 147 bytes as an example.
   A screening failure in preparation leaves no output.
   The `Writer` checks Marking at append, both ways, for every record that carries `redacted` or is named by an entry, and checks that the commitments hold;
   `NewWriter` refuses entries a reader would report at bootstrap, and `Close` an entry naming a seq no appended record carried;
@@ -488,6 +491,13 @@ The query service, its catalog database and the live-tail interface are designed
   and the storage service (`Merge`, the key builders),
   with runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` and `ExampleFindTransactions` over `NewReaderSource`, `ExampleMergeIterate`, `ExampleExportJSONL`
   and the `redact` package's `Example`.
+  Both have a Compatibility section, the v1 compatibility promise (G5-280):
+  guaranteed are the exported identifiers and signatures, which sentinel an error wraps (`ErrRefused` included), outcomes, orders, determinism and the byte-identity promises (`WriteClose`, `ExportJSONL`, `Mask`),
+  reading every format 1.x pack, the JSONL schema values, and the CLI's flags, exit codes, stdout/stderr split and `dump --jsonl` bytes (§7);
+  not guaranteed are error text, ctx-check cadence, read-ahead depth, goroutine and `ReadAt` counts, write piece sizes, buffer-reuse ratios, default budget values,
+  zstd output bytes across library versions, and the text of the `verify` and `find` reports.
+  The Godoc states such implementation numbers as what the implementation currently does.
+  Every enum may gain values in a format minor, so a `switch` needs a default.
 
 ## 4. Classifier: go-secs → decode_status
 
@@ -642,7 +652,8 @@ Every command reports `incomplete` explicitly, through its exit code and its rep
 - else exit 0.
 A footer error alone does not make `dump --jsonl` or `find` exit 1.
 stdout carries the command's data and only it; stderr carries the diagnostics and every error.
-The text of the `verify` and `find` reports is not a contract before tracepack v1.0.0.
+The flags, the exit codes, the stdout/stderr split and the bytes of `dump --jsonl` are contract;
+the text of the `verify` and `find` reports is not, and may change in any release (G5-280).
 
 `dump --jsonl <pack>` emits the spec's canonical export ([FMT §15]) on stdout, and the read's `incomplete` reasons, its footer errors and the pack's redaction defects on stderr;
 `dump` needs `--jsonl`, its only format.

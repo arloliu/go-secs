@@ -68,7 +68,7 @@ type ReaderOptions struct {
 	// A Reader keeps, for its lifetime, the bytes of Open's first round that hold blocks,
 	// and serves every block read and forward-walk envelope read lying wholly inside them from those bytes instead of a ReadAt:
 	// a compressed block is checked and decoded from them in place, any other read copies them,
-	// so a pack up to the threshold costs one request for Open, and every later read of it costs none.
+	// so a pack up to the threshold currently costs one request for Open, and every later read of it costs none.
 	// The bytes kept are the whole object, or else the head and tail windows, never a FooterOffset suffix:
 	// at most max(WholeReadThreshold, HeadWindow + TailWindow) bytes per Reader, 4 MiB with the defaults,
 	// and outside the budgets of MergeIterateOptions.MaxHeldBytes and TxOptions.MaxStateBytes.
@@ -121,7 +121,7 @@ type ReaderOptions struct {
 // a compressed block is checked and decoded from them in place, into buffers of the read's own,
 // and a None block, whose body is its records' payloads, is copied first,
 // so nothing a read hands its callback aliases them;
-// any other block is read with one ReadAt.
+// any other block is read from the object, currently with one ReadAt.
 // The other buffers Open reads into are dropped when it returns:
 // a FooterOffset suffix, the second round's reads, and the chunks of a streamed footer CRC.
 type Reader struct {
@@ -273,12 +273,12 @@ type optionField struct {
 // Open validates the file header, the format version and the pack metadata before any block is read,
 // then decides finalization by the trailer and the footer CRC (I-5) and validates the footer (§10).
 // The footer CRC is computed from the first round's bytes when they hold the whole footer, whatever its length;
-// else a footer over MaxFooterLen has its CRC streamed in reads of at most 1 MiB.
+// else a footer over MaxFooterLen has its CRC streamed in reads of a bounded size, currently at most 1 MiB.
 // A footer it cannot use makes it walk the blocks forward from the pack metadata instead (I-1),
 // reading each block envelope from the first round's bytes when they hold it, else with one ReadAt.
 // An invalid trailer or footer never fails Open: it is reported by PackHeader.FooterErr and the read's defects.
-// So a pack read whole in the first round costs that one ReadAt, whatever its footer,
-// and every later read of it costs none (see Reader).
+// So a pack read whole in the first round currently costs that one ReadAt, whatever its footer,
+// and every later read of it costs none (see Reader); the count of ReadAt calls may change.
 //
 // Parameters:
 //   - ctx: cancels Open between reads.
