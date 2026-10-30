@@ -142,7 +142,6 @@ func TestMergeIterateResult(t *testing.T) {
 		assert.Equal(t, []PackError{{Pack: 0, Err: readers[0].footerErr}, {Pack: 2, Err: readers[2].footerErr}}, res.FooterErrs)
 		require.Error(t, res.FooterErrs[0].Err)
 		require.Error(t, res.FooterErrs[1].Err)
-		assert.NoError(t, res.FooterErr)
 		assert.Equal(t, []Conflict{{CaptureID: captureLow, Seq: 2, Versions: [][]UUID{{seg0}, {seg1}}}}, res.Conflicts)
 		assert.False(t, res.Complete())
 	}

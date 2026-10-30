@@ -182,7 +182,7 @@ func newSweepBaseline(t *testing.T, file []byte, v *sweepVariant) *sweepBaseline
 		q := &queries[qi]
 		run := iterate(t, r, q.q)
 		require.True(t, run.res.Complete(), "%s: %v", q.name, run.res.Incomplete)
-		require.NoError(t, run.res.FooterErr, q.name)
+		require.Empty(t, run.res.FooterErrs, q.name)
 
 		sel := make(map[uint64]bool, len(run.items))
 		for _, it := range run.items {
@@ -285,7 +285,7 @@ func (b *sweepBaseline) region(off uint64) string {
 // read opens data and runs every query over it, judging each outcome against the baseline and counting it.
 //
 // Open must fail unless wantOpen is set.
-// A complete result must equal the baseline's: its items byte for byte and FooterErr;
+// A complete result must equal the baseline's: its items byte for byte and its footer error;
 // a complete result that differs is a silent error.
 // An incomplete result must yield a subset of the baseline's records, byte for byte.
 // wantComplete(qi) states which of the two query qi must give,
@@ -330,11 +330,11 @@ func (b *sweepBaseline) read(t *testing.T, data []byte, what func() string, want
 
 		c.complete[qi]++
 		base := &b.runs[qi]
-		if !sameItems(base.items, run.items) || !sameErr(base.res.FooterErr, run.res.FooterErr) {
+		if !sameItems(base.items, run.items) || !sameErr(soleFooterErr(t, base.res), soleFooterErr(t, run.res)) {
 			msg := fmt.Sprintf("%s, query %q: complete but different from the baseline", what(), q.name)
 			c.failf(t, "%s", msg)
 			assert.Equal(t, base.items, run.items, msg)
-			assert.Equal(t, base.res.FooterErr, run.res.FooterErr, msg)
+			assert.Equal(t, base.res.FooterErrs, run.res.FooterErrs, msg)
 
 			continue
 		}

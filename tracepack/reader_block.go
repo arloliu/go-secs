@@ -64,13 +64,13 @@ type recordSpan struct {
 // storedRecord returns the record whose stored header is h and whose payload is payload:
 // every field as stored, with MonoPresent taken from record_flags.
 func storedRecord(h *format.RecordHeader, payload []byte) Record {
-	flags := RecordFlags(h.RecordFlags)
+	flags := recordFlagSet(h.RecordFlags)
 
 	return Record{
 		Seq:           h.Seq,
 		TSUTCNs:       h.TSUTCNs,
 		MonoNs:        h.MonoNs,
-		MonoPresent:   flags.Has(RecordFlagsMonoPresent),
+		MonoPresent:   flags.Has(recordFlagMonoPresent),
 		Epoch:         h.Epoch,
 		Kind:          Kind(h.Kind),
 		Dir:           Dir(h.Dir),

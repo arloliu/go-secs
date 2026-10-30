@@ -21,6 +21,18 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 
+### Removed
+
+- **Breaking:** `PackInfo`, its methods, `NewPackInfo`, `NewPackInfoMinor` and `Reader.Info` are removed (G5-282).
+  Migration: read `PackID`, `CaptureID` and `Meta` from `Reader.Header()`, which decodes a fresh `PackMeta` on every call;
+  decode stored pack metadata with `UnmarshalPackMeta`, or `UnmarshalPackMetaMinor` when the pack's format minor is known.
+- **Breaking:** `Result.FooterErr` is removed, `FooterErrs` being the one shape (G5-282).
+  Migration: for `Reader.Iterate` and `ExportJSONL`, read `FooterErrs[0].Err` when `FooterErrs` is not empty (it holds at most one entry, for pack 0),
+  or `Reader.Header().FooterErr`, which is unchanged.
+  An hour that `FindTransaction` and `FindTransactions` cache charges `MaxCachedBytes` 16 bytes less, a `Result` being one field smaller.
+- **Breaking:** `RecordFlags` and `RecordFlagsMonoPresent` are unexported, since no exported field or signature carries them (G5-282).
+  Migration: read `Record.MonoPresent`.
+
 ### Performance
 
 - `Merge` opens its inputs concurrently and checks them in input order, so its archive, report, conflicts and error are those of opening them one after another,

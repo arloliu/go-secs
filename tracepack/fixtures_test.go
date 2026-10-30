@@ -31,6 +31,19 @@ func generationMeta(m *PackMeta, set UUID, epoch, gen uint64, from []UUID) {
 	m.CompactionLevel, m.CompactedFrom = 1, from
 }
 
+// soleFooterErr returns the error of the one entry of FooterErrs a Reader.Iterate Result holds, nil when it holds none.
+func soleFooterErr(t testing.TB, res Result) error {
+	t.Helper()
+
+	require.LessOrEqual(t, len(res.FooterErrs), 1, "Iterate reads one pack")
+	if len(res.FooterErrs) == 0 {
+		return nil
+	}
+	require.Equal(t, 0, res.FooterErrs[0].Pack, "Iterate reads pack 0")
+
+	return res.FooterErrs[0].Err
+}
+
 // overwriteMetaValue overwrites, in place, the value of the first entry of tag in raw, pack metadata bytes.
 func overwriteMetaValue(t testing.TB, raw []byte, tag uint16, value []byte) {
 	t.Helper()

@@ -69,17 +69,12 @@ type Result struct {
 	// (the tracepack semantics specification §7.4), whether or not the filter selected a version of its record.
 	// It is always empty for Reader.Iterate, since a pack's seqs strictly increase.
 	Conflicts []Conflict
-	// FooterErr is Reader.Iterate's PackHeader.FooterErr:
-	// non-nil when the footer was not used and the blocks came from the forward walk;
-	// nil for MergeIterate, which reports footer errors in FooterErrs.
-	// It is independent of Incomplete:
-	// a finalized pack whose walk accounts for every block and record is complete without its footer.
-	FooterErr error
 	// FooterErrs holds one entry for each pack whose footer was not used, its PackHeader.FooterErr,
 	// in the order the readers were given;
 	// nil when there is none.
-	// For Reader.Iterate it holds FooterErr as the entry of pack 0 when FooterErr is non-nil.
-	// Like FooterErr, it is independent of Incomplete.
+	// For Reader.Iterate it holds at most one entry, for pack 0.
+	// It is independent of Incomplete:
+	// a finalized pack whose walk accounts for every block and record is complete without its footer.
 	FooterErrs []PackError
 }
 
@@ -106,7 +101,7 @@ func (r IncompleteReason) String() string {
 }
 
 // Complete reports whether the read is complete: whether Incomplete is empty.
-// Neither FooterErr nor FooterErrs makes a read incomplete, and Conflicts are reported beside Incomplete, not in it.
+// FooterErrs never makes a read incomplete, and Conflicts are reported beside Incomplete, not in it.
 func (r Result) Complete() bool {
 	return len(r.Incomplete) == 0
 }

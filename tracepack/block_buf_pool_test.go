@@ -398,7 +398,6 @@ func errorChains(v any) []string {
 	case []any:
 		if res, ok := r[1].(Result); ok {
 			defects(res.Incomplete)
-			chain(res.FooterErr)
 			for i := range res.FooterErrs {
 				chain(res.FooterErrs[i].Err)
 			}

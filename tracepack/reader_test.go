@@ -455,8 +455,6 @@ func TestResultComplete(t *testing.T) {
 	t.Parallel()
 
 	assert.True(t, Result{}.Complete())
-	assert.True(t, Result{FooterErr: ErrInvalidFooter}.Complete(),
-		"a footer failure is reported beside the defects, never as one")
 	assert.True(t, Result{FooterErrs: []PackError{{Pack: 1, Err: ErrInvalidFooter}}}.Complete(),
 		"a pack's footer failure is reported beside the defects, never as one")
 	assert.True(t, Result{Conflicts: []Conflict{{Seq: 1}}}.Complete(), "a conflict is not a defect")
@@ -952,7 +950,7 @@ func TestOpenSharedF3ListsOverBudget(t *testing.T) {
 
 	run := iterate(t, r, Query{})
 	assert.Len(t, run.items, blocks)
-	assert.Equal(t, h.FooterErr, run.res.FooterErr)
+	assert.Equal(t, []PackError{{Pack: 0, Err: h.FooterErr}}, run.res.FooterErrs)
 	assert.Empty(t, run.res.Incomplete)
 
 	_, err := verifyBytes(t, file, VerifyOptions{Reader: opts})
@@ -972,7 +970,6 @@ func TestReadRepairRolePack(t *testing.T) {
 	r := mustOpen(t, repair, ReaderOptions{})
 	require.NoError(t, r.Header().FooterErr)
 	assert.Equal(t, PackRoleRepair, r.Header().Meta.PackRole)
-	assert.Equal(t, PackRoleRepair, r.Info().Meta().PackRole)
 	assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, repair).Outcome)
 
 	want := iterate(t, mustOpen(t, segment, ReaderOptions{}), Query{Payloads: true})

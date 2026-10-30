@@ -430,7 +430,7 @@ func FuzzExportJSONL(f *testing.F) {
 		}
 
 		// The footer and walk budgets are read from Iterate's public Result, not from the fields ExportJSONL checks.
-		bootstrapLimit := errors.Is(run.res.FooterErr, ErrReadLimit) ||
+		bootstrapLimit := errors.Is(soleFooterErr(t, run.res), ErrReadLimit) ||
 			slices.ContainsFunc(run.res.Incomplete, func(d Defect) bool { return d.Reason == ReasonLimit && d.Block < 0 })
 		blockLimit := slices.IndexFunc(run.res.Incomplete, func(d Defect) bool { return d.Reason == ReasonLimit && d.Block >= 0 })
 		if err == nil {

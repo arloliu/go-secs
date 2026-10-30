@@ -78,7 +78,7 @@ func TestUnknownTrailerVersion(t *testing.T) {
 			require.Len(t, res.Incomplete, 1)
 			assert.Equal(t, ReasonTruncated, res.Incomplete[0].Reason)
 			assert.Equal(t, []int64{footerAt}, defectOffsets(t, res.Incomplete), "the read is truncated at the footer")
-			require.Error(t, res.FooterErr)
+			require.Error(t, soleFooterErr(t, res))
 
 			rep, err := verifyBytes(t, file, VerifyOptions{})
 			require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestUnknownFooterLayoutVersion(t *testing.T) {
 				seqs, res := versionIterate(t, file)
 				assert.Equal(t, versionSeqs(recs), seqs)
 				assert.Empty(t, res.Incomplete, "the walk accounts for the trailer's blocks and records")
-				require.ErrorIs(t, res.FooterErr, ErrInvalidFooter)
+				require.ErrorIs(t, soleFooterErr(t, res), ErrInvalidFooter)
 
 				rep, err := verifyBytes(t, file, VerifyOptions{})
 				require.NoError(t, err)

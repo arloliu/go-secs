@@ -522,8 +522,8 @@ func TestWriterDerivesOwnedBits(t *testing.T) {
 	assert.Equal(t, want, p.records())
 
 	flags := recordFlagsOf(t, p)
-	assert.Equal(t, tracepack.RecordFlagsMonoPresent, flags[0])
-	assert.Equal(t, tracepack.RecordFlags(0), flags[1], "mono_present clear without mono; the retired W bit is never written")
+	assert.Equal(t, uint8(0x02), flags[0], "mono_present, bit 1")
+	assert.Equal(t, uint8(0), flags[1], "mono_present clear without mono; the retired W bit is never written")
 }
 
 func TestWriterDerivesEpochAndBoundaryBits(t *testing.T) {
@@ -656,10 +656,10 @@ func TestWriterCodecsDecodeToEqualBodies(t *testing.T) {
 }
 
 // recordFlagsOf returns the raw record_flags byte of every record of p, read from the decoded header sections.
-func recordFlagsOf(t *testing.T, p *walkedPack) []tracepack.RecordFlags {
+func recordFlagsOf(t *testing.T, p *walkedPack) []uint8 {
 	t.Helper()
 
-	var out []tracepack.RecordFlags
+	var out []uint8
 	for _, b := range p.Blocks {
 		decoded, err := codec.Decode(b.Env.Codec, nil, b.Body, int(b.Env.UncompressedLen))
 		require.NoError(t, err)
@@ -668,7 +668,7 @@ func recordFlagsOf(t *testing.T, p *walkedPack) []tracepack.RecordFlags {
 		for i := range count {
 			h, err := format.UnmarshalRecordHeader(gatherHeader(decoded, count, hlen, i), hlen)
 			require.NoError(t, err)
-			out = append(out, tracepack.RecordFlags(h.RecordFlags))
+			out = append(out, h.RecordFlags)
 		}
 	}
 

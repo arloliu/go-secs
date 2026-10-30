@@ -600,7 +600,7 @@ func TestJSONLWriter_BitTablesMatchNamesMethods(t *testing.T) {
 		{"quality", jsonlQualityNames, func(v uint32) []string { return Quality(v).Names() }},
 		{"quality /2", jsonlQualityNamesV2, func(v uint32) []string { return Quality(v).Names() }},
 		{"field_validity", jsonlFieldValidityNames, func(v uint32) []string { return FieldValidity(v).Names() }},
-		{"record_flags", jsonlRecordFlagNames, func(v uint32) []string { return RecordFlags(v).Names() }},
+		{"record_flags", jsonlRecordFlagNames, func(v uint32) []string { return recordFlagSet(v).Names() }},
 		{
 			"header flags",
 			jsonlHeaderFlagNames,
