@@ -114,7 +114,7 @@ func requireMergeRefused(t *testing.T, inputs []MergeInput, opts MergeOptions, m
 func mustPlanMerge(t *testing.T, inputs []MergeInput, opts MergeOptions) *mergePlan {
 	t.Helper()
 
-	p, err := planMerge(t.Context(), inputs, &opts)
+	p, err := planMerge(t.Context(), inputs, &opts, mergeHooks{})
 	require.NoError(t, err)
 
 	return p
@@ -1113,7 +1113,7 @@ func TestMergeArchivePackMetadataBudget(t *testing.T) {
 			opts := withBudget(budget)
 			requireMergeRefused(t, inputs, opts,
 				fmt.Sprintf("the archive's pack metadata of %d bytes exceeds MaxPackMetadataLen %d", archiveLen, budget), ErrMergeLimit)
-			_, err := planMerge(t.Context(), inputs, &opts)
+			_, err := planMerge(t.Context(), inputs, &opts, mergeHooks{})
 			assert.NotErrorIs(t, err, ErrReadLimit, "every input fits the budget")
 		})
 	}

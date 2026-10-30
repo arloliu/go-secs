@@ -1234,7 +1234,7 @@ func fuzzMergeRun(t *testing.T, files [][]byte, opts MergeOptions, fallbacks boo
 	if hdr, err := format.UnmarshalFileHeader(files[0]); err == nil {
 		capture = UUID(hdr.CaptureID)
 	}
-	p, err := planMerge(t.Context(), inputs, &opts)
+	p, err := planMerge(t.Context(), inputs, &opts, mergeHooks{})
 	rep = planReport(err)
 	if err == nil {
 		var calls int
@@ -1386,6 +1386,18 @@ func FuzzMerge(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, a, b []byte, ctl uint8) {
+		opts := fuzzOptions(MergeOptions{Reader: fuzzMergeReader, Writer: "fuzz", ScopeGeneration: 1, PublisherEpoch: 1}, ctl)
+		// Inputs that fail Open too: the inputs are opened as one after another would open them.
+		var raw [][]byte
+		for _, data := range [][]byte{a, b} {
+			if len(data) > 0 {
+				raw = append(raw, data)
+			}
+		}
+		if len(raw) > 0 {
+			requireSerialOutcome(t, func() []MergeInput { return inputsOf(raw...) }, opts)
+		}
+
 		var files [][]byte
 		for _, data := range [][]byte{a, b} {
 			if len(data) == 0 {
@@ -1400,7 +1412,6 @@ func FuzzMerge(f *testing.F) {
 			return
 		}
 
-		opts := fuzzOptions(MergeOptions{Reader: fuzzMergeReader, Writer: "fuzz", ScopeGeneration: 1, PublisherEpoch: 1}, ctl)
 		r := fuzzMergeRun(t, files, opts, ctl&fuzzFallbacks != 0)
 		switch err := r.err; {
 		case err == nil:
@@ -1444,6 +1455,7 @@ func FuzzMergeGenerated(f *testing.F) {
 		s := genScopeOf(t, seed)
 		files := s.files
 		opts := fuzzOptions(s.opts, ctl)
+		requireSerialOutcome(t, func() []MergeInput { return inputsOf(files...) }, opts)
 		r := fuzzMergeRun(t, files, opts, ctl&fuzzFallbacks != 0)
 		require.Zero(t, r.conflicts)
 		if ctl&(fuzzOneOpenBlock|fuzzSmallFooter) != 0 && errors.Is(r.err, ErrMergeLimit) {

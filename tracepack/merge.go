@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
@@ -16,6 +17,9 @@ import (
 
 // defaultMaxOpenBlocks is the MergeOptions.MaxOpenBlocks that zero selects.
 const defaultMaxOpenBlocks = 64
+
+// DefaultMaxParallelOpens is the MergeOptions.MaxParallelOpens that zero selects.
+const DefaultMaxParallelOpens = 16
 
 // Sentinel errors returned by Merge.
 var (
@@ -197,6 +201,14 @@ type MergeOptions struct {
 	// a block is read only when the resolution reaches its first seq, and released after its last record.
 	// Over it the merge fails with ErrMergeLimit.
 	MaxOpenBlocks int
+	// MaxParallelOpens is the most inputs Merge keeps opening, or opened and not yet checked, at once,
+	// the input it checks next included; zero means DefaultMaxParallelOpens, and 1 opens the inputs one after another,
+	// each once the one before it was checked.
+	// Merge checks the inputs in input order whatever its value (see Merge),
+	// so it changes how long opening the inputs takes, not which input an error names,
+	// while ctx is not cancelled and each input's ReaderAt answers independently of the others';
+	// above 1, inputs after a failing one may have been read before Merge returns.
+	MaxParallelOpens int
 	// MaxFooterLen bounds the archive's footer, decoded and on disk, and what Merge keeps to build it while it writes;
 	// over it the merge fails with ErrMergeLimit.
 	// Zero means DefaultMaxFooterLen, so a Reader with default options uses the archive's footer.
@@ -345,6 +357,10 @@ type mergePlan struct {
 	threshold     int
 	maxOpenBlocks int
 	maxFooterLen  int64
+	// parallelOpens is MaxParallelOpens with its default applied.
+	parallelOpens int
+	// admitted, set only by tests, is called by openInputs after input i passed its checks, before a later input is launched.
+	admitted func(i int)
 	// encodedHook, set only by tests, changes the on-disk body of every block the resolution encodes before it is checked,
 	// and coalescedHook that of every block coalescing encodes.
 	encodedHook   func(enc []byte) []byte
@@ -500,7 +516,7 @@ type mergeCluster = seqCluster[mergeBlock]
 //   - MergeReport: what the archive holds; on error, only the conflicts found (see MergeReport).
 //   - error: an empty opts.Writer, a nil opts.OnConflict, an opts.ScopeGeneration of 0,
 //     an opts.ScopeGeneration or opts.PublisherEpoch above 2^63-1,
-//     a negative or oversized opts.BlockThreshold, a negative opts.MaxOpenBlocks or opts.MaxFooterLen,
+//     a negative or oversized opts.BlockThreshold, a negative opts.MaxOpenBlocks, opts.MaxParallelOpens or opts.MaxFooterLen,
 //     no inputs, or an input without a ReaderAt;
 //     an opts.ReplacementSetID equal to an archive input's replacement_set_id,
 //     or an opts.PackID that names an input or a pack of an input's compacted_from or supersedes;
@@ -517,7 +533,20 @@ type mergeCluster = seqCluster[mergeBlock]
 //     or of syncing it;
 //     ctx's error, wrapped.
 func Merge(ctx context.Context, dst io.Writer, inputs []MergeInput, opts MergeOptions) (MergeReport, error) {
-	p, err := planMerge(ctx, inputs, &opts)
+	return mergeWith(ctx, dst, inputs, opts, mergeHooks{})
+}
+
+// mergeHooks replaces, for tests, how Merge opens its inputs; the zero value is Merge's own.
+type mergeHooks struct {
+	// open, when not nil, replaces mergePlan.openInputs.
+	open func(p *mergePlan, ctx context.Context, inputs []MergeInput, opts ReaderOptions) error
+	// admitted, when not nil, becomes mergePlan.admitted.
+	admitted func(i int)
+}
+
+// mergeWith is Merge with the hooks of tests.
+func mergeWith(ctx context.Context, dst io.Writer, inputs []MergeInput, opts MergeOptions, hooks mergeHooks) (MergeReport, error) {
+	p, err := planMerge(ctx, inputs, &opts, hooks)
 	if err != nil {
 		return planReport(err), err
 	}
@@ -543,7 +572,7 @@ func planReport(err error) MergeReport {
 // Returns:
 //   - *mergePlan: the plan; nil on error.
 //   - error: the errors of Merge before the archive's header.
-func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions) (*mergePlan, error) {
+func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions, hooks mergeHooks) (*mergePlan, error) {
 	if err := checkMergeOptions(inputs, opts); err != nil {
 		return nil, err
 	}
@@ -551,9 +580,15 @@ func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions) (*m
 		threshold:     cmp.Or(opts.BlockThreshold, DefaultBlockThreshold),
 		maxOpenBlocks: cmp.Or(opts.MaxOpenBlocks, defaultMaxOpenBlocks),
 		maxFooterLen:  cmp.Or(opts.MaxFooterLen, DefaultMaxFooterLen),
+		parallelOpens: cmp.Or(opts.MaxParallelOpens, DefaultMaxParallelOpens),
+		admitted:      hooks.admitted,
 	}
 
-	if err := p.openInputs(ctx, inputs, opts.Reader); err != nil {
+	open := (*mergePlan).openInputs
+	if hooks.open != nil {
+		open = hooks.open
+	}
+	if err := open(p, ctx, inputs, opts.Reader); err != nil {
 		return nil, err
 	}
 	if err := p.checkCaptureTags(); err != nil {
@@ -603,6 +638,8 @@ func checkMergeOptions(inputs []MergeInput, opts *MergeOptions) error {
 		return fmt.Errorf("tracepack: MergeOptions.BlockThreshold %d outside 0 to %d", opts.BlockThreshold, format.MaxLen32)
 	case opts.MaxOpenBlocks < 0:
 		return fmt.Errorf("tracepack: MergeOptions.MaxOpenBlocks %d is negative", opts.MaxOpenBlocks)
+	case opts.MaxParallelOpens < 0:
+		return fmt.Errorf("tracepack: MergeOptions.MaxParallelOpens %d is negative", opts.MaxParallelOpens)
 	case opts.MaxFooterLen < 0:
 		return fmt.Errorf("tracepack: MergeOptions.MaxFooterLen %d is negative", opts.MaxFooterLen)
 	case len(inputs) == 0:
@@ -805,12 +842,53 @@ func (e *inputReadError) Unwrap() error {
 // a period inside one UTC hour, and the first input's capture and hour, which it keeps in p as the scope;
 // and a finalized footer that checkInputFooter accepts.
 // It keeps the Readers, and the facts of every input's records, in p.
+//
+// It opens up to p.parallelOpens inputs at once, each on a goroutine of its own,
+// and admits them on the calling goroutine in input order: it waits for input i's open, checks input i,
+// and only then launches input i + p.parallelOpens.
+// So the input an error names, the open's or the checks', is the one opening them one after another would name,
+// while ctx is not cancelled and each ReaderAt answers independently of the others'.
+// A panic of an open is raised again here when input i is admitted.
+// Whatever it returns, and when it panics, it first stops the opens it will not admit and waits for every open it launched,
+// so no goroutine of it runs and no ReadAt it issued is in flight once it returns.
 func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts ReaderOptions) error {
 	seen := make(map[UUID]int, len(inputs))
 	p.inputs = make([]*Reader, 0, len(inputs))
 	p.thinned = make([]map[SF]struct{}, 0, len(inputs))
-	for i, in := range inputs {
-		r, err := openInput(ctx, i, in, opts)
+
+	octx, stop := context.WithCancel(ctx)
+	slots := make([]openSlot, len(inputs))
+	var wg sync.WaitGroup
+	defer func() {
+		stop()
+		wg.Wait()
+	}()
+	launch := func(k int) {
+		s := &slots[k]
+		s.done = make(chan struct{})
+		wg.Go(func() {
+			defer func() {
+				if v := recover(); v != nil {
+					s.panicked = &caughtPanic{value: v}
+				}
+				close(s.done)
+			}()
+			s.r, s.err = openInput(octx, k, inputs[k], opts)
+		})
+	}
+	window := p.parallelOpens
+	for k := range min(window, len(inputs)) {
+		launch(k)
+	}
+
+	for i := range inputs {
+		s := &slots[i]
+		<-s.done
+		if s.panicked != nil {
+			panic(s.panicked.value)
+		}
+		r, err := s.r, s.err
+		s.r = nil
 		if err != nil {
 			return err
 		}
@@ -827,9 +905,23 @@ func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts Re
 		p.facts.AnyOversized = p.facts.AnyOversized || facts.AnyOversized
 		p.inputs = append(p.inputs, r)
 		p.thinned = append(p.thinned, thinnedSFs(r.meta.Thinning))
+		if p.admitted != nil {
+			p.admitted(i)
+		}
+		if next := i + window; next < len(inputs) {
+			launch(next)
+		}
 	}
 
 	return nil
+}
+
+// openSlot is the outcome of one input's open in openInputs: written by the open's goroutine before done is closed, read after.
+type openSlot struct {
+	r        *Reader
+	err      error
+	panicked *caughtPanic
+	done     chan struct{}
 }
 
 // checkInput checks input i, which r opened, as openInputs states, and returns the facts of its records.
