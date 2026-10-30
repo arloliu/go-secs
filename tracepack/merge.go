@@ -139,7 +139,8 @@ var captureTags = [...]struct {
 
 // MergeInput is one pack a merge reads.
 type MergeInput struct {
-	// ReaderAt reads the pack; Merge may issue several ReadAt calls in parallel.
+	// ReaderAt reads the pack; Merge may issue several ReadAt calls in parallel,
+	// on one input and on up to MergeOptions.MaxParallelOpens inputs at once.
 	// An error it returns, other than io.EOF, is a failed read, which Merge returns naming the input, never as ErrMergeInput.
 	// io.EOF before the end of a read is an object shorter than Size while Merge opens the input, which ErrMergeInput refuses,
 	// and a failed read, wrapping io.ErrUnexpectedEOF, when it cuts a block read short after that.
@@ -418,6 +419,13 @@ type mergeCluster = seqCluster[mergeBlock]
 //
 // Before it touches dst, Merge checks the options;
 // opens every input with opts.Reader and checks it from its pack metadata and its footer (the checks ErrMergeInput lists);
+// it keeps up to opts.MaxParallelOpens inputs opening, or opened and not yet checked, the next one checked included,
+// and checks them in input order, so,
+// while ctx is not cancelled and each input's ReaderAt answers independently of the others',
+// opening fails with the first input, in input order, whose open or checks fail, as if they were opened one after another;
+// inputs after a failing one may already have been read, a ReadAt already entered is waited for whatever ctx says,
+// every open has returned when Merge returns,
+// and a panic of an open is raised on Merge's caller only when the checks reach its input, after every started open has returned;
 // checks that the inputs carry the same capture-level tags, agree on masking, and allow the archive's format_minor;
 // checks the archive's identities against the inputs;
 // compares the inputs' redaction entries (ErrMergeConflict);

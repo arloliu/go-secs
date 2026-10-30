@@ -81,6 +81,9 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   No rule changed.
 - 2026-10-30: §1 records the AVX-512 header-section transpose kernels on amd64, their selection at start-up and the `purego` build tag.
   No rule changed.
+- 2026-10-30: the §3 `Merge` bullet names `MaxParallelOpens` and how `Merge` opens its inputs concurrently and checks them in input order,
+  and the `Reader` bullet how a `ReadAt` panic in a concurrent bootstrap read reaches `Open`'s caller (G5-278).
+  No rule of [STO §4] changed.
 - 2026-10-30: the §3 `Writer`, `SegmentWriter` and `Merge` bullets name `CompressionLevel`, the zstd level of the bodies and footer they encode (G5-276).
 - 2026-10-30: the §3 `MergeIterate` bullet says `MaxHeldBytes` reserves each held block's exact sizes and decides admission on them alone,
   and that a held block may reuse a buffer given back by an earlier read when each slice is at most an eighth larger than it needs,
