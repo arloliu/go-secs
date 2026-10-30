@@ -325,7 +325,7 @@ func TestRunTimeClusterSpansHours(t *testing.T) {
 }
 
 // TestRunTimeMisindexed reads a pack whose footer misstates its block beside another capture:
-// the block's records are yielded in time order, with its ReasonIndexMismatch defect.
+// the block's records are yielded in time order, with its IncompleteReasonIndexMismatch defect.
 func TestRunTimeMisindexed(t *testing.T) {
 	t.Parallel()
 
@@ -336,7 +336,7 @@ func TestRunTimeMisindexed(t *testing.T) {
 	want := []yieldView{{seq: 10}, {pack: 1, seq: 1}, {seq: 12}, {seq: 14}, {pack: 1, seq: 2}, {seq: 16}}
 	assert.Equal(t, want, yieldViews(items))
 	require.Len(t, res.Incomplete, 1)
-	assert.Equal(t, ReasonIndexMismatch, res.Incomplete[0].Reason)
+	assert.Equal(t, IncompleteReasonIndexMismatch, res.Incomplete[0].Reason)
 }
 
 // TestMergeIterateReadCounts reads, in each order, packs whose blocks fall in every row of the read counts:
@@ -391,14 +391,14 @@ func TestMergeIterateReadCounts(t *testing.T) {
 				got[i] = fmt.Sprintf("%v pack %d block %d", d.Reason, d.Pack, d.Block)
 			}
 			truncated := func(pack int) string {
-				return fmt.Sprintf("%v pack %d block %d", ReasonTruncated, pack, readers[pack].openDefects[0].Block)
+				return fmt.Sprintf("%v pack %d block %d", IncompleteReasonTruncated, pack, readers[pack].openDefects[0].Block)
 			}
 			assert.Equal(t, []string{
 				truncated(1), truncated(2), truncated(4),
-				fmt.Sprintf("%v pack 1 block 2", ReasonCorruptBlock),
-				fmt.Sprintf("%v pack 2 block %d", ReasonCorruptBlock, hugeBlock),
-				fmt.Sprintf("%v pack 4 block 1", ReasonLimit),
-				fmt.Sprintf("%v pack 3 block %d", ReasonCorruptBlock, hugeBlock),
+				fmt.Sprintf("%v pack 1 block 2", IncompleteReasonCorruptBlock),
+				fmt.Sprintf("%v pack 2 block %d", IncompleteReasonCorruptBlock, hugeBlock),
+				fmt.Sprintf("%v pack 4 block 1", IncompleteReasonLimit),
+				fmt.Sprintf("%v pack 3 block %d", IncompleteReasonCorruptBlock, hugeBlock),
 			}, got)
 			// 2 records of pack 0, 2 of pack 1, 40 of each of packs 2 and 3, 40 of pack 4.
 			assert.Len(t, items, 2+2+40+40+40)

@@ -94,7 +94,7 @@ func (c *crashGaps) add(pack int, capture UUID, s *boundarySummary) {
 	if s.kind != BoundaryKindStopUnclean {
 		return
 	}
-	b := Boundary{Capture: capture, Seq: s.seq, Kind: s.kind, TS: s.ts, Epoch: s.epoch, GapStart: s.gapStart, GapEnd: s.gapEnd}
+	b := Boundary{CaptureID: capture, Seq: s.seq, Kind: s.kind, TS: s.ts, Epoch: s.epoch, GapStart: s.gapStart, GapEnd: s.gapEnd}
 	if !crashGapMeets(&b, c.from, c.to) {
 		return
 	}
@@ -115,7 +115,7 @@ func (c *crashGaps) add(pack int, capture UUID, s *boundarySummary) {
 	c.gaps = append(c.gaps, crashGap{pack: pack, b: cloneBoundary(b)})
 }
 
-// flush appends to dst a ReasonCrashGap defect for each gap gathered since the last flush,
+// flush appends to dst an IncompleteReasonCrashGap defect for each gap gathered since the last flush,
 // in ascending pack index, then seq, then the boundary's other fields, and returns dst.
 // Each defect carries its own copy of the boundary:
 // add cloned it, and each gap is flushed once.
@@ -127,13 +127,13 @@ func (c *crashGaps) flush(dst []Defect) []Defect {
 		c.seen[keyOfCrashGap(&g.b)] = c.next + i
 		b := g.b
 		dst = append(dst, Defect{
-			Reason:   ReasonCrashGap,
+			Reason:   IncompleteReasonCrashGap,
 			Pack:     g.pack,
 			Block:    -1,
 			Offset:   -1,
 			Boundary: &b,
 			Err: fmt.Errorf("tracepack: the gap of the stop-unclean boundary at seq %d of capture %s meets the query: its records may be lost",
-				b.Seq, b.Capture),
+				b.Seq, b.CaptureID),
 		})
 	}
 	c.next = len(c.gaps)
@@ -143,7 +143,7 @@ func (c *crashGaps) flush(dst []Defect) []Defect {
 
 // keyOfCrashGap returns the key of the whole value of b.
 func keyOfCrashGap(b *Boundary) crashGapKey {
-	k := crashGapKey{capture: b.Capture, seq: b.Seq, kind: b.Kind, ts: b.TS, epoch: b.Epoch}
+	k := crashGapKey{capture: b.CaptureID, seq: b.Seq, kind: b.Kind, ts: b.TS, epoch: b.Epoch}
 	if b.GapStart != nil {
 		k.hasStart, k.gapStart = true, *b.GapStart
 	}
@@ -167,6 +167,6 @@ func compareCrashGaps(a, b crashGap) int {
 		cmp.Compare(x.Epoch, y.Epoch),
 		compareOptional(x.GapStart, y.GapStart),
 		compareOptional(x.GapEnd, y.GapEnd),
-		bytes.Compare(x.Capture[:], y.Capture[:]),
+		bytes.Compare(x.CaptureID[:], y.CaptureID[:]),
 	)
 }

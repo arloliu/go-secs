@@ -447,7 +447,7 @@ func TestClusterResolverFailedBlocks(t *testing.T) {
 		assert.Equal(t, want, viewsOf(run, cands))
 		require.Len(t, run.p.res.Incomplete, 1)
 		d := run.p.res.Incomplete[0]
-		assert.Equal(t, ReasonCorruptBlock, d.Reason)
+		assert.Equal(t, IncompleteReasonCorruptBlock, d.Reason)
 		assert.Equal(t, [2]int{0, 1}, [2]int{d.Pack, d.Block})
 		releaseAll(t, run, cr, cands)
 	})
@@ -472,7 +472,7 @@ func TestClusterResolverFailedBlocks(t *testing.T) {
 		assert.Equal(t, want, viewsOf(run, cands))
 		require.Len(t, run.p.res.Incomplete, 1)
 		d := run.p.res.Incomplete[0]
-		assert.Equal(t, ReasonIndexMismatch, d.Reason)
+		assert.Equal(t, IncompleteReasonIndexMismatch, d.Reason)
 		assert.Equal(t, [2]int{0, 0}, [2]int{d.Pack, d.Block})
 		releaseAll(t, run, cr, cands)
 	})

@@ -320,7 +320,7 @@ func ExampleFindTransactions() {
 		}
 	}
 	from := time.Unix(0, first).UTC().Truncate(time.Hour)
-	res, err := tracepack.FindTransactions(ctx, src, tracepack.TxRange{Capture: capture, From: from, To: from.Add(time.Hour)},
+	res, err := tracepack.FindTransactions(ctx, src, tracepack.TxRange{CaptureID: capture, From: from, To: from.Add(time.Hour)},
 		tracepack.TxRangeOptions{}, func(p *tracepack.TxPairing) error {
 			for _, v := range p.Result.Records {
 				if v.Class.Has(tracepack.TxPrimary) {

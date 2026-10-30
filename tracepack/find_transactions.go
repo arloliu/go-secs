@@ -19,8 +19,8 @@ const DefaultTxMaxCachedBytes = 256 << 20
 // TxRange selects the primaries FindTransactions pairs:
 // the primaries of one capture whose ts_utc_ns lies in [From, To).
 type TxRange struct {
-	// Capture is the capture whose primaries are paired; not the nil UUID.
-	Capture UUID
+	// CaptureID is the capture whose primaries are paired; not the nil UUID.
+	CaptureID UUID
 	// From and To bound the primaries' ts_utc_ns, From included and To excluded;
 	// From is before To, and both are representable as int64 nanoseconds.
 	From, To time.Time
@@ -64,9 +64,9 @@ type TxRangeResult struct {
 //
 // A primary is a data record whose function is available and odd.
 // For each UTC hour H from the hour of r.From to the hour of r.To − 1 ns,
-// FindTransactions pairs every seq of r.Capture whose versions, as the read of hour H yields them,
+// FindTransactions pairs every seq of r.CaptureID whose versions, as the read of hour H yields them,
 // include a primary whose ts_utc_ns lies in hour H and in [r.From, r.To);
-// its key is (r.Capture, seq, H).
+// its key is (r.CaptureID, seq, H).
 // A version whose ts_utc_ns lies outside the hour it is read from is a scope breach and is not paired:
 // the lookups whose hours hold it report the breach.
 // Records of other captures are never paired, and take part in every lookup as they take part in FindTransaction's.
@@ -240,7 +240,7 @@ func newTxBatch(src PackSource, r TxRange, opts TxRangeOptions, fn func(*TxPairi
 		return nil, fmt.Errorf("%w: src is nil", ErrInvalidQuery)
 	case fn == nil:
 		return nil, fmt.Errorf("%w: fn is nil", ErrInvalidQuery)
-	case r.Capture.IsZero():
+	case r.CaptureID.IsZero():
 		return nil, fmt.Errorf("%w: the capture_id is zero", ErrInvalidQuery)
 	case !representableNs(r.From) || !representableNs(r.To):
 		return nil, fmt.Errorf("%w: the range [%v, %v) is not representable as int64 nanoseconds", ErrInvalidQuery, r.From, r.To)
@@ -255,7 +255,7 @@ func newTxBatch(src PackSource, r TxRange, opts TxRangeOptions, fn func(*TxPairi
 	}
 
 	// checkFindTransaction applies the defaults and checks the scheduled tail of the last hour's primaries.
-	lookup, err := checkFindTransaction(src, TxKey{Capture: r.Capture, Hour: last}, opts.Lookup)
+	lookup, err := checkFindTransaction(src, TxKey{CaptureID: r.CaptureID, Hour: last}, opts.Lookup)
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +420,7 @@ func (b *txBatch) keep(ctx context.Context, rec *txHourRecord, it *Item, flags u
 // whose ts_utc_ns lies in the hour read and in the batch's range.
 func (b *txBatch) pairs(rec *txHourRecord, it *Item) bool {
 	r := &it.Record
-	if UUID(rec.readers[it.Pack].hdr.CaptureID) != b.r.Capture || r.Kind != KindData {
+	if UUID(rec.readers[it.Pack].hdr.CaptureID) != b.r.CaptureID || r.Kind != KindData {
 		return false
 	}
 	if r.TSUTCNs < b.fromNs || r.TSUTCNs >= b.toNs || hourOf(r.TSUTCNs) != rec.hour {
@@ -533,7 +533,7 @@ func (b *txBatch) pair(ctx context.Context, rec *txHourRecord) error {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: find transactions: %w", err)
 		}
-		key := TxKey{Capture: b.r.Capture, Seq: seq, Hour: rec.hour}
+		key := TxKey{CaptureID: b.r.CaptureID, Seq: seq, Hour: rec.hour}
 		res, err := lookupHours(ctx, hours, key, b.opts, b.lookupPrep)
 		if err != nil {
 			return fmt.Errorf("tracepack: find transactions: primary seq %d of hour %d: %w", seq, rec.hour, err)
@@ -602,7 +602,7 @@ func (b *txBatch) pairParallel(ctx context.Context, rec *txHourRecord) error {
 				case <-lctx.Done():
 					return
 				}
-				key := TxKey{Capture: b.r.Capture, Seq: rec.keys[i], Hour: rec.hour}
+				key := TxKey{CaptureID: b.r.CaptureID, Seq: rec.keys[i], Hour: rec.hour}
 				func() {
 					defer func() {
 						if v := recover(); v != nil {
@@ -641,7 +641,7 @@ func (b *txBatch) pairParallel(ctx context.Context, rec *txHourRecord) error {
 			return fmt.Errorf("tracepack: find transactions: %w", err)
 		}
 		b.res.Primaries++
-		if err := b.fn(&TxPairing{Key: TxKey{Capture: b.r.Capture, Seq: seq, Hour: rec.hour}, Result: sl.res}); err != nil {
+		if err := b.fn(&TxPairing{Key: TxKey{CaptureID: b.r.CaptureID, Seq: seq, Hour: rec.hour}, Result: sl.res}); err != nil {
 			return err
 		}
 		sl.res, sl.err = TxResult{}, nil

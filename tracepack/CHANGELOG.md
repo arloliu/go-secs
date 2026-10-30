@@ -26,6 +26,36 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - **Breaking:** `classify.Frame` takes its frame-length limit as a `uint64`, as `classify.New` and `Classifier.MaxFrameLen` do (G5-283).
   0 still means no limit, and a limit above the largest `int` makes no frame oversized.
   Migration: pass the pack's `max_frame_len` as it is, without converting it to `int`.
+- **Breaking:** the capture field of `TxKey`, `TxRange` and `Boundary` is `CaptureID`,
+  as `PackHeader.CaptureID` and `CloseOptions.CaptureID` are (G5-283);
+  `TxKeyOf`'s first parameter is named `captureID` to match.
+  Migration: write `CaptureID` where `Capture` named the field,
+  in composite literals (`TxKey{CaptureID: id, …}`) and field reads (`d.Boundary.CaptureID`).
+- **Breaking:** every `IncompleteReason` value takes its type's name as a prefix,
+  and `Outcome` becomes `VerifyOutcome`, with its values (G5-283).
+  `VerifyReport.Outcome` keeps its field name, now of type `VerifyOutcome`.
+  The `String()` values are unchanged,
+  so the JSONL export, the `tracepack` CLI's output and the corpus are byte for byte the same.
+  Migration: rename as follows;
+  tracekeep uses `ReasonCoverage`, `ReasonCrashGap`, `OutcomeFinalizedConsistent`, `OutcomeFinalizedInconsistent` and `OutcomeUnfinalized`,
+  and veq uses `OutcomeFinalizedConsistent`.
+
+  | Before | After |
+  |---|---|
+  | `ReasonCorruptBlock` | `IncompleteReasonCorruptBlock` |
+  | `ReasonUnknownCodec` | `IncompleteReasonUnknownCodec` |
+  | `ReasonTruncated` | `IncompleteReasonTruncated` |
+  | `ReasonCoverage` | `IncompleteReasonCoverage` |
+  | `ReasonLimit` | `IncompleteReasonLimit` |
+  | `ReasonIndexMismatch` | `IncompleteReasonIndexMismatch` |
+  | `ReasonCrashGap` | `IncompleteReasonCrashGap` |
+  | `Outcome` | `VerifyOutcome` |
+  | `OutcomeFinalizedConsistent` | `VerifyOutcomeFinalizedConsistent` |
+  | `OutcomeFinalizedInconsistent` | `VerifyOutcomeFinalizedInconsistent` |
+  | `OutcomeFinalizedTruncated` | `VerifyOutcomeFinalizedTruncated` |
+  | `OutcomeUnfinalized` | `VerifyOutcomeUnfinalized` |
+  | `OutcomeCorruptMiddle` | `VerifyOutcomeCorruptMiddle` |
+
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 

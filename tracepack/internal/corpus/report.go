@@ -124,14 +124,14 @@ func (v *Verify) addFailed(failed []tracepack.Defect) error {
 	for i := range failed {
 		d := &failed[i]
 		switch {
-		case d.Reason == tracepack.ReasonLimit:
+		case d.Reason == tracepack.IncompleteReasonLimit:
 			return fmt.Errorf("corpus: a reader limit was reached: %w", d.Err)
-		case d.Block < 0 && d.Reason == tracepack.ReasonTruncated && d.Offset >= 0:
+		case d.Block < 0 && d.Reason == tracepack.IncompleteReasonTruncated && d.Offset >= 0:
 			if v.WalkStop != nil {
 				return fmt.Errorf("corpus: the report holds two walk stops")
 			}
 			v.WalkStop = new(U64(d.Offset))
-		case d.Block >= 0 && (d.Reason == tracepack.ReasonCorruptBlock || d.Reason == tracepack.ReasonUnknownCodec):
+		case d.Block >= 0 && (d.Reason == tracepack.IncompleteReasonCorruptBlock || d.Reason == tracepack.IncompleteReasonUnknownCodec):
 			off, err := blockOffset(d)
 			if err != nil {
 				return err
@@ -152,7 +152,7 @@ func (v *Verify) addDisagreements(ds []tracepack.Defect) error {
 	for i := range ds {
 		d := &ds[i]
 		switch {
-		case d.Reason != tracepack.ReasonIndexMismatch:
+		case d.Reason != tracepack.IncompleteReasonIndexMismatch:
 			return fmt.Errorf("corpus: disagreement of reason %s", d.Reason)
 		case d.Block < 0:
 			if v.TrailerTotalsDisagree {

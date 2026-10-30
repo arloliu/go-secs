@@ -121,7 +121,7 @@ func TestMergeIteratePackIndexesReaders(t *testing.T) {
 	}
 	assert.Equal(t, holder, got)
 	require.Len(t, res.Incomplete, 1)
-	assert.Equal(t, ReasonCorruptBlock, res.Incomplete[0].Reason)
+	assert.Equal(t, IncompleteReasonCorruptBlock, res.Incomplete[0].Reason)
 	assert.Equal(t, seg0, readers[res.Incomplete[0].Pack].Header().PackID)
 	assert.Equal(t, 1, res.Incomplete[0].Block)
 }

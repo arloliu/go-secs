@@ -76,13 +76,13 @@ func TestUnknownTrailerVersion(t *testing.T) {
 			seqs, res := versionIterate(t, file)
 			assert.Equal(t, versionSeqs(recs), seqs, "every walked record is read")
 			require.Len(t, res.Incomplete, 1)
-			assert.Equal(t, ReasonTruncated, res.Incomplete[0].Reason)
+			assert.Equal(t, IncompleteReasonTruncated, res.Incomplete[0].Reason)
 			assert.Equal(t, []int64{footerAt}, defectOffsets(t, res.Incomplete), "the read is truncated at the footer")
 			require.Error(t, soleFooterErr(t, res))
 
 			rep, err := verifyBytes(t, file, VerifyOptions{})
 			require.NoError(t, err)
-			assert.Equal(t, OutcomeUnfinalized, rep.Outcome)
+			assert.Equal(t, VerifyOutcomeUnfinalized, rep.Outcome)
 			assert.False(t, rep.Finalized)
 			require.Error(t, rep.FooterErr)
 			assert.Equal(t, len(p.blocks), rep.Validated)
@@ -135,7 +135,7 @@ func TestUnknownFooterLayoutVersion(t *testing.T) {
 
 				rep, err := verifyBytes(t, file, VerifyOptions{})
 				require.NoError(t, err)
-				assert.Equal(t, OutcomeFinalizedInconsistent, rep.Outcome, "the footer is invalid")
+				assert.Equal(t, VerifyOutcomeFinalizedInconsistent, rep.Outcome, "the footer is invalid")
 				assert.True(t, rep.Finalized)
 				assert.Empty(t, rep.Failed)
 				assert.Empty(t, rep.Disagreements)
@@ -157,7 +157,7 @@ func TestUnknownFooterLayoutVersion(t *testing.T) {
 
 				rep, err := verifyBytes(t, short, VerifyOptions{})
 				require.NoError(t, err)
-				assert.Equal(t, OutcomeFinalizedInconsistent, rep.Outcome)
+				assert.Equal(t, VerifyOutcomeFinalizedInconsistent, rep.Outcome)
 				assert.Empty(t, rep.Failed)
 				require.Len(t, rep.Disagreements, 1)
 				assert.Equal(t, -1, rep.Disagreements[0].Block)

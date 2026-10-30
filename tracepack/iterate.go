@@ -67,7 +67,7 @@ func clonePtr[T any](v *T) *T {
 // an absent bound being unbounded, or whose first bound, of time or seq, exceeds its last;
 // the Filter has no seq range, so every entry's seq range intersects it.
 // Each such Defect carries its own copy of the entry.
-// When the footer is used, a ReasonCrashGap Defect follows for each stop-unclean boundary of its F-5 statistics
+// When the footer is used, an IncompleteReasonCrashGap Defect follows for each stop-unclean boundary of its F-5 statistics
 // whose gap meets [TimeFrom, TimeTo) (the tracepack semantics specification §7.4, Crash gaps),
 // whether or not the filter excludes the block holding it;
 // a pack without a used footer reports each such boundary of the records of a walked block as the block is decoded,
@@ -84,7 +84,7 @@ func clonePtr[T any](v *T) *T {
 // (the tracepack format specification §6).
 // A block that fails a check, or exceeds ReaderOptions.MaxBlockLen, adds a Defect and yields nothing,
 // and iteration continues with the next block.
-// An indexed block whose records disagree with its F-2 entry adds a ReasonIndexMismatch Defect
+// An indexed block whose records disagree with its F-2 entry adds an IncompleteReasonIndexMismatch Defect
 // and still yields its records, which passed every check of the block itself.
 //
 // A record is selected when it satisfies every predicate of q.Filter:
@@ -167,7 +167,7 @@ func (r *Reader) startResult(f *Filter) Result {
 	return res
 }
 
-// appendCoverageDefects appends to dst a ReasonCoverage defect for every coverage entry of the pack metadata
+// appendCoverageDefects appends to dst an IncompleteReasonCoverage defect for every coverage entry of the pack metadata
 // whose capture is in captures and that intersects the query of f (the tracepack format specification §5),
 // in the entries' order.
 // An entry's capture is its capture_id, else the capture of the pack;
@@ -191,7 +191,7 @@ func (r *Reader) appendCoverageDefects(dst []Defect, f *Filter, captures []UUID)
 		}
 
 		dst = append(dst, Defect{
-			Reason:   ReasonCoverage,
+			Reason:   IncompleteReasonCoverage,
 			Block:    -1,
 			Offset:   -1,
 			Coverage: cloneCoverage(c),

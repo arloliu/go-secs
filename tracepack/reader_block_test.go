@@ -517,7 +517,7 @@ func TestReadBlockCorruption(t *testing.T) {
 			return flipByte(closed.file, at+format.EnvelopeLen+uint64(closed.blocks[1].onDiskLen-format.EnvelopeLen)/2)
 		}, msg: "body_crc"},
 		{name: "unknown codec", file: patched(closed.file, func(e *format.BlockEnvelope) { e.Codec = 7 }),
-			reason: ReasonUnknownCodec, msg: "codec 7"},
+			reason: IncompleteReasonUnknownCodec, msg: "codec 7"},
 		{name: "first seq differs from first_seq", file: rebuilt(func(b *testBlock) { b.headers[0].Seq-- }), msg: "first_seq"},
 		{name: "seq repeats", file: rebuilt(func(b *testBlock) { b.headers[5].Seq = b.headers[4].Seq }), msg: "does not follow"},
 		{name: "seq decreases", file: rebuilt(func(b *testBlock) { b.headers[5].Seq = b.headers[3].Seq }), msg: "does not follow"},
@@ -542,7 +542,7 @@ func TestReadBlockCorruption(t *testing.T) {
 
 			reason := tt.reason
 			if reason == 0 {
-				reason = ReasonCorruptBlock
+				reason = IncompleteReasonCorruptBlock
 			}
 			requireBlockDefect(t, r, 1, reason, tt.msg)
 
@@ -604,7 +604,7 @@ func TestReadBlockIndexMismatch(t *testing.T) {
 			d, def, err := r.readBlock(1, &buf)
 			require.NoError(t, err)
 			require.NotNil(t, def)
-			assert.Equal(t, ReasonIndexMismatch, def.Reason, "%v", def.Err)
+			assert.Equal(t, IncompleteReasonIndexMismatch, def.Reason, "%v", def.Err)
 			assert.Equal(t, 1, def.Block)
 			assert.Equal(t, int64(r.blocks[1].Offset), def.Offset)
 			require.ErrorContains(t, def.Err, tt.msg)
@@ -622,7 +622,7 @@ func TestReadBlockIndexMismatch(t *testing.T) {
 			run := iterate(t, r, Query{Payloads: true})
 			assert.Len(t, run.items, 3*40, "every record is yielded, the disagreeing block's included")
 			require.Len(t, run.res.Incomplete, 1)
-			assert.Equal(t, ReasonIndexMismatch, run.res.Incomplete[0].Reason)
+			assert.Equal(t, IncompleteReasonIndexMismatch, run.res.Incomplete[0].Reason)
 			assert.Equal(t, 1, run.res.Incomplete[0].Block)
 		})
 	}
@@ -656,7 +656,7 @@ func TestReadBlockDamagedStreamAfterHeaders(t *testing.T) {
 
 	// Every read is full, so a stream damaged only after an intact header section still makes the block corrupt
 	// (the tracepack format specification §6).
-	requireBlockDefect(t, r, 0, ReasonCorruptBlock, "decode body")
+	requireBlockDefect(t, r, 0, IncompleteReasonCorruptBlock, "decode body")
 }
 
 // TestReadBlockBudgetAllocation is not parallel: it measures the process-wide TotalAlloc.
@@ -684,7 +684,7 @@ func TestReadBlockBudgetAllocation(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, d)
 		require.NotNil(t, def)
-		assert.Equal(t, ReasonLimit, def.Reason)
+		assert.Equal(t, IncompleteReasonLimit, def.Reason)
 		require.ErrorIs(t, def.Err, ErrReadLimit)
 	}
 	runtime.ReadMemStats(&after)
@@ -693,7 +693,7 @@ func TestReadBlockBudgetAllocation(t *testing.T) {
 	t.Logf("two reads of a block claiming %d bytes allocated %d bytes", claimed, delta)
 	require.Less(t, delta, uint64(1<<20), "the budget is checked before any allocation")
 
-	requireBlockDefect(t, r, 1, ReasonLimit, "MaxBlockLen")
+	requireBlockDefect(t, r, 1, IncompleteReasonLimit, "MaxBlockLen")
 	for _, i := range []int{0, 2} {
 		d, def, err := r.readBlock(i, &buf)
 		require.NoError(t, err)
@@ -739,7 +739,7 @@ func TestReadBlockOverBudget(t *testing.T) {
 
 			r := mustOpen(t, p.file, ReaderOptions{MaxBlockLen: limit})
 			require.False(t, r.blocks[1].Indexed, "the pack is walked")
-			requireBlockDefect(t, r, 1, ReasonLimit, tt.msg)
+			requireBlockDefect(t, r, 1, IncompleteReasonLimit, tt.msg)
 
 			var buf blockBuf
 			for _, i := range []int{0, 2} {
@@ -784,7 +784,7 @@ func TestReadBlockReadErrors(t *testing.T) {
 		require.False(t, r.blocks[0].Indexed)
 		r.ra = bytes.NewReader(patchEnvelope(t, open.file, open.blocks[0].offset, func(e *format.BlockEnvelope) { e.FirstSeq++ }))
 
-		requireBlockDefect(t, r, 0, ReasonCorruptBlock, "disagrees with the forward walk")
+		requireBlockDefect(t, r, 0, IncompleteReasonCorruptBlock, "disagrees with the forward walk")
 	})
 
 	t.Run("short read", func(t *testing.T) {
@@ -835,7 +835,7 @@ func FuzzReadBlock(f *testing.F) {
 				require.Nil(t, d)
 				require.Equal(t, i, def.Block)
 				require.Error(t, def.Err)
-				require.Contains(t, []IncompleteReason{ReasonCorruptBlock, ReasonUnknownCodec, ReasonLimit}, def.Reason)
+				require.Contains(t, []IncompleteReason{IncompleteReasonCorruptBlock, IncompleteReasonUnknownCodec, IncompleteReasonLimit}, def.Reason)
 				continue
 			}
 			requireBlockConsistent(t, &r.blocks[i], d)

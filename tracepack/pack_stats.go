@@ -93,7 +93,7 @@ func (st *packStats) public(capture UUID) PackStats {
 		for i := range st.boundaries {
 			b := &st.boundaries[i]
 			out.Boundaries[i] = cloneBoundary(Boundary{
-				Capture: capture, Seq: b.seq, Kind: b.kind, TS: b.ts, Epoch: b.epoch, GapStart: b.gapStart, GapEnd: b.gapEnd,
+				CaptureID: capture, Seq: b.seq, Kind: b.kind, TS: b.ts, Epoch: b.epoch, GapStart: b.gapStart, GapEnd: b.gapEnd,
 			})
 		}
 	}

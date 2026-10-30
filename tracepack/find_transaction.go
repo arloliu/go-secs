@@ -78,7 +78,7 @@ const (
 	// TxGapConflict reports a conflict on a seq of the primary's capture at or above the primary's,
 	// within one hour's read or across hour reads.
 	TxGapConflict
-	// TxGapIndex reports a disagreement an hour's read detected (ReasonIndexMismatch):
+	// TxGapIndex reports a disagreement an hour's read detected (IncompleteReasonIndexMismatch):
 	// a block whose records disagree with its F-2 entry, or another footer value that disagrees with the records it describes.
 	// The lookup then guarantees only that it is incomplete with this gap; every other fact it reports is best-effort.
 	TxGapIndex
@@ -122,8 +122,8 @@ var ErrNotPrimary = errors.New("tracepack: not a primary")
 
 // TxKey names the primary record of a transaction lookup.
 type TxKey struct {
-	// Capture is the primary's capture_id; it is not zero.
-	Capture UUID
+	// CaptureID is the primary's capture_id; it is not zero.
+	CaptureID UUID
 	// Seq is the primary's seq; it is not above 2^63-1, the largest seq the tracepack format allows.
 	Seq uint64
 	// Hour is the UTC hour of the primary's ts_utc_ns, its scope, numbered in whole hours from 1970-01-01T00:00Z;
@@ -133,9 +133,9 @@ type TxKey struct {
 
 // TxKeyOf returns the TxKey of a primary from its record:
 // the capture_id of its pack, its seq, and its ts_utc_ns as a time, whose UTC hour, HourOf(ts), is the key's Hour.
-// For a record r of a pack of capture, it is TxKeyOf(capture, r.Seq, time.Unix(0, r.TSUTCNs)).
-func TxKeyOf(capture UUID, seq uint64, ts time.Time) TxKey {
-	return TxKey{Capture: capture, Seq: seq, Hour: HourOf(ts)}
+// For a record r of a pack whose capture_id is captureID, it is TxKeyOf(captureID, r.Seq, time.Unix(0, r.TSUTCNs)).
+func TxKeyOf(captureID UUID, seq uint64, ts time.Time) TxKey {
+	return TxKey{CaptureID: captureID, Seq: seq, Hour: HourOf(ts)}
 }
 
 // TxOptions configures FindTransaction.
@@ -357,14 +357,14 @@ type TxResult struct {
 //   - ctx: cancels the lookup; it is checked before each call to the source, during each hour's read,
 //     every 4096 iterations of the lookup's own loops, and before returning.
 //   - src: the source of the packs; not nil.
-//   - key: the primary; Capture not zero, Hour in [MinTxHour, MaxTxHour].
+//   - key: the primary; CaptureID not zero, Hour in [MinTxHour, MaxTxHour].
 //   - opts: the limits; see TxOptions.
 //
 // Returns:
 //   - TxResult: the result; on an error it holds what was found before the error, Outcome zero.
 //     Searched lists only hours read to their end.
 //   - error: an error wrapping ErrInvalidQuery, before anything is read:
-//     for a nil src, a zero key.Capture, a key.Seq above 2^63-1, a key.Hour outside [MinTxHour, MaxTxHour],
+//     for a nil src, a zero key.CaptureID, a key.Seq above 2^63-1, a key.Hour outside [MinTxHour, MaxTxHour],
 //     or a last hour key.Hour + MaxScopes - 1 above MaxTxHour;
 //     ErrNotPrimary;
 //     an error of src, wrapped with the hour; an error for a nil reader src gives;
@@ -412,7 +412,7 @@ func lookupHours(ctx context.Context, hours txHourSource, key TxKey, opts TxOpti
 
 // checkFindTransaction validates the arguments of FindTransaction before anything is read and applies the defaults of opts.
 //
-// It checks, in this order: src is not nil; key.Capture is not zero; key.Seq is a seq the format allows;
+// It checks, in this order: src is not nil; key.CaptureID is not zero; key.Seq is a seq the format allows;
 // key.Hour lies in [MinTxHour, MaxTxHour];
 // then, MaxScopes defaulted, the last hour scheduled, key.Hour + MaxScopes - 1, is not above MaxTxHour,
 // compared without overflow as MaxScopes - 1 > MaxTxHour - key.Hour.
@@ -424,7 +424,7 @@ func checkFindTransaction(src PackSource, key TxKey, opts TxOptions) (TxOptions,
 	if src == nil {
 		return opts, fmt.Errorf("%w: src is nil", ErrInvalidQuery)
 	}
-	if key.Capture == (UUID{}) {
+	if key.CaptureID == (UUID{}) {
 		return opts, fmt.Errorf("%w: the capture_id is zero", ErrInvalidQuery)
 	}
 	if key.Seq > format.MaxU64 {

@@ -123,7 +123,7 @@ func TestVerifyCorruptionSweep(t *testing.T) {
 			file := sweepPack(t, v.codec, v.validate)
 			s := &verifySweep{b: newSweepBaseline(t, file, &v)}
 			rep := mustVerify(t, file)
-			require.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "%+v", rep)
+			require.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "%+v", rep)
 			last := len(s.b.blocks) - 1
 
 			data := bytes.Clone(file)
@@ -133,11 +133,11 @@ func TestVerifyCorruptionSweep(t *testing.T) {
 
 				rep, ok := s.verify(t, data, what, off < s.b.blocksStart)
 				if ok {
-					want := OutcomeUnfinalized
+					want := VerifyOutcomeUnfinalized
 					if blk := s.b.blockAt(off); blk == last {
-						want = OutcomeFinalizedTruncated
+						want = VerifyOutcomeFinalizedTruncated
 					} else if blk >= 0 {
-						want = OutcomeCorruptMiddle
+						want = VerifyOutcomeCorruptMiddle
 					}
 					if rep.Outcome != want {
 						s.failf(t, "%s: outcome %s, want %s", what, rep.Outcome, want)
@@ -178,14 +178,14 @@ func TestVerifyTruncationSweep(t *testing.T) {
 				}
 
 				whole := n == uint64(len(file))
-				want, within, end := OutcomeUnfinalized, 0, s.b.blocksStart
+				want, within, end := VerifyOutcomeUnfinalized, 0, s.b.blocksStart
 				for i := range s.b.blocks {
 					if blk := &s.b.blocks[i]; blk.Offset+uint64(blk.OnDiskLen) <= n {
 						within, end = i+1, blk.Offset+uint64(blk.OnDiskLen)
 					}
 				}
 				if whole {
-					want = OutcomeFinalizedConsistent
+					want = VerifyOutcomeFinalizedConsistent
 				}
 
 				switch {
@@ -226,13 +226,13 @@ func checkReportLists(t *testing.T, rep *VerifyReport, size int) reportEvidence 
 	firstFailed := -1
 	for _, d := range rep.Failed {
 		if d.Block == -1 {
-			require.Equal(t, ReasonTruncated, d.Reason, "only the walk's stop concerns no block")
+			require.Equal(t, IncompleteReasonTruncated, d.Reason, "only the walk's stop concerns no block")
 			ev.stops++
 
 			continue
 		}
 		require.True(t, d.Block >= 0 && d.Block < rep.Blocks, "failed block %d of %d", d.Block, rep.Blocks)
-		require.Contains(t, []IncompleteReason{ReasonCorruptBlock, ReasonUnknownCodec}, d.Reason)
+		require.Contains(t, []IncompleteReason{IncompleteReasonCorruptBlock, IncompleteReasonUnknownCodec}, d.Reason)
 		require.False(t, ev.failed[d.Block], "block %d failed twice", d.Block)
 		ev.failed[d.Block] = true
 		if firstFailed < 0 {
@@ -248,7 +248,7 @@ func checkReportLists(t *testing.T, rep *VerifyReport, size int) reportEvidence 
 	require.LessOrEqual(t, ev.stops, 1)
 	require.Equal(t, rep.Blocks, rep.Validated+len(ev.failed))
 	for _, d := range rep.Disagreements {
-		require.Equal(t, ReasonIndexMismatch, d.Reason)
+		require.Equal(t, IncompleteReasonIndexMismatch, d.Reason)
 		require.True(t, d.Block == -1 || (d.Block >= 0 && d.Block < rep.Blocks && !ev.failed[d.Block]))
 	}
 	for _, w := range rep.WriterDefects {
@@ -269,20 +269,20 @@ func checkReportOutcome(t *testing.T, rep *VerifyReport, ev reportEvidence, data
 	t.Helper()
 
 	switch rep.Outcome {
-	case OutcomeCorruptMiddle:
+	case VerifyOutcomeCorruptMiddle:
 		require.True(t, ev.middle)
-	case OutcomeUnfinalized:
+	case VerifyOutcomeUnfinalized:
 		require.False(t, ev.middle)
 		require.False(t, rep.Finalized)
-	case OutcomeFinalizedTruncated:
+	case VerifyOutcomeFinalizedTruncated:
 		require.False(t, ev.middle)
 		require.True(t, rep.Finalized)
 		require.True(t, len(ev.failed) > 0 || ev.stops > 0)
-	case OutcomeFinalizedInconsistent:
+	case VerifyOutcomeFinalizedInconsistent:
 		require.True(t, rep.Finalized)
 		require.Empty(t, rep.Failed)
 		require.True(t, rep.FooterErr != nil || len(rep.Disagreements) > 0)
-	case OutcomeFinalizedConsistent:
+	case VerifyOutcomeFinalizedConsistent:
 		require.True(t, rep.Finalized)
 		require.Empty(t, rep.Failed)
 		require.Empty(t, rep.Disagreements)
@@ -293,7 +293,7 @@ func checkReportOutcome(t *testing.T, rep *VerifyReport, ev reportEvidence, data
 		res, err := r.Iterate(t.Context(), Query{}, func(*Item) error { return nil })
 		require.NoError(t, err)
 		for _, d := range res.Incomplete {
-			require.Equal(t, ReasonCoverage, d.Reason, "a consistent pack reads complete but for its coverage entries: %v", d.Err)
+			require.Equal(t, IncompleteReasonCoverage, d.Reason, "a consistent pack reads complete but for its coverage entries: %v", d.Err)
 		}
 	default:
 		t.Fatalf("outcome %s", rep.Outcome)

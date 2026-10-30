@@ -377,7 +377,7 @@ func TestOutcome_String(t *testing.T) {
 		{4, "unfinalized"},
 		{5, "corrupt-middle"},
 	}
-	checkEnumStrings[tracepack.Outcome](t, cases, 6)
+	checkEnumStrings[tracepack.VerifyOutcome](t, cases, 6)
 }
 
 func TestWriterDefectKind_String(t *testing.T) {

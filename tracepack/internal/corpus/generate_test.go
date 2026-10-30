@@ -86,14 +86,14 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 		name string
 		edit func(e *Expectation)
 	}{
-		{"basic-codec-none", "outcome", func(e *Expectation) { e.Outcome = tracepack.OutcomeFinalizedInconsistent }},
+		{"basic-codec-none", "outcome", func(e *Expectation) { e.Outcome = tracepack.VerifyOutcomeFinalizedInconsistent }},
 		{"basic-codec-none", "footer valid", func(e *Expectation) { e.FooterValid = false }},
 		{"basic-codec-none", "blocks", func(e *Expectation) { e.Blocks = 2 }},
 		{"basic-codec-none", "a seq missing", func(e *Expectation) { e.Seqs = e.Seqs[1:] }},
 		{"basic-codec-none", "seqs out of order", func(e *Expectation) { e.Seqs = slices.Concat(e.Seqs[1:2], e.Seqs[:1], e.Seqs[2:]) }},
 		{"basic-codec-none", "prefix end", func(e *Expectation) { e.PrefixEnd = AtBlock(2) }},
 		{"basic-codec-none", "a walk stop", func(e *Expectation) { e.WalkStop = AtEnd() }},
-		{"basic-codec-none", "a failed block", func(e *Expectation) { e.Failed = []FailedWant{{1, tracepack.ReasonCorruptBlock}} }},
+		{"basic-codec-none", "a failed block", func(e *Expectation) { e.Failed = []FailedWant{{1, tracepack.IncompleteReasonCorruptBlock}} }},
 		{"basic-codec-none", "a disagreeing block", func(e *Expectation) { e.Disagreeing = []int{1} }},
 		{"basic-codec-none", "trailer totals", func(e *Expectation) { e.TrailerTotalsDisagree = true }},
 		{"basic-codec-none", "a writer defect", func(e *Expectation) {
@@ -111,9 +111,9 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 		{"basic-codec-none", "query seqs", func(e *Expectation) { e.Queries[1].Seqs = seqRange(3, 7) }},
 		{"basic-codec-none", "a query missing", func(e *Expectation) { e.Queries = e.Queries[1:] }},
 		{"basic-codec-none", "a query reason", func(e *Expectation) { e.Queries[0].Incomplete = []IncompleteWant{Truncated(Pos{})} }},
-		{"basic-corrupt-middle", "failed cause", func(e *Expectation) { e.Failed[0].Cause = tracepack.ReasonUnknownCodec }},
+		{"basic-corrupt-middle", "failed cause", func(e *Expectation) { e.Failed[0].Cause = tracepack.IncompleteReasonUnknownCodec }},
 		{"basic-corrupt-middle", "query block", func(e *Expectation) {
-			e.Queries[0].Incomplete = []IncompleteWant{BlockDefect(tracepack.ReasonCorruptBlock, 2)}
+			e.Queries[0].Incomplete = []IncompleteWant{BlockDefect(tracepack.IncompleteReasonCorruptBlock, 2)}
 		}},
 		{"basic-corrupt-middle", "lost range", func(e *Expectation) { e.Lost = []LostWant{{4, 6, msAt(4), msAt(6)}} }},
 		{"basic-bad-envelope-crc-walked", "walk stop position", func(e *Expectation) { e.WalkStop = AtBlock(2) }},
@@ -131,7 +131,7 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 		{"bootstrap-bad-magic", "rejection code", func(e *Expectation) { e.Rejection = RejectHeaderCRC }},
 		{"verify-truncation-none", "a run's first cut", func(e *Expectation) { e.Cuts[3].From = AtBlock(0).Plus(2) }},
 		{"verify-truncation-none", "a run's rejection", func(e *Expectation) { e.Cuts[1].Rejection = RejectShortObject }},
-		{"verify-truncation-none", "a run's outcome", func(e *Expectation) { e.Cuts[2].Outcome = tracepack.OutcomeFinalizedTruncated }},
+		{"verify-truncation-none", "a run's outcome", func(e *Expectation) { e.Cuts[2].Outcome = tracepack.VerifyOutcomeFinalizedTruncated }},
 		{"verify-truncation-none", "a run's records", func(e *Expectation) { e.Cuts[4].Records = 1 }},
 		{"verify-truncation-none", "a run's validated blocks", func(e *Expectation) { e.Cuts[6].Validated = 1 }},
 		{"verify-truncation-none", "a run's prefix end", func(e *Expectation) { e.Cuts[5].PrefixEnd = AtBlock(0) }},

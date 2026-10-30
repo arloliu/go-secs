@@ -301,7 +301,7 @@ func requireNoTrailer(t *testing.T, out []byte, blocks int) {
 	t.Helper()
 
 	v := mustVerify(t, out)
-	assert.Equal(t, OutcomeUnfinalized, v.Outcome)
+	assert.Equal(t, VerifyOutcomeUnfinalized, v.Outcome)
 	assert.Equal(t, blocks, v.Validated, "the blocks written before the error")
 }
 
@@ -828,7 +828,7 @@ func TestMergeOutputFailures(t *testing.T) {
 				assert.Equal(t, good[format.FileHeaderLen:], out[format.FileHeaderLen:], "the bytes form the archive, which the failure does not vouch for")
 				requireConsistent(t, out)
 			case len(out) >= head:
-				assert.Equal(t, OutcomeUnfinalized, mustVerify(t, out).Outcome)
+				assert.Equal(t, VerifyOutcomeUnfinalized, mustVerify(t, out).Outcome)
 			default:
 				assert.Less(t, len(out), head, "the header is incomplete")
 			}
@@ -971,7 +971,7 @@ func TestMergeCarriesWriterDefects(t *testing.T) {
 		b.payloads[2], b.headers[2].PayloadLen = []byte{0xFF}, 1
 	})
 	in := mustVerify(t, a)
-	require.Equal(t, OutcomeFinalizedConsistent, in.Outcome)
+	require.Equal(t, VerifyOutcomeFinalizedConsistent, in.Outcome)
 	require.Len(t, in.WriterDefects, 2)
 	b := mergePack(t, seg1, nil, hourSteps(20, 23, 2))
 	// again holds a's records, the defective ones included, in blocks of the none codec: each overlaps a block of a.

@@ -409,7 +409,7 @@ func encryptedSegmentExpect() *Expectation {
 	fildat := hsmsPrefixLen + uint64(len(dataset("DS-3", nil))) + 2
 
 	return &Expectation{
-		Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 23), PrefixEnd: AtEnd(),
+		Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 23), PrefixEnd: AtEnd(),
 		ExportHas: []string{
 			`"schema":"tracepack-jsonl/2","format_major":1,"format_minor":1,"flags":["redaction-present"]`,
 			`"redaction_policy":{"policy_id":"corpus-baseline","policy_version":"1","key_id":"test-digest-1","digest_algorithm":"hmac-sha256",` +
@@ -510,7 +510,7 @@ func secondDigestKeyRecipe() Recipe {
 		},
 		// Another key gives another digest of the same original, the published ppbody-second-key case.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
 			ExportHas: []string{
 				`"key_id":"test-digest-2"`,
 				`{"seq":"1","item_path":"2","masked_ranges":"` + rangesB64(ppbodyOffset, uint64(len(ppbodyContent()))) +
@@ -541,7 +541,7 @@ func captureRecipe(id string) Recipe {
 		},
 		// The digest is the published ppbody case in both captures, the siv the capture's own published case.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
 			ExportHas: []string{
 				entryJSON(capturePPBODYSeq, "2", ppbodyDomain, publishedDigest("ppbody"), publishedSIV(name),
 					ppbodyOffset, uint64(len(ppbodyContent()))),
@@ -573,7 +573,7 @@ func annotationZeroedRecipe() Recipe {
 		// An annotation's target bytes become zeros and keep no original, so its entry has no siv;
 		// the digest is the published source-text case.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
 			ExportHas: []string{
 				`"flags":["redaction-present"]`,
 				`"domain":"source-text","digest":"` + publishedDigest("source-text") + `"}`,
@@ -602,7 +602,7 @@ func matchedNothingRecipe() Recipe {
 		},
 		// The policy is written though nothing matched: minor 1 for its encryption tags, no entry, redaction-present clear.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
 			ExportHas: []string{
 				`"schema":"tracepack-jsonl/2","format_major":1,"format_minor":1,"flags":[]`,
 				`"encryption_algorithm":"aes-siv-cmac-512","encryption_key_id":"test-enc-1"}`,
@@ -798,7 +798,7 @@ func recoverableDefectsRecipe() Recipe {
 		Build: defectBuild(cases),
 		// Every defect is recoverable: the pack opens, every record is exported, and the entries are kept as stored.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, uint64(len(cases)-1)), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, uint64(len(cases)-1)), PrefixEnd: AtEnd(),
 			ExportHas: []string{
 				`"schema":"tracepack-jsonl/2"`,
 				`{"seq":"1","item_path":"2","masked_ranges":"","domain":"ppbody"`,
@@ -820,7 +820,7 @@ func overlappingEncryptedRecipe() Recipe {
 		Build: defectBuild(cases),
 		// The pack opens with every entry kept; the adjacent entries are each sealed at their own first offset.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 			ExportHas: []string{
 				`{"seq":"0","item_path":"2","masked_ranges":"` + rangesB64(ppbodyOffset+4, 8) + `","domain":"ppbody"`,
 				`{"seq":"2","item_path":"2","masked_ranges":"` + rangesB64(ppbodyOffset, 8) + `","domain":"ppbody"`,
@@ -863,7 +863,7 @@ func encryptedArchiveRecipe() Recipe {
 		// The inputs overlap at seq 12 and their blocks are small, so the archive holds one block, resolved and coalesced (the tracepack storage specification §4 Merge);
 		// it carries the policy and every entry once, the record of seq 12 among them, and the inputs' minor.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 23), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 23), PrefixEnd: AtEnd(),
 			ExportHas: []string{
 				`"schema":"tracepack-jsonl/2","format_major":1,"format_minor":1,"flags":["redaction-present"]`,
 				`"pack_role":"archive"`,
@@ -952,7 +952,7 @@ func redactTruncationRecipe() Recipe {
 		// Every cut that opens keeps the records of the blocks wholly before it, masked and unobserved as written,
 		// and its export is the base's header line and their lines.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 5), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 5), PrefixEnd: AtEnd(),
 			ExportHas: []string{`"schema":"tracepack-jsonl/2"`, `"quality":["unobserved"]`, `"quality":["redacted"]`, `"thinning":[`},
 			Cuts:      blockCuts([]uint64{2, 4, 6}),
 		},
@@ -966,7 +966,7 @@ func redactTruncationRecipe() Recipe {
 // and a cut that ends inside a block, or inside the footer and trailer, stops the walk there.
 func blockCuts(records []uint64) []CutWant {
 	read := func(from Pos, validated int, recs uint64, end Pos, stopped bool) CutWant {
-		c := CutWant{From: from, Outcome: tracepack.OutcomeUnfinalized, Validated: validated, Records: recs, PrefixEnd: end}
+		c := CutWant{From: from, Outcome: tracepack.VerifyOutcomeUnfinalized, Validated: validated, Records: recs, PrefixEnd: end}
 		if stopped {
 			c.WalkStop = end
 		}
@@ -1006,8 +1006,8 @@ func redactCorruptBlockRecipe() Recipe {
 		},
 		// The failed block loses only its own records; its valid footer gives their range.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeCorruptMiddle, FooterValid: true, Blocks: 3, Seqs: []uint64{0, 1, 4, 5},
-			Failed: []FailedWant{{Block: 1, Cause: tracepack.ReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
+			Outcome: tracepack.VerifyOutcomeCorruptMiddle, FooterValid: true, Blocks: 3, Seqs: []uint64{0, 1, 4, 5},
+			Failed: []FailedWant{{Block: 1, Cause: tracepack.IncompleteReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
 			Lost:      []LostWant{{First: 2, Last: 3, TimeStart: msAt(2), TimeEnd: msAt(3)}},
 			ExportHas: []string{`"schema":"tracepack-jsonl/2"`},
 		},

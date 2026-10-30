@@ -146,9 +146,9 @@ func sortedIncomplete(ds []tracepack.Defect, coverage []tracepack.Coverage) ([]I
 	for i := range ds {
 		d := &ds[i]
 		switch {
-		case d.Reason == tracepack.ReasonLimit:
+		case d.Reason == tracepack.IncompleteReasonLimit:
 			return nil, fmt.Errorf("corpus: a reader limit was reached: %w", d.Err)
-		case d.Reason == tracepack.ReasonCoverage && d.Coverage != nil:
+		case d.Reason == tracepack.IncompleteReasonCoverage && d.Coverage != nil:
 			c := CoverageFrom(d.Coverage)
 			k := matchCoverage(rendered, used, &c)
 			if k < 0 {
@@ -156,7 +156,7 @@ func sortedIncomplete(ds []tracepack.Defect, coverage []tracepack.Coverage) ([]I
 			}
 			used[k] = true
 			rs = append(rs, ranked{group: 0, key: k, in: Incomplete{Reason: d.Reason.String(), Coverage: &c}})
-		case d.Reason == tracepack.ReasonTruncated && d.Block < 0:
+		case d.Reason == tracepack.IncompleteReasonTruncated && d.Block < 0:
 			if truncated {
 				return nil, fmt.Errorf("corpus: the read reported two pack-level truncations")
 			}
@@ -167,7 +167,7 @@ func sortedIncomplete(ds []tracepack.Defect, coverage []tracepack.Coverage) ([]I
 			}
 			rs = append(rs, ranked{group: 1, in: in})
 		case d.Block >= 0 && slices.Contains([]tracepack.IncompleteReason{
-			tracepack.ReasonCorruptBlock, tracepack.ReasonUnknownCodec, tracepack.ReasonIndexMismatch}, d.Reason):
+			tracepack.IncompleteReasonCorruptBlock, tracepack.IncompleteReasonUnknownCodec, tracepack.IncompleteReasonIndexMismatch}, d.Reason):
 			off, err := blockOffset(d)
 			if err != nil {
 				return nil, err

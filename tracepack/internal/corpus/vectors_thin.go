@@ -31,7 +31,7 @@ func thinVectors() []Recipe {
 		// the unobserved records keep their header and length, a zero-filled text, not-attempted and no trailing bytes,
 		// while a genuinely empty text and an abnormal reply are ordinary records, classified and kept in full.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 4), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 4), PrefixEnd: AtEnd(),
 			ExportHas: []string{
 				`"schema":"tracepack-jsonl/2","format_major":1,"format_minor":1`,
 				`"thinning":[{"stream":"1","function":"3","source":"fdc-poll-interval"},{"stream":"1","function":"4","source":"fdc-poll-interval"}]`,

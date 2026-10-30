@@ -83,7 +83,7 @@ func coverageText(c *tracepack.Coverage) string {
 // boundaryText formats a capture-boundary entry or record; a gap bound it lacks is shown as "?".
 func boundaryText(bd *tracepack.Boundary) string {
 	return fmt.Sprintf("boundary capture %s seq %d kind %s ts %d epoch %d gap %s..%s",
-		bd.Capture, bd.Seq, bd.Kind, bd.TS, bd.Epoch, optI64(bd.GapStart), optI64(bd.GapEnd))
+		bd.CaptureID, bd.Seq, bd.Kind, bd.TS, bd.Epoch, optI64(bd.GapStart), optI64(bd.GapEnd))
 }
 
 // appendErr appends ": err" to b, or nothing for a nil err.

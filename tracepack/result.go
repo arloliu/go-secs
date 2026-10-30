@@ -4,29 +4,29 @@ import "fmt"
 
 // Reasons a read is incomplete, the "incomplete" status of the tracepack format specification §13.
 const (
-	// ReasonCorruptBlock reports a block that failed an integrity check:
+	// IncompleteReasonCorruptBlock reports a block that failed an integrity check:
 	// a CRC, its envelope against its F-2 entry, or I-2.
-	ReasonCorruptBlock IncompleteReason = iota + 1
-	// ReasonUnknownCodec reports a block whose codec is outside the registry of §2.
-	ReasonUnknownCodec
-	// ReasonTruncated reports a pack that is not finalized, so more records may follow,
+	IncompleteReasonCorruptBlock IncompleteReason = iota + 1
+	// IncompleteReasonUnknownCodec reports a block whose codec is outside the registry of §2.
+	IncompleteReasonUnknownCodec
+	// IncompleteReasonTruncated reports a pack that is not finalized, so more records may follow,
 	// or a forward walk that could not account for the pack's block region.
-	ReasonTruncated
-	// ReasonCoverage reports a coverage entry of the pack metadata that intersects the query (§5).
-	ReasonCoverage
-	// ReasonLimit reports a block larger than ReaderOptions.MaxBlockLen, which was not read,
+	IncompleteReasonTruncated
+	// IncompleteReasonCoverage reports a coverage entry of the pack metadata that intersects the query (§5).
+	IncompleteReasonCoverage
+	// IncompleteReasonLimit reports a block larger than ReaderOptions.MaxBlockLen, which was not read,
 	// or a forward walk that stopped at ReaderOptions.MaxWalkedBlocks, past which no block was read.
-	ReasonLimit
-	// ReasonIndexMismatch reports a block whose records disagree with its F-2 entry
+	IncompleteReasonLimit
+	// IncompleteReasonIndexMismatch reports a block whose records disagree with its F-2 entry
 	// (the tracepack format specification §10): its last seq, time range or epoch range.
 	// The block's records are still read, because its envelope, body CRC and I-2 checks passed;
 	// the read is incomplete, because the same index pruned the blocks it did not read.
-	ReasonIndexMismatch
-	// ReasonCrashGap reports a stop-unclean capture boundary whose gap meets the query's time range
+	IncompleteReasonIndexMismatch
+	// IncompleteReasonCrashGap reports a stop-unclean capture boundary whose gap meets the query's time range
 	// (the tracepack semantics specification §7.4, Crash gaps):
 	// records of the gap may never have been recorded.
 	// Defect.Boundary carries the boundary; Block and Offset are -1.
-	ReasonCrashGap
+	IncompleteReasonCrashGap
 )
 
 // IncompleteReason classifies why a read is incomplete.
@@ -49,10 +49,10 @@ type Defect struct {
 	// the block envelope's offset for a defect of a block, whose checks mostly have no finer position;
 	// -1 when there is none.
 	Offset int64
-	// Coverage is the coverage entry that intersects the query; set for ReasonCoverage only.
+	// Coverage is the coverage entry that intersects the query; set for IncompleteReasonCoverage only.
 	Coverage *Coverage
 	// Boundary is the stop-unclean boundary whose gap meets the query, the caller's own copy;
-	// set for ReasonCrashGap only, whose Pack is the smallest index of a pack holding the boundary.
+	// set for IncompleteReasonCrashGap only, whose Pack is the smallest index of a pack holding the boundary.
 	Boundary *Boundary
 	// Err describes the defect.
 	Err error
@@ -81,19 +81,19 @@ type Result struct {
 // String returns the reason's name, or "unknown(<n>)" for a value this package does not define.
 func (r IncompleteReason) String() string {
 	switch r {
-	case ReasonCorruptBlock:
+	case IncompleteReasonCorruptBlock:
 		return "corrupt-block"
-	case ReasonUnknownCodec:
+	case IncompleteReasonUnknownCodec:
 		return "unknown-codec"
-	case ReasonTruncated:
+	case IncompleteReasonTruncated:
 		return "truncated"
-	case ReasonCoverage:
+	case IncompleteReasonCoverage:
 		return "coverage"
-	case ReasonLimit:
+	case IncompleteReasonLimit:
 		return "limit"
-	case ReasonIndexMismatch:
+	case IncompleteReasonIndexMismatch:
 		return "index-mismatch"
-	case ReasonCrashGap:
+	case IncompleteReasonCrashGap:
 		return "crash-gap"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(r))

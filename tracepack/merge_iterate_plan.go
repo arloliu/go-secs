@@ -266,7 +266,7 @@ func (p *mergeIteratePlan) loadHeld(r *Reader, pack, i int) (*heldBlock, error) 
 	if err != nil {
 		return nil, err
 	}
-	// A defect comes without a block, or as ReasonIndexMismatch beside a usable one.
+	// A defect comes without a block, or as IncompleteReasonIndexMismatch beside a usable one.
 	if def != nil {
 		p.res.Incomplete = append(p.res.Incomplete, *def)
 	}

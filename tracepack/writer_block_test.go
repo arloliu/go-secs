@@ -159,7 +159,7 @@ func TestAppendBlockCopiesPacks(t *testing.T) {
 			cp := copyBlocks(t, copyOptions(r, blocks, Codec(layoutOf(t, src).tr.FooterCodec)), blocks)
 
 			rep := mustVerify(t, cp)
-			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "%s %s", c, name)
+			assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "%s %s", c, name)
 			assert.Equal(t, len(blocks), rep.Validated, "%s %s", c, name)
 			// Same metadata, so the same offsets: blocks, footer and trailer are the source's byte for byte.
 			start := int(layoutOf(t, src).blocksStart)
@@ -179,7 +179,7 @@ func TestAppendBlockCopiesASubset(t *testing.T) {
 	cp := copyBlocks(t, copyOptions(r, kept, CodecZstd), kept)
 
 	rep := mustVerify(t, cp)
-	require.Equal(t, OutcomeFinalizedConsistent, rep.Outcome)
+	require.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome)
 	var want uint64
 	for _, b := range kept {
 		want += uint64(b.sum.recordCount)
@@ -217,7 +217,7 @@ func TestAppendBlockKeepsReservedBits(t *testing.T) {
 	cp := copyBlocks(t, copyOptions(r, blocks, CodecNone), blocks)
 
 	rep := mustVerify(t, cp)
-	assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome)
+	assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome)
 	start := int(layoutOf(t, src).blocksStart)
 	end := int(r.Header().Trailer.FooterOffset)
 	assert.Equal(t, src[start:end], cp[start:end], "the reserved bits are copied with the blocks")
@@ -286,7 +286,7 @@ func TestAppendBlockCopiesVerbatimF3Lists(t *testing.T) {
 			assert.Zero(t, w.footerCounted, "nothing is counted without a footer budget")
 
 			cp := out.Bytes()
-			assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, cp).Outcome)
+			assert.Equal(t, VerifyOutcomeFinalizedConsistent, mustVerify(t, cp).Outcome)
 			got := footerOf(t, cp)
 			assert.Equal(t, splitFooter(t, decoded).f3Raw, splitFooter(t, got).f3Raw, "every F-3 list as the source stores it")
 			assert.Equal(t, f5Of(t, decoded), f5Of(t, got), "F-5 aggregates the blocks' summaries")
@@ -307,7 +307,7 @@ func TestAppendBlockCopiesOverlappingF3Lists(t *testing.T) {
 	r, blocks := readVerbatimSource(t, src)
 	cp := copyBlocksWith(t, copyOptions(r, blocks, CodecZstd), blocks, rawF3Lists(r))
 
-	assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, cp).Outcome)
+	assert.Equal(t, VerifyOutcomeFinalizedConsistent, mustVerify(t, cp).Outcome)
 	got := footerOf(t, cp)
 	assert.Equal(t, want, splitFooter(t, got).f3Raw)
 	assert.Equal(t, f5Of(t, footerOf(t, src)), f5Of(t, got))
@@ -833,7 +833,7 @@ func TestWriterFinalFailureMayLeaveAFinalizedPack(t *testing.T) {
 		_, err = w.Close()
 		require.ErrorIs(t, err, errTestSync)
 		require.ErrorIs(t, w.appendBlock(blocks[0].raw, &blocks[0].sum, nil), ErrWriterFailed)
-		assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, out.Bytes()).Outcome, "the trailer reached the output")
+		assert.Equal(t, VerifyOutcomeFinalizedConsistent, mustVerify(t, out.Bytes()).Outcome, "the trailer reached the output")
 	})
 
 	t.Run("the output takes the footer and trailer but reports an error", func(t *testing.T) {
@@ -847,7 +847,7 @@ func TestWriterFinalFailureMayLeaveAFinalizedPack(t *testing.T) {
 		}
 		_, err = w.Close()
 		require.ErrorIs(t, err, errTestWrite)
-		assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, fw.buf.Bytes()).Outcome, "the trailer reached the output")
+		assert.Equal(t, VerifyOutcomeFinalizedConsistent, mustVerify(t, fw.buf.Bytes()).Outcome, "the trailer reached the output")
 	})
 }
 

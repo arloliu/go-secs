@@ -55,7 +55,7 @@ var (
 	// since the archive would read the reserved bit as unobserved (the tracepack format specification §14).
 	// After it wrote the archive's header, as it reads each input block, Merge returns it, naming the pack and the block, for:
 	// a block that fails its full read (the tracepack format specification §6: its envelope, body CRC, codec or I-2);
-	// a block whose records disagree with its F-2 entry, the ReasonIndexMismatch a read reports beside the block;
+	// a block whose records disagree with its F-2 entry, the IncompleteReasonIndexMismatch a read reports beside the block;
 	// a block whose records disagree with its F-3 summary;
 	// in an input with redaction_policy, a record that carries quality.redacted or that an entry names
 	// and fails a check of Marking (the tracepack semantics specification §8), which a reader reports as recoverable;

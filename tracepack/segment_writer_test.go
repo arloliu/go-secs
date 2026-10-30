@@ -136,7 +136,7 @@ func checkCapture(t testing.TB, w *SegmentWriter, sink *memSink) [][]Record {
 		data := sink.published[k]
 		rep, err := Verify(t.Context(), bytes.NewReader(data), int64(len(data)), VerifyOptions{})
 		require.NoError(t, err, "segment %d", i)
-		assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "segment %d", i)
+		assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "segment %d", i)
 		assert.Empty(t, rep.WriterDefects, "segment %d", i)
 	}
 

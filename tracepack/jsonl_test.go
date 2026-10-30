@@ -208,7 +208,7 @@ func requireExportIsIterate(t *testing.T, r *Reader) []string {
 }
 
 // iterateResultBefore returns the Result of Iterate(Query{Payloads: true}) over r as ExportJSONL returns it when it fails
-// at a reader budget before block: without ReasonLimit defects and the defects of block and the blocks after it,
+// at a reader budget before block: without IncompleteReasonLimit defects and the defects of block and the blocks after it,
 // a crash gap of a pack without a used footer counting as a defect of the walked block holding its boundary record.
 func iterateResultBefore(t testing.TB, r *Reader, block int) (Result, []iterItem) {
 	t.Helper()
@@ -216,7 +216,7 @@ func iterateResultBefore(t testing.TB, r *Reader, block int) (Result, []iterItem
 	run := iterate(t, r, Query{Payloads: true})
 	res := run.res
 	blockOf := func(d *Defect) int {
-		if d.Reason != ReasonCrashGap || r.footer != nil {
+		if d.Reason != IncompleteReasonCrashGap || r.footer != nil {
 			return d.Block
 		}
 		b := d.Boundary
@@ -228,7 +228,7 @@ func iterateResultBefore(t testing.TB, r *Reader, block int) (Result, []iterItem
 		return run.items[i].block
 	}
 	res.Incomplete = slices.DeleteFunc(slices.Clone(res.Incomplete), func(d Defect) bool {
-		return d.Reason == ReasonLimit || blockOf(&d) >= block
+		return d.Reason == IncompleteReasonLimit || blockOf(&d) >= block
 	})
 	items := slices.DeleteFunc(slices.Clone(run.items), func(it iterItem) bool { return it.block >= block })
 
@@ -517,31 +517,31 @@ func TestExportJSONL_SameAsIterate(t *testing.T) {
 		{"coverage entries", covered, func(t *testing.T, _ []string, res Result) {
 			require.Len(t, res.Incomplete, 4, "every entry but the other capture's")
 			for i, c := range []int{1, 2, 3, 4} {
-				assert.Equal(t, ReasonCoverage, res.Incomplete[i].Reason)
+				assert.Equal(t, IncompleteReasonCoverage, res.Incomplete[i].Reason)
 				assert.Equal(t, coverage[c], *res.Incomplete[i].Coverage)
 			}
 		}},
 		{"corrupt middle block", flipByte(closed.file, bodyByte), func(t *testing.T, lines []string, res Result) {
 			require.Len(t, res.Incomplete, 1)
-			assert.Equal(t, ReasonCorruptBlock, res.Incomplete[0].Reason)
+			assert.Equal(t, IncompleteReasonCorruptBlock, res.Incomplete[0].Reason)
 			assert.Equal(t, 1, res.Incomplete[0].Block)
 			assert.Len(t, lines, 9, "blocks 0 and 2")
 		}},
 		{"unknown codec", patchEnvelope(t, closed.file, at, func(e *format.BlockEnvelope) { e.Codec = 7 }), func(t *testing.T, lines []string, res Result) {
 			require.Len(t, res.Incomplete, 1)
-			assert.Equal(t, ReasonUnknownCodec, res.Incomplete[0].Reason)
+			assert.Equal(t, IncompleteReasonUnknownCodec, res.Incomplete[0].Reason)
 			assert.Len(t, lines, 9)
 		}},
 		{"bad envelope, usable footer", flipByte(closed.file, at+8), func(t *testing.T, lines []string, res Result) {
 			assert.Empty(t, res.FooterErrs)
 			require.Len(t, res.Incomplete, 1)
-			assert.Equal(t, ReasonCorruptBlock, res.Incomplete[0].Reason)
+			assert.Equal(t, IncompleteReasonCorruptBlock, res.Incomplete[0].Reason)
 			assert.Len(t, lines, 9, "the footer locates block 2")
 		}},
 		{"bad envelope, no usable footer", flipByte(invalidFooterFile(t, closed.file), at+8), func(t *testing.T, lines []string, res Result) {
 			require.ErrorIs(t, soleFooterErr(t, res), ErrInvalidFooter)
 			require.Len(t, res.Incomplete, 1)
-			assert.Equal(t, ReasonTruncated, res.Incomplete[0].Reason)
+			assert.Equal(t, IncompleteReasonTruncated, res.Incomplete[0].Reason)
 			assert.Len(t, lines, 5, "the walk stops at block 1")
 		}},
 		{"unused footer, complete walk", invalidFooterFile(t, closed.file), func(t *testing.T, lines []string, res Result) {
@@ -551,7 +551,7 @@ func TestExportJSONL_SameAsIterate(t *testing.T) {
 		}},
 		{"F-2 disagreement", mismatch, func(t *testing.T, lines []string, res Result) {
 			require.Len(t, res.Incomplete, 1)
-			assert.Equal(t, ReasonIndexMismatch, res.Incomplete[0].Reason)
+			assert.Equal(t, IncompleteReasonIndexMismatch, res.Incomplete[0].Reason)
 			assert.Len(t, lines, 121, "the disagreeing block is exported")
 		}},
 		{"F-3 disagreement only", f3, func(t *testing.T, lines []string, res Result) {
@@ -664,12 +664,12 @@ func TestExportJSONL_ReaderBudgets(t *testing.T) {
 			out, res, err := runExportJSONL(t, r)
 			require.ErrorIs(t, err, ErrReadLimit)
 			for _, d := range res.Incomplete {
-				assert.NotEqual(t, ReasonLimit, d.Reason, "a budget is never listed")
+				assert.NotEqual(t, IncompleteReasonLimit, d.Reason, "a budget is never listed")
 			}
 			if tt.block < 0 {
 				assert.Empty(t, out, "nothing is written")
 				want := iterate(t, r, Query{Payloads: true}).res
-				want.Incomplete = slices.DeleteFunc(want.Incomplete, func(d Defect) bool { return d.Reason == ReasonLimit || d.Block >= 0 })
+				want.Incomplete = slices.DeleteFunc(want.Incomplete, func(d Defect) bool { return d.Reason == IncompleteReasonLimit || d.Block >= 0 })
 				requireSameResult(t, want, res)
 
 				return
@@ -706,7 +706,7 @@ func TestExportJSONL_Errors(t *testing.T) {
 		t.Helper()
 
 		require.Len(t, res.Incomplete, 1)
-		assert.Equal(t, ReasonCoverage, res.Incomplete[0].Reason)
+		assert.Equal(t, IncompleteReasonCoverage, res.Incomplete[0].Reason)
 		assert.Equal(t, coverage[0].Unknown, res.Incomplete[0].Coverage.Unknown)
 		require.Len(t, res.FooterErrs, 1)
 		require.ErrorIs(t, res.FooterErrs[0], ErrInvalidFooter)
@@ -776,7 +776,7 @@ func TestExportJSONL_Errors(t *testing.T) {
 		res, err := ExportJSONL(t.Context(), mr, w)
 		require.ErrorIs(t, err, errJSONLWriteBoom)
 		require.Len(t, res.Incomplete, 1, "the disagreement is listed before the block's records are written")
-		assert.Equal(t, ReasonIndexMismatch, res.Incomplete[0].Reason)
+		assert.Equal(t, IncompleteReasonIndexMismatch, res.Incomplete[0].Reason)
 		assert.Equal(t, 1, res.Incomplete[0].Block)
 		assert.Empty(t, res.FooterErrs)
 	})

@@ -372,7 +372,7 @@ The query service, its catalog database and the live-tail interface are designed
   `MaxConflicts` bounds how many conflicts are listed, not the size of one.
   Either limit ends the read with an error wrapping `ErrReadLimit`, returned with the `Result` found so far, instead of exceeding it or omitting a conflict.
   A block over the reader's `MaxBlockLen`, or whose stated dimensions cannot be consistent, is a defect and is skipped, as in `Iterate`.
-- `FindTransaction(ctx, src PackSource, key TxKey, opts TxOptions) (TxResult, error)`: [SEM §7.2]'s lookup from a primary named by `TxKey{Capture, Seq, Hour}` (G5-124), over the packs its caller gives (G5-201).
+- `FindTransaction(ctx, src PackSource, key TxKey, opts TxOptions) (TxResult, error)`: [SEM §7.2]'s lookup from a primary named by `TxKey{CaptureID, Seq, Hour}` (G5-124), over the packs its caller gives (G5-201).
   `PackSource` is `interface { Readers(ctx context.Context, hour int64) ([]*Reader, error) }`:
   the readers of every pack given for one UTC hour, of any capture, distinct `pack_id`s, in a fresh slice,
   such as `NewReaderSource` returns over packs the caller opened.
@@ -386,7 +386,7 @@ The query service, its catalog database and the live-tail interface are designed
   only `Incomplete` and that defect are guaranteed, every other fact best-effort (G5-203).
   Each hour read is one `MergeIterate` in capture order over that hour's readers.
 - `FindTransactions(ctx, src PackSource, r TxRange, opts TxRangeOptions, fn func(*TxPairing) error) (TxRangeResult, error)`: [SEM §7.2] *Pairing a time range* (G5-271, G5-273).
-  `TxRange{Capture, From, To}` selects the primaries whose `ts_utc_ns` lies in `[From, To)`;
+  `TxRange{CaptureID, From, To}` selects the primaries whose `ts_utc_ns` lies in `[From, To)`;
   `TxRangeOptions` holds `Lookup`, the `TxOptions` of every primary's lookup, and `MaxCachedBytes` (default 256 MiB), which bounds, nominally, the hours held at once.
   It calls `src.Readers` once for each hour it reads, in ascending order, reads each hour once into an immutable record,
   and replays it to the lookup of every primary that needs it, so each pairing's `Result` equals `FindTransaction`'s for its key over the same observations;
@@ -404,7 +404,7 @@ The query service, its catalog database and the live-tail interface are designed
   each failure wrapping `ErrInvalidQuery`.
   It has no `Close` and opens or closes no reader: the caller owns the readers.
   `HourOf(time.Time) int64` returns the UTC hour of a time as `TxKey.Hour` and the key builders number it,
-  and `TxKeyOf(capture UUID, seq uint64, ts time.Time) TxKey` builds the key of a primary from its record.
+  and `TxKeyOf(captureID UUID, seq uint64, ts time.Time) TxKey` builds the key of a primary from its record.
 - `EscapeToolID`, `SegmentKey` and `ArchiveKey` build the keys of [STO §3];
   a key that cannot be built is an error wrapping `ErrInvalidKey` (G5-148), and retrying does not cure it.
 - `Merge(ctx, dst io.Writer, inputs []MergeInput, opts MergeOptions) (MergeReport, error)`:
@@ -449,7 +449,7 @@ The query service, its catalog database and the live-tail interface are designed
   open defects, the `coverage` entries that intersect the query, the crash gaps ([SEM §7.4] Crash gaps), and every failed block and every block or footer value found disagreeing with its records ([SEM §7.4]) in `Incomplete`, whose records are exported;
   `FooterErrs` as `Iterate` sets it, a footer error alone not making the result incomplete.
   A record whose body is not valid ([JSONL §6]) is exported without `body` and adds nothing to `Result`.
-  Where `Iterate` lists a reader budget as a `ReasonLimit` defect, `ExportJSONL` fails instead (G5-171, [JSONL §7]):
+  Where `Iterate` lists a reader budget as an `IncompleteReasonLimit` defect, `ExportJSONL` fails instead (G5-171, [JSONL §7]):
   with an error wrapping `ErrReadLimit`, before writing anything, when the footer was not used because it is over `MaxFooterLen` or the forward walk stopped at `MaxWalkedBlocks`,
   and when it reaches a block over `MaxBlockLen`.
   Other errors: `ctx`'s error, wrapped, checked before the header line and before each block; a `ReadAt` error, wrapped, as `Iterate` returns it;

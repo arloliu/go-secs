@@ -95,7 +95,7 @@ type txCoverage struct {
 	cov *Coverage
 }
 
-// txCrashGap is a stop-unclean boundary an hour's read reported (ReasonCrashGap), which the lookup evaluates itself.
+// txCrashGap is a stop-unclean boundary an hour's read reported (IncompleteReasonCrashGap), which the lookup evaluates itself.
 type txCrashGap struct {
 	// hour is the hour of the first read that reported the boundary, and pack the pack_id of its representative in that read.
 	hour int64
@@ -250,7 +250,7 @@ func (l *txLookup) reserveConflict() error {
 }
 
 // mapScope adds the status of the read rd to the result, in this order:
-// a TxGapRead gap for each defect of the read, or TxGapIndex for a ReasonIndexMismatch one,
+// a TxGapRead gap for each defect of the read, or TxGapIndex for an IncompleteReasonIndexMismatch one,
 // the coverage defects kept as coverage entries to evaluate and the crash-gap defects as crash gaps to evaluate,
 // then the coverage entries of the primary's capture the read did not report (mapOtherCoverage),
 // the footer errors, a TxGapUnevaluated gap for each pack whose quality_evaluated is false,
@@ -314,14 +314,14 @@ func (l *txLookup) mapScope(ctx context.Context, rd *txScopeRead, completed bool
 func (l *txLookup) mapDefects(ctx context.Context, rd *txScopeRead) error {
 	for i := range rd.res.Incomplete {
 		d := &rd.res.Incomplete[i]
-		if d.Reason == ReasonCrashGap {
+		if d.Reason == IncompleteReasonCrashGap {
 			if err := l.noteCrashGap(ctx, rd, d); err != nil {
 				return err
 			}
 
 			continue
 		}
-		if d.Reason == ReasonCoverage {
+		if d.Reason == IncompleteReasonCoverage {
 			n, err := l.coverageCharge(ctx, d.Coverage)
 			if err != nil {
 				return err
@@ -339,7 +339,7 @@ func (l *txLookup) mapDefects(ctx context.Context, rd *txScopeRead) error {
 		}
 		rd.defect = true
 		reason := TxGapRead
-		if d.Reason == ReasonIndexMismatch {
+		if d.Reason == IncompleteReasonIndexMismatch {
 			reason = TxGapIndex
 		}
 		if err := l.addGap(ctx, TxGap{
@@ -368,7 +368,7 @@ func (l *txLookup) mapOtherCoverage(ctx context.Context, rd *txScopeRead) error 
 		return nil
 	}
 	for _, r := range rd.readers {
-		if UUID(r.hdr.CaptureID) == l.key.Capture {
+		if UUID(r.hdr.CaptureID) == l.key.CaptureID {
 			return nil
 		}
 	}
@@ -378,7 +378,7 @@ func (l *txLookup) mapOtherCoverage(ctx context.Context, rd *txScopeRead) error 
 				return err
 			}
 			c := &r.meta.Coverage[k]
-			if c.CaptureID == nil || *c.CaptureID != l.key.Capture {
+			if c.CaptureID == nil || *c.CaptureID != l.key.CaptureID {
 				continue
 			}
 			n, err := l.coverageCharge(ctx, c)
@@ -388,7 +388,7 @@ func (l *txLookup) mapOtherCoverage(ctx context.Context, rd *txScopeRead) error 
 			if err := l.grow(ctx, txPendingCoverageCharge+n); err != nil {
 				return err
 			}
-			l.coverage = append(l.coverage, txCoverage{hour: rd.hour, pack: rd.packs[i], capture: l.key.Capture, cov: cloneCoverage(c)})
+			l.coverage = append(l.coverage, txCoverage{hour: rd.hour, pack: rd.packs[i], capture: l.key.CaptureID, cov: cloneCoverage(c)})
 		}
 	}
 
@@ -519,7 +519,7 @@ func (l *txLookup) settle(ctx context.Context, rd *txScopeRead) (bool, error) {
 			return false, err
 		}
 		if at < 0 && !gap && !rd.defect && !rd.breach {
-			return false, fmt.Errorf("%w: hour %d holds no seq %d of capture %s", ErrNotPrimary, l.key.Hour, p, l.key.Capture)
+			return false, fmt.Errorf("%w: hour %d holds no seq %d of capture %s", ErrNotPrimary, l.key.Hour, p, l.key.CaptureID)
 		}
 		g := l.keyGap(TxGapNoKey, "the primary is missing where a gap explains it")
 		if at >= 0 {
@@ -553,7 +553,7 @@ func (l *txLookup) settle(ctx context.Context, rd *txScopeRead) (bool, error) {
 	h := first.HSMSHeader()
 	if first.Kind != KindData || h.Available&FieldValidityFunction == 0 || h.Function%2 == 0 {
 		return false, fmt.Errorf("%w: seq %d of capture %s in hour %d is a %v record with function %d, available %t",
-			ErrNotPrimary, p, l.key.Capture, l.key.Hour, first.Kind, h.Function, h.Available&FieldValidityFunction != 0)
+			ErrNotPrimary, p, l.key.CaptureID, l.key.Hour, first.Kind, h.Function, h.Available&FieldValidityFunction != 0)
 	}
 	l.deriveKey(first)
 	l.res.Records = append(l.res.Records, l.primary[0])
@@ -677,7 +677,7 @@ func (l *txLookup) coverageAtPrimary(ctx context.Context) (int, error) {
 		if err := l.tick(ctx); err != nil {
 			return -1, err
 		}
-		if c.hour == l.key.Hour && c.capture == l.key.Capture && coverageMeets(c.cov, l.key.Seq, l.key.Seq, from, to) {
+		if c.hour == l.key.Hour && c.capture == l.key.CaptureID && coverageMeets(c.cov, l.key.Seq, l.key.Seq, from, to) {
 			return i, nil
 		}
 	}
@@ -698,7 +698,7 @@ func (l *txLookup) crashGapAtPrimary(ctx context.Context) (bool, error) {
 			return false, err
 		}
 		c := &l.crash[i]
-		if c.hour == l.key.Hour && c.b.Capture == l.key.Capture && crashGapMeets(c.b, &from, &to) {
+		if c.hour == l.key.Hour && c.b.CaptureID == l.key.CaptureID && crashGapMeets(c.b, &from, &to) {
 			return true, nil
 		}
 	}

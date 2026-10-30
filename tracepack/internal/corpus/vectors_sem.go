@@ -275,7 +275,7 @@ func classifiedVector(id, title string, cites []string, frames []semFrame) Recip
 			return &Built{Pack: pack}, err
 		},
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqs, PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqs, PrefixEnd: AtEnd(),
 			ExportHas: []string{`"classifier":["tracepack-sem3"]`, `"max_frame_len":["40"]`},
 		},
 	}
@@ -337,7 +337,7 @@ func logStatusVector() Recipe {
 			return &Built{Pack: pack}, err
 		},
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 			ExportHas: []string{
 				`"capture_method":"log"`,
 				`"epoch":0,"payload_len":14,"trailing_bytes":0,"quality":["correlation-incomplete"],` +
@@ -377,7 +377,7 @@ func captureOriginMonoVector() Recipe {
 			return &Built{Pack: pack}, err
 		},
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
 			ExportHas: []string{
 				`"time_source":"capture-clock","capture_origin_utc_ns":"1791000000000000000","capture_origin_mono_ns":"86400123456789"`,
 				`"seq":"0","ts_utc_ns":"1791000000000000000","mono_ns":"0"`,

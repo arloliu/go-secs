@@ -166,7 +166,7 @@ func requireRefusedUnfinalized(t *testing.T, want error, msg string, noCoalesce 
 	if out.Len() > 0 {
 		v, err := tracepack.Verify(t.Context(), bytes.NewReader(out.Bytes()), int64(out.Len()), tracepack.VerifyOptions{})
 		require.NoError(t, err)
-		assert.Equal(t, tracepack.OutcomeUnfinalized, v.Outcome, "nothing published")
+		assert.Equal(t, tracepack.VerifyOutcomeUnfinalized, v.Outcome, "nothing published")
 	}
 }
 

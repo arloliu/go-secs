@@ -63,7 +63,7 @@ func txParRun(t *testing.T, ctx context.Context, out *txParOut, n int,
 	src, r := txParHour(t, n)
 	out.res, out.err = findTransactionsWith(ctx, src, r, TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}}, func(p *TxPairing) error {
 		k := len(out.passed)
-		want := TxKey{Capture: captureLow, Seq: 10 + uint64(k), Hour: memTestHour}
+		want := TxKey{CaptureID: captureLow, Seq: 10 + uint64(k), Hour: memTestHour}
 		if !assert.Equal(t, want, p.Key, "pairing %d", k) || !assert.Equal(t, txParMark(k), p.Result, "pairing %d", k) {
 			return fmt.Errorf("pairing %d is not key %v with its result", k, want)
 		}

@@ -370,7 +370,7 @@ const jsonlFuzzLimit = 1 << 20
 // It never panics; a successful export is valid JSON lines holding Iterate's records, with Iterate's Result;
 // a failed one fails only on a reader budget, with nothing written for the footer or the walk,
 // and the header line and the lines of the blocks before it for a block.
-// No ReasonLimit defect is ever listed.
+// No IncompleteReasonLimit defect is ever listed.
 // Defects are compared without their errors' text:
 // the zstd decoder may describe one damaged stream differently from one read to the next.
 func FuzzExportJSONL(f *testing.F) {
@@ -420,7 +420,7 @@ func FuzzExportJSONL(f *testing.F) {
 		var w bytes.Buffer
 		res, err := ExportJSONL(t.Context(), r, &w)
 		for _, d := range res.Incomplete {
-			require.NotEqual(t, ReasonLimit, d.Reason, "a budget is never listed")
+			require.NotEqual(t, IncompleteReasonLimit, d.Reason, "a budget is never listed")
 		}
 		run, iterErr := runQuery(t.Context(), r, Query{Payloads: true})
 		require.NoError(t, iterErr)
@@ -431,8 +431,8 @@ func FuzzExportJSONL(f *testing.F) {
 
 		// The footer and walk budgets are read from Iterate's public Result, not from the fields ExportJSONL checks.
 		bootstrapLimit := errors.Is(soleFooterErr(t, run.res), ErrReadLimit) ||
-			slices.ContainsFunc(run.res.Incomplete, func(d Defect) bool { return d.Reason == ReasonLimit && d.Block < 0 })
-		blockLimit := slices.IndexFunc(run.res.Incomplete, func(d Defect) bool { return d.Reason == ReasonLimit && d.Block >= 0 })
+			slices.ContainsFunc(run.res.Incomplete, func(d Defect) bool { return d.Reason == IncompleteReasonLimit && d.Block < 0 })
+		blockLimit := slices.IndexFunc(run.res.Incomplete, func(d Defect) bool { return d.Reason == IncompleteReasonLimit && d.Block >= 0 })
 		if err == nil {
 			require.False(t, bootstrapLimit, "a footer or walk budget fails the export")
 			require.Negative(t, blockLimit, "a block budget fails the export")

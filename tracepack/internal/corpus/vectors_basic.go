@@ -37,7 +37,7 @@ func basicVectors() []Recipe {
 				return &Built{Pack: pack, Queries: []QuerySpec{allQuery()}}, err
 			},
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeUnfinalized, Unfinalized: true, PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeUnfinalized, Unfinalized: true, PrefixEnd: AtEnd(),
 				Queries: []QueryWant{{ID: "all", Incomplete: []IncompleteWant{Truncated(AtEnd())}}},
 			},
 		},
@@ -50,7 +50,7 @@ func basicVectors() []Recipe {
 				return &Built{Pack: pack}, err
 			},
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, PrefixEnd: AtEnd(),
 				Stats: &StatsWant{Available: true},
 			},
 		},
@@ -100,7 +100,7 @@ func basicVectors() []Recipe {
 				})
 			},
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeUnfinalized, Unfinalized: true, Blocks: 2, Seqs: seqRange(0, 7),
+				Outcome: tracepack.VerifyOutcomeUnfinalized, Unfinalized: true, Blocks: 2, Seqs: seqRange(0, 7),
 				WalkStop: AtEnd(), PrefixEnd: AtEnd(),
 			},
 		},
@@ -122,9 +122,9 @@ func basicVectors() []Recipe {
 
 				return b, err
 			},
-			Expect: middleFailedExpect(tracepack.ReasonCorruptBlock, []QueryWant{
-				{ID: "all", Seqs: append(seqRange(0, 3), seqRange(8, 11)...), Incomplete: []IncompleteWant{BlockDefect(tracepack.ReasonCorruptBlock, 1)}},
-				{ID: "kinds-data", Seqs: []uint64{3, 10, 11}, Incomplete: []IncompleteWant{BlockDefect(tracepack.ReasonCorruptBlock, 1)}},
+			Expect: middleFailedExpect(tracepack.IncompleteReasonCorruptBlock, []QueryWant{
+				{ID: "all", Seqs: append(seqRange(0, 3), seqRange(8, 11)...), Incomplete: []IncompleteWant{BlockDefect(tracepack.IncompleteReasonCorruptBlock, 1)}},
+				{ID: "kinds-data", Seqs: []uint64{3, 10, 11}, Incomplete: []IncompleteWant{BlockDefect(tracepack.IncompleteReasonCorruptBlock, 1)}},
 			}),
 		},
 		{
@@ -135,7 +135,7 @@ func basicVectors() []Recipe {
 					return flipEnvelopeCRC(pack, 1)
 				})
 			},
-			Expect: middleFailedExpect(tracepack.ReasonCorruptBlock, nil),
+			Expect: middleFailedExpect(tracepack.IncompleteReasonCorruptBlock, nil),
 		},
 		{
 			ID: "basic-bad-envelope-crc-walked", Title: "a middle block failing its envelope CRC in a finalized pack whose footer is rejected",
@@ -166,7 +166,7 @@ func basicVectors() []Recipe {
 			// The walk stops at the block, so the trailer's totals are not compared (the tracepack format specification §13),
 			// and the query reports the walk stop, as the tracepack semantics specification §7.4 reports it.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedTruncated, Blocks: 1, Seqs: seqRange(0, 3),
+				Outcome: tracepack.VerifyOutcomeFinalizedTruncated, Blocks: 1, Seqs: seqRange(0, 3),
 				WalkStop: AtBlock(1), PrefixEnd: AtBlock(1),
 				Queries: []QueryWant{{ID: "all", Seqs: seqRange(0, 3), Incomplete: []IncompleteWant{Truncated(AtBlock(1))}}},
 			},
@@ -184,8 +184,8 @@ func basicVectors() []Recipe {
 
 				return b, err
 			},
-			Expect: middleFailedExpect(tracepack.ReasonUnknownCodec, []QueryWant{
-				{ID: "all", Seqs: append(seqRange(0, 3), seqRange(8, 11)...), Incomplete: []IncompleteWant{BlockDefect(tracepack.ReasonUnknownCodec, 1)}},
+			Expect: middleFailedExpect(tracepack.IncompleteReasonUnknownCodec, []QueryWant{
+				{ID: "all", Seqs: append(seqRange(0, 3), seqRange(8, 11)...), Incomplete: []IncompleteWant{BlockDefect(tracepack.IncompleteReasonUnknownCodec, 1)}},
 			}),
 		},
 		{
@@ -193,7 +193,7 @@ func basicVectors() []Recipe {
 			Cites: []string{"FMT §5", "FMT §9", "JSONL §3", "JSONL §4"}, Class: ClassRead,
 			Build: unknownTagsPack,
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"vantage":"unknown(200)"`, `"lifecycle_coverage":"unknown(77)"`,
 					`{"tag":256,"value_type":32,"value":"AQID"}`, `{"tag":256,"value_type":7,"value":"BA=="}`,
@@ -222,7 +222,7 @@ func basicVectors() []Recipe {
 				return &Built{Pack: pack}, err
 			},
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 			},
 		},
 		maxIntVector(),
@@ -247,7 +247,7 @@ func basicVectors() []Recipe {
 				return &Built{Pack: pack}, err
 			},
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 				ExportHas: []string{`"ts_utc_ns":"-9223372036854775808"`, `"ts_utc_ns":"9223372036854775807"`},
 			},
 		},
@@ -281,8 +281,8 @@ func basicVectors() []Recipe {
 			// the vector checks that such a block fails, not which check fails it.
 			// Its F-2 entry and F-3 summary give the lost range.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedTruncated, FooterValid: true, Blocks: 2, Seqs: seqRange(0, 1),
-				Failed: []FailedWant{{Block: 1, Cause: tracepack.ReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
+				Outcome: tracepack.VerifyOutcomeFinalizedTruncated, FooterValid: true, Blocks: 2, Seqs: seqRange(0, 1),
+				Failed: []FailedWant{{Block: 1, Cause: tracepack.IncompleteReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
 				Lost: []LostWant{{First: 2, Last: 2, TimeStart: msAt(2), TimeEnd: msAt(2)}},
 			},
 		},
@@ -297,7 +297,7 @@ func basicVectors() []Recipe {
 				return &Built{Pack: pack}, err
 			},
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: []uint64{0}, PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: []uint64{0}, PrefixEnd: AtEnd(),
 				ExportHas: []string{`"pack_id":"0f1e2d3c-4b5a-7968-8796-a5b4c3d2e1f0"`},
 			},
 		},
@@ -438,7 +438,7 @@ func codecQueryWants() []QueryWant {
 // Epoch 1 is ended by the socket-close at seq 8, and no record ends epoch 2 (the tracepack format specification §10).
 func codecExpect(queries []QueryWant) *Expectation {
 	return &Expectation{
-		Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 11), PrefixEnd: AtEnd(),
+		Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 11), PrefixEnd: AtEnd(),
 		Stats:   &StatsWant{Available: true, Epochs: []EpochWant{{Epoch: 1, CloseSeq: new(uint64(8))}, {Epoch: 2}}},
 		Queries: queries,
 	}
@@ -448,7 +448,7 @@ func codecExpect(queries []QueryWant) *Expectation {
 // its records are lost, and the footer's F-3 summary gives their range.
 func middleFailedExpect(cause tracepack.IncompleteReason, queries []QueryWant) *Expectation {
 	return &Expectation{
-		Outcome: tracepack.OutcomeCorruptMiddle, FooterValid: true, Blocks: 3, Seqs: append(seqRange(0, 3), seqRange(8, 11)...),
+		Outcome: tracepack.VerifyOutcomeCorruptMiddle, FooterValid: true, Blocks: 3, Seqs: append(seqRange(0, 3), seqRange(8, 11)...),
 		Failed: []FailedWant{{Block: 1, Cause: cause}}, PrefixEnd: AtBlock(1),
 		Lost:    []LostWant{{First: 4, Last: 7, TimeStart: msAt(4), TimeEnd: msAt(7)}},
 		Queries: queries,
@@ -555,7 +555,7 @@ func maxIntVector() Recipe {
 			return &Built{Pack: pack}, err
 		},
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 2, Seqs: seqRange(first, maxU64), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 2, Seqs: seqRange(first, maxU64), PrefixEnd: AtEnd(),
 			Stats: &StatsWant{
 				Available: true, Epochs: []EpochWant{{Epoch: math.MaxUint32}},
 				Boundaries: []BoundaryWant{{Seq: first + 4, Kind: tracepack.BoundaryKindGap}, {Seq: maxU64, Kind: tracepack.BoundaryKindGap}},

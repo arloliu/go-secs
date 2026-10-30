@@ -176,7 +176,7 @@ func requireConsistent(t testing.TB, file []byte) {
 	t.Helper()
 
 	v := mustVerify(t, file)
-	require.Equal(t, OutcomeFinalizedConsistent, v.Outcome, "failed %v, disagreements %v", v.Failed, v.Disagreements)
+	require.Equal(t, VerifyOutcomeFinalizedConsistent, v.Outcome, "failed %v, disagreements %v", v.Failed, v.Disagreements)
 }
 
 // oversizedSteps returns hourSteps whose records are classified oversized.

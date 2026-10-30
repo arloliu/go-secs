@@ -84,10 +84,10 @@ func TestDamageZstd(t *testing.T) {
 
 				rep := verifyPack(t, pack)
 				require.NoError(t, rep.FooterErr, "the F-2 entry follows the new body")
-				assert.Equal(t, tracepack.OutcomeCorruptMiddle, rep.Outcome)
+				assert.Equal(t, tracepack.VerifyOutcomeCorruptMiddle, rep.Outcome)
 				require.Len(t, rep.Failed, 1)
 				assert.Equal(t, 1, rep.Failed[0].Block)
-				assert.Equal(t, tracepack.ReasonCorruptBlock, rep.Failed[0].Reason)
+				assert.Equal(t, tracepack.IncompleteReasonCorruptBlock, rep.Failed[0].Reason)
 				assert.Empty(t, rep.Disagreements)
 
 				s := must(Locate(pack))(t).Blocks[1]

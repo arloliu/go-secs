@@ -89,7 +89,7 @@ func TestFindTransactionCrashGaps(t *testing.T) {
 			assert.Equal(t, TxGap{
 				Reason: TxGapCrashGap, Hours: []int64{memTestHour}, Pack: new(seg2), Block: -1, Offset: -1,
 				Boundary: &Boundary{
-					Capture: captureHigh, Seq: 5, Kind: BoundaryKindStopUnclean, TS: blockTestHour + 5, Epoch: 1, GapStart: tt.from, GapEnd: tt.to,
+					CaptureID: captureHigh, Seq: 5, Kind: BoundaryKindStopUnclean, TS: blockTestHour + 5, Epoch: 1, GapStart: tt.from, GapEnd: tt.to,
 				},
 				Err: g.Err,
 			}, g)

@@ -718,7 +718,7 @@ func TestFindTransactionUnreadEarlierHour(t *testing.T) {
 				}
 				txTruthPack(t, tr, seg0, 1, nil, recs...)
 				txTruthPack(t, tr, seg1, 0, nil, e.rec)
-				key := TxKey{Capture: captureLow, Seq: 12, Hour: memTestHour + 1}
+				key := TxKey{CaptureID: captureLow, Seq: 12, Hour: memTestHour + 1}
 				opts := TxOptions{MaxScopes: 1}
 
 				res, out := runTxSafety(t, tr, key, opts, nil)

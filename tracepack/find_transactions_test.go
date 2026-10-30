@@ -149,17 +149,17 @@ type txLookupRun struct {
 func requireBatchOverHour(t testing.TB, src PackSource, key TxKey, opts TxOptions, want *TxResult) {
 	t.Helper()
 
-	if key.Hour < MinTxHour || key.Hour > MaxTxHour || key.Capture.IsZero() {
+	if key.Hour < MinTxHour || key.Hour > MaxTxHour || key.CaptureID.IsZero() {
 		return
 	}
 	from := time.Unix(0, key.Hour*hourNs)
-	r := TxRange{Capture: key.Capture, From: from, To: from.Add(time.Hour)}
+	r := TxRange{CaptureID: key.CaptureID, From: from, To: from.Add(time.Hour)}
 	if _, err := newTxBatch(src, r, TxRangeOptions{Lookup: opts}, func(*TxPairing) error { return nil }); err != nil {
 		require.ErrorIs(t, err, ErrInvalidQuery)
 		return // a tail past MaxTxHour, which the single lookup refuses too
 	}
 
-	keys := txHourKeys(t, src, key.Capture, key.Hour)
+	keys := txHourKeys(t, src, key.CaptureID, key.Hour)
 	singles := make([]txLookupRun, len(keys))
 	first := len(keys)
 	for i, k := range keys {
@@ -230,7 +230,7 @@ func requireBatchOverHour(t testing.TB, src PackSource, key TxKey, opts TxOption
 	case scanErr("tracepack: find transactions: primary seq %d of hour %d:", err, &seq, &hour):
 		require.Less(t, first, len(keys), "a lookup fails alone: %v", err)
 		k, serr := keys[first], singles[first].err
-		require.Equal(t, TxKey{Capture: key.Capture, Seq: seq, Hour: hour}, k, "the batch fails at the first key failing alone")
+		require.Equal(t, TxKey{CaptureID: key.CaptureID, Seq: seq, Hour: hour}, k, "the batch fails at the first key failing alone")
 		assert.Equal(t, fmt.Sprintf("tracepack: find transactions: primary seq %d of hour %d: %v", k.Seq, k.Hour, serr), err.Error())
 		for _, target := range []error{ErrReadLimit, ErrNotPrimary, ErrInvalidQuery} {
 			assert.Equal(t, errors.Is(serr, target), errors.Is(err, target), "errors.Is %v", target)
@@ -343,7 +343,7 @@ func txReferenceHolds(readers []*Reader) bool {
 		for j := range r.blocks {
 			var buf blockBuf
 			_, def, err := r.readBlock(j, &buf)
-			if err != nil || def != nil && def.Reason == ReasonIndexMismatch {
+			if err != nil || def != nil && def.Reason == IncompleteReasonIndexMismatch {
 				return false
 			}
 		}
@@ -377,7 +377,7 @@ func txPerPackKeys(t testing.TB, readers []*Reader, capture UUID, hour, fromNs, 
 	}
 	keys := make([]TxKey, 0, len(seqs))
 	for _, s := range seqs {
-		keys = append(keys, TxKey{Capture: capture, Seq: s, Hour: hour})
+		keys = append(keys, TxKey{CaptureID: capture, Seq: s, Hour: hour})
 	}
 
 	return keys
@@ -435,7 +435,7 @@ func mutateTxGap(g *TxGap) {
 	}
 	if b := g.Boundary; b != nil {
 		b.Seq ^= 1
-		b.Capture[0] ^= 0xFF
+		b.CaptureID[0] ^= 0xFF
 		for _, p := range []*int64{b.GapStart, b.GapEnd} {
 			if p != nil {
 				*p ^= 1
@@ -483,7 +483,7 @@ func txRangeKeys(snap *txSnapshot, capture UUID, fromNs, toNs int64) []TxKey {
 		}
 		slices.Sort(seqs)
 		for _, s := range slices.Compact(seqs) {
-			keys = append(keys, TxKey{Capture: capture, Seq: s, Hour: h})
+			keys = append(keys, TxKey{CaptureID: capture, Seq: s, Hour: h})
 		}
 	}
 
@@ -548,7 +548,7 @@ func checkTxRangeWith(t *testing.T, g *txGen, exp *txRangeWant, fromNs, toNs int
 	var gotKeys []TxKey
 	var got []txStrictForm
 	before := g.src.counts()
-	res, err := findTransactionsWith(t.Context(), g.src, TxRange{Capture: captureLow, From: time.Unix(0, fromNs), To: time.Unix(0, toNs)},
+	res, err := findTransactionsWith(t.Context(), g.src, TxRange{CaptureID: captureLow, From: time.Unix(0, fromNs), To: time.Unix(0, toNs)},
 		TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
 			gotKeys = append(gotKeys, p.Key)
 			got = append(got, strictForm(&p.Result))
@@ -650,7 +650,7 @@ func TestFindTransactionsHourOverMaxHeld(t *testing.T) {
 	t.Parallel()
 
 	s := txSource(t, txPack(t, seg0, nil, txBlock(txRecord(10, nil), txReply(11, nil), txRecord(12, nil))))
-	key := TxKey{Capture: captureLow, Seq: 10, Hour: memTestHour}
+	key := TxKey{CaptureID: captureLow, Seq: 10, Hour: memTestHour}
 	_, err := FindTransaction(t.Context(), s.view(), key, TxOptions{MaxHeldBytes: 1})
 	require.ErrorIs(t, err, ErrReadLimit)
 	requireBatchAgreesOnError(t, s.view(), key, TxOptions{MaxHeldBytes: 1})
@@ -662,7 +662,7 @@ func TestFindTransactionsArguments(t *testing.T) {
 
 	src := newMemSource()
 	at := time.Unix(0, memTestHour*hourNs)
-	ok := TxRange{Capture: captureLow, From: at, To: at.Add(time.Hour)}
+	ok := TxRange{CaptureID: captureLow, From: at, To: at.Add(time.Hour)}
 	fn := func(*TxPairing) error { return nil }
 	maxStart := time.Unix(0, MaxTxHour*hourNs)
 	for name, tt := range map[string]struct {
@@ -674,12 +674,12 @@ func TestFindTransactionsArguments(t *testing.T) {
 		"a nil source":         {nil, ok, TxRangeOptions{}, fn},
 		"a nil fn":             {src, ok, TxRangeOptions{}, nil},
 		"the nil capture":      {src, TxRange{From: ok.From, To: ok.To}, TxRangeOptions{}, fn},
-		"an empty range":       {src, TxRange{Capture: captureLow, From: at, To: at}, TxRangeOptions{}, fn},
-		"an inverted range":    {src, TxRange{Capture: captureLow, From: at.Add(time.Hour), To: at}, TxRangeOptions{}, fn},
-		"a time outside int64": {src, TxRange{Capture: captureLow, From: time.Time{}, To: at}, TxRangeOptions{}, fn},
-		"a tail past MaxTxHour": {src, TxRange{Capture: captureLow, From: maxStart, To: maxStart.Add(time.Minute)},
+		"an empty range":       {src, TxRange{CaptureID: captureLow, From: at, To: at}, TxRangeOptions{}, fn},
+		"an inverted range":    {src, TxRange{CaptureID: captureLow, From: at.Add(time.Hour), To: at}, TxRangeOptions{}, fn},
+		"a time outside int64": {src, TxRange{CaptureID: captureLow, From: time.Time{}, To: at}, TxRangeOptions{}, fn},
+		"a tail past MaxTxHour": {src, TxRange{CaptureID: captureLow, From: maxStart, To: maxStart.Add(time.Minute)},
 			TxRangeOptions{Lookup: TxOptions{MaxScopes: 2}}, fn},
-		"an hour below MinTxHour": {src, TxRange{Capture: captureLow, From: time.Unix(0, math64Min()), To: time.Unix(0, math64Min()+1)},
+		"an hour below MinTxHour": {src, TxRange{CaptureID: captureLow, From: time.Unix(0, math64Min()), To: time.Unix(0, math64Min()+1)},
 			TxRangeOptions{}, fn},
 	} {
 		before := src.counts()
@@ -689,7 +689,7 @@ func TestFindTransactionsArguments(t *testing.T) {
 	}
 
 	// The last hour with a tail of one hour is valid.
-	_, err := FindTransactions(t.Context(), src, TxRange{Capture: captureLow, From: maxStart, To: maxStart.Add(time.Minute)},
+	_, err := FindTransactions(t.Context(), src, TxRange{CaptureID: captureLow, From: maxStart, To: maxStart.Add(time.Minute)},
 		TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}}, fn)
 	require.NoError(t, err)
 }

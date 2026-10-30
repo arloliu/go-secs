@@ -171,7 +171,7 @@ func TestPackEditOutcomes(t *testing.T) {
 	tests := []struct {
 		name        string
 		edit        func(t *testing.T, pack []byte) []byte
-		outcome     tracepack.Outcome
+		outcome     tracepack.VerifyOutcome
 		failed      []failure
 		disagreeing []int
 		footerValid bool
@@ -181,35 +181,35 @@ func TestPackEditOutcomes(t *testing.T) {
 			edit: func(t *testing.T, pack []byte) []byte {
 				return must(FlipByte(pack, int(must(Locate(pack))(t).Blocks[1].Offset)+testEnvelopeLen+5))(t)
 			},
-			outcome: tracepack.OutcomeCorruptMiddle, failed: []failure{{1, tracepack.ReasonCorruptBlock}}, footerValid: true,
+			outcome: tracepack.VerifyOutcomeCorruptMiddle, failed: []failure{{1, tracepack.IncompleteReasonCorruptBlock}}, footerValid: true,
 		},
 		{
 			name: "unknown codec",
 			edit: func(t *testing.T, pack []byte) []byte {
 				return must(PatchEnvelope(pack, 1, func(env []byte) { env[envelopeCodecOff] = 9 }))(t)
 			},
-			outcome: tracepack.OutcomeCorruptMiddle, failed: []failure{{1, tracepack.ReasonUnknownCodec}}, footerValid: true,
+			outcome: tracepack.VerifyOutcomeCorruptMiddle, failed: []failure{{1, tracepack.IncompleteReasonUnknownCodec}}, footerValid: true,
 		},
 		{
 			name: "envelope record_header_len against its F-2 entry",
 			edit: func(t *testing.T, pack []byte) []byte {
 				return must(PatchEnvelope(pack, 1, func(env []byte) { binary.LittleEndian.PutUint16(env[envelopeRecordHeaderLenOff:], 45) }))(t)
 			},
-			outcome: tracepack.OutcomeCorruptMiddle, failed: []failure{{1, tracepack.ReasonCorruptBlock}}, footerValid: true,
+			outcome: tracepack.VerifyOutcomeCorruptMiddle, failed: []failure{{1, tracepack.IncompleteReasonCorruptBlock}}, footerValid: true,
 		},
 		{
 			name: "header extension, the footer following",
 			edit: func(t *testing.T, pack []byte) []byte {
 				return must(PatchBody(pack, 1, func(b *Body) error { widenRows(b); return nil }))(t)
 			},
-			outcome: tracepack.OutcomeFinalizedConsistent, footerValid: true,
+			outcome: tracepack.VerifyOutcomeFinalizedConsistent, footerValid: true,
 		},
 		{
 			name: "block recoded to zstd",
 			edit: func(t *testing.T, pack []byte) []byte {
 				return must(PatchBody(pack, 1, func(b *Body) error { b.Codec = uint8(tracepack.CodecZstd); return nil }))(t)
 			},
-			outcome: tracepack.OutcomeFinalizedConsistent, footerValid: true,
+			outcome: tracepack.VerifyOutcomeFinalizedConsistent, footerValid: true,
 		},
 		{
 			name: "raw record time past F-2 ts_max",
@@ -219,7 +219,7 @@ func TestPackEditOutcomes(t *testing.T) {
 					return nil
 				}))(t)
 			},
-			outcome: tracepack.OutcomeFinalizedInconsistent, disagreeing: []int{1}, footerValid: true,
+			outcome: tracepack.VerifyOutcomeFinalizedInconsistent, disagreeing: []int{1}, footerValid: true,
 		},
 		{
 			name: "re-encoded record time past F-2 ts_max",
@@ -231,7 +231,7 @@ func TestPackEditOutcomes(t *testing.T) {
 					return nil
 				}))(t)
 			},
-			outcome: tracepack.OutcomeFinalizedInconsistent, disagreeing: []int{1}, footerValid: true,
+			outcome: tracepack.VerifyOutcomeFinalizedInconsistent, disagreeing: []int{1}, footerValid: true,
 		},
 		{
 			name: "F-5 record_count dropped",
@@ -242,21 +242,21 @@ func TestPackEditOutcomes(t *testing.T) {
 					return parts.Join()
 				}))(t)
 			},
-			outcome: tracepack.OutcomeFinalizedInconsistent,
+			outcome: tracepack.VerifyOutcomeFinalizedInconsistent,
 		},
 		{
 			name: "trailer record_count off by one",
 			edit: func(t *testing.T, pack []byte) []byte {
 				return must(PatchTrailer(pack, func(tr []byte) { addU64(tr, trailerRecordCountOff, 1) }))(t)
 			},
-			outcome: tracepack.OutcomeFinalizedInconsistent,
+			outcome: tracepack.VerifyOutcomeFinalizedInconsistent,
 		},
 		{
 			name: "file header reserved bytes",
 			edit: func(t *testing.T, pack []byte) []byte {
 				return must(PatchHeader(pack, func(h []byte) { copy(h[64:76], bytes.Repeat([]byte{0xC3}, 12)) }))(t)
 			},
-			outcome: tracepack.OutcomeFinalizedConsistent, footerValid: true,
+			outcome: tracepack.VerifyOutcomeFinalizedConsistent, footerValid: true,
 		},
 	}
 
@@ -307,7 +307,7 @@ func TestPackEditSuccessiveRawEdits(t *testing.T) {
 	pack = must(PatchHeader(pack, func(h []byte) { copy(h[64:76], bytes.Repeat([]byte{0xC3}, 12)) }))(t)
 	pack = orQualityUnion(t, pack, 0, 0x8000)
 	first := verifyPack(t, pack)
-	require.Equal(t, tracepack.OutcomeFinalizedConsistent, first.Outcome, "%+v", first)
+	require.Equal(t, tracepack.VerifyOutcomeFinalizedConsistent, first.Outcome, "%+v", first)
 
 	wantRows, rhl := storedRows(t, pack, 0)
 	require.Equal(t, 50, rhl)
@@ -326,7 +326,7 @@ func TestPackEditSuccessiveRawEdits(t *testing.T) {
 	assert.Equal(t, bytes.Repeat([]byte{0xC3}, 12), pack[64:76])
 	d := must(DecodedFooter(pack))(t)
 	assert.Equal(t, uint64(0x8000), footerU64(t, d, must(F3List(d, 0))(t), f3QualityUnionTag)&0x8000)
-	assert.Equal(t, tracepack.OutcomeFinalizedConsistent, verifyPack(t, pack).Outcome)
+	assert.Equal(t, tracepack.VerifyOutcomeFinalizedConsistent, verifyPack(t, pack).Outcome)
 
 	// Re-encoding, by contrast, writes every structure from its typed fields:
 	// reserved bits and bytes fall to zero, while the extension area is a defined part of the header and stays.
@@ -360,7 +360,7 @@ func TestPackEditPreservesFooterBytes(t *testing.T) {
 
 		return p.Join()
 	}))(t)
-	require.Equal(t, tracepack.OutcomeFinalizedConsistent, verifyPack(t, pack).Outcome)
+	require.Equal(t, tracepack.VerifyOutcomeFinalizedConsistent, verifyPack(t, pack).Outcome)
 
 	pack = must(PatchBody(pack, 0, func(b *Body) error { widenRows(b); return nil }))(t)
 	pack = must(PatchBody(pack, 2, func(b *Body) error { b.Codec = uint8(tracepack.CodecZstd); return nil }))(t)
@@ -369,7 +369,7 @@ func TestPackEditPreservesFooterBytes(t *testing.T) {
 
 	rep := verifyPack(t, pack)
 	require.NoError(t, rep.FooterErr)
-	assert.Equal(t, tracepack.OutcomeFinalizedConsistent, rep.Outcome)
+	assert.Equal(t, tracepack.VerifyOutcomeFinalizedConsistent, rep.Outcome)
 	p := must(SplitFooter(must(DecodedFooter(pack))(t)))(t)
 	assert.Equal(t, f4, p.F4)
 	assert.Equal(t, uint16(0x0003), binary.LittleEndian.Uint16(p.Prologue[prologueFlagsOff:]), "F-3 and F-4 present")

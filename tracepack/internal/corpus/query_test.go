@@ -93,13 +93,13 @@ func TestExpectFromConstructedResult(t *testing.T) {
 		{CaptureID: &captureID, SeqFirst: new(uint64(1))},
 	}
 	res := tracepack.Result{Incomplete: []tracepack.Defect{
-		{Reason: tracepack.ReasonIndexMismatch, Block: 3, Offset: 700},
-		{Reason: tracepack.ReasonTruncated, Block: -1, Offset: -1},
-		{Reason: tracepack.ReasonCorruptBlock, Block: 1, Offset: 300},
-		{Reason: tracepack.ReasonCoverage, Block: -1, Offset: -1, Coverage: &coverage[1]},
-		{Reason: tracepack.ReasonCoverage, Block: -1, Offset: -1, Coverage: &coverage[0]},
-		{Reason: tracepack.ReasonUnknownCodec, Block: 2, Offset: 500},
-		{Reason: tracepack.ReasonCoverage, Block: -1, Offset: -1, Coverage: &coverage[2]},
+		{Reason: tracepack.IncompleteReasonIndexMismatch, Block: 3, Offset: 700},
+		{Reason: tracepack.IncompleteReasonTruncated, Block: -1, Offset: -1},
+		{Reason: tracepack.IncompleteReasonCorruptBlock, Block: 1, Offset: 300},
+		{Reason: tracepack.IncompleteReasonCoverage, Block: -1, Offset: -1, Coverage: &coverage[1]},
+		{Reason: tracepack.IncompleteReasonCoverage, Block: -1, Offset: -1, Coverage: &coverage[0]},
+		{Reason: tracepack.IncompleteReasonUnknownCodec, Block: 2, Offset: 500},
+		{Reason: tracepack.IncompleteReasonCoverage, Block: -1, Offset: -1, Coverage: &coverage[2]},
 	}}
 	got, err := ExpectFrom([]int{2, 0, 0, 3}, []uint64{20, 5, 3, 30}, &res, coverage)
 	require.NoError(t, err)
@@ -162,13 +162,13 @@ func TestExpectFromRefuses(t *testing.T) {
 		name string
 		res  tracepack.Result
 	}{
-		{"reader limit", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.ReasonLimit, Block: 0, Offset: 80}}}},
+		{"reader limit", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.IncompleteReasonLimit, Block: 0, Offset: 80}}}},
 		{"two truncations", tracepack.Result{Incomplete: []tracepack.Defect{
-			{Reason: tracepack.ReasonTruncated, Block: -1, Offset: 80}, {Reason: tracepack.ReasonTruncated, Block: -1, Offset: -1},
+			{Reason: tracepack.IncompleteReasonTruncated, Block: -1, Offset: 80}, {Reason: tracepack.IncompleteReasonTruncated, Block: -1, Offset: -1},
 		}}},
-		{"coverage not in the metadata", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.ReasonCoverage, Block: -1, Offset: -1, Coverage: &other}}}},
-		{"block defect without offset", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.ReasonCorruptBlock, Block: 0, Offset: -1}}}},
-		{"truncated block", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.ReasonTruncated, Block: 0, Offset: 80}}}},
+		{"coverage not in the metadata", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.IncompleteReasonCoverage, Block: -1, Offset: -1, Coverage: &other}}}},
+		{"block defect without offset", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.IncompleteReasonCorruptBlock, Block: 0, Offset: -1}}}},
+		{"truncated block", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.IncompleteReasonTruncated, Block: 0, Offset: 80}}}},
 		{"conflicts", tracepack.Result{Conflicts: []tracepack.Conflict{{}}}},
 	}
 	for _, tt := range tests {

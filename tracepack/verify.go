@@ -8,42 +8,42 @@ import (
 	"slices"
 )
 
-// Outcome is the verification outcome of a pack (the tracepack format specification §13).
+// VerifyOutcome is the verification outcome of a pack (the tracepack format specification §13).
 //
 // The zero value is not an outcome; String prints it and any undefined value as "unknown(<n>)".
-type Outcome uint8
+type VerifyOutcome uint8
 
 const (
-	// OutcomeFinalizedConsistent reports a finalized pack whose blocks all validate
+	// VerifyOutcomeFinalizedConsistent reports a finalized pack whose blocks all validate
 	// and whose footer and trailer agree with them.
-	OutcomeFinalizedConsistent Outcome = iota + 1
-	// OutcomeFinalizedInconsistent reports a finalized pack whose blocks all validate,
+	VerifyOutcomeFinalizedConsistent VerifyOutcome = iota + 1
+	// VerifyOutcomeFinalizedInconsistent reports a finalized pack whose blocks all validate,
 	// while its footer is invalid or disagrees with the records or the trailer:
 	// no record is lost, only the index is wrong.
-	OutcomeFinalizedInconsistent
-	// OutcomeFinalizedTruncated reports a finalized pack in which a block fails or the forward walk stops,
+	VerifyOutcomeFinalizedInconsistent
+	// VerifyOutcomeFinalizedTruncated reports a finalized pack in which a block fails or the forward walk stops,
 	// with no validated block after it.
-	OutcomeFinalizedTruncated
-	// OutcomeUnfinalized reports a pack that is not finalized (I-5).
-	OutcomeUnfinalized
-	// OutcomeCorruptMiddle reports a pack in which a failed block is followed by a validated one.
-	OutcomeCorruptMiddle
+	VerifyOutcomeFinalizedTruncated
+	// VerifyOutcomeUnfinalized reports a pack that is not finalized (I-5).
+	VerifyOutcomeUnfinalized
+	// VerifyOutcomeCorruptMiddle reports a pack in which a failed block is followed by a validated one.
+	VerifyOutcomeCorruptMiddle
 )
 
-var _ fmt.Stringer = Outcome(0)
+var _ fmt.Stringer = VerifyOutcome(0)
 
 // String returns the tracepack format specification's name for o, or "unknown(<n>)" for a value it does not define.
-func (o Outcome) String() string {
+func (o VerifyOutcome) String() string {
 	switch o {
-	case OutcomeFinalizedConsistent:
+	case VerifyOutcomeFinalizedConsistent:
 		return "finalized-consistent"
-	case OutcomeFinalizedInconsistent:
+	case VerifyOutcomeFinalizedInconsistent:
 		return "finalized-inconsistent"
-	case OutcomeFinalizedTruncated:
+	case VerifyOutcomeFinalizedTruncated:
 		return "finalized-truncated"
-	case OutcomeUnfinalized:
+	case VerifyOutcomeUnfinalized:
 		return "unfinalized"
-	case OutcomeCorruptMiddle:
+	case VerifyOutcomeCorruptMiddle:
 		return "corrupt-middle"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(o))
@@ -119,7 +119,7 @@ type VerifyOptions struct {
 // VerifyReport is the result of Verify (the tracepack format specification §13).
 type VerifyReport struct {
 	// Outcome is the pack's verification outcome.
-	Outcome Outcome
+	Outcome VerifyOutcome
 	// Finalized reports I-5: the trailer magic and CRC match, the trailer places the footer after the pack metadata,
 	// and the footer CRC matches.
 	Finalized bool
@@ -135,10 +135,10 @@ type VerifyReport struct {
 	// the envelope of the first failed block, else the point where the forward walk stopped,
 	// else the end of the last block, or the end of the pack metadata for a pack without blocks.
 	PrefixEnd uint64
-	// Failed lists, in file order, every failed block (ReasonCorruptBlock or ReasonUnknownCodec)
-	// and the point where the forward walk stopped (ReasonTruncated, Block -1).
+	// Failed lists, in file order, every failed block (IncompleteReasonCorruptBlock or IncompleteReasonUnknownCodec)
+	// and the point where the forward walk stopped (IncompleteReasonTruncated, Block -1).
 	Failed []Defect
-	// Disagreements lists, with ReasonIndexMismatch, every validated block whose records disagree with its F-2 entry or F-3 summary,
+	// Disagreements lists, with IncompleteReasonIndexMismatch, every validated block whose records disagree with its F-2 entry or F-3 summary,
 	// and, with Block -1, walked blocks that disagree with the trailer's block_count or record_count.
 	Disagreements []Defect
 	// WriterDefects lists the writer defects of the validated blocks, in file order.
@@ -157,25 +157,25 @@ type VerifyReport struct {
 //
 // failed holds, for every located block in file order, whether it failed;
 // a walk stop lies after every located block, so no validated block follows it.
-func classifyOutcome(finalized bool, failed []bool, walkStopped, inconsistent bool) Outcome {
+func classifyOutcome(finalized bool, failed []bool, walkStopped, inconsistent bool) VerifyOutcome {
 	seenFailed := false
 	for _, f := range failed {
 		if f {
 			seenFailed = true
 		} else if seenFailed {
-			return OutcomeCorruptMiddle
+			return VerifyOutcomeCorruptMiddle
 		}
 	}
 
 	switch {
 	case !finalized:
-		return OutcomeUnfinalized
+		return VerifyOutcomeUnfinalized
 	case seenFailed || walkStopped:
-		return OutcomeFinalizedTruncated
+		return VerifyOutcomeFinalizedTruncated
 	case inconsistent:
-		return OutcomeFinalizedInconsistent
+		return VerifyOutcomeFinalizedInconsistent
 	default:
-		return OutcomeFinalizedConsistent
+		return VerifyOutcomeFinalizedConsistent
 	}
 }
 
@@ -239,7 +239,7 @@ func (r *Reader) analyze(ctx context.Context) (VerifyReport, error) {
 		if err != nil {
 			return VerifyReport{}, err
 		}
-		if def != nil && def.Reason == ReasonLimit {
+		if def != nil && def.Reason == IncompleteReasonLimit {
 			return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", def.Err)
 		}
 		if d == nil {
@@ -274,7 +274,7 @@ func (r *Reader) analyze(ctx context.Context) (VerifyReport, error) {
 	if r.walkStop != nil {
 		rep.Failed = append(rep.Failed, *r.walkStop)
 	} else if err := r.walkTotalsErr(); err != nil {
-		rep.Disagreements = append(rep.Disagreements, Defect{Reason: ReasonIndexMismatch, Block: -1, Offset: -1, Err: err})
+		rep.Disagreements = append(rep.Disagreements, Defect{Reason: IncompleteReasonIndexMismatch, Block: -1, Offset: -1, Err: err})
 	}
 
 	inconsistent := r.footerErr != nil || len(rep.Disagreements) > 0
@@ -289,7 +289,7 @@ func (r *Reader) bootstrapLimitErr() error {
 	if r.finalized && errors.Is(r.footerErr, ErrReadLimit) {
 		return fmt.Errorf("tracepack: verify: %w", r.footerErr)
 	}
-	if r.walkStop != nil && r.walkStop.Reason == ReasonLimit {
+	if r.walkStop != nil && r.walkStop.Reason == IncompleteReasonLimit {
 		return fmt.Errorf("tracepack: verify: %w", r.walkStop.Err)
 	}
 
@@ -298,14 +298,14 @@ func (r *Reader) bootstrapLimitErr() error {
 
 // summarize checks the summary the records of validated block i, read as d, give
 // against the block's F-3 summary when the footer is valid,
-// and returns a ReasonIndexMismatch defect when they disagree; nil otherwise, and always without a valid footer.
+// and returns an IncompleteReasonIndexMismatch defect when they disagree; nil otherwise, and always without a valid footer.
 func (r *Reader) summarize(i int, d *decodedBlock) *Defect {
 	if r.footer == nil {
 		return nil
 	}
 	got := summaryOf(d)
 	if err := checkSummary(&r.footer.blocks[i], &got); err != nil {
-		return blockDefect(i, &r.blocks[i], ReasonIndexMismatch, err)
+		return blockDefect(i, &r.blocks[i], IncompleteReasonIndexMismatch, err)
 	}
 
 	return nil

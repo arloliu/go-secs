@@ -694,7 +694,7 @@ func TestFindTransactionsCacheOwnsItsRecords(t *testing.T) {
 			t.Parallel()
 
 			g := genTxCapture(t, seed)
-			rng := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
+			rng := TxRange{CaptureID: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
 			opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}}
 			run := func(pool *loanBufs, poison bool) ([]TxPairing, TxRangeResult, string) {
 				var got []TxPairing

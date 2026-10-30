@@ -412,7 +412,7 @@ func TestReaderV010Sample(t *testing.T) {
 	run := iterate(t, r, Query{Payloads: true})
 	require.Len(t, run.res.Incomplete, 1)
 	d := run.res.Incomplete[0]
-	assert.Equal(t, ReasonCorruptBlock, d.Reason)
+	assert.Equal(t, IncompleteReasonCorruptBlock, d.Reason)
 	assert.Equal(t, 0, d.Block)
 	require.ErrorContains(t, d.Err, "first_seq 0")
 

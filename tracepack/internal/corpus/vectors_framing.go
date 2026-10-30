@@ -58,7 +58,7 @@ func framingVectors() []Recipe {
 				return &Built{Pack: pack}, nil
 			},
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 12, Seqs: seqRange(0, 11), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 12, Seqs: seqRange(0, 11), PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"record_flags":[],"record_header_len":44,"payload"`,
 					`"record_header_len":45,"header_extra":"EA=="`,
@@ -73,7 +73,7 @@ func framingVectors() []Recipe {
 			// The long header holds the short records' transposed header section and payloads, 4 × 44 + 4 × 14 = 232 bytes;
 			// its seq, time, epoch and payload_len are bytes of the short records' seqs, so 0x03020100, 0, 0 and 0.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 2,
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 2,
 				Seqs: []uint64{0, 1, 2, 3, framingsSeq}, PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"seq":"50462976","ts_utc_ns":"0","mono_ns":"0","epoch":0,"payload_len":0,"trailing_bytes":0,` +
@@ -110,7 +110,7 @@ func framingVectors() []Recipe {
 				return &Built{Pack: pack}, err
 			},
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: []uint64{0, 2, 5}, PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: []uint64{0, 2, 5}, PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"seq":"0","ts_utc_ns":"1791000000000000000","mono_ns":"0","epoch":1,"payload_len":14,`,
 					`"seq":"2","ts_utc_ns":"1791000000002000000","mono_ns":"0","epoch":1,"payload_len":17,`,
@@ -154,8 +154,8 @@ func framingVectors() []Recipe {
 			// the vector checks that such a block fails, not which check fails it.
 			// A validated block follows, and the footer gives the failed block's seqs.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeCorruptMiddle, FooterValid: true, Blocks: 3, Seqs: []uint64{0, 1, 4, 5},
-				Failed: []FailedWant{{Block: 1, Cause: tracepack.ReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
+				Outcome: tracepack.VerifyOutcomeCorruptMiddle, FooterValid: true, Blocks: 3, Seqs: []uint64{0, 1, 4, 5},
+				Failed: []FailedWant{{Block: 1, Cause: tracepack.IncompleteReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
 				Lost: []LostWant{{First: 2, Last: 3, TimeStart: msAt(2), TimeEnd: msAt(3)}},
 			},
 		},
@@ -166,8 +166,8 @@ func framingVectors() []Recipe {
 			// The header section of 2^32 bytes exceeds every valid uncompressed_len: the block fails,
 			// and the valid footer gives its seqs, 2 to 2 + 2^18 − 1, at the time of its one stored record.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedTruncated, FooterValid: true, Blocks: 2, Seqs: []uint64{0, 1},
-				Failed: []FailedWant{{Block: 1, Cause: tracepack.ReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
+				Outcome: tracepack.VerifyOutcomeFinalizedTruncated, FooterValid: true, Blocks: 2, Seqs: []uint64{0, 1},
+				Failed: []FailedWant{{Block: 1, Cause: tracepack.IncompleteReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
 				Lost: []LostWant{{First: 2, Last: 2 + overflowCount - 1, TimeStart: msAt(2), TimeEnd: msAt(2)}},
 			},
 		},
@@ -188,8 +188,8 @@ func framingVectors() []Recipe {
 			})),
 			// The footer stays valid; the envelope disagrees with its F-2 entry, so the block fails and the footer gives its seqs.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeCorruptMiddle, FooterValid: true, Blocks: 3, Seqs: []uint64{0, 1, 4, 5},
-				Failed: []FailedWant{{Block: 1, Cause: tracepack.ReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
+				Outcome: tracepack.VerifyOutcomeCorruptMiddle, FooterValid: true, Blocks: 3, Seqs: []uint64{0, 1, 4, 5},
+				Failed: []FailedWant{{Block: 1, Cause: tracepack.IncompleteReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
 				Lost: []LostWant{{First: 2, Last: 3, TimeStart: msAt(2), TimeEnd: msAt(3)}},
 			},
 		},
@@ -209,7 +209,7 @@ func framingVectors() []Recipe {
 			},
 			// The Writer closes the block before the large record and after it, so the three records take three blocks.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 				ExportHas: []string{`"seq":"1","ts_utc_ns":"1791000000001000000","mono_ns":"0","epoch":1,"payload_len":314,`},
 			},
 		},
@@ -251,7 +251,7 @@ func zstdDamageVector(id, title string, damage ZstdDamage, checksum bool) Recipe
 				return DamageZstd(pack, 1, damage, checksum)
 			})
 		},
-		Expect: middleFailedExpect(tracepack.ReasonCorruptBlock, nil),
+		Expect: middleFailedExpect(tracepack.IncompleteReasonCorruptBlock, nil),
 	}
 }
 

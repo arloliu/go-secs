@@ -340,7 +340,7 @@ func TestBoundaryBitMakesNoBoundaryRecord(t *testing.T) {
 	pack := copyBlocks(t, WriterOptions{Meta: meta}, []sourceBlock{{raw: raw, sum: sum}})
 
 	rep := mustVerify(t, pack)
-	assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
+	assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
 	require.Len(t, rep.WriterDefects, 1)
 	assert.Equal(t, WriterDefectEventPayload, rep.WriterDefects[0].Kind)
 	assert.Equal(t, uint64(2), rep.WriterDefects[0].Seq)
@@ -676,7 +676,7 @@ func TestWriterKeepsNoEpochIndex(t *testing.T) {
 	assert.Equal(t, w.blocks[0].epochs, blocks[0].sum.epochs)
 
 	v := mustVerify(t, buf.Bytes())
-	assert.Equal(t, OutcomeFinalizedConsistent, v.Outcome, "failed %v, disagreements %v", v.Failed, v.Disagreements)
+	assert.Equal(t, VerifyOutcomeFinalizedConsistent, v.Outcome, "failed %v, disagreements %v", v.Failed, v.Disagreements)
 }
 
 // rawTestRecords returns the header rows, headerLen bytes each, and the payloads of the rich footer test pack's records in its first UTC hour
@@ -758,7 +758,7 @@ func TestEncodeRawBlockKeepsRecordBytes(t *testing.T) {
 				}
 				pack := copyBlocks(t, WriterOptions{Meta: meta}, []sourceBlock{{raw: raw, sum: sum}})
 				rep := mustVerify(t, pack)
-				assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
+				assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
 				_, blocks := readSourceBlocks(t, pack)
 				require.Len(t, blocks, 1)
 				assert.Equal(t, raw, blocks[0].raw)

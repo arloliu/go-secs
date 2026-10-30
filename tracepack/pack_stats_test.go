@@ -40,9 +40,9 @@ func richStats(capture UUID, ref *packStats) PackStats {
 			{Epoch: 3, RecordCount: 2, SeqFirst: 30, SeqLast: 31, TSMin: h1 + 3, TSMax: h1 + 4, CloseSeq: new(uint64(31))},
 		},
 		Boundaries: []Boundary{
-			{Capture: capture, Seq: 10, Kind: BoundaryKindStart, TS: h + 50, Epoch: 0},
-			{Capture: capture, Seq: 20, Kind: BoundaryKindGap, TS: h + 300, Epoch: 0, GapStart: &gapStart, GapEnd: &gapEnd},
-			{Capture: capture, Seq: 31, Kind: BoundaryKindStop, TS: h1 + 4, Epoch: 3},
+			{CaptureID: capture, Seq: 10, Kind: BoundaryKindStart, TS: h + 50, Epoch: 0},
+			{CaptureID: capture, Seq: 20, Kind: BoundaryKindGap, TS: h + 300, Epoch: 0, GapStart: &gapStart, GapEnd: &gapEnd},
+			{CaptureID: capture, Seq: 31, Kind: BoundaryKindStop, TS: h1 + 4, Epoch: 3},
 		},
 	}
 }

@@ -30,8 +30,8 @@ func verifyVectors() []Recipe {
 			},
 			// No validated block follows the failed one, so the pack is finalized-truncated; its F-3 summary gives the lost range.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedTruncated, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 7),
-				Failed: []FailedWant{{Block: 2, Cause: tracepack.ReasonCorruptBlock}}, PrefixEnd: AtBlock(2),
+				Outcome: tracepack.VerifyOutcomeFinalizedTruncated, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 7),
+				Failed: []FailedWant{{Block: 2, Cause: tracepack.IncompleteReasonCorruptBlock}}, PrefixEnd: AtBlock(2),
 				Lost: []LostWant{{First: 8, Last: 11, TimeStart: msAt(8), TimeEnd: msAt(11)}},
 			},
 		},
@@ -61,8 +61,8 @@ func verifyVectors() []Recipe {
 			// The walk did not stop, so its three blocks of twelve records are compared with the trailer's totals, and agree.
 			// Without a valid footer nothing gives the lost range.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeCorruptMiddle, Blocks: 3, Seqs: append(seqRange(0, 3), seqRange(8, 11)...),
-				Failed: []FailedWant{{Block: 1, Cause: tracepack.ReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
+				Outcome: tracepack.VerifyOutcomeCorruptMiddle, Blocks: 3, Seqs: append(seqRange(0, 3), seqRange(8, 11)...),
+				Failed: []FailedWant{{Block: 1, Cause: tracepack.IncompleteReasonCorruptBlock}}, PrefixEnd: AtBlock(1),
 			},
 		},
 		{
@@ -87,9 +87,9 @@ func verifyVectors() []Recipe {
 				return b, err
 			},
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedInconsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 11), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 11), PrefixEnd: AtEnd(),
 				Disagreeing: []int{0},
-				Queries:     []QueryWant{{ID: "all", Seqs: seqRange(0, 11), Incomplete: []IncompleteWant{BlockDefect(tracepack.ReasonIndexMismatch, 0)}}},
+				Queries:     []QueryWant{{ID: "all", Seqs: seqRange(0, 11), Incomplete: []IncompleteWant{BlockDefect(tracepack.IncompleteReasonIndexMismatch, 0)}}},
 			},
 		},
 		{
@@ -109,7 +109,7 @@ func verifyVectors() []Recipe {
 			// The disagreement makes the pack finalized-inconsistent,
 			// and a read reports nothing (the tracepack semantics specification §7.4).
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedInconsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 11), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 11), PrefixEnd: AtEnd(),
 				Disagreeing: []int{0},
 				Queries:     []QueryWant{{ID: "all", Seqs: seqRange(0, 11)}},
 			},
@@ -125,7 +125,7 @@ func verifyVectors() []Recipe {
 				})
 			}),
 			Expect: verifyBaseExpect(&Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true,
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true,
 				WriterDefects: []DefectWant{{Kind: tracepack.WriterDefectEventFieldValidity, Seq: 1}},
 				ExportHas:     []string{`"kind":"transport-event","dir":"local","fidelity":"not-applicable","decode_status":"not-applicable","field_validity":["session_id"]`},
 			}),
@@ -147,7 +147,7 @@ func verifyVectors() []Recipe {
 			// The Writer stores the body and leaves it out of its summaries; a state-transition is no boundary and ends no epoch,
 			// so the footer agrees with the records and the defect is the pack's only fault.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 				WriterDefects: []DefectWant{{Kind: tracepack.WriterDefectEventPayload, Seq: 2}},
 			},
 		},
@@ -181,7 +181,7 @@ func verifyVectors() []Recipe {
 			// it states the records' seqs everywhere else, so no other clause rejects it.
 			// The walk validates both blocks by their envelopes and agrees with the trailer's totals.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedInconsistent, Blocks: 2, Seqs: []uint64{0, 1, 5, 2, 3}, PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, Blocks: 2, Seqs: []uint64{0, 1, 5, 2, 3}, PrefixEnd: AtEnd(),
 				WriterDefects: []DefectWant{{Kind: tracepack.WriterDefectSeqOrder, Seq: 2}},
 				Stats:         &StatsWant{},
 			},
@@ -198,7 +198,7 @@ func verifyVectors() []Recipe {
 			}),
 			// A footer that stated the defect would be rejected; this one disagrees with the block's records instead.
 			Expect: verifyBaseExpect(&Expectation{
-				Outcome: tracepack.OutcomeFinalizedInconsistent, FooterValid: true, Disagreeing: []int{1},
+				Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, FooterValid: true, Disagreeing: []int{1},
 				WriterDefects: []DefectWant{{Kind: tracepack.WriterDefectHourSpan, Seq: 2}},
 				ExportHas:     []string{`"seq":"3","ts_utc_ns":"1791003600000000000"`},
 			}),
@@ -209,7 +209,7 @@ func verifyVectors() []Recipe {
 			Build: verifyEdit(func(pack []byte) ([]byte, error) { return setSeqStart(pack, 2, 0) }, 2),
 			// The footer does not state seq_start, so the defect is the pack's only fault.
 			Expect: verifyBaseExpect(&Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Seqs: seqRange(2, 5),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Seqs: seqRange(2, 5),
 				WriterDefects: []DefectWant{{Kind: tracepack.WriterDefectSeqStart, Seq: 2}},
 			}),
 		},
@@ -218,7 +218,7 @@ func verifyVectors() []Recipe {
 			Cites: []string{"FMT §13", "FMT §5"}, Class: ClassRead, Labels: []string{LabelNonconformingWriter},
 			Build: verifyEdit(func(pack []byte) ([]byte, error) { return setSeqStart(pack, 0, 1) }),
 			Expect: verifyBaseExpect(&Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true,
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true,
 				WriterDefects: []DefectWant{{Kind: tracepack.WriterDefectSeqStart, Seq: 0}},
 			}),
 		},
@@ -235,8 +235,8 @@ func verifyVectors() []Recipe {
 			}),
 			// The failed block holds at least one record, so the first validated block must start above seq_start.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeCorruptMiddle, FooterValid: true, Blocks: 2, Seqs: seqRange(2, 3),
-				Failed: []FailedWant{{Block: 0, Cause: tracepack.ReasonCorruptBlock}}, PrefixEnd: AtBlock(0),
+				Outcome: tracepack.VerifyOutcomeCorruptMiddle, FooterValid: true, Blocks: 2, Seqs: seqRange(2, 3),
+				Failed: []FailedWant{{Block: 0, Cause: tracepack.IncompleteReasonCorruptBlock}}, PrefixEnd: AtBlock(0),
 				WriterDefects: []DefectWant{{Kind: tracepack.WriterDefectSeqStart, Seq: 2}},
 				Lost:          []LostWant{{First: 0, Last: 1, TimeStart: msAt(0), TimeEnd: msAt(1)}},
 			},

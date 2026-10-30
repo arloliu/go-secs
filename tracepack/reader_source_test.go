@@ -127,7 +127,7 @@ func TestTxKeyOf(t *testing.T) {
 
 	for _, ns := range []int64{blockTestHour, blockTestHour + hourNs - 1, 0, -1, -hourNs, -hourNs - 1} {
 		ts := time.Unix(0, ns)
-		assert.Equal(t, TxKey{Capture: captureLow, Seq: 7, Hour: hourOf(ns)}, TxKeyOf(captureLow, 7, ts), "ts %d", ns)
+		assert.Equal(t, TxKey{CaptureID: captureLow, Seq: 7, Hour: hourOf(ns)}, TxKeyOf(captureLow, 7, ts), "ts %d", ns)
 	}
 	assert.Equal(t, memTestHour, TxKeyOf(captureLow, 0, time.Unix(0, blockTestHour).In(time.FixedZone("x", 5*3600))).Hour,
 		"the hour is UTC's, whatever the time's location")

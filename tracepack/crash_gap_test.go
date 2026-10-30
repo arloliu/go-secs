@@ -82,13 +82,13 @@ func requireNoCrashGap(t *testing.T, r *Reader, q Query) {
 	}
 }
 
-// crashGapDefect returns the ReasonCrashGap defect of pack, without its Err,
+// crashGapDefect returns the IncompleteReasonCrashGap defect of pack, without its Err,
 // for the stop-unclean boundary at seq 12 of capture with the gap bounds gapStart and gapEnd.
 func crashGapDefect(pack int, capture UUID, gapStart, gapEnd int64) Defect {
 	return Defect{
-		Reason: ReasonCrashGap, Pack: pack, Block: -1, Offset: -1,
+		Reason: IncompleteReasonCrashGap, Pack: pack, Block: -1, Offset: -1,
 		Boundary: &Boundary{
-			Capture: capture, Seq: 12, Kind: BoundaryKindStopUnclean, TS: blockTestHour + 50, Epoch: 1,
+			CaptureID: capture, Seq: 12, Kind: BoundaryKindStopUnclean, TS: blockTestHour + 50, Epoch: 1,
 			GapStart: new(gapStart), GapEnd: new(gapEnd),
 		},
 	}
@@ -100,7 +100,7 @@ func withoutErrs(t testing.TB, ds []Defect) []Defect {
 
 	out := make([]Defect, len(ds))
 	for i, d := range ds {
-		if d.Reason == ReasonCrashGap {
+		if d.Reason == IncompleteReasonCrashGap {
 			require.Error(t, d.Err, "defect %d", i)
 		}
 		d.Err = nil
@@ -125,7 +125,7 @@ func readsAt(g *gatedReader, off uint64) int {
 func TestCrashGapReasonString(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "crash-gap", ReasonCrashGap.String())
+	assert.Equal(t, "crash-gap", IncompleteReasonCrashGap.String())
 }
 
 func TestCrashGapMeetsRange(t *testing.T) {
@@ -230,7 +230,7 @@ func TestIterateCrashGapWalkedPack(t *testing.T) {
 	run = iterate(t, r, q)
 	assert.Equal(t, []uint64{13}, run.seqs())
 	require.Len(t, run.res.Incomplete, 1, "the failed block's defect alone")
-	assert.Equal(t, ReasonCorruptBlock, run.res.Incomplete[0].Reason)
+	assert.Equal(t, IncompleteReasonCorruptBlock, run.res.Incomplete[0].Reason)
 	assert.Equal(t, 1, run.res.Incomplete[0].Block)
 }
 
@@ -294,7 +294,7 @@ func TestMergeIterateCrashGapMixedSources(t *testing.T) {
 		got := withoutErrs(t, res.Incomplete)
 		require.Len(t, got, 2, "%v", order)
 		assert.Equal(t, crashGapDefect(0, captureLow, crashGapStart, crashGapEnd), got[0], "%v", order)
-		assert.Equal(t, ReasonCorruptBlock, got[1].Reason, "%v: the run's defect follows", order)
+		assert.Equal(t, IncompleteReasonCorruptBlock, got[1].Reason, "%v: the run's defect follows", order)
 		assert.Equal(t, [2]int{1, 2}, [2]int{got[1].Pack, got[1].Block}, "%v", order)
 	}
 
@@ -308,7 +308,7 @@ func TestMergeIterateCrashGapMixedSources(t *testing.T) {
 			crashGapDefect(0, captureHigh, crashGapStart, crashGapEnd),
 			crashGapDefect(1, captureLow, crashGapStart, crashGapEnd),
 		}, got[:2], "%v: by Pack, not in the order found", order)
-		assert.Equal(t, ReasonCorruptBlock, got[2].Reason, "%v", order)
+		assert.Equal(t, IncompleteReasonCorruptBlock, got[2].Reason, "%v", order)
 	}
 }
 

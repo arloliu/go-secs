@@ -218,7 +218,7 @@ func TestOpenWalkStopsAtMaxWalkedBlocks(t *testing.T) {
 	assert.Equal(t, []uint64{0, 1, 2, 3, 4, 5, 6, 7}, run.seqs(), "the indexed blocks are read")
 	require.Len(t, run.res.Incomplete, 1)
 	d := run.res.Incomplete[0]
-	assert.Equal(t, ReasonLimit, d.Reason)
+	assert.Equal(t, IncompleteReasonLimit, d.Reason)
 	assert.Equal(t, -1, d.Block)
 	assert.Equal(t, int64(open.blocks[2].offset), d.Offset, "the walk stops at the first block it does not index")
 	require.ErrorIs(t, d.Err, ErrReadLimit)
@@ -228,7 +228,7 @@ func TestOpenWalkStopsAtMaxWalkedBlocks(t *testing.T) {
 
 	rep, err := verifyBytes(t, open.file, VerifyOptions{Reader: ReaderOptions{MaxWalkedBlocks: 3}})
 	require.NoError(t, err)
-	assert.Equal(t, OutcomeUnfinalized, rep.Outcome, "a walk of exactly MaxWalkedBlocks blocks completes")
+	assert.Equal(t, VerifyOutcomeUnfinalized, rep.Outcome, "a walk of exactly MaxWalkedBlocks blocks completes")
 
 	closed := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, recs)
 	r = mustOpen(t, closed.file, ReaderOptions{MaxWalkedBlocks: 1})

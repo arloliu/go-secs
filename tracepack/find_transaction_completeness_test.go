@@ -224,7 +224,7 @@ func TestFindTransactionBoundaryRecordsRead(t *testing.T) {
 	assert.Equal(t, TxGap{
 		Reason: TxGapCaptureBoundary, Hours: []int64{memTestHour}, Pack: new(seg0), Block: 1, Offset: -1, Seq: new(uint64(14)),
 		Boundary: &Boundary{
-			Capture: captureLow, Seq: 14, Kind: BoundaryKindGap, TS: blockTestHour + 14, Epoch: txTestEpoch,
+			CaptureID: captureLow, Seq: 14, Kind: BoundaryKindGap, TS: blockTestHour + 14, Epoch: txTestEpoch,
 			GapStart: new(int64(5)), GapEnd: new(int64(9)),
 		},
 		Err: g.Err,
@@ -318,9 +318,9 @@ func TestFindTransactionCompletenessGapOrder(t *testing.T) {
 	}, gapSeqs(res.Incomplete))
 	assert.Equal(t, &cov, res.Incomplete[1].Coverage)
 	assert.Equal(t, &Boundary{
-		Capture: captureLow, Seq: 100, Kind: BoundaryKindStopUnclean, TS: blockTestHour + 100, Epoch: 2,
+		CaptureID: captureLow, Seq: 100, Kind: BoundaryKindStopUnclean, TS: blockTestHour + 100, Epoch: 2,
 		GapStart: new(blockTestHour + 5), GapEnd: new(blockTestHour + 6),
 	}, res.Incomplete[2].Boundary)
 	assert.NotSame(t, l.crash[0].b, res.Incomplete[2].Boundary, "the gap holds a copy")
-	assert.Equal(t, &Boundary{Capture: captureLow, Seq: 14, Kind: BoundaryKindGap, TS: blockTestHour + 14, Epoch: txTestEpoch}, res.Incomplete[3].Boundary)
+	assert.Equal(t, &Boundary{CaptureID: captureLow, Seq: 14, Kind: BoundaryKindGap, TS: blockTestHour + 14, Epoch: txTestEpoch}, res.Incomplete[3].Boundary)
 }

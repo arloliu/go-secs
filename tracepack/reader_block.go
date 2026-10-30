@@ -100,22 +100,22 @@ func blockDefect(i int, info *BlockInfo, reason IncompleteReason, err error) *De
 //
 // Returns:
 //   - format.BlockEnvelope: the decoded envelope.
-//   - IncompleteReason: ReasonUnknownCodec for a codec outside the registry of §2, else ReasonCorruptBlock.
+//   - IncompleteReason: IncompleteReasonUnknownCodec for a codec outside the registry of §2, else IncompleteReasonCorruptBlock.
 //   - error: nil, or the failed check.
 func checkEnvelope(raw []byte, info *BlockInfo) (format.BlockEnvelope, IncompleteReason, error) {
 	env, err := format.UnmarshalBlockEnvelope(raw)
 	if err != nil {
-		return env, ReasonCorruptBlock, err
+		return env, IncompleteReasonCorruptBlock, err
 	}
 	if err := envelopeAgrees(&env, info); err != nil {
-		return env, ReasonCorruptBlock, err
+		return env, IncompleteReasonCorruptBlock, err
 	}
 	// The envelope agrees with info, so the body behind it is exactly body_len bytes.
 	if crc := format.CRC(raw[format.EnvelopeLen:]); crc != env.BodyCRC {
-		return env, ReasonCorruptBlock, fmt.Errorf("body CRC 0x%08X, body_crc 0x%08X", crc, env.BodyCRC)
+		return env, IncompleteReasonCorruptBlock, fmt.Errorf("body CRC 0x%08X, body_crc 0x%08X", crc, env.BodyCRC)
 	}
 	if !codec.Known(env.Codec) {
-		return env, ReasonUnknownCodec, fmt.Errorf("codec %d: %w", env.Codec, codec.ErrUnknownCodec)
+		return env, IncompleteReasonUnknownCodec, fmt.Errorf("codec %d: %w", env.Codec, codec.ErrUnknownCodec)
 	}
 
 	return env, 0, nil
@@ -291,15 +291,15 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 // Returns:
 //   - *decodedBlock: the validated block; nil with a failure or an error.
 //   - *Defect: the block's defect, at its envelope offset:
-//     ReasonLimit, wrapping ErrReadLimit, for a block over MaxBlockLen;
-//     ReasonUnknownCodec for a codec outside the registry;
-//     ReasonCorruptBlock for any other failed check, all three with a nil block;
-//     ReasonIndexMismatch, with the block, for an indexed block whose records disagree with its F-2 entry.
+//     IncompleteReasonLimit, wrapping ErrReadLimit, for a block over MaxBlockLen;
+//     IncompleteReasonUnknownCodec for a codec outside the registry;
+//     IncompleteReasonCorruptBlock for any other failed check, all three with a nil block;
+//     IncompleteReasonIndexMismatch, with the block, for an indexed block whose records disagree with its F-2 entry.
 //   - error: the ReadAt error, wrapping io.ErrUnexpectedEOF for a short read; never one for a block from kept bytes.
 func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error) {
 	info := &r.blocks[i]
 	if err := r.checkBlockBudget(info); err != nil {
-		return nil, blockDefect(i, info, ReasonLimit, err), nil
+		return nil, blockDefect(i, info, IncompleteReasonLimit, err), nil
 	}
 
 	if held := r.heldRange(int64(info.Offset), int64(info.OnDiskLen)); held != nil {
@@ -324,8 +324,8 @@ func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error)
 // Returns:
 //   - *decodedBlock: the validated block, aliasing buf; nil with a failure.
 //   - *Defect: the block's defect, at its envelope offset, as readBlock reports it:
-//     ReasonUnknownCodec or ReasonCorruptBlock with a nil block,
-//     or ReasonIndexMismatch beside the block.
+//     IncompleteReasonUnknownCodec or IncompleteReasonCorruptBlock with a nil block,
+//     or IncompleteReasonIndexMismatch beside the block.
 func (r *Reader) checkAndDecode(i int, buf *blockBuf) (*decodedBlock, *Defect) {
 	info := &r.blocks[i]
 	env, reason, err := checkEnvelope(buf.view, info)
@@ -338,11 +338,11 @@ func (r *Reader) checkAndDecode(i int, buf *blockBuf) (*decodedBlock, *Defect) {
 
 	d, span, err := decodeBlock(&env, buf)
 	if err != nil {
-		return nil, blockDefect(i, info, ReasonCorruptBlock, err)
+		return nil, blockDefect(i, info, IncompleteReasonCorruptBlock, err)
 	}
 	if info.Indexed {
 		if err := span.agrees(info); err != nil {
-			return d, blockDefect(i, info, ReasonIndexMismatch, err)
+			return d, blockDefect(i, info, IncompleteReasonIndexMismatch, err)
 		}
 	}
 

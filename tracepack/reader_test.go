@@ -350,13 +350,13 @@ func packOr(p, def *readerPack) *readerPack {
 	return p
 }
 
-// defectOffsets returns the offsets of defects, each of which must be a ReasonTruncated defect of no block.
+// defectOffsets returns the offsets of defects, each of which must be an IncompleteReasonTruncated defect of no block.
 func defectOffsets(t testing.TB, defects []Defect) []int64 {
 	t.Helper()
 
 	out := make([]int64, 0, len(defects))
 	for _, d := range defects {
-		assert.Equal(t, ReasonTruncated, d.Reason)
+		assert.Equal(t, IncompleteReasonTruncated, d.Reason)
 		assert.Equal(t, -1, d.Block)
 		require.Error(t, d.Err)
 		out = append(out, d.Offset)
@@ -437,12 +437,12 @@ func TestIncompleteReasonString(t *testing.T) {
 		r    IncompleteReason
 		want string
 	}{
-		{ReasonCorruptBlock, "corrupt-block"},
-		{ReasonUnknownCodec, "unknown-codec"},
-		{ReasonTruncated, "truncated"},
-		{ReasonCoverage, "coverage"},
-		{ReasonLimit, "limit"},
-		{ReasonIndexMismatch, "index-mismatch"},
+		{IncompleteReasonCorruptBlock, "corrupt-block"},
+		{IncompleteReasonUnknownCodec, "unknown-codec"},
+		{IncompleteReasonTruncated, "truncated"},
+		{IncompleteReasonCoverage, "coverage"},
+		{IncompleteReasonLimit, "limit"},
+		{IncompleteReasonIndexMismatch, "index-mismatch"},
 		{0, "unknown(0)"},
 		{IncompleteReason(200), "unknown(200)"},
 	}
@@ -458,7 +458,7 @@ func TestResultComplete(t *testing.T) {
 	assert.True(t, Result{FooterErrs: []PackError{{Pack: 1, Err: ErrInvalidFooter}}}.Complete(),
 		"a pack's footer failure is reported beside the defects, never as one")
 	assert.True(t, Result{Conflicts: []Conflict{{Seq: 1}}}.Complete(), "a conflict is not a defect")
-	assert.False(t, Result{Incomplete: []Defect{{Reason: ReasonTruncated, Block: -1, Offset: 80}}}.Complete())
+	assert.False(t, Result{Incomplete: []Defect{{Reason: IncompleteReasonTruncated, Block: -1, Offset: 80}}}.Complete())
 }
 
 func TestOpenValidPack(t *testing.T) {
@@ -970,7 +970,7 @@ func TestReadRepairRolePack(t *testing.T) {
 	r := mustOpen(t, repair, ReaderOptions{})
 	require.NoError(t, r.Header().FooterErr)
 	assert.Equal(t, PackRoleRepair, r.Header().Meta.PackRole)
-	assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, repair).Outcome)
+	assert.Equal(t, VerifyOutcomeFinalizedConsistent, mustVerify(t, repair).Outcome)
 
 	want := iterate(t, mustOpen(t, segment, ReaderOptions{}), Query{Payloads: true})
 	got := iterate(t, r, Query{Payloads: true})

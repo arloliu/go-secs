@@ -315,16 +315,16 @@ func requireReadDiagnostics(t *testing.T, walked, bad Result) {
 
 	var coverage, crash bool
 	for _, d := range walked.Incomplete {
-		if d.Reason == ReasonCoverage {
+		if d.Reason == IncompleteReasonCoverage {
 			coverage = d.Coverage != nil && len(d.Coverage.Unknown) == 1 && len(d.Coverage.Unknown[0].Value) == 3
 		}
-		if d.Reason == ReasonCrashGap {
+		if d.Reason == IncompleteReasonCrashGap {
 			crash = d.Boundary != nil && d.Boundary.GapStart != nil && d.Boundary.GapEnd != nil
 		}
 	}
 	require.True(t, coverage, "the coverage defect with its unknown entry")
 	require.True(t, crash, "the crash gap with its bounds")
-	require.True(t, slices.ContainsFunc(bad.Incomplete, func(d Defect) bool { return d.Reason == ReasonCorruptBlock && d.Err != nil }))
+	require.True(t, slices.ContainsFunc(bad.Incomplete, func(d Defect) bool { return d.Reason == IncompleteReasonCorruptBlock && d.Err != nil }))
 }
 
 // TestBlockBufBytes checks the capacity sum in int64, where an int sum would overflow on 32-bit platforms,

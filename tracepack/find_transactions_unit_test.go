@@ -21,7 +21,7 @@ import (
 func txBatchHour(h int64) TxRange {
 	from := time.Unix(0, (memTestHour+h)*hourNs)
 
-	return TxRange{Capture: captureLow, From: from, To: from.Add(time.Hour)}
+	return TxRange{CaptureID: captureLow, From: from, To: from.Add(time.Hour)}
 }
 
 // txKeyless edits a primary so that its System Bytes are unavailable: its lookup ends after its own hour, without a key.
@@ -229,7 +229,7 @@ func TestFindTransactionsCacheRecount(t *testing.T) {
 
 	for seed := range uint64(32) {
 		g := genTxCapture(t, seed)
-		r := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
+		r := TxRange{CaptureID: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
 		var batch *txBatch
 		filled, evicted := 0, 0
 		res, err := findTransactionsWith(t.Context(), g.src.view(), r, TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}},
@@ -270,7 +270,7 @@ func TestFindTransactionsCacheRecount(t *testing.T) {
 // FindTransactions returns without allocating for the hours it would schedule.
 func TestFindTransactionsNoAllocationAhead(t *testing.T) {
 	src := newMemSource()
-	r := TxRange{Capture: captureLow, From: time.Unix(0, 0), To: time.Unix(0, int64(time.Hour))}
+	r := TxRange{CaptureID: captureLow, From: time.Unix(0, 0), To: time.Unix(0, int64(time.Hour))}
 	opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: 2_000_000}, MaxCachedBytes: 1}
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -356,7 +356,7 @@ func TestFindTransactionsRecordsUnchanged(t *testing.T) {
 		filled := map[int64][32]byte{}
 		evicted := 0
 		var batch *txBatch
-		r := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
+		r := TxRange{CaptureID: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
 		// On several workers, the records are read by lookups running beside the callback's checks.
 		_, err := findTransactionsWith(t.Context(), g.src.view(), r, TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}},
 			func(p *TxPairing) error {
@@ -411,7 +411,7 @@ func TestFindTransactionsLookupTicks(t *testing.T) {
 		}
 
 		n, compared := 0, 0
-		_, err := findTransactionsWith(t.Context(), g.src.view(), TxRange{Capture: captureLow, From: time.Unix(0, from), To: time.Unix(0, to)},
+		_, err := findTransactionsWith(t.Context(), g.src.view(), TxRange{CaptureID: captureLow, From: time.Unix(0, from), To: time.Unix(0, to)},
 			TxRangeOptions{Lookup: opts}, func(p *TxPairing) error {
 				want, ok := live[p.Key]
 				require.True(t, ok, "seed %d: %v succeeded alone", seed, p.Key)
@@ -439,7 +439,7 @@ func TestFindTransactionsLookupTicks(t *testing.T) {
 		var hour int64
 		_, serr := fmt.Sscanf(err.Error(), "tracepack: find transactions: primary seq %d of hour %d:", &seq, &hour)
 		require.NoError(t, serr, "seed %d: %v", seed, err)
-		key := TxKey{Capture: captureLow, Seq: seq, Hour: hour}
+		key := TxKey{CaptureID: captureLow, Seq: seq, Hour: hour}
 		want, ok := failed[key]
 		require.True(t, ok, "seed %d: %v fails alone too", seed, key)
 		assert.LessOrEqual(t, n, want, "seed %d: checks of ctx in the failing lookup of %v", seed, key)
@@ -471,7 +471,7 @@ func TestFindTransactionsCancelEverywhere(t *testing.T) {
 	t.Parallel()
 
 	g := genTxCapture(t, 3)
-	r := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
+	r := TxRange{CaptureID: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
 	opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}}
 	prep := func(b *txBatch) { b.ticks.step = 1 }
 
@@ -599,7 +599,7 @@ func TestFindTransactionsCancelInFill(t *testing.T) {
 			t.Parallel()
 
 			s := txHours(t, tt.hour, later)
-			r := TxRange{Capture: captureLow, From: time.Unix(0, memTestHour*hourNs).Add(tt.from), To: time.Unix(0, (memTestHour+2)*hourNs)}
+			r := TxRange{CaptureID: captureLow, From: time.Unix(0, memTestHour*hourNs).Add(tt.from), To: time.Unix(0, (memTestHour+2)*hourNs)}
 			opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}}
 			ticks, n := -1, 0
 			_, err := findTransactionsWith(t.Context(), s.view(), r, opts, func(*TxPairing) error { return nil }, func(b *txBatch) {
@@ -685,7 +685,7 @@ func txCancelAroundDelivery(t *testing.T, workers int) {
 		[][]byte{txPack(t, seg0, nil, txBlock(txRecord(10, nil), txReply(11, nil), txRecord(12, txKeyless), txRecord(13, nil)))},
 		[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txReply(14, nil)))},
 	)
-	r := TxRange{Capture: captureLow, From: time.Unix(0, memTestHour*hourNs), To: time.Unix(0, (memTestHour+2)*hourNs)}
+	r := TxRange{CaptureID: captureLow, From: time.Unix(0, memTestHour*hourNs), To: time.Unix(0, (memTestHour+2)*hourNs)}
 	opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}}
 	dry := &txCancelAfter{Context: t.Context(), at: math.MaxInt}
 	var before []int
@@ -747,7 +747,7 @@ func TestFindTransactionsPairingsOwned(t *testing.T) {
 
 	for seed := range uint64(16) {
 		g := genTxCapture(t, seed)
-		r := TxRange{Capture: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
+		r := TxRange{CaptureID: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
 		var kept []*TxPairing
 		var forms []txStrictForm
 		_, err := findTransactionsWith(t.Context(), g.src.view(), r, TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}},

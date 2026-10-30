@@ -284,7 +284,7 @@ For readers and troubleshooters working on local files:
   copies of its entries, its defects, and whether it is wholly masked, the same with or without `Query.Payloads`.
   `PackHeader.RedactionDefects` lists the defects of the entries found at bootstrap.
   A defect never fails `Open` or a read and never makes it incomplete; the records it concerns read as wholly masked.
-- A read reports a **crash gap**, a `ReasonCrashGap` defect whose `Defect.Boundary` holds the boundary,
+- A read reports a **crash gap**, an `IncompleteReasonCrashGap` defect whose `Defect.Boundary` holds the boundary,
   for every `stop-unclean` capture boundary whose gap meets the query's time range (the semantics specification §7.4):
   records of that time may be missing.
   It takes them from the footer of every pack whose footer it uses, whatever the filter excludes,

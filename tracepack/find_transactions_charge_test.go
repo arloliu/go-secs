@@ -57,7 +57,7 @@ func txChargeEvents(b *txBatch, rec *txHourRecord) ([]txChargeEvent, int) {
 			int64(len(it.Record.Payload)) + int64(len(it.HeaderExtra)) +
 			txRedactionRecount(it.Redaction)
 		capture := UUID(rec.readers[it.Pack].hdr.CaptureID)
-		if enumerate && txRangePrimary(b.r.Capture, capture, &it.Record, rec.hour, b.fromNs, b.toNs) &&
+		if enumerate && txRangePrimary(b.r.CaptureID, capture, &it.Record, rec.hour, b.fromNs, b.toNs) &&
 			(keyed == 0 || last != it.Record.Seq) {
 			n += int64(unsafe.Sizeof(uint64(0)))
 			keyed, last = keyed+1, it.Record.Seq

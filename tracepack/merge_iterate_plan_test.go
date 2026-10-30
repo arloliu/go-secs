@@ -262,7 +262,7 @@ func TestMergeIteratePlanDiagnostics(t *testing.T) {
 	for k, pack := range []int{2, 2, 2, 2, 3} {
 		assert.Equal(t, pack, p.res.Incomplete[k].Pack, "defect %d", k)
 	}
-	assert.Equal(t, ReasonTruncated, p.res.Incomplete[4].Reason)
+	assert.Equal(t, IncompleteReasonTruncated, p.res.Incomplete[4].Reason)
 	require.Error(t, readers[1].footerErr)
 	require.Error(t, readers[3].footerErr)
 	assert.Equal(t, []PackError{{Pack: 1, Err: readers[1].footerErr}, {Pack: 3, Err: readers[3].footerErr}}, p.res.FooterErrs)
@@ -330,9 +330,9 @@ func TestMergeIteratePlanPreReadFailedBlock(t *testing.T) {
 	plan, reads := mustPlan(t, readers, Query{})
 	assert.Equal(t, map[[2]int]int{{1, 0}: 1, {1, 1}: 1, {1, 2}: 1}, reads, "the failed block is read once")
 	require.Len(t, plan.res.Incomplete, 2)
-	assert.Equal(t, ReasonTruncated, plan.res.Incomplete[0].Reason)
+	assert.Equal(t, IncompleteReasonTruncated, plan.res.Incomplete[0].Reason)
 	def := plan.res.Incomplete[1]
-	assert.Equal(t, ReasonCorruptBlock, def.Reason)
+	assert.Equal(t, IncompleteReasonCorruptBlock, def.Reason)
 	assert.Equal(t, 1, def.Pack)
 	assert.Equal(t, 1, def.Block)
 	require.ErrorContains(t, def.Err, "body_crc")
@@ -361,9 +361,9 @@ func TestMergeIteratePlanPreReadPreflightDefect(t *testing.T) {
 			}
 
 			return writeReaderPack(t, readerPackConfig{codec: CodecZstd, open: true}, recs).file
-		}, opts: ReaderOptions{MaxBlockLen: 64 << 10}, block: 1, reason: ReasonLimit},
+		}, opts: ReaderOptions{MaxBlockLen: 64 << 10}, block: 1, reason: IncompleteReasonLimit},
 		{name: "inconsistent dimensions", file: func(t testing.TB) []byte { return hugeSectionPack(t, false) },
-			block: hugeBlock, reason: ReasonCorruptBlock},
+			block: hugeBlock, reason: IncompleteReasonCorruptBlock},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -384,7 +384,7 @@ func TestMergeIteratePlanPreReadPreflightDefect(t *testing.T) {
 			assert.Equal(t, want, reads, "the block failing its preflight is not read")
 
 			require.Len(t, p.res.Incomplete, 2)
-			assert.Equal(t, ReasonTruncated, p.res.Incomplete[0].Reason)
+			assert.Equal(t, IncompleteReasonTruncated, p.res.Incomplete[0].Reason)
 			def := p.res.Incomplete[1]
 			assert.Equal(t, tt.reason, def.Reason, "%v", def.Err)
 			assert.Equal(t, 1, def.Pack)
@@ -616,7 +616,7 @@ func TestMergeIteratePlanPreReadDropsEachBuffer(t *testing.T) {
 			if tt.defectAt >= 0 {
 				require.NotEmpty(t, p.res.Incomplete)
 				def := p.res.Incomplete[len(p.res.Incomplete)-1]
-				assert.Equal(t, ReasonCorruptBlock, def.Reason)
+				assert.Equal(t, IncompleteReasonCorruptBlock, def.Reason)
 				assert.Equal(t, tt.defectAt, def.Block)
 			}
 			for _, buf := range bufs {
