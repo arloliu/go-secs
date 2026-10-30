@@ -132,7 +132,7 @@ a frame longer than its ceiling is recorded with decode status `oversized` and i
 
 ### Storing segments in a directory
 
-`NewDirSink(root, prefix)` stores each segment as the file `<root>/<SegmentKey(prefix, …)>`,
+`NewDirSink(root, prefix, DirSinkOptions{})` stores each segment as the file `<root>/<SegmentKey(prefix, …)>`,
 so a recording can be uploaded to a bucket as it is, its file paths for object keys.
 
 - `root` must be an existing directory, and its own durability is yours.
@@ -155,7 +155,7 @@ so a recording can be uploaded to a bucket as it is, its file paths for object k
   A listing of the key areas sees only committed segments.
   A file a crash left under `.partial/` is never listed;
   remove such leftovers only while no writer uses `root`.
-- `NewDirSink(root, prefix, DirSinkNoReplace())` never replaces a file at a key, as reproducible output needs:
+- `NewDirSink(root, prefix, DirSinkOptions{NoReplace: true})` never replaces a file at a key, as reproducible output needs:
   it hard-links a segment to its key instead of renaming it,
   and when the key exists, `Commit` returns an error wrapping `ErrSegmentExists` for identical bytes
   or `ErrSegmentConflict` for others,

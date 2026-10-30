@@ -9,6 +9,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 - `MergeOptions.MaxParallelOpens`, with `DefaultMaxParallelOpens` (16), bounds how many inputs `Merge` opens at once (G5-278);
   1 opens them one after another, as earlier versions did.
+- `DefaultMaxOpenBlocks` (64) names the `MergeOptions.MaxOpenBlocks` that zero selects (G5-283); the default is unchanged.
 
 ### Changed
 
@@ -56,6 +57,11 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   | `OutcomeUnfinalized` | `VerifyOutcomeUnfinalized` |
   | `OutcomeCorruptMiddle` | `VerifyOutcomeCorruptMiddle` |
 
+- **Breaking:** `NewDirSink` takes a `DirSinkOptions` struct, `NewDirSink(root, prefix string, opts DirSinkOptions)`,
+  in place of the variadic `DirSinkOption`;
+  `DirSinkOptions.NoReplace` replaces `DirSinkNoReplace()`, which is removed with `DirSinkOption` (G5-283).
+  Migration: veq's `NewDirSink(root, prefix, tracepack.DirSinkNoReplace())` becomes `NewDirSink(root, prefix, tracepack.DirSinkOptions{NoReplace: true})`,
+  and tracekeep's `NewDirSink(root, prefix)` becomes `NewDirSink(root, prefix, tracepack.DirSinkOptions{})`.
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 

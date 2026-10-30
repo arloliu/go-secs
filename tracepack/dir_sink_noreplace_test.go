@@ -26,7 +26,7 @@ func newNoReplaceDirSink(t testing.TB, root string) (*dirSink, *recordFS) {
 	t.Helper()
 
 	fsys := newRecordFS(t, root)
-	s, err := newDirSinkFS(dirTestPrefix, fsys, DirSinkNoReplace())
+	s, err := newDirSinkFS(dirTestPrefix, fsys, DirSinkOptions{NoReplace: true})
 	require.NoError(t, err)
 
 	return s, fsys
@@ -232,7 +232,7 @@ func TestDirSinkNoReplaceConcurrent(t *testing.T) {
 	holder.Store(-1)
 	var wg sync.WaitGroup
 	for i := range writers {
-		s, err := NewDirSink(root, dirTestPrefix, DirSinkNoReplace())
+		s, err := NewDirSink(root, dirTestPrefix, DirSinkOptions{NoReplace: true})
 		require.NoError(t, err)
 		wg.Go(func() {
 			<-start
@@ -429,7 +429,7 @@ func TestDirSinkNoReplaceSegmentWriter(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	s, err := NewDirSink(root, "", DirSinkNoReplace())
+	s, err := NewDirSink(root, "", DirSinkOptions{NoReplace: true})
 	require.NoError(t, err)
 	sink := &segmentKeySink{SegmentSink: s}
 	opts := segOptions(sink)

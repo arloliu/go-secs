@@ -28,30 +28,26 @@ const (
 	dirSinkCompareChunk = 32 << 10
 )
 
-// ErrSegmentExists reports a segment that a DirSink created with DirSinkNoReplace did not publish
+// ErrSegmentExists reports a segment that a DirSink created with DirSinkOptions.NoReplace did not publish
 // because a file with the same bytes already lies at its key:
 // the segment is stored, though not by this Commit.
 // Commit returns an error wrapping it that names the key,
 // so a caller tells a segment it published from one that was there already.
 var ErrSegmentExists = errors.New("tracepack: segment exists with the same bytes")
 
-// ErrSegmentConflict reports a segment that a DirSink created with DirSinkNoReplace did not publish
+// ErrSegmentConflict reports a segment that a DirSink created with DirSinkOptions.NoReplace did not publish
 // because a file with other bytes already lies at its key, which the sink left untouched.
 // Commit returns an error wrapping it that names the key.
 var ErrSegmentConflict = errors.New("tracepack: segment exists with other bytes")
 
-// DirSinkOption is an option of NewDirSink.
-type DirSinkOption func(*dirSink)
-
-// DirSinkNoReplace returns the option under which a DirSink never replaces a file at a key,
-// as reproducible converter output requires (the tracepack storage specification §7):
-// Commit publishes by hard-linking the temporary file to its key, which fails when the key exists,
-// and reports an existing file with ErrSegmentExists or ErrSegmentConflict, as NewDirSink describes.
-//
-// Returns:
-//   - DirSinkOption: the option.
-func DirSinkNoReplace() DirSinkOption {
-	return func(s *dirSink) { s.noReplace = true }
+// DirSinkOptions are the options of NewDirSink.
+// Its zero value selects a sink whose Commit renames each segment to its key, replacing a file already there.
+type DirSinkOptions struct {
+	// NoReplace makes the sink never replace a file at a key,
+	// as reproducible converter output requires (the tracepack storage specification §7):
+	// Commit publishes by hard-linking the temporary file to its key, which fails when the key exists,
+	// and reports an existing file with ErrSegmentExists or ErrSegmentConflict, as NewDirSink describes.
+	NoReplace bool
 }
 
 // dirSegmentState is where a dirSegment stands in the SegmentFile contract.
@@ -77,7 +73,7 @@ type dirSink struct {
 	fsys dirFS
 	// prefix is the bucket prefix, accepted as checkDirSinkPrefix checks it.
 	prefix string
-	// noReplace reports the sink publishing by hard link, never replacing a file at a key, as DirSinkNoReplace sets it.
+	// noReplace reports the sink publishing by hard link, never replacing a file at a key, as DirSinkOptions.NoReplace sets it.
 	noReplace bool
 }
 
@@ -180,7 +176,7 @@ var _ dirFS = rootFS{}
 // which no listing of the key areas reaches.
 // Directory syncs are skipped on Windows, which cannot sync a directory.
 //
-// With DirSinkNoReplace the sink never replaces a file at a key, as reproducible converter output requires;
+// With opts.NoReplace the sink never replaces a file at a key, as reproducible converter output requires;
 // without it, the rename replaces an existing file.
 // In place of the rename, its Commit hard-links the temporary file to its key, which fails when the key exists,
 // even for a file another writer published after the checks, and removes the temporary file once the link succeeded;
@@ -207,7 +203,7 @@ var _ dirFS = rootFS{}
 // Parameters:
 //   - root: an existing directory.
 //   - prefix: the bucket prefix the keys start with, possibly empty.
-//   - opts: the options, such as DirSinkNoReplace.
+//   - opts: the options; the zero value replaces a file at a key.
 //
 // Returns:
 //   - SegmentSink: the sink; nil on error.
@@ -216,7 +212,7 @@ var _ dirFS = rootFS{}
 //     an error for a .partial that is a symbolic link;
 //     an error for a prefix whose first component names .partial/ or leads out of root;
 //     or the error of syncing root.
-func NewDirSink(root, prefix string, opts ...DirSinkOption) (SegmentSink, error) {
+func NewDirSink(root, prefix string, opts DirSinkOptions) (SegmentSink, error) {
 	if runtime.GOOS == "js" {
 		return nil, errors.New("tracepack: DirSink: unsupported on js, where os.Root cannot exclude a link replaced after its check")
 	}
@@ -227,7 +223,7 @@ func NewDirSink(root, prefix string, opts ...DirSinkOption) (SegmentSink, error)
 	if err != nil {
 		return nil, fmt.Errorf("tracepack: DirSink root: %w", err)
 	}
-	s, err := newDirSinkFS(prefix, rootFS{root: r}, opts...)
+	s, err := newDirSinkFS(prefix, rootFS{root: r}, opts)
 	if err != nil {
 		_ = r.Close() // the error to report is newDirSinkFS's
 		return nil, err
@@ -237,7 +233,7 @@ func NewDirSink(root, prefix string, opts ...DirSinkOption) (SegmentSink, error)
 }
 
 // newDirSinkFS is NewDirSink over the file system fsys, its root already open.
-func newDirSinkFS(prefix string, fsys dirFS, opts ...DirSinkOption) (*dirSink, error) {
+func newDirSinkFS(prefix string, fsys dirFS, opts DirSinkOptions) (*dirSink, error) {
 	if err := checkDirSinkPrefix(prefix); err != nil {
 		return nil, err
 	}
@@ -254,10 +250,7 @@ func newDirSinkFS(prefix string, fsys dirFS, opts ...DirSinkOption) (*dirSink, e
 		return nil, fmt.Errorf("tracepack: DirSink: sync root: %w", err)
 	}
 
-	s := &dirSink{fsys: fsys, prefix: prefix}
-	for _, opt := range opts {
-		opt(s)
-	}
+	s := &dirSink{fsys: fsys, prefix: prefix, noReplace: opts.NoReplace}
 
 	return s, nil
 }

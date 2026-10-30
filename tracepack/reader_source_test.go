@@ -155,7 +155,7 @@ func TestReaderSourceEndToEnd(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	sink, err := NewDirSink(root, dirTestPrefix)
+	sink, err := NewDirSink(root, dirTestPrefix, DirSinkOptions{})
 	require.NoError(t, err)
 	opts := segOptions(sink)
 	opts.Capture.ToolID = dirTestTool

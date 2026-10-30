@@ -104,6 +104,10 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   The Go names of the incomplete reasons and verification outcomes gain their type's name as a prefix;
   their `String()` values are unchanged.
   No format rule and no JSONL name changed.
+- 2026-10-31: the §3 `NewDirSink` bullet takes a `DirSinkOptions` struct, `NewDirSink(root, prefix, opts DirSinkOptions)`,
+  whose `NoReplace` field replaces the option `DirSinkNoReplace()`,
+  and the `Merge` bullet names `MaxOpenBlocks`'s default, `DefaultMaxOpenBlocks` (64) (G5-283).
+  No rule of [STO §3] or [STO §7] changed.
 
 ## Changes vs v1 (summary)
 

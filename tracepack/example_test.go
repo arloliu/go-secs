@@ -28,7 +28,7 @@ func ExampleSegmentWriter() {
 	}
 	defer os.RemoveAll(root)
 
-	sink, err := tracepack.NewDirSink(root, "")
+	sink, err := tracepack.NewDirSink(root, "", tracepack.DirSinkOptions{})
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -487,7 +487,7 @@ func s1Frame(function byte, wbit bool, system uint32, body []byte) []byte {
 // and stops at 09:00:10, so it spans two segments, one in each hour.
 // It returns the capture's id.
 func recordExampleCapture(ctx context.Context, root string) (tracepack.UUID, error) {
-	sink, err := tracepack.NewDirSink(root, "")
+	sink, err := tracepack.NewDirSink(root, "", tracepack.DirSinkOptions{})
 	if err != nil {
 		return tracepack.UUID{}, err
 	}

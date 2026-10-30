@@ -277,7 +277,7 @@ The query service, its catalog database and the live-tail interface are designed
   A `Commit` that fails after the segment became visible returns an error wrapping `ErrPublishUncertain`.
   `SegmentInfo` holds the `tool_id`, `capture_id`, `pack_id`, `seq_first` of the segment key ([STO §3], known at open), the hour and the period,
   so a sink derives the key from the segment it writes and never from a tool of its own.
-  `NewDirSink(root, prefix string)` writes `<root>/<SegmentKey(prefix, info.ToolID, …)>`;
+  `NewDirSink(root, prefix string, opts DirSinkOptions)` writes `<root>/<SegmentKey(prefix, info.ToolID, …)>`;
   it refuses, before creating any file, a prefix that is not empty or a relative `/`-separated path whose components are none empty, `.` or `..`,
   and one holding `\` or a `:`, so no platform reads it as another separator or a volume,
   and one whose first component is `.partial`, the directory of its temporary files, so no committed segment lies among them (G5-157),
@@ -301,7 +301,7 @@ The query service, its catalog database and the live-tail interface are designed
   an error after the rename wraps `ErrPublishUncertain`. Directory syncs are skipped on Windows, which cannot sync a directory.
   A listing of the key areas sees only committed segments, never an open or abandoned one;
   `Abort` removes the temporary file, ignoring one already gone, and a temporary file left by a crash stays under `.partial/`, which no listing reaches.
-  `NewDirSink(root, prefix, DirSinkNoReplace())` never replaces a file at a key (G5-197), as reproducible converter output requires ([STO §7] Reproducible output):
+  `NewDirSink(root, prefix, DirSinkOptions{NoReplace: true})` never replaces a file at a key (G5-197, G5-283), as reproducible converter output requires ([STO §7] Reproducible output):
   `Commit` publishes by hard-linking the temporary file to its key, which fails when the key exists, even for a file another writer published meanwhile, then removes the temporary file;
   when the key exists, it compares that file's bytes with the segment's, after the link failed, never before,
   and returns an error wrapping `ErrSegmentExists` when they are identical or `ErrSegmentConflict` when they differ,
@@ -424,7 +424,7 @@ The query service, its catalog database and the live-tail interface are designed
   one that is not `finalized-consistent`, breaches its scope or its own commitments, or differs from the others in a capture-level tag;
   the error of a failed read of an input, or `ErrReadLimit` for an input over a reader budget of `opts.Reader`, is returned naming the input, never as `ErrMergeInput`;
   record conflicts fail with `ErrMergeConflict` once every block was compared, and each conflict is passed, as it is found, to `opts.OnConflict`, which is required;
-  exceeding `MaxOpenBlocks` or the output footer budget `MaxFooterLen` fails with `ErrMergeLimit`,
+  exceeding `MaxOpenBlocks` (default `DefaultMaxOpenBlocks`, 64) or the output footer budget `MaxFooterLen` fails with `ErrMergeLimit`,
   and so does archive pack metadata longer than `opts.Reader.MaxPackMetadataLen`, the budget the next merge opens it with.
   `Merge` keeps up to `MaxParallelOpens` inputs opening, or opened and not yet checked (default `DefaultMaxParallelOpens`, 16; 1 opens them one after another),
   and checks them in input order (G5-278):
