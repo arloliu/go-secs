@@ -51,7 +51,7 @@ type capture struct {
 func recordCapture(t *testing.T, root string, c capture) tracepack.UUID {
 	t.Helper()
 	ctx := t.Context()
-	sink, err := tracepack.NewDirSink(root, "")
+	sink, err := tracepack.NewDirSink(root, "", tracepack.DirSinkOptions{})
 	require.NoError(t, err)
 	w, err := tracepack.NewSegmentWriter(ctx, tracepack.SegmentWriterOptions{
 		Capture: tracepack.CaptureDescriptor{

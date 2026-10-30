@@ -16,8 +16,8 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
-// defaultMaxOpenBlocks is the MergeOptions.MaxOpenBlocks that zero selects.
-const defaultMaxOpenBlocks = 64
+// DefaultMaxOpenBlocks is the MergeOptions.MaxOpenBlocks that zero selects.
+const DefaultMaxOpenBlocks = 64
 
 // DefaultMaxParallelOpens is the MergeOptions.MaxParallelOpens that zero selects.
 const DefaultMaxParallelOpens = 16
@@ -195,7 +195,7 @@ type MergeOptions struct {
 	NoCoalesce bool
 	// MaxOpenBlocks is the largest number of blocks
 	// that the record-by-record resolution of an overlap cluster holds decoded at once;
-	// zero means 64.
+	// zero means DefaultMaxOpenBlocks.
 	// A block counts from when it is read and kept until its last record is resolved;
 	// a block read and dropped as a duplicate of a block held never counts,
 	// so Merge holds at most MaxOpenBlocks blocks, and the one it is reading.
@@ -587,7 +587,7 @@ func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions, hoo
 	}
 	p := &mergePlan{
 		threshold:     cmp.Or(opts.BlockThreshold, DefaultBlockThreshold),
-		maxOpenBlocks: cmp.Or(opts.MaxOpenBlocks, defaultMaxOpenBlocks),
+		maxOpenBlocks: cmp.Or(opts.MaxOpenBlocks, DefaultMaxOpenBlocks),
 		maxFooterLen:  cmp.Or(opts.MaxFooterLen, DefaultMaxFooterLen),
 		parallelOpens: cmp.Or(opts.MaxParallelOpens, DefaultMaxParallelOpens),
 		admitted:      hooks.admitted,

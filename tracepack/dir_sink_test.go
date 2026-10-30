@@ -83,7 +83,7 @@ func newRecordedDirSink(t testing.TB, root string) (*dirSink, *recordFS) {
 	t.Helper()
 
 	fsys := newRecordFS(t, root)
-	s, err := newDirSinkFS(dirTestPrefix, fsys)
+	s, err := newDirSinkFS(dirTestPrefix, fsys, DirSinkOptions{})
 	require.NoError(t, err)
 
 	return s, fsys
@@ -218,7 +218,7 @@ func TestNewDirSinkRefusesPrefix(t *testing.T) {
 			t.Parallel()
 
 			root := t.TempDir()
-			s, err := NewDirSink(root, prefix)
+			s, err := NewDirSink(root, prefix, DirSinkOptions{})
 			require.Error(t, err)
 			assert.Nil(t, s)
 			entries, err := os.ReadDir(root)
@@ -226,7 +226,7 @@ func TestNewDirSinkRefusesPrefix(t *testing.T) {
 			assert.Empty(t, entries, "no file created")
 
 			fsys := newRecordFS(t, root)
-			_, err = newDirSinkFS(prefix, fsys)
+			_, err = newDirSinkFS(prefix, fsys, DirSinkOptions{})
 			require.Error(t, err)
 			assert.Empty(t, fsys.calls, "refused before any file-system call")
 		})
@@ -241,7 +241,7 @@ func TestNewDirSinkAcceptsPrefix(t *testing.T) {
 			t.Parallel()
 
 			root := t.TempDir()
-			s, err := NewDirSink(root, prefix)
+			s, err := NewDirSink(root, prefix, DirSinkOptions{})
 			require.NoError(t, err)
 			info, err := os.Stat(filepath.Join(root, partialDir))
 			require.NoError(t, err)
@@ -267,7 +267,7 @@ func TestNewDirSinkRefusesJS(t *testing.T) {
 		t.Skip("NewDirSink fails only on js")
 	}
 	root := t.TempDir()
-	s, err := NewDirSink(root, dirTestPrefix)
+	s, err := NewDirSink(root, dirTestPrefix, DirSinkOptions{})
 	require.ErrorContains(t, err, "unsupported on js")
 	assert.Nil(t, s)
 	assert.Empty(t, dirNames(t, root), "nothing created")
@@ -285,7 +285,7 @@ func TestNewDirSinkRefusesRoot(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(partialFile, partialDir), []byte("x"), 0o600))
 
 	for _, root := range []string{missing, file, "", partialFile} {
-		s, err := NewDirSink(root, dirTestPrefix)
+		s, err := NewDirSink(root, dirTestPrefix, DirSinkOptions{})
 		require.Error(t, err, "root %q", root)
 		assert.Nil(t, s)
 	}
@@ -333,7 +333,7 @@ func TestDirSinkConfinedToRoot(t *testing.T) {
 
 		root, outside := t.TempDir(), t.TempDir()
 		dirSymlink(t, outside, filepath.Join(root, "staging"))
-		s, err := NewDirSink(root, "")
+		s, err := NewDirSink(root, "", DirSinkOptions{})
 		require.NoError(t, err)
 		f := writeSegment(t, s, dirTestInfo(0, dirTestPackA), "segment")
 		err = f.Commit(t.Context())
@@ -349,7 +349,7 @@ func TestDirSinkConfinedToRoot(t *testing.T) {
 
 			root, outside := t.TempDir(), t.TempDir()
 			dirSymlink(t, outside, filepath.Join(root, link))
-			s, err := NewDirSink(root, dirTestPrefix)
+			s, err := NewDirSink(root, dirTestPrefix, DirSinkOptions{})
 			require.Error(t, err)
 			assert.Nil(t, s)
 			assert.Empty(t, dirNames(t, outside), "nothing created outside root")
@@ -370,7 +370,7 @@ func TestNewDirSinkRefusesPartialAlias(t *testing.T) {
 		root := t.TempDir()
 		dirSymlink(t, partialDir, filepath.Join(root, "ALIAS"))
 		for _, prefix := range []string{"ALIAS", "ALIAS/traces"} {
-			s, err := NewDirSink(root, prefix)
+			s, err := NewDirSink(root, prefix, DirSinkOptions{})
 			require.ErrorContains(t, err, "the directory of the temporary files", "prefix %q", prefix)
 			assert.Nil(t, s)
 		}
@@ -379,7 +379,7 @@ func TestNewDirSinkRefusesPartialAlias(t *testing.T) {
 
 		require.NoError(t, os.Mkdir(filepath.Join(root, "bucket"), 0o700))
 		dirSymlink(t, "bucket", filepath.Join(root, "other"))
-		s, err := NewDirSink(root, "other/traces")
+		s, err := NewDirSink(root, "other/traces", DirSinkOptions{})
 		require.NoError(t, err, "a link to another directory")
 		requireCommitRefused(t, s, root)
 	})
@@ -395,7 +395,7 @@ func TestNewDirSinkRefusesPartialAlias(t *testing.T) {
 		}{{".PARTIAL", true}, {".Partial/traces", true}, {"BUCKET/traces", false}, {"missing/traces", false}} {
 			fsys := newRecordFS(t, root)
 			fsys.fsys = foldFS{fsys: fsys.fsys}
-			s, err := newDirSinkFS(tt.prefix, fsys)
+			s, err := newDirSinkFS(tt.prefix, fsys, DirSinkOptions{})
 			if !tt.refuse {
 				require.NoError(t, err, "prefix %q", tt.prefix)
 
@@ -433,7 +433,7 @@ func TestDirSinkRefusesLinks(t *testing.T) {
 		t.Parallel()
 
 		root := t.TempDir()
-		s, err := NewDirSink(root, "")
+		s, err := NewDirSink(root, "", DirSinkOptions{})
 		require.NoError(t, err)
 		dirSymlink(t, partialDir, filepath.Join(root, "staging"))
 		requireCommitRefused(t, s, root)
@@ -445,7 +445,7 @@ func TestDirSinkRefusesLinks(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(root, partialDir, "x"), 0o700))
 		require.NoError(t, os.Mkdir(filepath.Join(root, "a"), 0o700))
 		dirSymlink(t, filepath.Join("..", partialDir, "x"), filepath.Join(root, "a", "b"))
-		s, err := NewDirSink(root, "a/b")
+		s, err := NewDirSink(root, "a/b", DirSinkOptions{})
 		require.NoError(t, err, "a link below the prefix's first component")
 		requireCommitRefused(t, s, root)
 	})
@@ -456,7 +456,7 @@ func TestDirSinkRefusesLinks(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Join(root, "bucket", "traces", "staging"), 0o700))
 		require.NoError(t, os.Mkdir(filepath.Join(root, "elsewhere"), 0o700))
 		dirSymlink(t, filepath.Join("..", "..", "..", "elsewhere"), filepath.Join(root, "bucket", "traces", "staging", "EQP%2001"))
-		s, err := NewDirSink(root, dirTestPrefix)
+		s, err := NewDirSink(root, dirTestPrefix, DirSinkOptions{})
 		require.NoError(t, err)
 		requireCommitRefused(t, s, root)
 	})
@@ -466,7 +466,7 @@ func TestDirSinkRefusesLinks(t *testing.T) {
 		root := t.TempDir()
 		require.NoError(t, os.MkdirAll(filepath.Join(root, "bucket", "traces", "staging"), 0o700))
 		dirSymlink(t, filepath.Join("bucket", "traces", "staging"), filepath.Join(root, partialDir))
-		s, err := NewDirSink(root, dirTestPrefix)
+		s, err := NewDirSink(root, dirTestPrefix, DirSinkOptions{})
 		require.ErrorContains(t, err, "is a symbolic link")
 		assert.Nil(t, s)
 	})
@@ -503,7 +503,7 @@ func TestNewDirSinkSyncsRoot(t *testing.T) {
 	_, fsys = newRecordedDirSink(t, root)
 	assert.Equal(t, []string{"mkdirAll .partial", "lstat .partial", "stat bucket", "stat .partial", "syncDir ."}, fsys.calls)
 	fsys = newRecordFS(t, root)
-	_, err := newDirSinkFS("", fsys)
+	_, err := newDirSinkFS("", fsys, DirSinkOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"mkdirAll .partial", "lstat .partial", "syncDir ."}, fsys.calls)
 }
@@ -767,7 +767,7 @@ func writeCaptureIntoDirSink(t *testing.T, prefix string) {
 	t.Helper()
 
 	root := t.TempDir()
-	sink, err := NewDirSink(root, prefix)
+	sink, err := NewDirSink(root, prefix, DirSinkOptions{})
 	require.NoError(t, err)
 	opts := segOptions(sink)
 	opts.Capture.ToolID = dirTestTool
