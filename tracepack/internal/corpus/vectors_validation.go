@@ -84,7 +84,7 @@ func validationVectors() []Recipe {
 			// Every block written is walked and validated; the pack is not finalized,
 			// so a read reports it truncated at the end of its last block (the tracepack semantics specification §7.4).
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeUnfinalized, Unfinalized: true, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeUnfinalized, Unfinalized: true, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 				Queries: []QueryWant{{ID: "all", Seqs: seqRange(0, 3), Incomplete: []IncompleteWant{Truncated(AtEnd())}}},
 			},
 		},

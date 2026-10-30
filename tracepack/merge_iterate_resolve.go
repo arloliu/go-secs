@@ -256,7 +256,7 @@ func (cr *clusterResolver) firstSeq(pos int) uint64 {
 // A defect of the block is added to the read's Result.
 // A block that failed, or holds no record, contributes no records:
 // load returns no block, and the cluster's other blocks resolve its seqs.
-// A block with a ReasonIndexMismatch defect is used, its records where they are, even outside the cluster's seqs.
+// A block with an IncompleteReasonIndexMismatch defect is used, its records where they are, even outside the cluster's seqs.
 // A block is dropped at once as a duplicate
 // when its bytes, envelope and on-disk body, equal those of an open block with the same first seq;
 // its pack is added to that block's origins, and it holds no memory.

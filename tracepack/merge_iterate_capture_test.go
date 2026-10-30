@@ -340,7 +340,7 @@ func TestRunCaptureExcluded(t *testing.T) {
 		_, res, err := captureRead(t, t.Context(), readers, late, MergeIterateOptions{}, called)
 		require.NoError(t, err)
 		require.Len(t, res.Incomplete, 1)
-		assert.Equal(t, ReasonTruncated, res.Incomplete[0].Reason)
+		assert.Equal(t, IncompleteReasonTruncated, res.Incomplete[0].Reason)
 		assert.Equal(t, 2, res.Incomplete[0].Pack)
 		assert.Equal(t, []PackError{{Pack: 2, Err: readers[2].footerErr}}, res.FooterErrs)
 		assert.Empty(t, res.Conflicts)
@@ -477,8 +477,8 @@ func TestRunCaptureDefects(t *testing.T) {
 		got[i] = fmt.Sprintf("%v pack %d block %d", d.Reason, d.Pack, d.Block)
 	}
 	assert.Equal(t, []string{
-		fmt.Sprintf("%v pack 0 block %d", ReasonTruncated, res.Incomplete[0].Block),
-		fmt.Sprintf("%v pack 2 block 0", ReasonIndexMismatch),
-		fmt.Sprintf("%v pack 1 block 1", ReasonCorruptBlock),
+		fmt.Sprintf("%v pack 0 block %d", IncompleteReasonTruncated, res.Incomplete[0].Block),
+		fmt.Sprintf("%v pack 2 block 0", IncompleteReasonIndexMismatch),
+		fmt.Sprintf("%v pack 1 block 1", IncompleteReasonCorruptBlock),
 	}, got)
 }

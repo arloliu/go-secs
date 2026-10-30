@@ -52,7 +52,7 @@ func closeVectors() []Recipe {
 			// The capture's policy, classifier, max_frame_len and thinning are inherited, which are format 1.1 features:
 			// minor 1, exported under /2, and no entry, since the close record is no data record.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: []uint64{closeSeq}, PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: []uint64{closeSeq}, PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"schema":"tracepack-jsonl/2","format_major":1,"format_minor":1,"flags":[]`,
 					`"classifier":["tracepack-sem3"]`,
@@ -156,7 +156,7 @@ func closeExpect(stagedMs *int, p FooterProjection) *Expectation {
 	}
 
 	return &Expectation{
-		Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: []uint64{closeSeq}, PrefixEnd: AtEnd(),
+		Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: []uint64{closeSeq}, PrefixEnd: AtEnd(),
 		ExportHas: []string{
 			`"schema":"tracepack-jsonl/1","format_major":1,"format_minor":0`,
 			`"seq_start":"9223372036854775807"`,
@@ -201,7 +201,7 @@ func closeMergedExpect() *Expectation {
 	}
 
 	return &Expectation{
-		Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: []uint64{0, 1, 2, closeSeq}, PrefixEnd: AtEnd(),
+		Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: []uint64{0, 1, 2, closeSeq}, PrefixEnd: AtEnd(),
 		ExportHas: []string{`"pack_role":"archive"`, `"seq_start":"0"`},
 		Stats: &StatsWant{
 			Available: true, Epochs: []EpochWant{{Epoch: 0}, {Epoch: 1}},

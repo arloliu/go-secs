@@ -104,7 +104,7 @@ type ReaderOptions struct {
 	MaxBlockLen int64
 	// MaxWalkedBlocks is the largest number of blocks the forward walk indexes when the footer is not used,
 	// which bounds the block index as MaxFooterLen bounds a footer's;
-	// the walk stops at the next block, and every read reports the rest of the pack as incomplete with ReasonLimit.
+	// the walk stops at the next block, and every read reports the rest of the pack as incomplete with IncompleteReasonLimit.
 	// Default 1 Mi blocks.
 	MaxWalkedBlocks int
 }

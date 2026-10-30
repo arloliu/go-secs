@@ -181,9 +181,9 @@ func TestHeldLoaderPreflightDefect(t *testing.T) {
 		msg     string
 	}{
 		{name: "huge header section, indexed", file: func(t testing.TB) []byte { return hugeSectionPack(t, true) },
-			block: hugeBlock, indexed: true, reason: ReasonCorruptBlock, msg: "header section of 738197504 bytes exceeds uncompressed_len 44"},
+			block: hugeBlock, indexed: true, reason: IncompleteReasonCorruptBlock, msg: "header section of 738197504 bytes exceeds uncompressed_len 44"},
 		{name: "huge header section, walked", file: func(t testing.TB) []byte { return hugeSectionPack(t, false) },
-			block: hugeBlock, reason: ReasonCorruptBlock, msg: "header section of 738197504 bytes exceeds uncompressed_len 44"},
+			block: hugeBlock, reason: IncompleteReasonCorruptBlock, msg: "header section of 738197504 bytes exceeds uncompressed_len 44"},
 		{name: "over MaxBlockLen", file: func(t testing.TB) []byte {
 			// Block 1 holds records of 4 KiB payloads, blocks 0 and 2 of 1 byte.
 			recs := hourRecords(3, 40)
@@ -192,7 +192,7 @@ func TestHeldLoaderPreflightDefect(t *testing.T) {
 			}
 
 			return writeReaderPack(t, readerPackConfig{codec: CodecZstd}, recs).file
-		}, opts: ReaderOptions{MaxBlockLen: 64 << 10}, block: 1, indexed: true, reason: ReasonLimit, msg: "exceeds MaxBlockLen"},
+		}, opts: ReaderOptions{MaxBlockLen: 64 << 10}, block: 1, indexed: true, reason: IncompleteReasonLimit, msg: "exceeds MaxBlockLen"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -212,7 +212,7 @@ func TestHeldLoaderPreflightDefect(t *testing.T) {
 			assert.Equal(t, tt.block, def.Block)
 			assert.Equal(t, int64(r.blocks[tt.block].Offset), def.Offset)
 			require.ErrorContains(t, def.Err, tt.msg)
-			if tt.reason == ReasonLimit {
+			if tt.reason == IncompleteReasonLimit {
 				require.ErrorIs(t, def.Err, ErrReadLimit)
 			}
 			assert.Zero(t, l.budget.held, "nothing reserved")
@@ -371,7 +371,7 @@ func TestHeldLoaderFailedBlock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, h)
 	require.NotNil(t, def)
-	assert.Equal(t, ReasonCorruptBlock, def.Reason)
+	assert.Equal(t, IncompleteReasonCorruptBlock, def.Reason)
 	assert.Equal(t, loadTestPack, def.Pack)
 	assert.Equal(t, 1, def.Block)
 	require.ErrorContains(t, def.Err, "body_crc")
@@ -413,7 +413,7 @@ func TestHeldLoaderBodyDefect(t *testing.T) {
 			require.NoError(t, err)
 			assert.Nil(t, h)
 			require.NotNil(t, def)
-			assert.Equal(t, ReasonCorruptBlock, def.Reason)
+			assert.Equal(t, IncompleteReasonCorruptBlock, def.Reason)
 			assert.Equal(t, loadTestPack, def.Pack)
 			require.ErrorContains(t, def.Err, tt.msg)
 			assert.Equal(t, 1, l.reads[[2]int{loadTestPack, 1}])
@@ -436,7 +436,7 @@ func TestHeldLoaderIndexMismatch(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, h, "a block disagreeing with its F-2 entry is still usable")
 	require.NotNil(t, def)
-	assert.Equal(t, ReasonIndexMismatch, def.Reason)
+	assert.Equal(t, IncompleteReasonIndexMismatch, def.Reason)
 	assert.Equal(t, loadTestPack, def.Pack)
 	assert.Equal(t, 1, def.Block)
 	require.ErrorContains(t, def.Err, "ts_min")

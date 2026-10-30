@@ -75,22 +75,22 @@ type blockSizes struct {
 //
 // Returns:
 //   - blockSizes: the block's buffer sizes; zero with a defect.
-//   - *Defect: nil; ReasonLimit, wrapping ErrReadLimit, for a block over MaxBlockLen;
-//     ReasonCorruptBlock for inconsistent dimensions.
+//   - *Defect: nil; IncompleteReasonLimit, wrapping ErrReadLimit, for a block over MaxBlockLen;
+//     IncompleteReasonCorruptBlock for inconsistent dimensions.
 //     Its Pack is left for the caller to set.
 func (r *Reader) preflightBlock(i int) (blockSizes, *Defect) {
 	info := &r.blocks[i]
 	if err := r.checkBlockBudget(info); err != nil {
-		return blockSizes{}, blockDefect(i, info, ReasonLimit, err)
+		return blockSizes{}, blockDefect(i, info, IncompleteReasonLimit, err)
 	}
 
 	rows, err := headerSectionLen(info.RecordCount, info.RecordHeaderLen, info.UncompressedLen)
 	if err != nil {
-		return blockSizes{}, blockDefect(i, info, ReasonCorruptBlock, err)
+		return blockSizes{}, blockDefect(i, info, IncompleteReasonCorruptBlock, err)
 	}
 	offs := uint64(info.RecordCount) + 1
 	if offs > math.MaxInt/offsetLen {
-		return blockSizes{}, blockDefect(i, info, ReasonCorruptBlock,
+		return blockSizes{}, blockDefect(i, info, IncompleteReasonCorruptBlock,
 			fmt.Errorf("the %d payload offsets of %d records take more bytes than the int range holds", offs, info.RecordCount))
 	}
 
@@ -166,7 +166,7 @@ func (h *heldBlock) hold() {
 //   - *heldBlock: the usable block, holding its reservation until drop, with its caller as its one owner;
 //     nil with a failed block or an error.
 //   - *Defect: the block's defect, with Pack set:
-//     a failed block's (no block), or ReasonIndexMismatch beside the block, as readBlock reports them.
+//     a failed block's (no block), or IncompleteReasonIndexMismatch beside the block, as readBlock reports them.
 //   - error: an error wrapping ErrReadLimit when the reservation would exceed the budget;
 //     the ReadAt error, wrapped with the pack and block index, whatever it wraps.
 //     Nothing stays reserved for the block after a defect without a block or an error.

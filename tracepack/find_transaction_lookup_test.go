@@ -85,7 +85,7 @@ func txSource(t testing.TB, files ...[]byte) *memSource {
 
 // txKeyAt returns the key of seq of captureLow in memTestHour.
 func txKeyAt(seq uint64) TxKey {
-	return TxKey{Capture: captureLow, Seq: seq, Hour: memTestHour}
+	return TxKey{CaptureID: captureLow, Seq: seq, Hour: memTestHour}
 }
 
 // requireOneScopeRead requires that the lookup asked s only for the readers of memTestHour, once.
@@ -240,7 +240,7 @@ func TestFindTransactionMissingPrimaryExplained(t *testing.T) {
 		require.NoError(t, err)
 		g := res.Incomplete[0]
 		assert.Equal(t, TxGapRead, g.Reason)
-		assert.Equal(t, ReasonCorruptBlock, g.Defect)
+		assert.Equal(t, IncompleteReasonCorruptBlock, g.Defect)
 		assert.Equal(t, []int64{memTestHour}, g.Hours)
 		assert.Equal(t, new(seg0), g.Pack)
 		assert.Equal(t, 1, g.Block)
@@ -561,7 +561,7 @@ func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 		require.Empty(t, res.FooterErrs, "the footer must stay valid")
 		require.GreaterOrEqual(t, len(res.Incomplete), 2)
 		assert.Equal(t, []string{"index", "index@15"}, gapSeqs(res.Incomplete[:2]))
-		assert.Equal(t, ReasonIndexMismatch, res.Incomplete[0].Defect)
+		assert.Equal(t, IncompleteReasonIndexMismatch, res.Incomplete[0].Defect)
 		assert.Equal(t, new(seg0), res.Incomplete[0].Pack)
 		assert.Nil(t, res.Incomplete[1].Pack)
 	})
@@ -574,7 +574,7 @@ func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, TxNotFound, res.Outcome)
 		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapNoKey}, gapReasons(res.Incomplete))
-		assert.Equal(t, ReasonIndexMismatch, res.Incomplete[0].Defect)
+		assert.Equal(t, IncompleteReasonIndexMismatch, res.Incomplete[0].Defect)
 	})
 }
 
@@ -784,7 +784,7 @@ func TestFindTransactionSplitPrimaryCopies(t *testing.T) {
 		require.Empty(t, res.FooterErrs, "the footer must stay valid")
 		assert.Equal(t, TxNotFound, res.Outcome)
 		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapSeqGap}, gapReasons(res.Incomplete))
-		assert.Equal(t, ReasonIndexMismatch, res.Incomplete[0].Defect)
+		assert.Equal(t, IncompleteReasonIndexMismatch, res.Incomplete[0].Defect)
 		assert.Equal(t, new(uint64(16)), res.Incomplete[1].Seq, "the window (15, 20) holds no seq read")
 		assert.Empty(t, res.Conflicts)
 		assert.Equal(t, []TxRecord{
@@ -958,7 +958,7 @@ func TestFindTransactionDetectedDisagreement(t *testing.T) {
 			i := slices.IndexFunc(res.Incomplete, func(g TxGap) bool { return g.Reason == TxGapIndex && g.Pack != nil })
 			require.GreaterOrEqual(t, i, 0, "a TxGapIndex gap naming the block")
 			g := res.Incomplete[i]
-			assert.Equal(t, ReasonIndexMismatch, g.Defect)
+			assert.Equal(t, IncompleteReasonIndexMismatch, g.Defect)
 			assert.Equal(t, tt.pack, *g.Pack)
 			assert.Equal(t, 0, g.Block)
 			assert.Positive(t, g.Offset)
@@ -984,11 +984,11 @@ func TestFindTransactionReadGuarantees(t *testing.T) {
 		opts   ReaderOptions
 		reason IncompleteReason
 	}{
-		{name: "a reader limit", file: twoBlocks, opts: ReaderOptions{MaxBlockLen: 2048}, reason: ReasonLimit},
-		{name: "a failed block", file: flipByte(twoBlocks, second.Offset+format.EnvelopeLen+3), reason: ReasonCorruptBlock},
+		{name: "a reader limit", file: twoBlocks, opts: ReaderOptions{MaxBlockLen: 2048}, reason: IncompleteReasonLimit},
+		{name: "a failed block", file: flipByte(twoBlocks, second.Offset+format.EnvelopeLen+3), reason: IncompleteReasonCorruptBlock},
 		{name: "an unknown codec", file: patchEnvelope(t, twoBlocks, second.Offset, func(e *format.BlockEnvelope) { e.Codec = 7 }),
-			reason: ReasonUnknownCodec},
-		{name: "a truncated pack", file: twoBlocks[:second.Offset+format.EnvelopeLen+5], reason: ReasonTruncated},
+			reason: IncompleteReasonUnknownCodec},
+		{name: "a truncated pack", file: twoBlocks[:second.Offset+format.EnvelopeLen+5], reason: IncompleteReasonTruncated},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

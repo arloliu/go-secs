@@ -168,7 +168,7 @@ func refBlockOf(t testing.TB, r *Reader, pack, j int) *refBlock {
 	d, def, err := r.readBlock(j, &buf)
 	require.NoError(t, err)
 	if def != nil {
-		require.NotEqual(t, ReasonIndexMismatch, def.Reason, "pack %d, block %d: the reference holds for blocks that agree with their index", pack, j)
+		require.NotEqual(t, IncompleteReasonIndexMismatch, def.Reason, "pack %d, block %d: the reference holds for blocks that agree with their index", pack, j)
 	}
 	b.failed = d == nil
 	if b.failed {
@@ -1495,7 +1495,7 @@ func FuzzMergeIterate(f *testing.F) {
 		if out.err != nil {
 			require.ErrorIs(t, out.err, ErrReadLimit)
 		}
-		disordered := slices.ContainsFunc(out.res.Incomplete, func(d Defect) bool { return d.Reason == ReasonIndexMismatch })
+		disordered := slices.ContainsFunc(out.res.Incomplete, func(d Defect) bool { return d.Reason == IncompleteReasonIndexMismatch })
 		last := map[UUID]uint64{}
 		for i, it := range out.items {
 			require.True(t, it.pack >= 0 && it.pack < len(readers), "item %d: pack %d", i, it.pack)

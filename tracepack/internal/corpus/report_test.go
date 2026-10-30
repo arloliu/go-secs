@@ -17,20 +17,20 @@ func TestVerifyFromConstructedReport(t *testing.T) {
 
 	captureID := testCaptureID
 	defects := tracepack.VerifyReport{
-		Outcome: tracepack.OutcomeCorruptMiddle, Finalized: true, FooterErr: errors.New("footer"),
+		Outcome: tracepack.VerifyOutcomeCorruptMiddle, Finalized: true, FooterErr: errors.New("footer"),
 		Blocks: 5, Validated: 3, Records: 9, PrefixEnd: 500,
 		// Out of file order, with the walk stop between failed blocks.
 		Failed: []tracepack.Defect{
-			{Reason: tracepack.ReasonUnknownCodec, Block: 3, Offset: 800},
-			{Reason: tracepack.ReasonTruncated, Block: -1, Offset: 1200},
-			{Reason: tracepack.ReasonCorruptBlock, Block: 1, Offset: 500},
+			{Reason: tracepack.IncompleteReasonUnknownCodec, Block: 3, Offset: 800},
+			{Reason: tracepack.IncompleteReasonTruncated, Block: -1, Offset: 1200},
+			{Reason: tracepack.IncompleteReasonCorruptBlock, Block: 1, Offset: 500},
 		},
 		// Block 2 disagrees with its F-2 entry and its F-3 summary; the trailer's totals disagree.
 		Disagreements: []tracepack.Defect{
-			{Reason: tracepack.ReasonIndexMismatch, Block: 4, Offset: 1000},
-			{Reason: tracepack.ReasonIndexMismatch, Block: 2, Offset: 600},
-			{Reason: tracepack.ReasonIndexMismatch, Block: 2, Offset: 600},
-			{Reason: tracepack.ReasonIndexMismatch, Block: -1, Offset: -1},
+			{Reason: tracepack.IncompleteReasonIndexMismatch, Block: 4, Offset: 1000},
+			{Reason: tracepack.IncompleteReasonIndexMismatch, Block: 2, Offset: 600},
+			{Reason: tracepack.IncompleteReasonIndexMismatch, Block: 2, Offset: 600},
+			{Reason: tracepack.IncompleteReasonIndexMismatch, Block: -1, Offset: -1},
 		},
 		WriterDefects: []tracepack.WriterDefect{
 			{Kind: tracepack.WriterDefectHourSpan, Block: 2, Offset: 600, Seq: 20},
@@ -151,15 +151,15 @@ func TestVerifyFromRefuses(t *testing.T) {
 		name string
 		rep  tracepack.VerifyReport
 	}{
-		{"reader limit", tracepack.VerifyReport{Failed: []tracepack.Defect{{Reason: tracepack.ReasonLimit, Block: -1, Offset: 80}}}},
+		{"reader limit", tracepack.VerifyReport{Failed: []tracepack.Defect{{Reason: tracepack.IncompleteReasonLimit, Block: -1, Offset: 80}}}},
 		{"two walk stops", tracepack.VerifyReport{Failed: []tracepack.Defect{
-			{Reason: tracepack.ReasonTruncated, Block: -1, Offset: 80}, {Reason: tracepack.ReasonTruncated, Block: -1, Offset: 90},
+			{Reason: tracepack.IncompleteReasonTruncated, Block: -1, Offset: 80}, {Reason: tracepack.IncompleteReasonTruncated, Block: -1, Offset: 90},
 		}}},
-		{"failed block without offset", tracepack.VerifyReport{Failed: []tracepack.Defect{{Reason: tracepack.ReasonCorruptBlock, Block: 0, Offset: -1}}}},
-		{"failed block of another reason", tracepack.VerifyReport{Failed: []tracepack.Defect{{Reason: tracepack.ReasonIndexMismatch, Block: 0, Offset: 80}}}},
-		{"disagreement of another reason", tracepack.VerifyReport{Disagreements: []tracepack.Defect{{Reason: tracepack.ReasonCorruptBlock, Block: 0, Offset: 80}}}},
+		{"failed block without offset", tracepack.VerifyReport{Failed: []tracepack.Defect{{Reason: tracepack.IncompleteReasonCorruptBlock, Block: 0, Offset: -1}}}},
+		{"failed block of another reason", tracepack.VerifyReport{Failed: []tracepack.Defect{{Reason: tracepack.IncompleteReasonIndexMismatch, Block: 0, Offset: 80}}}},
+		{"disagreement of another reason", tracepack.VerifyReport{Disagreements: []tracepack.Defect{{Reason: tracepack.IncompleteReasonCorruptBlock, Block: 0, Offset: 80}}}},
 		{"two totals disagreements", tracepack.VerifyReport{Disagreements: []tracepack.Defect{
-			{Reason: tracepack.ReasonIndexMismatch, Block: -1, Offset: -1}, {Reason: tracepack.ReasonIndexMismatch, Block: -1, Offset: -1},
+			{Reason: tracepack.IncompleteReasonIndexMismatch, Block: -1, Offset: -1}, {Reason: tracepack.IncompleteReasonIndexMismatch, Block: -1, Offset: -1},
 		}}},
 		{"undefined writer defect", tracepack.VerifyReport{WriterDefects: []tracepack.WriterDefect{{Kind: 0, Block: 0, Offset: 80}}}},
 		{"writer defect without a block", tracepack.VerifyReport{WriterDefects: []tracepack.WriterDefect{{Kind: tracepack.WriterDefectHourSpan, Block: -1, Offset: 80}}}},

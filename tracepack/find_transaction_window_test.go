@@ -863,13 +863,13 @@ func TestFindTransactionNotesBoundaryRecords(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []txBoundaryRecord{
 		{at: txSeen{hour: memTestHour, seq: 13, pack: seg0}, boundary: Boundary{
-			Capture: captureLow, Seq: 13, Kind: BoundaryKindGap, TS: blockTestHour + 13, Epoch: txTestEpoch, GapStart: at(5), GapEnd: at(9),
+			CaptureID: captureLow, Seq: 13, Kind: BoundaryKindGap, TS: blockTestHour + 13, Epoch: txTestEpoch, GapStart: at(5), GapEnd: at(9),
 		}},
 		{at: txSeen{hour: memTestHour, seq: 15, pack: seg0}, boundary: Boundary{
-			Capture: captureLow, Seq: 15, Kind: BoundaryKindStart, TS: blockTestHour + 15, Epoch: txTestEpoch,
+			CaptureID: captureLow, Seq: 15, Kind: BoundaryKindStart, TS: blockTestHour + 15, Epoch: txTestEpoch,
 		}},
 		{at: txSeen{hour: memTestHour, seq: 16, pack: seg0}, boundary: Boundary{
-			Capture: captureLow, Seq: 16, Kind: BoundaryKindStop, TS: blockTestHour + 16, Epoch: txTestEpoch,
+			CaptureID: captureLow, Seq: 16, Kind: BoundaryKindStop, TS: blockTestHour + 16, Epoch: txTestEpoch,
 		}},
 	}, l.boundaries)
 	assert.Equal(t, []string{"12@0 primary", "14@0 closing", "16@0 closing"}, recordSeqs(l.res.Records))

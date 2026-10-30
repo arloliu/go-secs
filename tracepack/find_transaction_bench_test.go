@@ -166,9 +166,9 @@ func BenchmarkFindTransactions(b *testing.B) {
 	}{{"busy", packs}, {"reuse", reuse}} {
 		for _, scopes := range []int{1, 2, 3} {
 			fillNs := perfFindTransactions(b, fmt.Sprintf("%s/fill/scopes=%d", data.name, scopes), data.packs,
-				TxRange{Capture: UUID{0xEE}, From: from, To: from.Add(time.Hour)}, scopes, 0)
+				TxRange{CaptureID: UUID{0xEE}, From: from, To: from.Add(time.Hour)}, scopes, 0)
 			perfFindTransactions(b, fmt.Sprintf("%s/scopes=%d", data.name, scopes), data.packs,
-				TxRange{Capture: perfCapture, From: from, To: from.Add(time.Hour)}, scopes, fillNs)
+				TxRange{CaptureID: perfCapture, From: from, To: from.Add(time.Hour)}, scopes, fillNs)
 		}
 	}
 }
@@ -178,7 +178,7 @@ func BenchmarkFindTransactions(b *testing.B) {
 // and visited, the items the lookups' replays pass on, counted in one more call outside the timing; it returns its ns/op.
 func perfFindTransactions(b *testing.B, name string, packs [][]byte, r TxRange, scopes int, fillNs float64) float64 {
 	want := 0
-	if r.Capture == perfCapture {
+	if r.CaptureID == perfCapture {
 		want = len(perfPrimaries(perfHour(true, 0)))
 	}
 	var nsOp float64

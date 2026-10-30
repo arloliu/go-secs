@@ -92,7 +92,7 @@ func hsmsBuild(meta func(seed string) *tracepack.PackMeta, records func() ([]tra
 // with its fields.json rows and query results.
 func hsmsExpect(seqs []uint64, fields []Fields, queries ...QueryWant) *Expectation {
 	return &Expectation{
-		Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqs, PrefixEnd: AtEnd(),
+		Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqs, PrefixEnd: AtEnd(),
 		Fields: fields, Queries: queries,
 	}
 }

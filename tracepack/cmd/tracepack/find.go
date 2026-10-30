@@ -112,7 +112,7 @@ func findKey(set map[string]bool, capture string, seq uint64, hour int64, at str
 
 		return tracepack.TxKeyOf(id, seq, t), ""
 	default:
-		return tracepack.TxKey{Capture: id, Seq: seq, Hour: hour}, ""
+		return tracepack.TxKey{CaptureID: id, Seq: seq, Hour: hour}, ""
 	}
 }
 
@@ -156,7 +156,7 @@ func packPaths(args []string) ([]string, error) {
 func writeFindReport(rw *reportWriter, key tracepack.TxKey, res *tracepack.TxResult) {
 	rw.linef("outcome", "%s", res.Outcome)
 	rw.linef("complete", "%t", len(res.Incomplete) == 0)
-	rw.linef("key", "capture %s seq %d hour %d", key.Capture, key.Seq, key.Hour)
+	rw.linef("key", "capture %s seq %d hour %d", key.CaptureID, key.Seq, key.Hour)
 	stream, function := "unavailable", strconv.Itoa(int(res.Function))
 	if res.StreamAvailable {
 		stream = strconv.Itoa(int(res.Stream))

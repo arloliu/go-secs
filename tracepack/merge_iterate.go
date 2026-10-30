@@ -145,13 +145,13 @@ var _ error = PackError{}
 // A block over its Reader's ReaderOptions.MaxBlockLen, or whose stated dimensions cannot be consistent, is a defect and is not read;
 // a block that fails a check of its read is a defect too.
 // Neither contributes records, and the cluster's other blocks resolve its seqs.
-// An indexed block whose records disagree with its F-2 entry adds a ReasonIndexMismatch defect and still yields its records.
+// An indexed block whose records disagree with its F-2 entry adds an IncompleteReasonIndexMismatch defect and still yields its records.
 // The defects of the reads follow those of the packs: first those of the walked blocks' first reads, in reader then file order,
 // then the crash gaps, then those of the clusters' reads, in the order the blocks are read.
 //
 // A crash gap is a stop-unclean boundary whose gap meets [TimeFrom, TimeTo) of q.Filter
 // (the tracepack semantics specification §7.4, Crash gaps),
-// reported as a ReasonCrashGap defect that carries its own copy of the boundary.
+// reported as an IncompleteReasonCrashGap defect that carries its own copy of the boundary.
 // MergeIterate takes them from the F-5 statistics of every pack whose footer it uses, whatever the filter excludes,
 // and from the records of each walked block's first read, also when the block's cluster is then excluded;
 // a walked block that fails that read contributes only its own defect.

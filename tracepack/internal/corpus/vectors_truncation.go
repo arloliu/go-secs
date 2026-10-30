@@ -60,7 +60,7 @@ func truncationBasePack(seed string, c tracepack.Codec) ([]byte, error) {
 // and a cut that ends inside a block, or inside the footer and trailer, stops the walk there.
 func truncationExpect() *Expectation {
 	read := func(from Pos, validated int, records uint64, end Pos, stopped bool) CutWant {
-		c := CutWant{From: from, Outcome: tracepack.OutcomeUnfinalized, Validated: validated, Records: records, PrefixEnd: end}
+		c := CutWant{From: from, Outcome: tracepack.VerifyOutcomeUnfinalized, Validated: validated, Records: records, PrefixEnd: end}
 		if stopped {
 			c.WalkStop = end
 		}
@@ -69,7 +69,7 @@ func truncationExpect() *Expectation {
 	}
 
 	return &Expectation{
-		Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
+		Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 		Cuts: []CutWant{
 			{From: AtOffset(0), Rejection: RejectShortObject},
 			{From: AtOffset(format.FileHeaderLen), Rejection: RejectMetadataPastObject},

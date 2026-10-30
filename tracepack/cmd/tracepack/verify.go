@@ -63,7 +63,7 @@ func verifyOne(ctx context.Context, cfg config, path string, stderr io.Writer) (
 	if err != nil {
 		return nil, failed(stderr, "verify", path, err)
 	}
-	if rep.Outcome != tracepack.OutcomeFinalizedConsistent {
+	if rep.Outcome != tracepack.VerifyOutcomeFinalizedConsistent {
 		return &rep, exitNotClean
 	}
 

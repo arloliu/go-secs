@@ -1264,7 +1264,7 @@ func requireNothingFinalized(t *testing.T, out []byte) {
 	}
 	rep, err := Verify(t.Context(), bytes.NewReader(out), int64(len(out)), VerifyOptions{})
 	require.NoError(t, err)
-	require.Equal(t, OutcomeUnfinalized, rep.Outcome, "a failed merge leaves no finalized pack")
+	require.Equal(t, VerifyOutcomeUnfinalized, rep.Outcome, "a failed merge leaves no finalized pack")
 }
 
 // fuzzMergeInput is one input of FuzzMerge: two packs and the control byte choosing the merge options.

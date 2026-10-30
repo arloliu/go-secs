@@ -47,8 +47,8 @@ func v010SampleVector() Recipe {
 			return &Built{Pack: pack}, err
 		},
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeCorruptMiddle, FooterValid: true, Blocks: 2, Seqs: []uint64{3},
-			Failed: []FailedWant{{Block: 0, Cause: tracepack.ReasonCorruptBlock}}, PrefixEnd: AtBlock(0),
+			Outcome: tracepack.VerifyOutcomeCorruptMiddle, FooterValid: true, Blocks: 2, Seqs: []uint64{3},
+			Failed: []FailedWant{{Block: 0, Cause: tracepack.IncompleteReasonCorruptBlock}}, PrefixEnd: AtBlock(0),
 			Disagreeing: []int{1},
 			Lost:        []LostWant{{First: 0, Last: 2, TimeStart: v010Hour, TimeEnd: v010Hour + 2_000_000_000}},
 			ExportHas: []string{

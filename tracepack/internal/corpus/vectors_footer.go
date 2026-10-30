@@ -120,7 +120,7 @@ func footerVectors() []Recipe {
 			}),
 			// Both are ignored: the footer is valid and agrees with the records.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 2, Seqs: footerBaseSeqs, PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 2, Seqs: footerBaseSeqs, PrefixEnd: AtEnd(),
 				Stats: footerBaseStats(),
 			},
 		},
@@ -154,7 +154,7 @@ func footerVectors() []Recipe {
 			// The footer is consistent with itself, so it is valid and the statistics state 3;
 			// the block's records end the epoch first at seq 2, so they disagree with its F-3 summary.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedInconsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 				Disagreeing: []int{0},
 				Stats:       &StatsWant{Available: true, Epochs: []EpochWant{{Epoch: 1, CloseSeq: new(uint64(3))}}, Boundaries: closingStopStats()},
 				Footer: &Footer{
@@ -189,7 +189,7 @@ func footerVectors() []Recipe {
 			},
 			// F-5's close_seq must be the lowest of the blocks', 2: the footer is invalid and the statistics unavailable.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedInconsistent, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 				Stats: &StatsWant{},
 				Footer: &Footer{
 					Stored: &FooterProjection{
@@ -227,7 +227,7 @@ func footerVectors() []Recipe {
 				}
 
 				return &Expectation{
-					Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+					Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 					Stats: &StatsWant{Available: true, Epochs: []EpochWant{{Epoch: 1}}, Boundaries: []BoundaryWant{
 						{Seq: 0, Kind: tracepack.BoundaryKindStart}, {Seq: 2, Kind: tracepack.BoundaryKindStopUnclean},
 					}},
@@ -288,7 +288,7 @@ func footerVectors() []Recipe {
 				p := FooterProjection{Blocks: []FooterBlock{{Block: 0}}, F5: FooterF5{Epochs: []F5Epoch{{Epoch: 1}}, SeqRanges: []SeqRange{{First: 0, Last: 2}}}}
 
 				return &Expectation{
-					Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+					Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 					ExportHas: []string{`"seq":"1","ts_utc_ns":"1791000000001000000","mono_ns":"0","epoch":1,"payload_len":14,"trailing_bytes":0,"quality":["capture-boundary"]`},
 					Stats:     &StatsWant{Available: true, Epochs: []EpochWant{{Epoch: 1}}},
 					Footer:    &Footer{Stored: &p, Accepted: true, Recomputed: p},
@@ -381,7 +381,7 @@ func invalidFooterVectors() []Recipe {
 
 			return &Built{Pack: pack}, err
 		},
-		Expect: &Expectation{Outcome: tracepack.OutcomeFinalizedInconsistent, PrefixEnd: AtEnd(), Stats: &StatsWant{}},
+		Expect: &Expectation{Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, PrefixEnd: AtEnd(), Stats: &StatsWant{}},
 	})
 }
 
@@ -648,7 +648,7 @@ func trailerClauses() []footerClause {
 // the invalid footer alone makes the pack finalized-inconsistent, and its statistics are unavailable.
 func invalidFooterExpect() *Expectation {
 	return &Expectation{
-		Outcome: tracepack.OutcomeFinalizedInconsistent, Blocks: 2, Seqs: footerBaseSeqs, PrefixEnd: AtEnd(), Stats: &StatsWant{},
+		Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, Blocks: 2, Seqs: footerBaseSeqs, PrefixEnd: AtEnd(), Stats: &StatsWant{},
 	}
 }
 
@@ -728,7 +728,7 @@ func closeTwiceOneBlock() Recipe {
 		},
 		// The block's F-3 entry and F-5 state the lower seq, the socket-close's.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 			Stats:  &StatsWant{Available: true, Epochs: []EpochWant{{Epoch: 1, CloseSeq: new(uint64(2))}}, Boundaries: closingStopStats()},
 			Footer: &Footer{Stored: new(closeOnceProjection()), Accepted: true, Recomputed: closeOnceProjection()},
 		},
@@ -765,7 +765,7 @@ func closeTwiceTwoBlocks() Recipe {
 		},
 		// Each block's F-3 entry states its own record's seq, F-5 the lower one.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
+			Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 			Stats:  &StatsWant{Available: true, Epochs: []EpochWant{{Epoch: 1, CloseSeq: new(uint64(2))}}, Boundaries: closingStopStats()},
 			Footer: &Footer{Stored: new(closeAcrossProjection()), Accepted: true, Recomputed: closeAcrossProjection()},
 		},
@@ -855,7 +855,7 @@ func invalidBodyExpect() *Expectation {
 	p := FooterProjection{Blocks: []FooterBlock{{Block: 0}}, F5: FooterF5{Epochs: []F5Epoch{{Epoch: 1}}, SeqRanges: seqRanges03()}}
 
 	return &Expectation{
-		Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
+		Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 		WriterDefects: []DefectWant{{Kind: tracepack.WriterDefectEventPayload, Seq: 2}},
 		Stats:         &StatsWant{Available: true, Epochs: []EpochWant{{Epoch: 1}}},
 		Footer:        &Footer{Stored: &p, Accepted: true, Recomputed: p},
@@ -1156,7 +1156,7 @@ func footerTieVectors() []Recipe {
 			// F-3 and F-5 agree with each other, so the footer is valid and its statistics list every entry;
 			// the block's records give one boundary, so they disagree with its F-3 summary.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedInconsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 				Disagreeing: []int{0},
 				Stats:       &StatsWant{Available: true, Epochs: []EpochWant{{Epoch: 1}}, Boundaries: tieStats},
 				Footer: &Footer{
@@ -1175,7 +1175,7 @@ func footerTieVectors() []Recipe {
 			Build: seqRangeTiesBuild,
 			// F-5 is not the aggregate of F-2 and F-3, so the footer is invalid; the forward walk reads the one block.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedInconsistent, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(), Stats: &StatsWant{},
+				Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(), Stats: &StatsWant{},
 				Footer: &Footer{
 					Stored: &FooterProjection{
 						Blocks: []FooterBlock{{Block: 0}},

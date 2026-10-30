@@ -29,7 +29,7 @@ func repairVectors() []Recipe {
 				return orFooterQuality(pack, 0, uint64(tracepack.QualityOrderingUncertain))
 			}),
 			Expect: repairBaseExpect(&Expectation{
-				Outcome: tracepack.OutcomeFinalizedInconsistent, FooterValid: true, Disagreeing: []int{0},
+				Outcome: tracepack.VerifyOutcomeFinalizedInconsistent, FooterValid: true, Disagreeing: []int{0},
 				ExportHas: []string{
 					`"pack_role":"archive","compaction_level":1`,
 					`"replacement_set_size":"1","replacement_set_index":"0","scope_generation":"1","publisher_epoch":"1"`,
@@ -52,7 +52,7 @@ func repairVectors() []Recipe {
 				return orFooterQuality(pack, 0, uint64(tracepack.QualityRedacted))
 			}),
 			Expect: repairBaseExpect(&Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true,
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true,
 				ExportHas: []string{
 					`"seq":"0","ts_utc_ns":"1791000000000000000","mono_ns":"0","epoch":1,"payload_len":14,"trailing_bytes":0,"quality":["redacted"]`,
 				},
@@ -127,12 +127,12 @@ func repairOfPatchVector() Recipe {
 		},
 		// Its last block fails, and its valid footer gives the range.
 		Expect: &Expectation{
-			Outcome: tracepack.OutcomeFinalizedTruncated, FooterValid: true, Blocks: 2, Seqs: []uint64{0}, PrefixEnd: AtBlock(1),
-			Failed:    []FailedWant{{Block: 1, Cause: tracepack.ReasonCorruptBlock}},
+			Outcome: tracepack.VerifyOutcomeFinalizedTruncated, FooterValid: true, Blocks: 2, Seqs: []uint64{0}, PrefixEnd: AtBlock(1),
+			Failed:    []FailedWant{{Block: 1, Cause: tracepack.IncompleteReasonCorruptBlock}},
 			Lost:      []LostWant{{First: 5, Last: 5, TimeStart: msAt(5), TimeEnd: msAt(5)}},
 			ExportHas: []string{`"pack_role":"repair"`},
 			Queries: []QueryWant{{ID: "all", Seqs: []uint64{0}, Incomplete: []IncompleteWant{
-				CoverageHit(), BlockDefect(tracepack.ReasonCorruptBlock, 1),
+				CoverageHit(), BlockDefect(tracepack.IncompleteReasonCorruptBlock, 1),
 			}}},
 		},
 	}

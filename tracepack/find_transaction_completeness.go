@@ -53,7 +53,7 @@ func (l *txLookup) coverageGaps(ctx context.Context, w *txWindow, from, to int64
 			return err
 		}
 		c := &l.coverage[i]
-		if c.capture != l.key.Capture || !coverageMeetsWindow(c.cov, w, from, to) {
+		if c.capture != l.key.CaptureID || !coverageMeetsWindow(c.cov, w, from, to) {
 			continue
 		}
 		// Charged as a copy, then copied.
@@ -106,7 +106,7 @@ func (l *txLookup) crashGapGaps(ctx context.Context, from, to int64) error {
 		if err := l.addBoundaryGap(ctx, TxGap{
 			Reason: TxGapCrashGap, Hours: []int64{c.hour}, Pack: new(c.pack), Block: -1, Offset: -1,
 			Err: fmt.Errorf("the gap of the stop-unclean boundary at seq %d of capture %s meets the lookup's hours: its records may be lost",
-				c.b.Seq, c.b.Capture),
+				c.b.Seq, c.b.CaptureID),
 		}, c.b); err != nil {
 			return err
 		}

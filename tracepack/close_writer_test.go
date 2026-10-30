@@ -310,13 +310,13 @@ func TestCloseReadSemantics(t *testing.T) {
 			}
 			assert.Equal(t, []uint64{0, 1, 2, format.MaxU64 - 1, format.MaxU64}, seqs, "%s: the late record is read", name)
 			require.Len(t, res.Incomplete, 1, name)
-			assert.Equal(t, ReasonCrashGap, res.Incomplete[0].Reason, name)
+			assert.Equal(t, IncompleteReasonCrashGap, res.Incomplete[0].Reason, name)
 
 			_, res, err = collectMergeIterate(t.Context(), readers, Query{Filter: afterGap}, MergeIterateOptions{Order: OrderCapture})
 			require.NoError(t, err, name)
 			if inverted {
 				require.Len(t, res.Incomplete, 1, "%s: an inverted gap meets every range", name)
-				assert.Equal(t, ReasonCrashGap, res.Incomplete[0].Reason, name)
+				assert.Equal(t, IncompleteReasonCrashGap, res.Incomplete[0].Reason, name)
 			} else {
 				assert.Empty(t, res.Incomplete, "%s: the range misses the gap", name)
 			}
@@ -433,10 +433,10 @@ func TestWriterCommitBoundary(t *testing.T) {
 				}
 				outcome := mustVerify(t, got).Outcome
 				if tt.finalized {
-					assert.Equal(t, OutcomeFinalizedConsistent, outcome, "%s: finalized, though not durable", branch.name)
+					assert.Equal(t, VerifyOutcomeFinalizedConsistent, outcome, "%s: finalized, though not durable", branch.name)
 					assert.Equal(t, branch.golden, got, branch.name)
 				} else {
-					assert.Equal(t, OutcomeUnfinalized, outcome, branch.name)
+					assert.Equal(t, VerifyOutcomeUnfinalized, outcome, branch.name)
 				}
 
 				retry := &failingOutput{limit: -1}

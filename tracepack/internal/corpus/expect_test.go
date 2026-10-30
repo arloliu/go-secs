@@ -31,7 +31,7 @@ func TestBlockOffsets(t *testing.T) {
 
 	query := func(off U64) []QueryVector {
 		return []QueryVector{{ID: "all", Expect: Expect{Incomplete: []Incomplete{
-			{Reason: tracepack.ReasonCorruptBlock.String(), Block: new(1), Offset: &off},
+			{Reason: tracepack.IncompleteReasonCorruptBlock.String(), Block: new(1), Offset: &off},
 		}}}}
 	}
 	assert.Empty(t, blockOffsets(&l, &Verify{}, query(at)))

@@ -83,7 +83,7 @@
 // in time order, and in capture order when at most one capture has a cluster to read,
 // so it may issue several ReadAt calls at once on a Reader's io.ReaderAt, as Open does,
 // and it waits for all of them before it returns.
-// Every read reports, as a ReasonCrashGap defect, each stop-unclean capture boundary whose gap meets the query's time range
+// Every read reports, as an IncompleteReasonCrashGap defect, each stop-unclean capture boundary whose gap meets the query's time range
 // (the tracepack semantics specification §7.4, Crash gaps).
 //
 // Readers decode the pack metadata under the pack's format_minor, as UnmarshalPackMetaMinor does,

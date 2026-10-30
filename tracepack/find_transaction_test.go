@@ -19,7 +19,7 @@ import (
 func TestFindTransactionArguments(t *testing.T) {
 	t.Parallel()
 
-	key := TxKey{Capture: captureLow, Seq: 1, Hour: memTestHour}
+	key := TxKey{CaptureID: captureLow, Seq: 1, Hour: memTestHour}
 	at := func(hour int64) TxKey {
 		k := key
 		k.Hour = hour
@@ -35,15 +35,15 @@ func TestFindTransactionArguments(t *testing.T) {
 	}{
 		{name: "nil source", nilSrc: true, key: key, invalid: "src is nil"},
 		{name: "zero capture", key: TxKey{Seq: 1, Hour: memTestHour}, invalid: "capture_id is zero"},
-		{name: "seq above the format's largest", key: TxKey{Capture: captureLow, Seq: 1 << 63, Hour: memTestHour}, invalid: "seq"},
-		{name: "seq at math.MaxUint64", key: TxKey{Capture: captureLow, Seq: math.MaxUint64, Hour: memTestHour}, invalid: "seq"},
+		{name: "seq above the format's largest", key: TxKey{CaptureID: captureLow, Seq: 1 << 63, Hour: memTestHour}, invalid: "seq"},
+		{name: "seq at math.MaxUint64", key: TxKey{CaptureID: captureLow, Seq: math.MaxUint64, Hour: memTestHour}, invalid: "seq"},
 		{name: "hour below MinTxHour", key: at(MinTxHour - 1), invalid: "outside"},
 		{name: "hour above MaxTxHour", key: at(MaxTxHour + 1), invalid: "outside"},
 		{name: "hour at math.MinInt64", key: at(math.MinInt64), invalid: "outside"},
 		{name: "default scopes past MaxTxHour", key: at(MaxTxHour), invalid: "2 scopes from hour"},
 		{name: "scopes past MaxTxHour", key: at(MaxTxHour - 1), opts: TxOptions{MaxScopes: 3}, invalid: "3 scopes from hour"},
 		{name: "scopes far past MaxTxHour", key: at(0), opts: TxOptions{MaxScopes: math.MaxInt}, invalid: "scopes from hour"},
-		{name: "the format's largest seq", key: TxKey{Capture: captureLow, Seq: 1<<63 - 1, Hour: memTestHour}},
+		{name: "the format's largest seq", key: TxKey{CaptureID: captureLow, Seq: 1<<63 - 1, Hour: memTestHour}},
 		{name: "hour 0", key: at(0)},
 		{name: "negative hour", key: at(-1)},
 		{name: "MinTxHour", key: at(MinTxHour), opts: TxOptions{MaxScopes: 1}},
@@ -86,9 +86,9 @@ func TestFindTransactionCancelled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err := FindTransaction(ctx, newMemSource(), TxKey{Capture: captureLow, Hour: memTestHour}, TxOptions{})
+	_, err := FindTransaction(ctx, newMemSource(), TxKey{CaptureID: captureLow, Hour: memTestHour}, TxOptions{})
 	require.ErrorIs(t, err, context.Canceled)
-	_, err = FindTransaction(ctx, nil, TxKey{Capture: captureLow, Hour: memTestHour}, TxOptions{})
+	_, err = FindTransaction(ctx, nil, TxKey{CaptureID: captureLow, Hour: memTestHour}, TxOptions{})
 	require.ErrorIs(t, err, ErrInvalidQuery)
 }
 
@@ -97,7 +97,7 @@ func TestFindTransactionCancelled(t *testing.T) {
 func TestCheckFindTransactionDefaults(t *testing.T) {
 	t.Parallel()
 
-	key := TxKey{Capture: captureLow, Hour: memTestHour}
+	key := TxKey{CaptureID: captureLow, Hour: memTestHour}
 	got, err := checkFindTransaction(newMemSource(), key, TxOptions{MaxHeldBytes: -1, MaxConflicts: -1})
 	require.NoError(t, err)
 	assert.Equal(t, TxOptions{

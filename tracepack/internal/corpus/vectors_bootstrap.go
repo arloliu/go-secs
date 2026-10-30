@@ -159,7 +159,7 @@ func bootstrapVectors() []Recipe {
 			// The requirement depends on the records, so it binds the writer and never rejects the pack;
 			// verify reports no writer defect for it, and the footer is the Writer's.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
 				ExportHas: []string{`"decode_status":"ok"`, `{"tag":32776,"value_type":6,"value":"dHJhY2VwYWNrLXNlbTM="}`},
 			},
 		},

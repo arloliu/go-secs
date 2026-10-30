@@ -134,7 +134,7 @@ func TestWriterMarkingAtAppend(t *testing.T) {
 		require.ErrorAs(t, err, &fe)
 		assert.Equal(t, "redaction", fe.Field)
 		assert.Contains(t, err.Error(), "seq 5")
-		assert.Equal(t, OutcomeUnfinalized, mustVerify(t, buf.Bytes()).Outcome, "neither footer nor trailer")
+		assert.Equal(t, VerifyOutcomeUnfinalized, mustVerify(t, buf.Bytes()).Outcome, "neither footer nor trailer")
 		_, err = w.Close()
 		require.ErrorIs(t, err, ErrWriterFailed)
 	})
@@ -223,7 +223,7 @@ func TestWriterMarkingRawBlocks(t *testing.T) {
 	w, out := copyTo(1, 9)
 	_, err := w.Close()
 	require.NoError(t, err, "entries for the seqs the block holds")
-	assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, out.Bytes()).Outcome)
+	assert.Equal(t, VerifyOutcomeFinalizedConsistent, mustVerify(t, out.Bytes()).Outcome)
 
 	w, out = copyTo(1, 5, 9)
 	written := out.Len()
@@ -235,5 +235,5 @@ func TestWriterMarkingRawBlocks(t *testing.T) {
 	assert.Equal(t, "redaction", fe.Field)
 	assert.Contains(t, err.Error(), "seq 5")
 	assert.Equal(t, written, out.Len(), "neither footer nor trailer")
-	assert.Equal(t, OutcomeUnfinalized, mustVerify(t, out.Bytes()).Outcome)
+	assert.Equal(t, VerifyOutcomeUnfinalized, mustVerify(t, out.Bytes()).Outcome)
 }

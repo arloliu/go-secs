@@ -13,7 +13,7 @@ import (
 // for Reader.Iterate and MergeIterate, a Query whose TimeFrom is after its TimeTo;
 // for MergeIterate also a nil fn, an Order that is not one,
 // a nil reader, a Reader given twice, or two readers holding the same pack_id;
-// for FindTransaction a nil PackSource, a zero TxKey.Capture, a TxKey.Seq above 2^63-1, a TxKey.Hour outside [MinTxHour, MaxTxHour],
+// for FindTransaction a nil PackSource, a zero TxKey.CaptureID, a TxKey.Seq above 2^63-1, a TxKey.Hour outside [MinTxHour, MaxTxHour],
 // or a last hour scheduled past MaxTxHour;
 // for NewReaderSource a nil reader, a Reader given twice, two readers of one pack_id, readers of several tool_ids,
 // an extract, or a reader whose period is empty or not inside one UTC hour.

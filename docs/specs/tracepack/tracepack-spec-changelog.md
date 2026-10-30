@@ -98,6 +98,12 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   and the `SegmentWriter` bullet names the classifier's build-info name `classify.Name()`, a function (G5-283).
   The root `Classifier` interface is unchanged; `classify.Frame` now takes its limit as a `uint64`, the type of `Classifier.MaxFrameLen()`.
   No rule of [STO §4] or [SEM §3] changed.
+- 2026-10-31: the §3 `FindTransaction` and `FindTransactions` bullets name the key's and the range's capture field `CaptureID`,
+  as `TxKey{CaptureID, Seq, Hour}` and `TxRange{CaptureID, From, To}`, and `TxKeyOf` its parameter `captureID`;
+  the `ExportJSONL` bullet names the reader-budget defect `IncompleteReasonLimit` (G5-283).
+  The Go names of the incomplete reasons and verification outcomes gain their type's name as a prefix;
+  their `String()` values are unchanged.
+  No format rule and no JSONL name changed.
 
 ## Changes vs v1 (summary)
 

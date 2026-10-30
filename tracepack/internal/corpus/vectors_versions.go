@@ -75,7 +75,7 @@ func versionVectors() []Recipe {
 			Build: newTagsSegment,
 			// In a pack of format_minor 0 the numbers keep their format 1.0 status: an unknown tag and a reserved bit.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"schema":"tracepack-jsonl/1","format_major":1,"format_minor":0`,
 					`"unknown":[{"tag":51,"value_type":7,"value":"dGhpbm5pbmctMQ=="},{"tag":51,"value_type":7,"value":"dGhpbm5pbmctMg=="}]`,
@@ -90,7 +90,7 @@ func versionVectors() []Recipe {
 			Build: newTagsExtract,
 			// Each nested number is unknown in its registry of format 1.0, an opaque value kept in stored order.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"schema":"tracepack-jsonl/1","format_major":1,"format_minor":0,"flags":["redaction-present"]`,
 					`"unknown":[{"tag":5,"value_type":7,"value":"AQ=="},{"tag":6,"value_type":7,"value":"dGVzdC1lbmMtMQ=="}]`,
@@ -107,7 +107,7 @@ func versionVectors() []Recipe {
 			},
 			// The policy is written though nothing matched; no record is classified, so no classifier is required.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"schema":"tracepack-jsonl/1","format_major":1,"format_minor":0,"flags":[]`,
 					`"redaction_policy":{"policy_id":"policy-extract","policy_version":"1","key_id":"test-digest-1","digest_algorithm":"hmac-sha256"}`,
@@ -124,7 +124,7 @@ func versionVectors() []Recipe {
 			},
 			// An extract keeps the format 1.0 rule: several classifier and max_frame_len values are allowed.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 2), PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"schema":"tracepack-jsonl/1","format_major":1,"format_minor":0`,
 					`"classifier":["tracepack-sem3","tracepack-sem3-previous"]`,
@@ -140,7 +140,7 @@ func versionVectors() []Recipe {
 			Build: newTagsSegment11,
 			// In a pack of format_minor 1 the number keeps its format 1.1 status: an unknown tag, exported under /2.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"schema":"tracepack-jsonl/2","format_major":1,"format_minor":1`,
 					`"unknown":[{"tag":52,"value_type":6,"value":"ZXFw"}]`,
@@ -153,7 +153,7 @@ func versionVectors() []Recipe {
 			Build: recorderInstanceNameSegment,
 			// The tag is format 1.2's: the writer writes format_minor 2 and the export names it under /3.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"schema":"tracepack-jsonl/3","format_major":1,"format_minor":2`,
 					`"recorder_instance_name":"eqp"`,
@@ -166,7 +166,7 @@ func versionVectors() []Recipe {
 			Build: futureMinor,
 			// A newer minor is read with the newest registry and exported under the newest schema, its unknown tag kept.
 			Expect: &Expectation{
-				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
+				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 1), PrefixEnd: AtEnd(),
 				ExportHas: []string{
 					`"schema":"tracepack-jsonl/3","format_major":1,"format_minor":3`,
 					`"unknown":[{"tag":53,"value_type":7,"value":"ZnV0dXJl"}]`,

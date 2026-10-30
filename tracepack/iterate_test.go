@@ -433,7 +433,7 @@ func TestIterateReadsWholeBlockWithoutPayloads(t *testing.T) {
 		run := iterate(t, r, Query{Payloads: payloads})
 		assert.Empty(t, run.items, "payloads %v", payloads)
 		require.Len(t, run.res.Incomplete, 1, "payloads %v", payloads)
-		assert.Equal(t, ReasonCorruptBlock, run.res.Incomplete[0].Reason)
+		assert.Equal(t, IncompleteReasonCorruptBlock, run.res.Incomplete[0].Reason)
 	}
 }
 
@@ -586,7 +586,7 @@ func TestIterateNeverPrunesWalkedBlocks(t *testing.T) {
 		assert.Equal(t, all, read, "filter %d: a walked block is always read", i)
 		assert.Equal(t, []uint64{3, 4, 5}, run.seqs(), "filter %d", i)
 		require.Len(t, run.res.Incomplete, 1)
-		assert.Equal(t, ReasonTruncated, run.res.Incomplete[0].Reason)
+		assert.Equal(t, IncompleteReasonTruncated, run.res.Incomplete[0].Reason)
 	}
 
 	read, run := blocksRead(t, r, g, Query{Filter: Filter{Epochs: []uint32{2}, SF: []SF{{Stream: 1, Function: 3}}}})
@@ -629,7 +629,7 @@ func TestIteratePruningTrustsValidatedFooter(t *testing.T) {
 	assert.Equal(t, []int{1}, read)
 	assert.Empty(t, run.items, "its records lie outside the query")
 	require.Len(t, run.res.Incomplete, 1, "a block that is read is compared with its F-2 entry")
-	assert.Equal(t, ReasonIndexMismatch, run.res.Incomplete[0].Reason)
+	assert.Equal(t, IncompleteReasonIndexMismatch, run.res.Incomplete[0].Reason)
 	assert.Equal(t, 1, run.res.Incomplete[0].Block)
 }
 
@@ -669,7 +669,7 @@ func coverageHits(t testing.TB, res *Result, entries []Coverage) []int {
 
 	out := make([]int, 0, len(res.Incomplete))
 	for _, d := range res.Incomplete {
-		require.Equal(t, ReasonCoverage, d.Reason)
+		require.Equal(t, IncompleteReasonCoverage, d.Reason)
 		assert.Equal(t, -1, d.Block)
 		assert.Equal(t, int64(-1), d.Offset)
 		require.Error(t, d.Err)
@@ -735,9 +735,9 @@ func TestIterateResultOrder(t *testing.T) {
 	r := mustOpen(t, file, ReaderOptions{})
 	run := iterate(t, r, Query{Payloads: true})
 	require.Len(t, run.res.Incomplete, 3)
-	assert.Equal(t, ReasonTruncated, run.res.Incomplete[0].Reason)
-	assert.Equal(t, ReasonCoverage, run.res.Incomplete[1].Reason)
-	assert.Equal(t, ReasonCorruptBlock, run.res.Incomplete[2].Reason)
+	assert.Equal(t, IncompleteReasonTruncated, run.res.Incomplete[0].Reason)
+	assert.Equal(t, IncompleteReasonCoverage, run.res.Incomplete[1].Reason)
+	assert.Equal(t, IncompleteReasonCorruptBlock, run.res.Incomplete[2].Reason)
 	assert.Equal(t, 1, run.res.Incomplete[2].Block)
 	for _, d := range run.res.Incomplete {
 		assert.Equal(t, 0, d.Pack, "Iterate reads one pack")
@@ -784,10 +784,10 @@ func TestIterateOverBudgetBlock(t *testing.T) {
 
 			var limits []Defect
 			for _, d := range run.res.Incomplete {
-				if d.Reason == ReasonLimit {
+				if d.Reason == IncompleteReasonLimit {
 					limits = append(limits, d)
 				} else {
-					assert.Equal(t, ReasonTruncated, d.Reason, "only the unfinalized pack is truncated")
+					assert.Equal(t, IncompleteReasonTruncated, d.Reason, "only the unfinalized pack is truncated")
 				}
 			}
 			require.Len(t, limits, 1)
@@ -816,7 +816,7 @@ func TestIterateTruncated(t *testing.T) {
 				for _, payloads := range []bool{false, true} {
 					run := iterate(t, r, Query{Payloads: payloads})
 					require.False(t, run.res.Complete(), "cut at %d", n)
-					assert.True(t, slices.ContainsFunc(run.res.Incomplete, func(d Defect) bool { return d.Reason == ReasonTruncated }), "cut at %d", n)
+					assert.True(t, slices.ContainsFunc(run.res.Incomplete, func(d Defect) bool { return d.Reason == IncompleteReasonTruncated }), "cut at %d", n)
 
 					for _, it := range run.items {
 						require.Less(t, it.rec.Seq, uint64(len(recs)))
@@ -1024,7 +1024,7 @@ func FuzzIterate(f *testing.F) {
 
 			for _, d := range res.Incomplete {
 				require.True(t, d.Block == -1 || (d.Block >= 0 && d.Block < nblocks))
-				require.Equal(t, d.Reason == ReasonCoverage, d.Coverage != nil)
+				require.Equal(t, d.Reason == IncompleteReasonCoverage, d.Coverage != nil)
 			}
 			if res.Complete() {
 				require.Empty(t, unknown, "a complete result yields only records of the seed packs; %v", q)

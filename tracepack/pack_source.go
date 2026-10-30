@@ -15,8 +15,8 @@ type PackSource interface {
 // Boundary is one capture-boundary entry of a footer (the tracepack format specification §10),
 // or the capture-boundary record it summarizes.
 type Boundary struct {
-	// Capture is the capture_id of the pack the entry or record was taken from.
-	Capture UUID
+	// CaptureID is the capture_id of the pack the entry or record was taken from.
+	CaptureID UUID
 	// Seq, Kind, TS and Epoch are the boundary record's seq, boundary_kind, ts_utc_ns and epoch.
 	Seq   uint64
 	Kind  BoundaryKind

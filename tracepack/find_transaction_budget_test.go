@@ -692,7 +692,7 @@ func TestFindTransactionStateBudgetEarly(t *testing.T) {
 func TestTxLookupTickStep(t *testing.T) {
 	t.Parallel()
 
-	l := newTxLookup(TxKey{Capture: captureLow, Hour: memTestHour}, TxOptions{}, nil)
+	l := newTxLookup(TxKey{CaptureID: captureLow, Hour: memTestHour}, TxOptions{}, nil)
 	l.ticks.step = 3
 	var at []int
 	n := 0

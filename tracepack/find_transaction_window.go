@@ -358,7 +358,7 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 			return err
 		}
 	}
-	if captureOf(rd, it) != l.key.Capture {
+	if captureOf(rd, it) != l.key.CaptureID {
 		return nil
 	}
 	if rec.Quality&QualityOrderingUncertain != 0 {
@@ -682,7 +682,7 @@ func (l *txLookup) noteBoundary(at txSeen, rec *Record, ev *TransportEvent) erro
 		kind = *ev.BoundaryKind
 	}
 	l.boundaries = append(l.boundaries, txBoundaryRecord{at: at, boundary: Boundary{
-		Capture: l.key.Capture, Seq: rec.Seq, Kind: kind, TS: rec.TSUTCNs, Epoch: rec.Epoch, GapStart: ev.GapStart, GapEnd: ev.GapEnd,
+		CaptureID: l.key.CaptureID, Seq: rec.Seq, Kind: kind, TS: rec.TSUTCNs, Epoch: rec.Epoch, GapStart: ev.GapStart, GapEnd: ev.GapEnd,
 	}})
 
 	return nil

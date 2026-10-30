@@ -19,31 +19,31 @@ func TestClassifyOutcome(t *testing.T) {
 		failed       []bool
 		walkStopped  bool
 		inconsistent bool
-		want         Outcome
+		want         VerifyOutcome
 	}{
-		{name: "finalized without blocks", finalized: true, want: OutcomeFinalizedConsistent},
-		{name: "finalized, every block validated", finalized: true, failed: []bool{ok, ok, ok}, want: OutcomeFinalizedConsistent},
+		{name: "finalized without blocks", finalized: true, want: VerifyOutcomeFinalizedConsistent},
+		{name: "finalized, every block validated", finalized: true, failed: []bool{ok, ok, ok}, want: VerifyOutcomeFinalizedConsistent},
 		{name: "finalized, footer inconsistent", finalized: true, failed: []bool{ok, ok, ok}, inconsistent: true,
-			want: OutcomeFinalizedInconsistent},
-		{name: "finalized, failed middle block", finalized: true, failed: []bool{ok, fail, ok}, want: OutcomeCorruptMiddle},
-		{name: "finalized, failed first block", finalized: true, failed: []bool{fail, ok, ok}, want: OutcomeCorruptMiddle},
+			want: VerifyOutcomeFinalizedInconsistent},
+		{name: "finalized, failed middle block", finalized: true, failed: []bool{ok, fail, ok}, want: VerifyOutcomeCorruptMiddle},
+		{name: "finalized, failed first block", finalized: true, failed: []bool{fail, ok, ok}, want: VerifyOutcomeCorruptMiddle},
 		{name: "finalized, failed middle block and inconsistent", finalized: true, failed: []bool{ok, fail, ok}, inconsistent: true,
-			want: OutcomeCorruptMiddle},
-		{name: "finalized, failed last block", finalized: true, failed: []bool{ok, ok, fail}, want: OutcomeFinalizedTruncated},
+			want: VerifyOutcomeCorruptMiddle},
+		{name: "finalized, failed last block", finalized: true, failed: []bool{ok, ok, fail}, want: VerifyOutcomeFinalizedTruncated},
 		{name: "finalized, failed last block and inconsistent", finalized: true, failed: []bool{ok, ok, fail}, inconsistent: true,
-			want: OutcomeFinalizedTruncated},
-		{name: "finalized, every block failed", finalized: true, failed: []bool{fail, fail}, want: OutcomeFinalizedTruncated},
-		{name: "finalized, walk stopped", finalized: true, failed: []bool{ok, ok}, walkStopped: true, want: OutcomeFinalizedTruncated},
+			want: VerifyOutcomeFinalizedTruncated},
+		{name: "finalized, every block failed", finalized: true, failed: []bool{fail, fail}, want: VerifyOutcomeFinalizedTruncated},
+		{name: "finalized, walk stopped", finalized: true, failed: []bool{ok, ok}, walkStopped: true, want: VerifyOutcomeFinalizedTruncated},
 		{name: "finalized, walk stopped and inconsistent", finalized: true, failed: []bool{ok, ok}, walkStopped: true, inconsistent: true,
-			want: OutcomeFinalizedTruncated},
-		{name: "finalized, walk stopped at the first envelope", finalized: true, walkStopped: true, want: OutcomeFinalizedTruncated},
-		{name: "unfinalized without blocks", want: OutcomeUnfinalized},
-		{name: "unfinalized, every block validated", failed: []bool{ok, ok}, want: OutcomeUnfinalized},
-		{name: "unfinalized, failed last block", failed: []bool{ok, fail}, want: OutcomeUnfinalized},
-		{name: "unfinalized, walk stopped", failed: []bool{ok, ok}, walkStopped: true, want: OutcomeUnfinalized},
-		{name: "unfinalized, inconsistent", failed: []bool{ok}, inconsistent: true, want: OutcomeUnfinalized},
-		{name: "unfinalized, failed first block", failed: []bool{fail, ok}, want: OutcomeCorruptMiddle},
-		{name: "unfinalized, failed middle block, walk stopped", failed: []bool{ok, fail, ok}, walkStopped: true, want: OutcomeCorruptMiddle},
+			want: VerifyOutcomeFinalizedTruncated},
+		{name: "finalized, walk stopped at the first envelope", finalized: true, walkStopped: true, want: VerifyOutcomeFinalizedTruncated},
+		{name: "unfinalized without blocks", want: VerifyOutcomeUnfinalized},
+		{name: "unfinalized, every block validated", failed: []bool{ok, ok}, want: VerifyOutcomeUnfinalized},
+		{name: "unfinalized, failed last block", failed: []bool{ok, fail}, want: VerifyOutcomeUnfinalized},
+		{name: "unfinalized, walk stopped", failed: []bool{ok, ok}, walkStopped: true, want: VerifyOutcomeUnfinalized},
+		{name: "unfinalized, inconsistent", failed: []bool{ok}, inconsistent: true, want: VerifyOutcomeUnfinalized},
+		{name: "unfinalized, failed first block", failed: []bool{fail, ok}, want: VerifyOutcomeCorruptMiddle},
+		{name: "unfinalized, failed middle block, walk stopped", failed: []bool{ok, fail, ok}, walkStopped: true, want: VerifyOutcomeCorruptMiddle},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

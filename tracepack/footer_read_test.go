@@ -1198,7 +1198,7 @@ func TestCloseSeqOfEpochEndedTwice(t *testing.T) {
 			assert.Equal(t, BoundaryKindStop, st.boundaries[0].kind)
 
 			rep := mustVerify(t, p.file)
-			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
+			assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
 			assert.Empty(t, rep.WriterDefects)
 
 			if tt.split {
@@ -1361,7 +1361,7 @@ func TestReaderRawF3AsStored(t *testing.T) {
 			file := refooter(t, base.file, decoded)
 			r = mustOpenKeepingF3(t, file, ReaderOptions{})
 			require.NoError(t, r.Header().FooterErr)
-			assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, file).Outcome)
+			assert.Equal(t, VerifyOutcomeFinalizedConsistent, mustVerify(t, file).Outcome)
 			run := iterate(t, r, Query{})
 			assert.Equal(t, baseRun.items, run.items)
 			assert.Equal(t, baseRun.res, run.res)
@@ -1416,7 +1416,7 @@ func TestReaderRawF3OverlappingSpans(t *testing.T) {
 	for i := range want {
 		assert.Equal(t, want[i], r.rawF3(i), "block %d", i)
 	}
-	assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, file).Outcome)
+	assert.Equal(t, VerifyOutcomeFinalizedConsistent, mustVerify(t, file).Outcome)
 }
 
 // sharedCountsF3Pack returns file, a finalized pack whose blocks hold equal kind_counts,

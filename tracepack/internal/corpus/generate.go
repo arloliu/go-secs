@@ -138,7 +138,7 @@ type Expectation struct {
 	// Rejection is the bootstrap rejection code of a rejection vector.
 	Rejection string
 	// Outcome is the verification outcome of any other vector.
-	Outcome tracepack.Outcome
+	Outcome tracepack.VerifyOutcome
 	// Unfinalized reports a pack that is not finalized (I-5): the verification report's finalized is its negation.
 	Unfinalized bool
 	// FooterValid is the verification report's footer_valid.
@@ -185,14 +185,14 @@ type Expectation struct {
 type CutWant struct {
 	From      Pos
 	Rejection string
-	Outcome   tracepack.Outcome
+	Outcome   tracepack.VerifyOutcome
 	Validated int
 	Records   uint64
 	PrefixEnd Pos
 	WalkStop  Pos
 }
 
-// FailedWant is a failed block and its cause, ReasonCorruptBlock or ReasonUnknownCodec.
+// FailedWant is a failed block and its cause, IncompleteReasonCorruptBlock or IncompleteReasonUnknownCodec.
 type FailedWant struct {
 	Block int
 	Cause tracepack.IncompleteReason
@@ -302,7 +302,7 @@ func (p Pos) Plus(n uint64) Pos {
 
 // Truncated is the pack-level truncated reason of a query, at at (the zero Pos for none).
 func Truncated(at Pos) IncompleteWant {
-	return IncompleteWant{Reason: tracepack.ReasonTruncated, Block: -1, At: at}
+	return IncompleteWant{Reason: tracepack.IncompleteReasonTruncated, Block: -1, At: at}
 }
 
 // BlockDefect is the reason of a query for block i, at its envelope.
@@ -312,7 +312,7 @@ func BlockDefect(reason tracepack.IncompleteReason, i int) IncompleteWant {
 
 // CoverageHit is the coverage reason of a query.
 func CoverageHit() IncompleteWant {
-	return IncompleteWant{Reason: tracepack.ReasonCoverage, Block: -1}
+	return IncompleteWant{Reason: tracepack.IncompleteReasonCoverage, Block: -1}
 }
 
 // Recipes returns every recipe of the corpus, ascending by id.
@@ -494,7 +494,7 @@ func (rec *Recipe) check() error {
 		return errors.New("a rejection vector expects a rejection code and nothing else")
 	case rec.Class != ClassRejection && (e.Rejection != "" || e.Outcome == 0 || e.PrefixEnd.kind == posNone):
 		return errors.New("a vector that opens expects an outcome and a prefix end")
-	case e.Outcome == tracepack.OutcomeUnfinalized && !e.Unfinalized:
+	case e.Outcome == tracepack.VerifyOutcomeUnfinalized && !e.Unfinalized:
 		return errors.New("an unfinalized outcome of a pack expected finalized")
 	case (rec.Class == ClassTruncation) != (len(e.Cuts) > 0):
 		return errors.New("a truncation vector, and only one, expects its cuts")

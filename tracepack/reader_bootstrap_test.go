@@ -410,10 +410,10 @@ func TestReaderCachedDefects(t *testing.T) {
 		file   []byte
 		reason IncompleteReason
 	}{
-		{name: "damaged envelope", file: flipByte(p.file, at+12), reason: ReasonCorruptBlock},
-		{name: "damaged body", file: flipByte(p.file, at+format.EnvelopeLen+5), reason: ReasonCorruptBlock},
-		{name: "unknown codec", file: patchEnvelope(t, p.file, at, func(e *format.BlockEnvelope) { e.Codec = 7 }), reason: ReasonUnknownCodec},
-		{name: "F-2 disagreement", file: mismatch, reason: ReasonIndexMismatch},
+		{name: "damaged envelope", file: flipByte(p.file, at+12), reason: IncompleteReasonCorruptBlock},
+		{name: "damaged body", file: flipByte(p.file, at+format.EnvelopeLen+5), reason: IncompleteReasonCorruptBlock},
+		{name: "unknown codec", file: patchEnvelope(t, p.file, at, func(e *format.BlockEnvelope) { e.Codec = 7 }), reason: IncompleteReasonUnknownCodec},
+		{name: "F-2 disagreement", file: mismatch, reason: IncompleteReasonIndexMismatch},
 	}
 	for _, f := range files {
 		t.Run(f.name, func(t *testing.T) {

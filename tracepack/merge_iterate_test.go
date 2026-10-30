@@ -135,9 +135,9 @@ func TestMergeIterateResult(t *testing.T) {
 			defects[i] = fmt.Sprintf("%v pack %d block %d", d.Reason, d.Pack, d.Block)
 		}
 		assert.Equal(t, []string{
-			fmt.Sprintf("%v pack 0 block %d", ReasonTruncated, readers[0].openDefects[0].Block),
-			fmt.Sprintf("%v pack 2 block %d", ReasonTruncated, readers[2].openDefects[0].Block),
-			fmt.Sprintf("%v pack 3 block 0", ReasonIndexMismatch),
+			fmt.Sprintf("%v pack 0 block %d", IncompleteReasonTruncated, readers[0].openDefects[0].Block),
+			fmt.Sprintf("%v pack 2 block %d", IncompleteReasonTruncated, readers[2].openDefects[0].Block),
+			fmt.Sprintf("%v pack 3 block 0", IncompleteReasonIndexMismatch),
 		}, defects, "%v", order)
 		assert.Equal(t, []PackError{{Pack: 0, Err: readers[0].footerErr}, {Pack: 2, Err: readers[2].footerErr}}, res.FooterErrs)
 		require.Error(t, res.FooterErrs[0].Err)
@@ -184,7 +184,7 @@ func TestMergeIterateWalkedBesideArchive(t *testing.T) {
 				}
 				assert.Empty(t, res.Conflicts)
 				require.Len(t, res.Incomplete, 1)
-				assert.Equal(t, ReasonTruncated, res.Incomplete[0].Reason)
+				assert.Equal(t, IncompleteReasonTruncated, res.Incomplete[0].Reason)
 				assert.Equal(t, 1-tt.archive, res.Incomplete[0].Pack)
 				require.Len(t, res.FooterErrs, 1)
 				assert.Equal(t, 1-tt.archive, res.FooterErrs[0].Pack)

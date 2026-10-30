@@ -53,7 +53,7 @@ func TestVerifyConsistent(t *testing.T) {
 			p := writeReaderPack(t, readerPackConfig{codec: c}, hourRecords(3, 40))
 			rep := mustVerify(t, p.file)
 
-			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome)
+			assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome)
 			assert.True(t, rep.Finalized)
 			require.NoError(t, rep.FooterErr)
 			assert.Equal(t, 3, rep.Blocks)
@@ -74,7 +74,7 @@ func TestVerifyEmptyPack(t *testing.T) {
 	p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, nil)
 	rep := mustVerify(t, p.file)
 
-	assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome)
+	assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome)
 	assert.Zero(t, rep.Blocks)
 	assert.Equal(t, layoutOf(t, p.file).blocksStart, rep.PrefixEnd)
 }
@@ -91,14 +91,14 @@ func TestVerifyFailedBlocks(t *testing.T) {
 		t.Parallel()
 
 		rep := mustVerify(t, flipByte(p.file, bodyByte(1)))
-		assert.Equal(t, OutcomeCorruptMiddle, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeCorruptMiddle, rep.Outcome)
 		assert.True(t, rep.Finalized)
 		require.NoError(t, rep.FooterErr)
 		assert.Equal(t, 2, rep.Validated)
 		assert.Equal(t, uint64(80), rep.Records)
 		assert.Equal(t, p.blocks[1].offset, rep.PrefixEnd)
 		require.Len(t, rep.Failed, 1)
-		requireFailedBlock(t, rep.Failed[0], p.blocks, 1, ReasonCorruptBlock)
+		requireFailedBlock(t, rep.Failed[0], p.blocks, 1, IncompleteReasonCorruptBlock)
 
 		capture := UUID(layoutHeader(t, p.file).CaptureID)
 		b := &p.blocks[1]
@@ -114,7 +114,7 @@ func TestVerifyFailedBlocks(t *testing.T) {
 		b := &rich.blocks[0]
 		require.Len(t, b.seqRanges, 2, "block 0 holds seqs 10, 11 and 13")
 		rep := mustVerify(t, flipByte(rich.file, b.offset+format.EnvelopeLen+1))
-		assert.Equal(t, OutcomeCorruptMiddle, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeCorruptMiddle, rep.Outcome)
 
 		capture := UUID(layoutHeader(t, rich.file).CaptureID)
 		lost := func(first, last uint64) Coverage {
@@ -127,11 +127,11 @@ func TestVerifyFailedBlocks(t *testing.T) {
 		t.Parallel()
 
 		rep := mustVerify(t, flipByte(invalidFooterFile(t, p.file), bodyByte(1)))
-		assert.Equal(t, OutcomeCorruptMiddle, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeCorruptMiddle, rep.Outcome)
 		assert.True(t, rep.Finalized)
 		require.ErrorIs(t, rep.FooterErr, ErrInvalidFooter)
 		require.Len(t, rep.Failed, 1)
-		requireFailedBlock(t, rep.Failed[0], p.blocks, 1, ReasonCorruptBlock)
+		requireFailedBlock(t, rep.Failed[0], p.blocks, 1, IncompleteReasonCorruptBlock)
 		assert.Empty(t, rep.Lost, "without a valid footer the failed block's seqs are unknown")
 	})
 
@@ -139,11 +139,11 @@ func TestVerifyFailedBlocks(t *testing.T) {
 		t.Parallel()
 
 		rep := mustVerify(t, flipByte(p.file, p.blocks[2].offset+1))
-		assert.Equal(t, OutcomeFinalizedTruncated, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeFinalizedTruncated, rep.Outcome)
 		assert.Equal(t, 2, rep.Validated)
 		assert.Equal(t, p.blocks[2].offset, rep.PrefixEnd)
 		require.Len(t, rep.Failed, 1)
-		requireFailedBlock(t, rep.Failed[0], p.blocks, 2, ReasonCorruptBlock)
+		requireFailedBlock(t, rep.Failed[0], p.blocks, 2, IncompleteReasonCorruptBlock)
 		assert.Len(t, rep.Lost, 1)
 	})
 
@@ -151,7 +151,7 @@ func TestVerifyFailedBlocks(t *testing.T) {
 		t.Parallel()
 
 		rep := mustVerify(t, flipByte(p.file, p.blocks[1].offset+1))
-		assert.Equal(t, OutcomeCorruptMiddle, rep.Outcome, "the F-2 entry passes the failed envelope")
+		assert.Equal(t, VerifyOutcomeCorruptMiddle, rep.Outcome, "the F-2 entry passes the failed envelope")
 		assert.Equal(t, 2, rep.Validated)
 	})
 
@@ -159,12 +159,12 @@ func TestVerifyFailedBlocks(t *testing.T) {
 		t.Parallel()
 
 		rep := mustVerify(t, flipByte(invalidFooterFile(t, p.file), p.blocks[1].offset+1))
-		assert.Equal(t, OutcomeFinalizedTruncated, rep.Outcome, "no block after the stop is located")
+		assert.Equal(t, VerifyOutcomeFinalizedTruncated, rep.Outcome, "no block after the stop is located")
 		assert.Equal(t, 1, rep.Blocks)
 		assert.Equal(t, 1, rep.Validated)
 		assert.Equal(t, p.blocks[1].offset, rep.PrefixEnd)
 		require.Len(t, rep.Failed, 1)
-		assert.Equal(t, ReasonTruncated, rep.Failed[0].Reason)
+		assert.Equal(t, IncompleteReasonTruncated, rep.Failed[0].Reason)
 		assert.Equal(t, -1, rep.Failed[0].Block)
 		assert.Equal(t, int64(p.blocks[1].offset), rep.Failed[0].Offset)
 	})
@@ -192,7 +192,7 @@ func TestVerifyUnfinalized(t *testing.T) {
 		t.Parallel()
 
 		rep := mustVerify(t, open.file)
-		assert.Equal(t, OutcomeUnfinalized, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeUnfinalized, rep.Outcome)
 		assert.False(t, rep.Finalized)
 		assert.Equal(t, 3, rep.Validated)
 		assert.Equal(t, uint64(len(open.file)), rep.PrefixEnd)
@@ -204,11 +204,11 @@ func TestVerifyUnfinalized(t *testing.T) {
 
 		cut := open.file[:blockEnd(&open.blocks[2])-1]
 		rep := mustVerify(t, cut)
-		assert.Equal(t, OutcomeUnfinalized, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeUnfinalized, rep.Outcome)
 		assert.Equal(t, 2, rep.Validated)
 		assert.Equal(t, open.blocks[2].offset, rep.PrefixEnd)
 		require.Len(t, rep.Failed, 1)
-		assert.Equal(t, ReasonTruncated, rep.Failed[0].Reason)
+		assert.Equal(t, IncompleteReasonTruncated, rep.Failed[0].Reason)
 		assert.Equal(t, int64(open.blocks[2].offset), rep.Failed[0].Offset)
 	})
 
@@ -217,7 +217,7 @@ func TestVerifyUnfinalized(t *testing.T) {
 
 		l := layoutOf(t, closed.file)
 		rep := mustVerify(t, flipByte(closed.file, l.tr.FooterOffset+1))
-		assert.Equal(t, OutcomeUnfinalized, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeUnfinalized, rep.Outcome)
 		assert.False(t, rep.Finalized)
 		require.ErrorIs(t, rep.FooterErr, ErrChecksum)
 		assert.Equal(t, 3, rep.Validated)
@@ -235,7 +235,7 @@ func TestVerifyUnfinalized(t *testing.T) {
 			tr.FooterCRC = format.CRC(closed.file[tr.FooterOffset:trailerAt])
 		})
 		rep := mustVerify(t, file)
-		assert.Equal(t, OutcomeUnfinalized, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeUnfinalized, rep.Outcome)
 		assert.False(t, rep.Finalized)
 		assert.Equal(t, 3, rep.Validated)
 	})
@@ -276,7 +276,7 @@ func TestVerifyErrors(t *testing.T) {
 		file := flipByte(p.file, l.tr.FooterOffset+1)
 		rep, err := verifyBytes(t, file, VerifyOptions{Reader: ReaderOptions{MaxFooterLen: 1}})
 		require.NoError(t, err)
-		assert.Equal(t, OutcomeUnfinalized, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeUnfinalized, rep.Outcome)
 		require.ErrorIs(t, rep.FooterErr, ErrChecksum)
 	})
 
@@ -317,11 +317,11 @@ func resummarized(t testing.TB, file []byte, blocks []blockSummary, i int, edit 
 func requireInconsistent(t *testing.T, rep VerifyReport, i int, msg string) {
 	t.Helper()
 
-	assert.Equal(t, OutcomeFinalizedInconsistent, rep.Outcome)
+	assert.Equal(t, VerifyOutcomeFinalizedInconsistent, rep.Outcome)
 	require.NoError(t, rep.FooterErr, "the footer must stay valid")
 	assert.Empty(t, rep.Failed)
 	require.Len(t, rep.Disagreements, 1)
-	assert.Equal(t, ReasonIndexMismatch, rep.Disagreements[0].Reason)
+	assert.Equal(t, IncompleteReasonIndexMismatch, rep.Disagreements[0].Reason)
 	assert.Equal(t, i, rep.Disagreements[0].Block)
 	require.ErrorContains(t, rep.Disagreements[0].Err, msg)
 }
@@ -376,10 +376,10 @@ func TestVerifyRichPackConsistent(t *testing.T) {
 
 			rich := richFooterPack(t, c)
 			rep := mustVerify(t, rich.file)
-			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "%v", rep.Disagreements)
+			assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "%v", rep.Disagreements)
 
 			rep = mustVerify(t, editFooter(t, rich.file, addFooterTags))
-			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "unknown F-3 tags are skipped: %v", rep.Disagreements)
+			assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "unknown F-3 tags are skipped: %v", rep.Disagreements)
 		})
 	}
 }
@@ -391,17 +391,17 @@ func TestVerifyTrailerDisagrees(t *testing.T) {
 	file := patchTrailer(t, invalidFooterFile(t, p.file), func(tr *format.Trailer) { tr.RecordCount++ })
 
 	rep := mustVerify(t, file)
-	assert.Equal(t, OutcomeFinalizedInconsistent, rep.Outcome)
+	assert.Equal(t, VerifyOutcomeFinalizedInconsistent, rep.Outcome)
 	assert.True(t, rep.Finalized)
 	require.ErrorIs(t, rep.FooterErr, ErrInvalidFooter)
 	assert.Equal(t, 3, rep.Validated)
 	require.Len(t, rep.Disagreements, 1)
 	assert.Equal(t, -1, rep.Disagreements[0].Block)
-	assert.Equal(t, ReasonIndexMismatch, rep.Disagreements[0].Reason)
+	assert.Equal(t, IncompleteReasonIndexMismatch, rep.Disagreements[0].Reason)
 	require.ErrorContains(t, rep.Disagreements[0].Err, "the trailer claims 3 blocks of 121 records")
 
 	rep = mustVerify(t, invalidFooterFile(t, p.file))
-	assert.Equal(t, OutcomeFinalizedInconsistent, rep.Outcome, "an invalid footer alone")
+	assert.Equal(t, VerifyOutcomeFinalizedInconsistent, rep.Outcome, "an invalid footer alone")
 	assert.Empty(t, rep.Disagreements)
 }
 
@@ -498,7 +498,7 @@ func TestVerifyRecordWriterDefects(t *testing.T) {
 			t.Parallel()
 
 			rep := mustVerify(t, editBlock(t, p.file, 0, tt.edit))
-			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "a writer defect never changes the outcome: %v", rep.Disagreements)
+			assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "a writer defect never changes the outcome: %v", rep.Disagreements)
 			requireWriterDefect(t, rep.WriterDefects, tt.kind, 0, p.blocks[0].offset, tt.seq)
 		})
 	}
@@ -507,7 +507,7 @@ func TestVerifyRecordWriterDefects(t *testing.T) {
 		t.Parallel()
 
 		rep := mustVerify(t, editBlock(t, p.file, 0, func(b *testBlock) { b.headers[1].FieldValidity = 0xC0 }))
-		assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome)
 		assert.Empty(t, rep.WriterDefects)
 	})
 }
@@ -535,22 +535,22 @@ func TestVerifyBlockWriterDefects(t *testing.T) {
 	tests := []struct {
 		name      string
 		file      []byte
-		want      Outcome
+		want      VerifyOutcome
 		footerErr bool
 		disagrees bool
 		kind      WriterDefectKind
 		seq       uint64
 	}{
 		{name: "seq order, faithful index", file: editBlock(t, p.file, 1, seqOverlap),
-			want: OutcomeFinalizedInconsistent, footerErr: true, kind: WriterDefectSeqOrder, seq: 2},
+			want: VerifyOutcomeFinalizedInconsistent, footerErr: true, kind: WriterDefectSeqOrder, seq: 2},
 		{name: "seq order, unfinalized", file: editBlock(t, openFile, 1, seqOverlap),
-			want: OutcomeUnfinalized, footerErr: true, kind: WriterDefectSeqOrder, seq: 2},
+			want: VerifyOutcomeUnfinalized, footerErr: true, kind: WriterDefectSeqOrder, seq: 2},
 		{name: "hour span, faithful index", file: editBlock(t, p.file, 1, faithfulHourSpan),
-			want: OutcomeFinalizedInconsistent, footerErr: true, kind: WriterDefectHourSpan, seq: 3},
+			want: VerifyOutcomeFinalizedInconsistent, footerErr: true, kind: WriterDefectHourSpan, seq: 3},
 		{name: "hour span, index understating it", file: editBlock(t, p.file, 1, hourSpan),
-			want: OutcomeFinalizedInconsistent, disagrees: true, kind: WriterDefectHourSpan, seq: 3},
+			want: VerifyOutcomeFinalizedInconsistent, disagrees: true, kind: WriterDefectHourSpan, seq: 3},
 		{name: "hour span, unfinalized", file: editBlock(t, openFile, 1, hourSpan),
-			want: OutcomeUnfinalized, footerErr: true, kind: WriterDefectHourSpan, seq: 3},
+			want: VerifyOutcomeUnfinalized, footerErr: true, kind: WriterDefectHourSpan, seq: 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -577,11 +577,11 @@ func TestVerifyBlockWriterDefects(t *testing.T) {
 		body := func(i int) uint64 { return blocks[i].Offset + format.EnvelopeLen + 1 }
 
 		rep := mustVerify(t, flipByte(defective, body(2)))
-		assert.Equal(t, OutcomeFinalizedTruncated, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeFinalizedTruncated, rep.Outcome)
 		requireWriterDefect(t, rep.WriterDefects, WriterDefectHourSpan, 0, p.blocks[0].offset, 0)
 
 		rep = mustVerify(t, flipByte(defective, body(1)))
-		assert.Equal(t, OutcomeCorruptMiddle, rep.Outcome)
+		assert.Equal(t, VerifyOutcomeCorruptMiddle, rep.Outcome)
 		requireWriterDefect(t, rep.WriterDefects, WriterDefectHourSpan, 0, p.blocks[0].offset, 0)
 	})
 }
@@ -596,20 +596,20 @@ func TestVerifySeqStartDefect(t *testing.T) {
 	tests := []struct {
 		name   string
 		file   []byte
-		want   Outcome
+		want   VerifyOutcome
 		defect bool
 		block  int
 		seq    uint64
 	}{
 		{name: "seq_start below the first record", file: withSeqStart(t, p.file, 9),
-			want: OutcomeFinalizedConsistent, defect: true, block: 0, seq: 10},
+			want: VerifyOutcomeFinalizedConsistent, defect: true, block: 0, seq: 10},
 		{name: "seq_start above the first record", file: withSeqStart(t, p.file, 11),
-			want: OutcomeFinalizedConsistent, defect: true, block: 0, seq: 10},
+			want: VerifyOutcomeFinalizedConsistent, defect: true, block: 0, seq: 10},
 		{name: "after a failed block, seq_start at the first validated record", file: withSeqStart(t, failedFirst, 14),
-			want: OutcomeCorruptMiddle, defect: true, block: 1, seq: 14},
+			want: VerifyOutcomeCorruptMiddle, defect: true, block: 1, seq: 14},
 		{name: "after a failed block, seq_start below the first validated record", file: withSeqStart(t, failedFirst, 13),
-			want: OutcomeCorruptMiddle},
-		{name: "after a failed block, the pack's own seq_start", file: failedFirst, want: OutcomeCorruptMiddle},
+			want: VerifyOutcomeCorruptMiddle},
+		{name: "after a failed block, the pack's own seq_start", file: failedFirst, want: VerifyOutcomeCorruptMiddle},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

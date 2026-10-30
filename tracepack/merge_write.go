@@ -198,7 +198,7 @@ func (p *mergePlan) readInputBlock(ctx context.Context, b *mergeBlock, buf *bloc
 	switch {
 	case err != nil:
 		return nil, blockSummary{}, fmt.Errorf("tracepack: merge: input %d, pack %s, block %d: %w", b.input, id, b.block, err)
-	case def != nil && def.Reason == ReasonLimit:
+	case def != nil && def.Reason == IncompleteReasonLimit:
 		return nil, blockSummary{}, fmt.Errorf("tracepack: merge: input %d, pack %s: %w", b.input, id, def.Err)
 	case def != nil:
 		// A failed block, or a block whose records disagree with its F-2 entry, which readBlock returns beside the block.
@@ -207,7 +207,7 @@ func (p *mergePlan) readInputBlock(ctx context.Context, b *mergeBlock, buf *bloc
 
 	s := summaryOf(d)
 	if err := checkSummary(&r.footer.blocks[b.block], &s); err != nil {
-		return nil, blockSummary{}, inputError(b.input, id, blockDefect(b.block, &r.blocks[b.block], ReasonIndexMismatch, err).Err)
+		return nil, blockSummary{}, inputError(b.input, id, blockDefect(b.block, &r.blocks[b.block], IncompleteReasonIndexMismatch, err).Err)
 	}
 	if err := p.checkRecords(b.input, d, &s); err != nil {
 		return nil, blockSummary{}, inputError(b.input, id, fmt.Errorf("block %d: %w", b.block, err))

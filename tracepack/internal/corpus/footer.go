@@ -250,7 +250,7 @@ func RecomputeFooter(ctx context.Context, r *tracepack.Reader) (FooterProjection
 	if err != nil {
 		return FooterProjection{}, err
 	}
-	if slices.ContainsFunc(res.Incomplete, func(d tracepack.Defect) bool { return d.Reason == tracepack.ReasonLimit }) {
+	if slices.ContainsFunc(res.Incomplete, func(d tracepack.Defect) bool { return d.Reason == tracepack.IncompleteReasonLimit }) {
 		return FooterProjection{}, fmt.Errorf("corpus: a block is over a reader budget")
 	}
 

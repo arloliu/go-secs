@@ -35,12 +35,12 @@ import (
 // a crash gap for every stop-unclean boundary of the pack, from its footer or from the records of its walked blocks,
 // and the defect of every block that failed or disagrees with its F-2 entry;
 // FooterErrs as Iterate sets it, a footer error alone not making the Result incomplete.
-// Where Iterate reports a reader budget as a ReasonLimit defect, ExportJSONL fails instead,
+// Where Iterate reports a reader budget as an IncompleteReasonLimit defect, ExportJSONL fails instead,
 // so that an export that succeeds never depends on ReaderOptions:
 // before writing anything when the footer was not used because it is over MaxFooterLen
 // or the forward walk stopped at MaxWalkedBlocks,
 // and when it reaches a block over MaxBlockLen, after the lines of the blocks before it.
-// No ReasonLimit defect is ever listed in the Result.
+// No IncompleteReasonLimit defect is ever listed in the Result.
 //
 // ExportJSONL writes each line in pieces of at most 64 KiB, so a line may take several Write calls.
 // Beyond the block it reads, as Iterate holds it, and the Result's diagnostics,
@@ -62,7 +62,7 @@ func ExportJSONL(ctx context.Context, r *Reader, w io.Writer) (Result, error) {
 	var f Filter
 	res := r.startResult(&f)
 	if err := r.exportLimitErr(); err != nil {
-		res.Incomplete = slices.DeleteFunc(res.Incomplete, func(d Defect) bool { return d.Reason == ReasonLimit })
+		res.Incomplete = slices.DeleteFunc(res.Incomplete, func(d Defect) bool { return d.Reason == IncompleteReasonLimit })
 
 		return res, err
 	}
@@ -166,7 +166,7 @@ func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, r
 		if err != nil {
 			return res, err
 		}
-		if def != nil && def.Reason == ReasonLimit {
+		if def != nil && def.Reason == IncompleteReasonLimit {
 			return res, fmt.Errorf("tracepack: export JSONL: %w", def.Err)
 		}
 		if def != nil {
@@ -196,7 +196,7 @@ func (r *Reader) exportLimitErr() error {
 	if errors.Is(r.footerErr, ErrReadLimit) {
 		return fmt.Errorf("tracepack: export JSONL: %w", r.footerErr)
 	}
-	if r.walkStop != nil && r.walkStop.Reason == ReasonLimit {
+	if r.walkStop != nil && r.walkStop.Reason == IncompleteReasonLimit {
 		return fmt.Errorf("tracepack: export JSONL: %w", r.walkStop.Err)
 	}
 

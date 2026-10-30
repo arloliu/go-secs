@@ -128,7 +128,7 @@ func genTxCapture(t testing.TB, seed uint64) *txGen {
 	g.made.epochs += int(st.next - st.epoch)
 
 	for _, r := range g.truth {
-		g.keys = append(g.keys, TxKey{Capture: captureLow, Seq: r.Seq, Hour: hourOf(r.TSUTCNs)})
+		g.keys = append(g.keys, TxKey{CaptureID: captureLow, Seq: r.Seq, Hour: hourOf(r.TSUTCNs)})
 	}
 	g.cut(t, rng)
 	for h := range g.hours {
@@ -659,7 +659,7 @@ func (g *txGen) breach(t testing.TB, rng *rand.Rand, byHour [][]Record, h int) {
 	hour := g.first + int64(h)
 	walked := rng.IntN(2) == 0
 	g.packAs(t, rng, hour, recs, &walked)
-	g.keys = append(g.keys, TxKey{Capture: captureLow, Seq: moved[0].Seq, Hour: hour})
+	g.keys = append(g.keys, TxKey{CaptureID: captureLow, Seq: moved[0].Seq, Hour: hour})
 	g.made.breaches++
 	if walked {
 		g.made.walkedBreaches++
@@ -730,7 +730,7 @@ func (g *txGen) crossVersion(t testing.TB, rng *rand.Rand) {
 		r = txGenVersion(rng, r)
 	}
 	g.pack(t, rng, g.first+h, []Record{r})
-	g.keys = append(g.keys, TxKey{Capture: captureLow, Seq: r.Seq, Hour: g.first + h})
+	g.keys = append(g.keys, TxKey{CaptureID: captureLow, Seq: r.Seq, Hour: g.first + h})
 	g.made.crossVersions++
 }
 
@@ -1162,7 +1162,7 @@ func txOracleBoundaryOf(capture UUID, rec *Record) (Boundary, bool) {
 	if err != nil || ev.Event != EventCaptureBoundary {
 		return Boundary{}, false
 	}
-	b := Boundary{Capture: capture, Seq: rec.Seq, TS: rec.TSUTCNs, Epoch: rec.Epoch, GapStart: ev.GapStart, GapEnd: ev.GapEnd}
+	b := Boundary{CaptureID: capture, Seq: rec.Seq, TS: rec.TSUTCNs, Epoch: rec.Epoch, GapStart: ev.GapStart, GapEnd: ev.GapEnd}
 	if ev.BoundaryKind != nil {
 		b.Kind = *ev.BoundaryKind
 	}
@@ -1218,7 +1218,7 @@ func (s *txSnapshot) expect(key TxKey, maxScopes int) (TxResult, bool) {
 	first := s.scopes[key.Hour]
 	x.read(first)
 	var prims []iterItem
-	for _, it := range first.own(key.Capture) {
+	for _, it := range first.own(key.CaptureID) {
 		if it.rec.Seq == key.Seq {
 			prims = append(prims, it)
 		}
@@ -1318,13 +1318,13 @@ func (x *txExpect) missing(sc *txOracleScope) (TxResult, bool) {
 	from, to := x.key.Hour*hourNs, (x.key.Hour+1)*hourNs
 	var at *Coverage
 	for i := range sc.coverage {
-		if c := &sc.coverage[i]; c.capture == x.key.Capture && txOracleCoverageMeets(&c.c, x.key.Seq, x.key.Seq, from, to) {
+		if c := &sc.coverage[i]; c.capture == x.key.CaptureID && txOracleCoverageMeets(&c.c, x.key.Seq, x.key.Seq, from, to) {
 			at = cloneCoverage(&c.c)
 			break
 		}
 	}
 	crash := slices.ContainsFunc(sc.crash, func(c txOracleCrash) bool {
-		return c.b.Capture == x.key.Capture && txOracleMeets(c.b.GapStart, c.b.GapEnd, from, to)
+		return c.b.CaptureID == x.key.CaptureID && txOracleMeets(c.b.GapStart, c.b.GapEnd, from, to)
 	})
 	if len(sc.defects) == 0 && len(sc.breaches()) == 0 && at == nil && !crash {
 		return x.res, true
@@ -1385,7 +1385,7 @@ func txOracleGroups(items []iterItem) [][]iterItem {
 func (x *txExpect) identity() {
 	p := x.key.Seq
 	for _, sc := range x.reads {
-		for _, g := range txOracleGroups(sc.own(x.key.Capture)) {
+		for _, g := range txOracleGroups(sc.own(x.key.CaptureID)) {
 			seq := g[0].rec.Seq
 			if seq < p {
 				continue
@@ -1407,7 +1407,7 @@ func (x *txExpect) identity() {
 
 	x.res.Records[0].Conflict = len(x.hours[p]) > 1
 	for _, sc := range x.reads {
-		for _, g := range txOracleGroups(sc.own(x.key.Capture)) {
+		for _, g := range txOracleGroups(sc.own(x.key.CaptureID)) {
 			seq := g[0].rec.Seq
 			if seq < p || seq == p && sc.hour == x.key.Hour {
 				continue
@@ -1527,7 +1527,7 @@ func (x *txExpect) completeness() {
 	}
 	for _, sc := range x.reads {
 		for i := range sc.coverage {
-			if c := &sc.coverage[i]; c.capture == x.key.Capture && txOracleCoverageMeets(&c.c, first, last, from, to) {
+			if c := &sc.coverage[i]; c.capture == x.key.CaptureID && txOracleCoverageMeets(&c.c, first, last, from, to) {
 				x.gap(TxGap{Reason: TxGapCoverage, Hours: []int64{sc.hour}, Pack: new(c.pack), Coverage: cloneCoverage(&c.c)})
 			}
 		}
@@ -1561,13 +1561,13 @@ func (x *txExpect) crashGaps(from, to int64) {
 // the clean stop that bounds the window, a stop at its end whose bounding version is a capture-boundary stop of the epoch, excepted.
 func (x *txExpect) captureBoundaries() {
 	stopBound := slices.ContainsFunc(x.res.Records, func(v TxRecord) bool {
-		b, ok := txOracleBoundaryOf(x.key.Capture, &v.Record)
+		b, ok := txOracleBoundaryOf(x.key.CaptureID, &v.Record)
 		return v.Bound && ok && b.Kind == BoundaryKindStop && b.Epoch == x.k.epoch
 	})
 	bounding := func(b *Boundary) bool { return stopBound && b.Seq == x.e && b.Kind == BoundaryKindStop }
 	for _, sc := range x.reads {
-		for _, it := range sc.own(x.key.Capture) {
-			b, ok := txOracleBoundaryOf(x.key.Capture, &it.rec)
+		for _, it := range sc.own(x.key.CaptureID) {
+			b, ok := txOracleBoundaryOf(x.key.CaptureID, &it.rec)
 			if !ok || b.Seq <= x.key.Seq || b.Epoch != x.k.epoch || bounding(&b) {
 				continue
 			}
@@ -1583,7 +1583,7 @@ func (x *txExpect) captureBoundaries() {
 // at the first record of the primary's capture and epoch with ordering-uncertain that the reads yielded, at any seq.
 func (x *txExpect) orderingUncertain() {
 	for _, sc := range x.reads {
-		for _, it := range sc.own(x.key.Capture) {
+		for _, it := range sc.own(x.key.CaptureID) {
 			if it.rec.Epoch == x.k.epoch && it.rec.Quality.Has(QualityOrderingUncertain) {
 				x.gap(TxGap{
 					Reason: TxGapOrderingUncertain, Hours: []int64{sc.hour}, Pack: new(sc.packs[it.pack]), Block: it.block,
@@ -1652,7 +1652,7 @@ func txGapKey(g *TxGap) string {
 			optString(c.TimeStart), optString(c.TimeEnd), c.Unknown)
 	}
 	if b := g.Boundary; b != nil {
-		s += fmt.Sprintf(" boundary=(%v %d %v %d %d %v %v)", b.Capture, b.Seq, b.Kind, b.TS, b.Epoch, optString(b.GapStart), optString(b.GapEnd))
+		s += fmt.Sprintf(" boundary=(%v %d %v %d %d %v %v)", b.CaptureID, b.Seq, b.Kind, b.TS, b.Epoch, optString(b.GapStart), optString(b.GapEnd))
 	}
 
 	return s
@@ -1766,7 +1766,7 @@ func (s *txGenStats) add(key TxKey, res *TxResult, err error) {
 		switch {
 		case g.Reason == TxGapScopeBreach && g.Hours[0] == key.Hour:
 			s.breachPrimary++
-		case g.Reason == TxGapCrashGap && g.Boundary.Capture != key.Capture:
+		case g.Reason == TxGapCrashGap && g.Boundary.CaptureID != key.CaptureID:
 			s.otherCrash++
 		default:
 		}
@@ -2046,7 +2046,7 @@ func FuzzFindTransaction(f *testing.F) {
 			}
 			ids[h.PackID] = true
 			if len(ids) == 1 {
-				key = TxKey{Capture: h.CaptureID, Seq: seq, Hour: hourOf(h.Meta.PeriodStart)}
+				key = TxKey{CaptureID: h.CaptureID, Seq: seq, Hour: hourOf(h.Meta.PeriodStart)}
 			}
 			s.addPack(t, hourOf(h.Meta.PeriodStart), data)
 		}
@@ -2078,7 +2078,7 @@ func requireTxConflictsIncomplete(t *testing.T, key TxKey, res *TxResult) {
 	t.Helper()
 
 	for _, c := range res.Conflicts {
-		if c.CaptureID != key.Capture || c.Seq < key.Seq {
+		if c.CaptureID != key.CaptureID || c.Seq < key.Seq {
 			continue
 		}
 		require.NotEmpty(t, res.Incomplete, "the conflict at seq %d makes the lookup incomplete", c.Seq)
