@@ -62,6 +62,12 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   `DirSinkOptions.NoReplace` replaces `DirSinkNoReplace()`, which is removed with `DirSinkOption` (G5-283).
   Migration: veq's `NewDirSink(root, prefix, tracepack.DirSinkNoReplace())` becomes `NewDirSink(root, prefix, tracepack.DirSinkOptions{NoReplace: true})`,
   and tracekeep's `NewDirSink(root, prefix)` becomes `NewDirSink(root, prefix, tracepack.DirSinkOptions{})`.
+- **Breaking:** a negative budget field of `ReaderOptions`, `MergeIterateOptions`, `TxOptions` or `TxRangeOptions` is refused instead of taking its default (G5-284);
+  zero still takes the default, as `MergeOptions` already did.
+  `Open`, `Verify` and `Merge` (for `MergeOptions.Reader`) return a plain error naming the field before any read,
+  and `MergeIterate`, `FindTransaction` and `FindTransactions` an error wrapping `ErrInvalidQuery`, before any read or call of the source;
+  an earlier argument error still wins.
+  Migration: pass 0, not a negative value, for a default; neither tracekeep nor veq passes a negative option.
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 

@@ -73,11 +73,11 @@ type mergeIteratePlan struct {
 //
 // It checks, in this order: fn is not nil; opts.Order is an order; q is valid;
 // no reader is nil; no *Reader is given twice; no two readers hold the same pack_id;
-// then ctx is not done.
+// no budget field of opts is negative; then ctx is not done.
 // An empty readers is valid.
 //
 // Returns:
-//   - MergeIterateOptions: opts with MaxHeldBytes and MaxConflicts defaulted when zero or negative.
+//   - MergeIterateOptions: opts with MaxHeldBytes and MaxConflicts defaulted when zero.
 //   - error: an error wrapping ErrInvalidQuery, naming the readers concerned for a fault of readers;
 //     ctx's error, wrapped.
 func checkMergeIterate(ctx context.Context, readers []*Reader, q *Query, opts MergeIterateOptions, fn func(*Item) error) (MergeIterateOptions, error) {
@@ -109,6 +109,10 @@ func checkMergeIterate(ctx context.Context, readers []*Reader, q *Query, opts Me
 			return opts, fmt.Errorf("%w: readers %d and %d hold the same pack_id %s", ErrInvalidQuery, k, i, id)
 		}
 		ids[id] = i
+	}
+	if msg := negativeOption("MergeIterateOptions",
+		optionField{"MaxHeldBytes", opts.MaxHeldBytes}, optionField{"MaxConflicts", int64(opts.MaxConflicts)}); msg != "" {
+		return opts, fmt.Errorf("%w: %s", ErrInvalidQuery, msg)
 	}
 	if err := ctx.Err(); err != nil {
 		return opts, fmt.Errorf("tracepack: merge iterate: %w", err)

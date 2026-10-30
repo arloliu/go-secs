@@ -239,5 +239,4 @@ func TestReaderOptionsDefaultMaxWalkedBlocks(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, DefaultMaxWalkedBlocks, ReaderOptions{}.withDefaults().MaxWalkedBlocks)
-	assert.Equal(t, DefaultMaxWalkedBlocks, ReaderOptions{MaxWalkedBlocks: -1}.withDefaults().MaxWalkedBlocks)
 }

@@ -269,6 +269,8 @@ For readers and troubleshooters working on local files:
   It keeps at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`) bytes for its lifetime, 4 MiB with the defaults,
   outside the budgets of `MergeIterateOptions.MaxHeldBytes`, `TxOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`;
   lower `WholeReadThreshold` when many Readers stay open at once.
+- A zero option field takes its default, and a negative budget field is refused with the function's argument error:
+  a plain error from `Open`, `Verify` and `Merge`, an error wrapping `ErrInvalidQuery` from `MergeIterate`, `FindTransaction` and `FindTransactions`.
 - `MergeIterate` reads several packs as one read, in capture or time order.
   It compares the copies of each record across the packs, yields identical copies once, and reports copies that differ as conflicts.
   It reads up to 8 blocks ahead of the one it resolves, within `MaxHeldBytes`,

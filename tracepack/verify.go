@@ -112,7 +112,8 @@ type WriterDefect struct {
 
 // VerifyOptions configures Verify.
 type VerifyOptions struct {
-	// Reader configures the bootstrap and the reader budgets; a zero field takes its default, as for Open.
+	// Reader configures the bootstrap and the reader budgets;
+	// a zero field takes its default, and a negative one fails Verify, as for Open.
 	Reader ReaderOptions
 }
 
@@ -196,7 +197,7 @@ func classifyOutcome(finalized bool, failed []bool, walkStopped, inconsistent bo
 //
 // Returns:
 //   - VerifyReport: the outcome and its evidence; the zero VerifyReport on an error.
-//   - error: every error of Open, for a file header or pack metadata that cannot be read;
+//   - error: every error of Open, for a negative field of opts.Reader or a file header or pack metadata that cannot be read;
 //     an error wrapping ErrReadLimit for a block over MaxBlockLen,
 //     for the footer of a finalized pack over MaxFooterLen, on disk or decoded, or for its blocks' F-3 lists over it,
 //     or for a forward walk that reached MaxWalkedBlocks;
