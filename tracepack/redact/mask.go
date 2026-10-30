@@ -2,6 +2,7 @@ package redact
 
 import (
 	"cmp"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
@@ -75,7 +76,11 @@ type match struct {
 // Each digest covers the original bytes, computed before any mask changes them.
 // Masking is deterministic: equal inputs give equal records and entries.
 //
+// Mask checks ctx before each key request, and passes ctx to keys;
+// nothing else it does blocks, so a record that needs no key is returned whatever the state of ctx.
+//
 // Parameters:
+//   - ctx: the context of the key requests.
 //   - capture: the capture_id of the pack r will be written to.
 //   - r: the record as received, classified from its payload as received; Mask does not change it.
 //   - unobserved: true when r is unobserved by design, as the bus record's quality bit 7 says,
@@ -89,8 +94,11 @@ type match struct {
 //     else r itself, its payload shared with r.
 //   - []tracepack.RedactionEntry: the record's entries; nil when nothing matched.
 //   - error: an error wrapping ErrCannotScreen, ErrNotUnobserved, ErrRedacted or ErrKeySize, or the error of keys;
+//     ctx.Err() itself when ctx is done before a key request;
 //     no record or entry is returned with it.
-func (c *Compiled) Mask(capture tracepack.UUID, r *tracepack.Record, unobserved bool, keys Keys) (tracepack.Record, []tracepack.RedactionEntry, error) {
+func (c *Compiled) Mask(
+	ctx context.Context, capture tracepack.UUID, r *tracepack.Record, unobserved bool, keys Keys,
+) (tracepack.Record, []tracepack.RedactionEntry, error) {
 	if unobserved {
 		if !r.Quality.Has(tracepack.QualityUnobserved) {
 			return tracepack.Record{}, nil, fmt.Errorf("seq %d: %w", r.Seq, ErrNotUnobserved)
@@ -120,7 +128,28 @@ func (c *Compiled) Mask(capture tracepack.UUID, r *tracepack.Record, unobserved 
 		return *r, nil, nil
 	}
 
-	masked, entries, err := c.apply(capture, r, ms, keys)
+	if err := ctx.Err(); err != nil {
+		return tracepack.Record{}, nil, err
+	}
+	digestKey, err := keys.DigestKey(ctx, c.policy.DigestKeyID)
+	if err != nil {
+		return tracepack.Record{}, nil, fmt.Errorf("seq %d: redact: digest key %q: %w", r.Seq, c.policy.DigestKeyID, err)
+	}
+	var encKey []byte
+	if slices.ContainsFunc(ms, func(m match) bool { return m.encrypt }) {
+		if err := ctx.Err(); err != nil {
+			return tracepack.Record{}, nil, err
+		}
+		encKey, err = keys.EncryptionKey(ctx, capture, c.policy.Encryption.KeyID)
+		if err != nil {
+			return tracepack.Record{}, nil, fmt.Errorf("seq %d: redact: encryption key %q: %w", r.Seq, c.policy.Encryption.KeyID, err)
+		}
+		if len(encKey) != KeySize {
+			return tracepack.Record{}, nil, fmt.Errorf("seq %d: %w: key %q holds %d bytes", r.Seq, ErrKeySize, c.policy.Encryption.KeyID, len(encKey))
+		}
+	}
+
+	masked, entries, err := apply(capture, r, ms, digestKey, encKey)
 	if err != nil {
 		return tracepack.Record{}, nil, fmt.Errorf("seq %d: %w", r.Seq, err)
 	}
@@ -232,23 +261,11 @@ func (c *Compiled) annotationMatches(payload []byte) ([]match, error) {
 	return ms, nil
 }
 
-// apply masks a copy of r with ms and returns it with the entries of ms, each with its digest, and its siv when encrypted.
-func (c *Compiled) apply(capture tracepack.UUID, r *tracepack.Record, ms []match, keys Keys) (tracepack.Record, []tracepack.RedactionEntry, error) {
-	digestKey, err := keys.DigestKey(c.policy.DigestKeyID)
-	if err != nil {
-		return tracepack.Record{}, nil, fmt.Errorf("redact: digest key %q: %w", c.policy.DigestKeyID, err)
-	}
-	var encKey []byte
-	if slices.ContainsFunc(ms, func(m match) bool { return m.encrypt }) {
-		encKey, err = keys.EncryptionKey(capture, c.policy.Encryption.KeyID)
-		if err != nil {
-			return tracepack.Record{}, nil, fmt.Errorf("redact: encryption key %q: %w", c.policy.Encryption.KeyID, err)
-		}
-		if len(encKey) != KeySize {
-			return tracepack.Record{}, nil, fmt.Errorf("%w: key %q holds %d bytes", ErrKeySize, c.policy.Encryption.KeyID, len(encKey))
-		}
-	}
-
+// apply masks a copy of r with ms and returns it with the entries of ms, each with its digest, and its siv when encrypted;
+// encKey is nil when no match of ms is encrypted.
+func apply(
+	capture tracepack.UUID, r *tracepack.Record, ms []match, digestKey, encKey []byte,
+) (tracepack.Record, []tracepack.RedactionEntry, error) {
 	mac := hmac.New(sha256.New, digestKey)
 	entries := make([]tracepack.RedactionEntry, len(ms))
 	for i := range ms {

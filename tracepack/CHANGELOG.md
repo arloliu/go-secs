@@ -12,6 +12,12 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ### Changed
 
+- **Breaking:** `redact.Keys` and `(*redact.Compiled).Mask` take a `context.Context` first (G5-281):
+  `DigestKey(ctx, keyID)`, `EncryptionKey(ctx, capture, keyID)` and `Mask(ctx, capture, r, unobserved, keys)`.
+  `Mask` checks `ctx` before each key request, returning `ctx.Err()` as is, and passes it to `Keys`; nothing else it does blocks.
+  A key error is wrapped as before, and `Restore` is unchanged.
+  Migration: an implementation of `redact.Keys` adds a leading `ctx context.Context` to both methods and may bound its key request with it;
+  a caller of `Mask` passes its context first.
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 

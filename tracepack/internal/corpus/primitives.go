@@ -2,6 +2,7 @@ package corpus
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -108,7 +109,7 @@ type corpusKeys struct{}
 var _ redact.Keys = corpusKeys{}
 
 // DigestKey returns the published digest key of keyID.
-func (corpusKeys) DigestKey(keyID string) ([]byte, error) {
+func (corpusKeys) DigestKey(_ context.Context, keyID string) ([]byte, error) {
 	if keyID != DigestKeyID1 && keyID != DigestKeyID2 {
 		return nil, fmt.Errorf("corpus: no published digest key %q", keyID)
 	}
@@ -117,7 +118,7 @@ func (corpusKeys) DigestKey(keyID string) ([]byte, error) {
 }
 
 // EncryptionKey returns the published encryption key of keyID, whatever the capture.
-func (corpusKeys) EncryptionKey(_ tracepack.UUID, keyID string) ([]byte, error) {
+func (corpusKeys) EncryptionKey(_ context.Context, _ tracepack.UUID, keyID string) ([]byte, error) {
 	if keyID != EncryptionKeyID1 && keyID != EncryptionKeyID2 {
 		return nil, fmt.Errorf("corpus: no published encryption key %q", keyID)
 	}
@@ -185,21 +186,21 @@ func (p *Primitives) AddKeys() error {
 	keys := corpusKeys{}
 	p.DigestKeys, p.EncryptionKeys, p.HMAC, p.AESSIV = []KeyRow{}, []KeyRow{}, []HMACRow{}, []AESSIVRow{}
 	for _, id := range []string{DigestKeyID1, DigestKeyID2} {
-		k, err := keys.DigestKey(id)
+		k, err := keys.DigestKey(context.Background(), id)
 		if err != nil {
 			return err
 		}
 		p.DigestKeys = append(p.DigestKeys, KeyRow{KeyID: id, Key: k})
 	}
 	for _, id := range []string{EncryptionKeyID1, EncryptionKeyID2} {
-		k, err := keys.EncryptionKey(tracepack.UUID{}, id)
+		k, err := keys.EncryptionKey(context.Background(), tracepack.UUID{}, id)
 		if err != nil {
 			return err
 		}
 		p.EncryptionKeys = append(p.EncryptionKeys, KeyRow{KeyID: id, Key: k})
 	}
 	for _, c := range hmacCases() {
-		k, err := keys.DigestKey(c.keyID)
+		k, err := keys.DigestKey(context.Background(), c.keyID)
 		if err != nil {
 			return err
 		}
@@ -210,7 +211,7 @@ func (p *Primitives) AddKeys() error {
 		p.HMAC = append(p.HMAC, HMACRow{Name: c.name, KeyID: c.keyID, Domain: c.domain, Input: bytes.Clone(c.input), Digest: d})
 	}
 	for _, c := range aesSIVCases() {
-		k, err := keys.EncryptionKey(c.capture, c.keyID)
+		k, err := keys.EncryptionKey(context.Background(), c.capture, c.keyID)
 		if err != nil {
 			return err
 		}

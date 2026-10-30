@@ -238,7 +238,7 @@ func FuzzMaskRestore(f *testing.F) {
 	f.Fuzz(func(t *testing.T, flags, sfSel uint8, seq uint64, text []byte) {
 		r := fuzzRecord(t, flags, sfSel, seq, text)
 		orig := bytes.Clone(r.Payload)
-		masked, entries, err := c.Mask(captureA, r, r.Quality.Has(tracepack.QualityUnobserved), &testKeys{})
+		masked, entries, err := c.Mask(t.Context(), captureA, r, r.Quality.Has(tracepack.QualityUnobserved), &testKeys{})
 		if err != nil {
 			require.ErrorIs(t, err, redact.ErrCannotScreen)
 			return
@@ -282,7 +282,7 @@ func FuzzMaskZero(f *testing.F) {
 			if c == encrypted && r.Kind != tracepack.KindAnnotation {
 				continue
 			}
-			masked, entries, err := c.Mask(captureA, r, r.Quality.Has(tracepack.QualityUnobserved), &testKeys{})
+			masked, entries, err := c.Mask(t.Context(), captureA, r, r.Quality.Has(tracepack.QualityUnobserved), &testKeys{})
 			if err != nil {
 				require.True(t, errors.Is(err, redact.ErrCannotScreen), "%v", err)
 				continue

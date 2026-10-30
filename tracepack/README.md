@@ -230,9 +230,10 @@ For the log service, the consumer that writes a durable-bus capture's packs:
   `field_validity`, and `decode_status` and `trailing_bytes` from the capture's classifier, or `not-attempted` for an unobserved record.
   Classify before masking, since the classification describes the payload as received.
   `classify.NewNamed(name, maxFrameLen)` gives the classifier the name of its configuration, which stays fixed for the capture.
-- Under a redaction policy, compile it once with `redact.Compile`, then mask every record of a flush batch with `(*Compiled).Mask(capture, r, unobserved, keys)`;
+- Under a redaction policy, compile it once with `redact.Compile`, then mask every record of a flush batch with `(*Compiled).Mask(ctx, capture, r, unobserved, keys)`;
   `unobserved` is true for a record carrying bit 7, which is never masked.
-  Your `redact.Keys` hands out the digest and encryption keys, whose custody stays yours.
+  Your `redact.Keys` hands out the digest and encryption keys, whose custody stays yours;
+  `Mask` checks `ctx` before each key request and passes it to `Keys`, so a key service can bound its call.
   A record that cannot be screened, `redact.ErrCannotScreen`, is deferred, never written unscreened.
   Collect the entries into `PackMeta.Redaction`, ordered by seq, then by first masked offset,
   set `RedactionPolicy` to `(*Compiled).PackPolicy()`, and only then call `NewWriter`, which writes the pack metadata first.

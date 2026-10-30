@@ -88,6 +88,9 @@ The decision log and the outcome of every proposal are listed in `README.md`.
 - 2026-10-30: the §3 `MergeIterate` bullet says `MaxHeldBytes` reserves each held block's exact sizes and decides admission on them alone,
   and that a held block may reuse a buffer given back by an earlier read when each slice is at most an eighth larger than it needs,
   the capacities held staying within 9/8 of the limit (G5-277).
+- 2026-10-31: the §3 masking bullet gives `(*Compiled).Mask` and the `redact.Keys` methods a `context.Context` first:
+  `Mask` checks it before each key request and passes it to `Keys`; `Restore` is unchanged (G5-281).
+  No rule of [SEM §8] changed.
 
 ## Changes vs v1 (summary)
 

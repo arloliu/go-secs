@@ -2,6 +2,7 @@ package redact_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -13,12 +14,12 @@ import (
 // exampleKeys serves fixed keys; a real caller fetches them from its key custody.
 type exampleKeys struct{}
 
-func (exampleKeys) DigestKey(string) ([]byte, error) {
+func (exampleKeys) DigestKey(context.Context, string) ([]byte, error) {
 	k := sha256.Sum256([]byte("example digest key"))
 	return k[:], nil
 }
 
-func (exampleKeys) EncryptionKey(tracepack.UUID, string) ([]byte, error) {
+func (exampleKeys) EncryptionKey(context.Context, tracepack.UUID, string) ([]byte, error) {
 	return bytes.Repeat([]byte{0x42}, redact.KeySize), nil
 }
 
@@ -43,7 +44,7 @@ func Example() {
 	rec := tracepack.Record{Seq: 1, Kind: tracepack.KindData, Payload: frame}
 
 	var capture tracepack.UUID
-	masked, entries, err := compiled.Mask(capture, &rec, false, exampleKeys{})
+	masked, entries, err := compiled.Mask(context.Background(), capture, &rec, false, exampleKeys{})
 	if err != nil {
 		panic(err)
 	}
@@ -53,7 +54,7 @@ func Example() {
 
 	// A reader reports the record's entries and defects in Item.Redaction, and the policy in the pack header.
 	policy := compiled.PackPolicy()
-	key, _ := exampleKeys{}.EncryptionKey(capture, *policy.EncryptionKeyID)
+	key, _ := exampleKeys{}.EncryptionKey(context.Background(), capture, *policy.EncryptionKeyID)
 	orig, err := redact.Restore(capture, &masked, &tracepack.RecordRedaction{Entries: entries}, &policy, key)
 	if err != nil {
 		panic(err)
