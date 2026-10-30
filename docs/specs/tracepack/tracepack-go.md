@@ -109,6 +109,7 @@ The query service, its catalog database and the live-tail interface are designed
 - Bus codec (G5-226): layout 1 of the bus message, in the root package ([STO §4] *Bus message* and *Large records*); the module imports no NATS client.
   The layout number, the header names, the 4096-byte bound of a header block and the smallest `max_payload` are constants:
   `BusLayout1`, `BusHeaderLayout`, `BusHeaderMsgID`, `BusHeaderDescriptor`, `BusHeaderPayloadRef`, `BusHeaderPayloadDigest`, `BusHeaderBlockLimit` and `BusMinMaxPayload`.
+  `BusLayout1` is the untyped string `"1"`, the `Tpk-Layout` value itself, so `BusEnvelope.Layout` is compared with it directly (G5-283).
   `BusToolToken`, `ParseBusToolToken` and `BusSubject` spell the subject, `BusMsgID` and `ParseBusMsgID` the `Nats-Msg-Id`, and `BusPayloadDigest` the claim-check digest.
   A producer builds a `BusRecord` with `NewBusRecord(*Record)` and encodes it with `EncodeBusBody(*BusRecord) ([]byte, error)`:
   the 44-byte record header with `decode_status`, `trailing_bytes` and `field_validity` zero, then the payload,
@@ -195,7 +196,7 @@ The query service, its catalog database and the live-tail interface are designed
   An annotation's masks keep no original (G5-238), so it restores no annotation.
 - `SegmentWriter` (G5-153): `NewSegmentWriter(ctx, SegmentWriterOptions) (*SegmentWriter, error)` writes one capture, in capture order, as segments ([STO §4] Flush),
   as a standalone recorder (G5-150), so its segments carry no `flush_interval_ns`; it keeps its clock-anchor code, and the module exports no stand-alone clock-step detector (G5-226).
-  It owns `writer` (from the module's build info, with the fallback `classify.Name` uses), `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`,
+  It owns `writer` (from the module's build info, with the fallback `classify.Name()` uses), `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`,
   `pack_role = segment`, `compaction_level = 0` and `scope_generation = 0`, a `capture_id` it generates, and the capture's seq counter.
   `CaptureID()` returns that `capture_id` from construction on, so a recorder can persist it as the next capture's `PreviousCaptureID`.
   Options: `Capture` (a `CaptureDescriptor`, required), `Sink` (required), `FlushInterval` (divides one hour; default 5 minutes),

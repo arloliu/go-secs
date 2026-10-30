@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -693,7 +692,7 @@ func TestBusSizing(t *testing.T) {
 		require.NoError(t, err)
 		headers := make([][2]string, 0, 3+len(ccHeaders))
 		headers = append(headers,
-			[2]string{BusHeaderLayout, strconv.Itoa(BusLayout1)},
+			[2]string{BusHeaderLayout, BusLayout1},
 			[2]string{BusHeaderMsgID, id},
 			[2]string{BusHeaderDescriptor, base64.StdEncoding.EncodeToString(desc)},
 		)

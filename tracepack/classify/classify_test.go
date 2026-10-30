@@ -105,7 +105,7 @@ func TestFrame(t *testing.T) {
 	tests := []struct {
 		name         string
 		frame        []byte
-		maxFrameLen  int
+		maxFrameLen  uint64
 		wantStatus   tracepack.DecodeStatus
 		wantTrailing int
 	}{
@@ -123,6 +123,12 @@ func TestFrame(t *testing.T) {
 		{name: "control-with-body: SType 1 with an 11-byte body", frame: controlWithBody, wantStatus: tracepack.DecodeStatusControlWithBody},
 		{name: "oversized: exactly at the limit is not oversized", frame: okEmptyS1F1, maxFrameLen: 14, wantStatus: tracepack.DecodeStatusOK},
 		{name: "oversized: one over the limit", frame: okEmptyS1F1, maxFrameLen: 13, wantStatus: tracepack.DecodeStatusOversized},
+		// A limit above the largest int is kept as a uint64, so it makes no frame oversized on any platform:
+		// 2^32 + 13 truncated to a 32-bit int would be 13, one under the frame's length.
+		{name: "oversized: limit 2^32 + 13", frame: okEmptyS1F1, maxFrameLen: 1<<32 + 13, wantStatus: tracepack.DecodeStatusOK},
+		{name: "oversized: limit one above the largest int", frame: okEmptyS1F1, maxFrameLen: uint64(math.MaxInt) + 1, wantStatus: tracepack.DecodeStatusOK},
+		{name: "oversized: largest uint64 limit", frame: okEmptyS1F1, maxFrameLen: math.MaxUint64, wantStatus: tracepack.DecodeStatusOK},
+		{name: "oversized: largest uint64 limit, item decode error still reached", frame: itemDecodeErrorTruncated, maxFrameLen: math.MaxUint64, wantStatus: tracepack.DecodeStatusItemDecodeError},
 		{name: "item-decode-error: truncated item", frame: itemDecodeErrorTruncated, wantStatus: tracepack.DecodeStatusItemDecodeError},
 		{name: "item-decode-error: nested list missing an element", frame: itemDecodeErrorNestedList, wantStatus: tracepack.DecodeStatusItemDecodeError},
 		{name: "ok: single valid item, no trailing", frame: okSingleItem, wantStatus: tracepack.DecodeStatusOK},
@@ -155,8 +161,10 @@ func TestFrame(t *testing.T) {
 func TestName(t *testing.T) {
 	t.Parallel()
 
-	require.True(t, strings.HasPrefix(Name, "go-secs/"), "Name = %q, want a go-secs/<version> prefix", Name)
-	require.NotEmpty(t, strings.TrimPrefix(Name, "go-secs/"))
+	name := Name()
+	require.True(t, strings.HasPrefix(name, "go-secs/"), "Name() = %q, want a go-secs/<version> prefix", name)
+	require.NotEmpty(t, strings.TrimPrefix(name, "go-secs/"))
+	require.Equal(t, name, Name(), "Name returns the same value on every call")
 }
 
 // TestNewCeilings checks the classifier New returns under ceilings beyond the range of a 32-bit int:
@@ -176,6 +184,7 @@ func TestNewCeilings(t *testing.T) {
 		{name: "largest 32-bit int", ceiling: math.MaxInt32, wantStatus: tracepack.DecodeStatusOK},
 		{name: "2^32 + 13", ceiling: 1<<32 + 13, wantStatus: tracepack.DecodeStatusOK},
 		{name: "largest max_frame_len value", ceiling: 1<<63 - 1, wantStatus: tracepack.DecodeStatusOK},
+		{name: "largest uint64", ceiling: math.MaxUint64, wantStatus: tracepack.DecodeStatusOK},
 	}
 
 	for _, tt := range tests {
@@ -183,7 +192,7 @@ func TestNewCeilings(t *testing.T) {
 			t.Parallel()
 
 			c := New(tt.ceiling)
-			require.Equal(t, Name, c.Name())
+			require.Equal(t, Name(), c.Name())
 			require.Equal(t, tt.ceiling, c.MaxFrameLen())
 
 			status, trailing := c.Frame(okEmptyS1F1)
@@ -212,7 +221,7 @@ func TestNewNamed(t *testing.T) {
 			require.Equal(t, wantTrailing, trailing, "frame %x", frame)
 		}
 	}
-	require.Equal(t, Name, New(0).Name(), "New keeps the build-info name")
+	require.Equal(t, Name(), New(0).Name(), "New keeps the build-info name")
 }
 
 // TestNewMatchesFrame checks that the classifier New returns classifies every fixture as Frame does,
@@ -237,13 +246,13 @@ func TestNewMatchesFrame(t *testing.T) {
 
 	seen := make(map[tracepack.DecodeStatus]bool)
 	for _, frame := range frames {
-		for _, ceiling := range []int{0, len(frame) - 1, len(frame), len(frame) + 1} {
-			if ceiling < 0 {
-				continue
-			}
-
+		ceilings := []uint64{0, uint64(len(frame)), uint64(len(frame)) + 1, math.MaxUint64}
+		if len(frame) > 0 {
+			ceilings = append(ceilings, uint64(len(frame))-1)
+		}
+		for _, ceiling := range ceilings {
 			wantStatus, wantTrailing := Frame(frame, ceiling)
-			status, trailing := New(uint64(ceiling)).Frame(frame)
+			status, trailing := New(ceiling).Frame(frame)
 			require.Equal(t, wantStatus, status, "frame %x, ceiling %d", frame, ceiling)
 			require.Equal(t, wantTrailing, trailing, "frame %x, ceiling %d", frame, ceiling)
 			seen[status] = true
