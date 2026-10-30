@@ -263,7 +263,8 @@ For readers and troubleshooters working on local files:
   See `ExampleOpen`.
 - A pack of up to `ReaderOptions.WholeReadThreshold` bytes, 4 MiB by default, costs one `ReadAt` for `Open` and none for any later read of it:
   the `Reader` keeps the bytes of `Open`'s first round that hold blocks, the whole object or else the head and tail windows,
-  and copies each block it reads from them when they hold it whole.
+  and reads each block from them when they hold it whole:
+  a compressed block is decoded from them in place, any other block copied first.
   It keeps at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`) bytes for its lifetime, 4 MiB with the defaults,
   outside the budgets of `MergeIterateOptions.MaxHeldBytes`, `TxOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`;
   lower `WholeReadThreshold` when many Readers stay open at once.
@@ -328,6 +329,29 @@ and a lookup reads, for each hour it searches, every pack of that hour.
 - `NewReaderSource` refuses, with `ErrInvalidQuery`, a nil reader, a `Reader` given twice, two readers of one `pack_id`,
   readers of more than one tool, an `extract`, and a pack whose period is empty or spans hours.
 - The source never opens or closes the readers: keep them open until the lookups are done.
+
+### Reading many packs
+
+A `Reader` is safe for concurrent use, and `Open` shares no state between Readers,
+so the packs of a query can be opened on goroutines of your own.
+Where each `ReadAt` waits on a network or object store, the opens one after another are most of a read's time,
+and opening them at once removes that wait on any number of CPUs.
+
+- Opening in parallel changes nothing a read returns:
+  `MergeIterate`, `FindTransaction` and `FindTransactions` take the Readers however they were opened.
+- A `PackSource` of your own may open an hour's packs in parallel inside `Readers(ctx, hour)`;
+  a lookup asks for its hours one at a time.
+- Work done hour by hour, such as a batch over settled hours, can run one read per hour on several goroutines;
+  with a single CPU, one read of all the hours costs less.
+  For packs a `Writer` wrote, other than extracts, every record lies in its pack's hour,
+  so the `OrderTime` reads of the hours, taken in ascending hour, yield the records of one `OrderTime` read of all of them, in the same order.
+  The rest of a read is its own:
+  - each read's `Result` names packs by their index among that read's Readers,
+    and reports a crash gap once per read, so a gap held by the packs of two hours is reported by both;
+  - copies of a seq are compared only among the packs of one read,
+    so a seq held by the packs of two hours is not reported as a conflict;
+  - `OrderCapture` over several captures yields capture by capture, not in hour order;
+  - `MaxHeldBytes` and `MaxConflicts` bound each read, so reads in parallel hold up to that many times `MaxHeldBytes`.
 
 ## Merging and storage
 
