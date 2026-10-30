@@ -277,6 +277,8 @@ type bootstrap struct {
 // Parameters:
 //   - ctx: cancels Open between reads.
 //   - ra: the object; Open, and MergeIterate over the Reader, may issue several ReadAt calls in parallel.
+//     A ReadAt that panics makes Open panic with the same value on the caller's goroutine,
+//     once every call of its round has returned.
 //   - size: the object's size, known before reading.
 //   - opts: see ReaderOptions.
 //
@@ -396,6 +398,9 @@ func readAt(ra io.ReaderAt, buf []byte, off int64) error {
 
 // readRound checks ctx, then issues the ReadAt calls of reqs concurrently and waits for all of them.
 // It returns the error of the first failing request in the order of reqs, so the result does not depend on timing.
+// A ReadAt that panics on one of the round's goroutines does not end the process:
+// once every call has returned, readRound panics on its caller with the value of the first panicking request in the order of reqs,
+// before any error is considered.
 func readRound(ctx context.Context, ra io.ReaderAt, reqs []readReq) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("tracepack: open: %w", err)
@@ -405,12 +410,25 @@ func readRound(ctx context.Context, ra io.ReaderAt, reqs []readReq) error {
 	}
 
 	errs := make([]error, len(reqs))
+	panics := make([]*caughtPanic, len(reqs))
 	var wg sync.WaitGroup
 	for i := range reqs {
-		wg.Go(func() { errs[i] = readAt(ra, reqs[i].buf, reqs[i].off) })
+		wg.Go(func() {
+			defer func() {
+				if v := recover(); v != nil {
+					panics[i] = &caughtPanic{value: v}
+				}
+			}()
+			errs[i] = readAt(ra, reqs[i].buf, reqs[i].off)
+		})
 	}
 	wg.Wait()
 
+	for _, p := range panics {
+		if p != nil {
+			panic(p.value)
+		}
+	}
 	for _, err := range errs {
 		if err != nil {
 			return err
@@ -418,6 +436,11 @@ func readRound(ctx context.Context, ra io.ReaderAt, reqs []readReq) error {
 	}
 
 	return nil
+}
+
+// caughtPanic holds the value a recovered panic carried, so it can be raised again on another goroutine.
+type caughtPanic struct {
+	value any
 }
 
 // indexedBlocks returns the block index of a validated footer, one indexed block per F-2 entry.
