@@ -867,7 +867,8 @@ func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts Re
 	p.inputs = make([]*Reader, 0, len(inputs))
 	p.thinned = make([]map[SF]struct{}, 0, len(inputs))
 
-	window := p.parallelOpens
+	// A window wider than the inputs launches them all, and keeps i + window from overflowing.
+	window := min(p.parallelOpens, max(len(inputs), 1))
 	if window == 1 {
 		// One at a time: each input is opened here, on the calling goroutine, once the one before it was checked.
 		for i := range inputs {
