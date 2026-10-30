@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-25) — spec v2.38.
+Status: current (2026-10-31) — spec v2.39.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1690,3 +1690,31 @@ Review rounds:
 | plan review 2 | variable-sized cache parts were not charged; temporary memory was said to be bounded where it is not; a refused reservation lost its capture and seq; cancellation of the batch's own loops was unspecified | variable charges; the memory contract split by kind; the lookup copies what it keeps after charging it; one wrapper for refused reservations; cancellation points |
 | plan review 3 | copying a large diagnostic result and sorting keys could not be cancelled; error values are shared | the batch's counter counts that work and brackets the sort; error values are shared as immutable |
 | plan review 4 | — | ready |
+
+## Changes v2.38 → v2.39: the v1.0 API freeze (owner decisions G5-279..G5-286, 2026-10-30)
+
+Source: the tracepack maintainers' v1.0 API review and the redaction-entry placement research, with the log service (tracekeep) consulted.
+Format 1.2, the canonical export bytes and the corpus goldens are unchanged.
+Implemented by tracepack v0.12.0.
+
+Summary:
+- Redaction entries stay in the pack metadata for format major 1, bounded by the readers' 64 MiB default metadata budget (G5-279).
+- The v1 compatibility promise: what tracepack v1 guarantees and what it does not; `tracepack-jsonl/1`–`/3` and `tracepack-corpus/5` are no longer drafts (G5-280).
+- [GO] §3: `redact.Keys` and `Mask` take a ctx (G5-281); `PackInfo`, `Reader.Info` and `Result.FooterErr` go and `RecordFlags` is unexported (G5-282);
+  `BusLayout1`, `classify.Name`, `classify.Frame`, `CaptureID`, the `IncompleteReason` and `VerifyOutcome` names, `DirSinkOptions` and `DefaultMaxOpenBlocks` (G5-283);
+  a negative option field is refused (G5-284); `AppendFrame` takes quality bits (G5-285); `ErrRefused` (G5-286).
+- [GO] §7: the text of the `verify` and `find` reports is not a contract.
+- The overview's list of decisions reaches G5-286.
+
+Review rounds:
+
+| Round | Finding | Resolution |
+|---|---|---|
+| plan review 1 | `AppendFrame` quality assumed validation `Append` does not do; `ErrRefused`'s scope and inventory disagreed; negative options had no fixed error contract or order; spec targets were unassigned; 450,000 entries was stated as a bound | `Append`'s semantics exactly; one definition with an inventory; each function's existing argument-error contract after its existing checks; each task names its spec lines; a byte budget, the count an example |
+| plan review 2 | the 64 MiB limit is a reader budget, not a write check; `ErrMergeLimit` is Merge-only; the `RecordFlags` rename collided with a test helper; the corpus promise contradicted the corpus rule | the default interoperability budget; `ErrMergeLimit` and `ErrReadLimit` out of the inventory; a distinct internal name; the corpus rule kept and made permanent |
+| plan review 3 | a destination's error wrapping a sentinel could be marked as a refusal; the plain-error list was incomplete; the Merge check position broke precedence | marking by origin with an external marker; the complete classified appendix; the check at the end of the Merge option checks |
+| plan review 4 | the input marker's name collided; `Writer.Flush` was not covered; a failed Writer's later errors could be marked | `argError`; unexported `append`, `flush` and `close` with public wrappers; prior-state sentinels excluded |
+| plan review 5 | `SegmentWriter` stored marked errors as its failure; an F-3 list error was missing | `SegmentWriter` calls the unexported implementations; the error added |
+| plan review 6 | a caller's own `ErrRefused` passed through the external marker; joined causes had no rule | passthrough stated as the contract; a chain holding any external error stays unmarked |
+| plan review 7 | Merge's exclusion contradicted the passthrough | tracepack never adds the marker to a Merge error; a destination's own passes through |
+| plan review 8 | — | ready |

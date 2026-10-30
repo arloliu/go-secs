@@ -1,6 +1,6 @@
 # tracepack — decision log
 
-Status: current (2026-10-25)
+Status: current (2026-10-31)
 Owner decisions for tracepack; append-only under `.agents/rules/450-doc-lifecycle.md`.
 Entries up to G5-79 were recorded in the design notes before the repository became the source of truth;
 they are copied here verbatim under their original headings, and later entries are added only here.
@@ -1953,3 +1953,70 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rejected *(editorial)*: a fixed window (the owner chose an option); `GOMAXPROCS` as the window, since the opens wait on I/O;
   opening every input at once, unbounded on a scope of many segments; leaving it to the caller, who passes `MergeInput`s, not Readers.
   Spec: `tracepack-go.md` §3, v2.38.
+
+## 2026-10-30 the v1.0 API freeze (owner's choice)
+
+The owner's rulings: tracepack has no user but the log service (tracekeep) and the Virtual Equipment project (veq), both unfinished, so breaking changes are free before v1.0 ("在 v1.0 之前都可以做 breaking changes");
+masking will not widen to high-rate fields ("只有敏感的 recipe 會需要").
+
+- G5-279 Redaction entries stay in the pack metadata for format major 1 (2026-10-30, [SEM §8]):
+  the masking policy covers the [SEM §8] baseline only, recipe, process-program and data-set transfers, which are discrete events.
+  The limit is the readers' budget in bytes: the format allows pack metadata up to its `uint32` length and `NewWriter` accepts that,
+  but a Reader opens metadata only within its `ReaderOptions.MaxPackMetadataLen` (`DefaultMaxPackMetadataLen`, 64 MiB, raisable),
+  and `Merge` refuses an archive whose metadata would exceed its `MergeOptions.Reader` budget with `ErrMergeLimit`.
+  So 64 MiB is the default interoperability budget, which every reader of a deployment must agree on.
+  An entry's size varies with its path, domain and ranges, so no entry count is a bound; 64 MiB holds about 450,000 entries of 147 bytes, as an example.
+  An unusually large bulk data-set transfer (S13F6 FILDAT, one entry per element) is the one baseline case that could approach it.
+  The limit is documented with the v1 compatibility promise (G5-280).
+  Rationale *(editorial)*: the workload the policy bounds is small, and moving the entries would break the masking API, `RedactionDefect.Entry` and the bootstrap check.
+  Rejected *(editorial)*: entries inside each block (format 2.0); entries in F-3 lists or an F-4 table; partitioned archives, for the reasons in the research note's table.
+  Spec: `tracepack-go.md` §3, README limits, v2.39.
+- G5-280 The v1 compatibility promise (2026-10-30, Go mapping):
+  guaranteed are the exported identifiers and signatures, which sentinel an error wraps, outcomes, orders, determinism and the byte-identity promises (`WriteClose`, `ExportJSONL`, `Mask`),
+  reading every format 1.x pack, the JSONL schema values, and the CLI's flags, exit codes, stdout/stderr split and `dump --jsonl` bytes.
+  Not guaranteed are error text, ctx-check cadence, read-ahead depth, goroutine and ReadAt counts, write chunk sizes, buffer-reuse ratios, default budget values,
+  zstd output bytes across library versions, and the text of the `verify` and `find` reports, excluded for good.
+  Every enum may gain values in a format minor, so a `switch` needs a default.
+  `tracepack-jsonl/1` to `/3` are no longer drafts: any byte change takes a new schema value.
+  `tracepack-corpus/5` is no longer a draft, and its rule becomes permanent:
+  adding a vector or a case keeps the value; changing what an existing file states, a schema, or the classes and files a schema allows takes a new one.
+  Rationale *(editorial)*: after v1.0 Go's compatibility rule covers documented behavior, and the performance releases rewrote exactly the implementation sentences the Godoc stated as contract.
+  Spec: [JSONL], [CORPUS], `tracepack-go.md` §3 and §7, v2.39.
+- G5-281 `redact.Keys` and `(*redact.Compiled).Mask` take a `context.Context` first (2026-10-30, Go mapping of [SEM §8]):
+  `Mask` checks it before each key request and passes it to `Keys`; `Restore` takes key bytes and is unchanged.
+  Rationale *(editorial)*: a key service is a network call, and an interface cannot gain a parameter after v1.0.
+  Spec: `tracepack-go.md` §3, v2.39.
+- G5-282 Removals (2026-10-30, Go mapping):
+  the `PackInfo` cluster and `Reader.Info`; `Result.FooterErr`, `FooterErrs` being the one shape;
+  `RecordFlags` and `RecordFlagsMonoPresent` become unexported, since no exported field or signature carries them (`Record.MonoPresent` does).
+  `PackFacts.ScopeHasGeneration` stays: it drives the `patch_base` rule of the metadata validator, a format rule.
+  Spec: `tracepack-go.md` §3, v2.39.
+- G5-283 Go names and types (2026-10-30, Go mapping):
+  `BusLayout1` is the untyped string `"1"`; `classify.Name` is a func; `classify.Frame` takes its frame-length limit as `uint64`, as `New` and `Classifier.MaxFrameLen` do;
+  `TxKey`, `TxRange` and `Boundary` name their field `CaptureID`; the `IncompleteReason` values are prefixed with their type's name;
+  `Outcome` becomes `VerifyOutcome`, with its values; `NewDirSink` takes a `DirSinkOptions` struct; `DefaultMaxOpenBlocks` is exported.
+  `String()` values, JSONL names and spec terms are unchanged.
+  The `Marshal`/`Encode` verbs stay: `MarshalBinary` and `Unmarshal*` follow `encoding.BinaryMarshaler`, and `Encode*`/`Decode*` name the bus and descriptor codecs.
+  Spec: `tracepack-go.md` §3, v2.39.
+- G5-284 Option values (2026-10-30, Go mapping):
+  for every options struct, a zero budget field takes its default and a negative one is refused, with the argument-error contract its function already has:
+  a plain error from `Open`, `Verify` and `Merge`, an error wrapping `ErrInvalidQuery` from `MergeIterate`, `FindTransaction` and `FindTransactions`.
+  `MergeOptions` already followed the rule; the reader, `MergeIterate`, `Tx` and `TxRange` options adopt it, each check placed after the argument checks that run before it today.
+  Rationale *(editorial)*: one rule, and a negative budget is a caller's mistake that meant the default by accident.
+  Spec: `tracepack-go.md` §3, v2.39.
+- G5-285 `SegmentWriter.AppendFrame` takes the producer's quality bits (2026-10-30, Go mapping of [SEM §6]):
+  they go through the record path exactly as `Append` treats `Record.Quality`, so undefined bits are dropped, the derived bits are the writer's,
+  and unobserved and redacted are checked against the record and the pack's commitments as for `Append`; no new validation is added.
+  Rationale *(editorial)*: a producer that knows a frame's ordering or direction is uncertain could only say so through `Append`, building the record itself.
+  Spec: `tracepack-go.md` §3, v2.39.
+- G5-286 `ErrRefused` (2026-10-30, Go mapping):
+  it marks every error of the writing calls (`NewWriter`, `Writer`, `WriteClose`, `NewSegmentWriter` and `SegmentWriter`) that the call's own arguments, options or records determine,
+  so the same call with the same input fails the same way; it says nothing about whether the Writer is still usable, which the sentinel beside it says.
+  An error from the destination, a `Syncer`, a sink, a segment file, the random source, ctx or the Writer's prior state (`ErrWriterFailed`, `ErrClosed`) is never marked,
+  nor is an error whose chain holds any of them beside a refusal.
+  An error from the caller's own implementation passes through as it is, with no marker added; tracepack never adds the marker to an error of `Merge`.
+  The error text is unchanged.
+  Rationale *(editorial)*: the log service decides between retrying a flush and parking its batch, and its list of 14 sentinels would drift with the API;
+  marking by origin keeps a destination's error from impersonating a refusal, and an unmarked error is the safe default for a consumer that retries.
+  Rejected *(editorial)*: a list of sentinels in the consumer; marking `ErrMergeLimit` and `ErrReadLimit`, which no covered call returns; marking `Merge`, which has its own input contract.
+  Spec: `tracepack-go.md` §3, v2.39.
