@@ -34,7 +34,7 @@ import (
 // the defects Open found, the coverage entries of the pack metadata that intersect the query,
 // a crash gap for every stop-unclean boundary of the pack, from its footer or from the records of its walked blocks,
 // and the defect of every block that failed or disagrees with its F-2 entry;
-// FooterErr and FooterErrs as Iterate sets them, a footer error alone not making the Result incomplete.
+// FooterErrs as Iterate sets it, a footer error alone not making the Result incomplete.
 // Where Iterate reports a reader budget as a ReasonLimit defect, ExportJSONL fails instead,
 // so that an export that succeeds never depends on ReaderOptions:
 // before writing anything when the footer was not used because it is over MaxFooterLen

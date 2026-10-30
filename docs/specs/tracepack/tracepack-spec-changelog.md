@@ -91,6 +91,9 @@ The decision log and the outcome of every proposal are listed in `README.md`.
 - 2026-10-31: the §3 masking bullet gives `(*Compiled).Mask` and the `redact.Keys` methods a `context.Context` first:
   `Mask` checks it before each key request and passes it to `Keys`; `Restore` is unchanged (G5-281).
   No rule of [SEM §8] changed.
+- 2026-10-31: the §3 `Reader` bullet no longer names `NewPackInfo` and `NewPackInfoMinor`, which are removed with `PackInfo` and `Reader.Info`,
+  and the `ExportJSONL` bullet speaks of `FooterErrs` alone, `Result.FooterErr` being removed (G5-282).
+  No format rule changed.
 
 ## Changes vs v1 (summary)
 

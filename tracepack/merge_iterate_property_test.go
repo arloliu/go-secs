@@ -275,7 +275,7 @@ func refVersionsOf(c *refCluster) [][]refVersion {
 func refRecord(c *refCopy, payload bool) Record {
 	h := &c.h
 	r := Record{
-		Seq: h.Seq, TSUTCNs: h.TSUTCNs, MonoNs: h.MonoNs, MonoPresent: RecordFlags(h.RecordFlags).Has(RecordFlagsMonoPresent),
+		Seq: h.Seq, TSUTCNs: h.TSUTCNs, MonoNs: h.MonoNs, MonoPresent: recordFlagSet(h.RecordFlags).Has(recordFlagMonoPresent),
 		Epoch: h.Epoch, Kind: Kind(h.Kind), Dir: Dir(h.Dir), Fidelity: Fidelity(h.Fidelity), DecodeStatus: DecodeStatus(h.DecodeStatus),
 		TrailingBytes: h.TrailingBytes, Quality: Quality(h.Quality), FieldValidity: FieldValidity(h.FieldValidity),
 	}
@@ -760,7 +760,6 @@ func requireReference(t *testing.T, ref *mergeIterateReference, opts MergeIterat
 	require.Equal(t, ref.resolutionDefects(opts.Order), resolved, "the defects of the indexed blocks read")
 	require.Equal(t, ref.reads(), out.reads, "full-block reads by (reader, block)")
 	require.Equal(t, ref.footerErrs(), out.res.FooterErrs)
-	require.NoError(t, out.res.FooterErr)
 }
 
 // requirePublicRead requires MergeIterate's own read of q over readers with opts to yield and return what out did.

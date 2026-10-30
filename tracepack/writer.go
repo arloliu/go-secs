@@ -675,7 +675,7 @@ func canonicalHeader(r *Record, seq uint64, ev *TransportEvent) format.RecordHea
 	}
 	if r.MonoPresent {
 		h.MonoNs = r.MonoNs
-		h.RecordFlags = uint8(RecordFlagsMonoPresent)
+		h.RecordFlags = uint8(recordFlagMonoPresent)
 	}
 	h.Quality = uint16(q)
 

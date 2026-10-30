@@ -56,22 +56,19 @@ func TestReaderVersionAware(t *testing.T) {
 	h := r.Header()
 	require.Equal(t, uint16(0), h.FormatMinor)
 	requireMinor0Numbers(t, h.Meta)
-	info := r.Info()
-	requireMinor0Numbers(t, info.Meta())
-	requireMinor0Numbers(t, info.Meta())
+	requireMinor0Numbers(t, r.Header().Meta)
 
 	hdr, err := format.UnmarshalFileHeader(file)
 	require.NoError(t, err)
 	raw := file[format.FileHeaderLen : format.FileHeaderLen+int(hdr.PackMetadataLen)]
-	p, err := NewPackInfoMinor(h.PackID, h.CaptureID, 0, raw)
+	m, err := UnmarshalPackMetaMinor(raw, 0)
 	require.NoError(t, err)
-	requireMinor0Numbers(t, p.Meta())
-	requireMinor0Numbers(t, p.Meta())
+	requireMinor0Numbers(t, m)
 	// Minor 1 knows the numbers: the entry's siv is not repeatable, and the other values have the wrong types.
-	_, err = NewPackInfoMinor(h.PackID, h.CaptureID, 1, raw)
+	_, err = UnmarshalPackMetaMinor(raw, 1)
 	require.ErrorIs(t, err, tlv.ErrDuplicate)
-	_, err = NewPackInfo(h.PackID, h.CaptureID, raw)
-	require.ErrorIs(t, err, tlv.ErrDuplicate, "NewPackInfo decodes with the newest registry")
+	_, err = UnmarshalPackMeta(raw)
+	require.ErrorIs(t, err, tlv.ErrDuplicate, "UnmarshalPackMeta decodes with the newest registry")
 	_, err = openBytes(t, patchHeader(t, file, func(fh *format.FileHeader) { fh.FormatMinor = 1 }), ReaderOptions{})
 	require.ErrorIs(t, err, tlv.ErrDuplicate, "the same metadata in a pack of minor 1 is invalid")
 
@@ -84,9 +81,9 @@ func TestReaderVersionAware(t *testing.T) {
 			noRedaction = tlv.AppendEntry(noRedaction, e)
 		}
 	}
-	_, err = NewPackInfoMinor(h.PackID, h.CaptureID, 0, noRedaction)
+	_, err = UnmarshalPackMetaMinor(noRedaction, 0)
 	require.NoError(t, err)
-	_, err = NewPackInfoMinor(h.PackID, h.CaptureID, 1, noRedaction)
+	_, err = UnmarshalPackMetaMinor(noRedaction, 1)
 	require.ErrorIs(t, err, tlv.ErrType)
 
 	var seen int
@@ -452,9 +449,7 @@ func TestRedactionPresence(t *testing.T) {
 
 			r := mustOpen(t, jsonlHeadOnlyPack(format.FileHeader{FormatMajor: 1, FormatMinor: 1}, raw), ReaderOptions{})
 			assert.Equal(t, m, r.Header().Meta)
-			info := r.Info()
-			assert.Equal(t, m, info.Meta())
-			assert.Equal(t, m, info.Meta())
+			assert.Equal(t, m, r.Header().Meta)
 
 			cp := *r.Header().Meta
 			again, err := cp.MarshalBinary()

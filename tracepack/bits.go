@@ -63,16 +63,16 @@ const (
 const fieldValidityMask = FieldValiditySessionID | FieldValidityStreamAndW | FieldValidityFunction |
 	FieldValidityPType | FieldValiditySType | FieldValiditySystemBytes
 
-// RecordFlags is the record-header bit set carrying mono_ns availability.
+// recordFlagSet is the record-header bit set carrying mono_ns availability; Record.MonoPresent reports it.
 //
 // Zero means mono_ns is not present.
 // See the tracepack format specification §9 for the full registry;
-// bit 0 is retired and bits 2-7 reserved: they never appear in [RecordFlags.Names] or [RecordFlags.String].
-type RecordFlags uint8
+// bit 0 is retired and bits 2-7 reserved: they never appear in the result of Names or String.
+type recordFlagSet uint8
 
 const (
-	// RecordFlagsMonoPresent marks that mono_ns is valid for this record.
-	RecordFlagsMonoPresent RecordFlags = 1 << 1
+	// recordFlagMonoPresent marks that mono_ns is valid for this record.
+	recordFlagMonoPresent recordFlagSet = 1 << 1
 )
 
 // Has reports whether any bit set in bit is also set in q.
@@ -146,21 +146,21 @@ func (v FieldValidity) String() string {
 }
 
 // Has reports whether any bit set in bit is also set in f.
-func (f RecordFlags) Has(bit RecordFlags) bool {
+func (f recordFlagSet) Has(bit recordFlagSet) bool {
 	return f&bit != 0
 }
 
 // Names returns the tracepack format specification's names for f's set bits, in ascending bit order.
 //
 // Retired and reserved bits, if set, are not represented: they carry no name to return.
-func (f RecordFlags) Names() []string {
+func (f recordFlagSet) Names() []string {
 	var names []string
 
 	for _, b := range []struct {
-		bit  RecordFlags
+		bit  recordFlagSet
 		name string
 	}{
-		{RecordFlagsMonoPresent, "mono_present"},
+		{recordFlagMonoPresent, "mono_present"},
 	} {
 		if f.Has(b.bit) {
 			names = append(names, b.name)
@@ -171,6 +171,6 @@ func (f RecordFlags) Names() []string {
 }
 
 // String returns f's set bit names joined by "|", in ascending bit order, or "" for zero.
-func (f RecordFlags) String() string {
+func (f recordFlagSet) String() string {
 	return strings.Join(f.Names(), "|")
 }

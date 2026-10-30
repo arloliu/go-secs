@@ -89,7 +89,7 @@ var _ error = PackError{}
 // The Result starts, in the order of readers, with the defects every read of each pack carries, those Open found,
 // and the coverage defects of each pack for the query, an entry counting when its capture is the capture of any of the readers,
 // each with Pack set to the reader's index.
-// FooterErrs lists each pack whose footer was not used; FooterErr stays nil.
+// FooterErrs lists each pack whose footer was not used.
 // Before yielding anything, MergeIterate reads each walked block, one without an F-2 entry, once,
 // to take from its records what an index would state: its seq range, time range, epoch range, and kind and dir counts;
 // a block that fails that read adds its defect and takes no further part.

@@ -289,7 +289,7 @@ func TestFindTransactionsVariableCharges(t *testing.T) {
 func TestFindTransactionsFixedCharges(t *testing.T) {
 	t.Parallel()
 
-	want := map[uintptr][2]int64{8: {224, 144}, 4: {128, 112}}[unsafe.Sizeof(uintptr(0))]
+	want := map[uintptr][2]int64{8: {208, 144}, 4: {112, 112}}[unsafe.Sizeof(uintptr(0))]
 	require.NotZero(t, want, "a word size the test pins")
 	assert.Equal(t, want, [2]int64{txCacheHourCharge, txCacheItemCharge}, "the charges of an hour record and of an item")
 }

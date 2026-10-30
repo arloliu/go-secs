@@ -392,7 +392,7 @@ func TestStoredRecord(t *testing.T) {
 	h := format.RecordHeader{
 		Seq: 7, TSUTCNs: 8, MonoNs: 9, Epoch: 10, PayloadLen: 3, TrailingBytes: 11, Quality: 13,
 		Kind: 18, Dir: 19, Fidelity: 20, DecodeStatus: 21, FieldValidity: 22,
-		RecordFlags: uint8(RecordFlagsMonoPresent),
+		RecordFlags: uint8(recordFlagMonoPresent),
 		Extra:       []byte{1},
 	}
 	payload := []byte{0xA, 0xB, 0xC}

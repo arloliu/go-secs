@@ -296,7 +296,7 @@ func TestRedactionBootstrapDefects(t *testing.T) {
 			require.Equal(t, first, second)
 			first.RedactionDefects[0] = RedactionDefect{}
 			require.NotEqual(t, first.RedactionDefects, r.Header().RedactionDefects, "each Header holds its own defects")
-			enc, err := r.Info().Meta().MarshalBinary()
+			enc, err := r.Header().Meta.MarshalBinary()
 			require.NoError(t, err)
 			require.Equal(t, tt.file[format.FileHeaderLen:format.FileHeaderLen+int(hdr.PackMetadataLen)], enc, "the metadata re-encodes as stored")
 
@@ -631,8 +631,7 @@ func TestRedactionEncryptionTags(t *testing.T) {
 			want := encryptedPolicy()
 			tt.policy(want)
 			assert.Equal(t, want, r.Header().Meta.RedactionPolicy)
-			assert.Equal(t, want, r.Info().Meta().RedactionPolicy)
-			enc, err := r.Info().Meta().MarshalBinary()
+			enc, err := r.Header().Meta.MarshalBinary()
 			require.NoError(t, err)
 			hdr, err := format.UnmarshalFileHeader(file)
 			require.NoError(t, err)

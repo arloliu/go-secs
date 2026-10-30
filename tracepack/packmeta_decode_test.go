@@ -152,7 +152,7 @@ func scrambleRaw(raw []RawEntry) {
 	}
 }
 
-func TestNewPackInfoRejectsWhatTheDecoderRejects(t *testing.T) {
+func TestUnmarshalPackMetaRejectsInvalidValues(t *testing.T) {
 	t.Parallel()
 
 	const tooLarge = uint64(1) << 63
@@ -198,7 +198,7 @@ func TestNewPackInfoRejectsWhatTheDecoderRejects(t *testing.T) {
 		}, tlv.ErrDuplicate},
 	}
 
-	_, err := NewPackInfo(memA, viewCapture, editedMetaBytes(t, meta(), func(list []tlv.Entry) []tlv.Entry { return list }))
+	_, err := UnmarshalPackMeta(editedMetaBytes(t, meta(), func(list []tlv.Entry) []tlv.Entry { return list }))
 	require.NoError(t, err, "the metadata is valid before an edit")
 
 	for _, tt := range tests {
@@ -206,18 +206,14 @@ func TestNewPackInfoRejectsWhatTheDecoderRejects(t *testing.T) {
 			t.Parallel()
 
 			raw := editedMetaBytes(t, meta(), func(list []tlv.Entry) []tlv.Entry { return tt.edit(t, list) })
-			_, decodeErr := UnmarshalPackMeta(raw)
-			require.ErrorIs(t, decodeErr, tt.want)
-
-			p, err := NewPackInfo(memA, viewCapture, raw)
+			m, err := UnmarshalPackMeta(raw)
 			require.ErrorIs(t, err, tt.want)
-			assert.EqualError(t, err, decodeErr.Error())
-			assert.Equal(t, PackInfo{}, p)
+			assert.Nil(t, m)
 		})
 	}
 }
 
-func TestNewPackInfoDecodesEveryPackRole(t *testing.T) {
+func TestUnmarshalPackMetaDecodesEveryPackRole(t *testing.T) {
 	t.Parallel()
 
 	retired := editedMetaBytes(t, repairTestMeta(), func(list []tlv.Entry) []tlv.Entry {
@@ -235,15 +231,13 @@ func TestNewPackInfoDecodesEveryPackRole(t *testing.T) {
 		role PackRole
 		raw  []byte
 	}{{packRoleRetired, retired}, {9, unknown}, {PackRoleRepair, repairRaw}} {
-		p, err := NewPackInfo(seg1, viewCapture, tt.raw)
+		m, err := UnmarshalPackMeta(tt.raw)
 		require.NoError(t, err, "role %d", tt.role)
-		assert.Equal(t, tt.role, p.Meta().PackRole)
-		assert.Equal(t, seg1, p.PackID())
-		assert.Equal(t, viewCapture, p.CaptureID())
+		assert.Equal(t, tt.role, m.PackRole)
 	}
 }
 
-func TestReaderInfoUnaffectedByHeaderMutation(t *testing.T) {
+func TestHeaderUnaffectedByHeaderMutation(t *testing.T) {
 	t.Parallel()
 
 	p := writeRepairPack(t, CodecZstd, func(m *PackMeta) {
@@ -252,8 +246,7 @@ func TestReaderInfoUnaffectedByHeaderMutation(t *testing.T) {
 		m.HSMSTimers = &HSMSTimers{T3: new(uint64(45_000))}
 	}, false, repairSteps(t))
 	r := mustOpen(t, p.file, ReaderOptions{})
-	want := r.Header().Meta
-	before := r.Info()
+	want := r.Header()
 
 	h := r.Header()
 	*h.Meta.PublisherEpoch = 99
@@ -263,41 +256,35 @@ func TestReaderInfoUnaffectedByHeaderMutation(t *testing.T) {
 	h.Meta.CompactedFrom[0][0]++
 	h.Meta.Coverage[0].Unknown[0].Value[0]++
 
-	hdr := layoutHeader(t, p.file)
-	for _, info := range []PackInfo{before, r.Info()} {
-		assert.Equal(t, want, info.Meta())
-		assert.Equal(t, UUID(hdr.PackID), info.PackID())
-		assert.Equal(t, UUID(hdr.CaptureID), info.CaptureID())
-	}
+	assert.Equal(t, want, r.Header())
 }
 
-func TestPackInfoUnaffectedByCallerMutation(t *testing.T) {
+func TestUnmarshalPackMetaSharesNoMemoryWithItsInput(t *testing.T) {
 	t.Parallel()
 
-	memberMeta := repairTestMeta()
-	generationMeta(memberMeta, setA, 4, 2, []UUID{seg0})
-	richMeta(memberMeta)
-	memberRaw, err := memberMeta.MarshalBinary()
+	m := repairTestMeta()
+	generationMeta(m, setA, 4, 2, []UUID{seg0})
+	richMeta(m)
+	raw, err := m.MarshalBinary()
 	require.NoError(t, err)
-	member, err := NewPackInfo(memA, viewCapture, memberRaw)
+	stored := bytes.Clone(raw)
+	decoded, err := UnmarshalPackMeta(raw)
 	require.NoError(t, err)
-	wantMember := member.Meta()
-	require.Equal(t, uint64(4), *wantMember.PublisherEpoch)
+	want, err := UnmarshalPackMeta(stored)
+	require.NoError(t, err)
+	require.Equal(t, want, decoded)
 
-	// The caller reuses the buffer it passed to NewPackInfo.
-	overwriteMetaValue(t, memberRaw, tagPublisherEpoch, binary.LittleEndian.AppendUint64(nil, 9))
-	changed, err := UnmarshalPackMeta(memberRaw)
+	// The caller changes the PackMeta it was given: the bytes it decoded stay as they were.
+	scrambleMeta(decoded)
+	require.NotEqual(t, want, decoded)
+	assert.Equal(t, stored, raw)
+
+	// The caller reuses its buffer: a PackMeta decoded from it before stays as it was.
+	again, err := UnmarshalPackMeta(raw)
+	require.NoError(t, err)
+	overwriteMetaValue(t, raw, tagPublisherEpoch, binary.LittleEndian.AppendUint64(nil, 9))
+	changed, err := UnmarshalPackMeta(raw)
 	require.NoError(t, err)
 	require.Equal(t, uint64(9), *changed.PublisherEpoch, "the buffer holds another epoch now")
-
-	// It also changes the PackMeta values Meta returned.
-	m := member.Meta()
-	scrambleMeta(m)
-	require.NotEqual(t, wantMember, m)
-
-	assert.Equal(t, wantMember, member.Meta())
-	assert.NotSame(t, member.Meta(), member.Meta(), "every call decodes a new PackMeta")
-
-	var zero PackInfo
-	assert.Nil(t, zero.Meta())
+	assert.Equal(t, want, again)
 }

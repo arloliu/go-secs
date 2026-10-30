@@ -111,7 +111,7 @@
 // a pack of minor 1 tracepack-jsonl/2, which names the additions of format 1.1,
 // and any other pack tracepack-jsonl/3, which also names recorder_instance_name.
 // A damaged pack exports the records of its validated blocks, with the Result Iterate returns for it:
-// a failed block or a crash gap makes it incomplete, while a footer that is not used only sets FooterErr.
+// a failed block or a crash gap makes it incomplete, while a footer that is not used only adds an entry to FooterErrs.
 // A reader budget that keeps part of the pack out fails the export with an error wrapping ErrReadLimit instead.
 // Each line is written in pieces of at most 64 KiB, so one line may take several Write calls.
 // Verify reads every block of a pack and reports its outcome, from finalized-consistent to corrupt.

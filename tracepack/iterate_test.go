@@ -742,8 +742,8 @@ func TestIterateResultOrder(t *testing.T) {
 	for _, d := range run.res.Incomplete {
 		assert.Equal(t, 0, d.Pack, "Iterate reads one pack")
 	}
-	require.Error(t, run.res.FooterErr)
-	assert.Equal(t, []PackError{{Pack: 0, Err: run.res.FooterErr}}, run.res.FooterErrs)
+	require.Error(t, r.Header().FooterErr)
+	assert.Equal(t, []PackError{{Pack: 0, Err: r.Header().FooterErr}}, run.res.FooterErrs)
 	assert.Equal(t, []uint64{0, 1, 4, 5}, run.seqs())
 }
 
@@ -757,10 +757,9 @@ func TestIterateFooterErrs(t *testing.T) {
 
 	run := iterate(t, r, Query{Payloads: true})
 	assert.Len(t, run.items, len(recs), "the walk accounts for every record")
-	require.ErrorIs(t, run.res.FooterErr, ErrInvalidFooter)
-	assert.Equal(t, []PackError{{Pack: 0, Err: run.res.FooterErr}}, run.res.FooterErrs)
+	assert.Equal(t, []PackError{{Pack: 0, Err: r.Header().FooterErr}}, run.res.FooterErrs)
 	require.ErrorIs(t, run.res.FooterErrs[0], ErrInvalidFooter, "a PackError unwraps to the error about its pack")
-	assert.Equal(t, "tracepack: pack 0: "+run.res.FooterErr.Error(), run.res.FooterErrs[0].Error())
+	assert.Equal(t, "tracepack: pack 0: "+r.Header().FooterErr.Error(), run.res.FooterErrs[0].Error())
 	assert.Empty(t, run.res.Incomplete)
 	assert.True(t, run.res.Complete(), "a finalized pack whose walk accounts for every block is complete without its footer")
 	assert.Empty(t, run.res.Conflicts)

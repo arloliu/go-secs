@@ -321,8 +321,8 @@ The query service, its catalog database and the live-tail interface are designed
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`,
   and `Stats() (PackStats, bool)` (G5-131): the F-5 statistics of a pack whose footer it uses — counts, time and seq ranges, per-epoch summaries with `close_seq`, capture-boundary entries — as a fresh value, false without a used footer.
   `Open` decodes the pack metadata against the registry of the pack's `format_minor` ([FMT §5]),
-  as `UnmarshalPackMetaMinor(b, minor)` and `NewPackInfoMinor(packID, captureID, minor, metadata)` do,
-  while `UnmarshalPackMeta` and `NewPackInfo` decode with the newest registry;
+  as `UnmarshalPackMetaMinor(b, minor)` does,
+  while `UnmarshalPackMeta` decodes with the newest registry;
   in a minor-0 pack a number of format 1.1 keeps its 1.0 status, a top-level tag kept in `Unknown`, which `MarshalBinary` refuses to write back (`ErrReservedTag`).
   It parses the redaction entries with that registry and runs their bootstrap checks, whose defects are recoverable and never fail `Open` ([SEM §8]),
   listed in `PackHeader.RedactionDefects`, each a `RedactionDefect{Seq, Entry, Err}` wrapping `ErrRedactionDefect`; its cost grows with the entries.
@@ -446,7 +446,7 @@ The query service, its catalog database and the live-tail interface are designed
   schema `tracepack-jsonl/1` for a pack of minor 0, so every format 1.0 export is unchanged, `tracepack-jsonl/2` for minor 1, and `tracepack-jsonl/3` otherwise ([JSONL §5]).
   It exports the records `r.Iterate(ctx, Query{Payloads: true}, …)` yields, in the same order, and returns the `Result` that call returns:
   open defects, the `coverage` entries that intersect the query, the crash gaps ([SEM §7.4] Crash gaps), and every failed block and every block or footer value found disagreeing with its records ([SEM §7.4]) in `Incomplete`, whose records are exported;
-  `FooterErr` and `FooterErrs` as `Iterate`, a footer error alone not making the result incomplete.
+  `FooterErrs` as `Iterate` sets it, a footer error alone not making the result incomplete.
   A record whose body is not valid ([JSONL §6]) is exported without `body` and adds nothing to `Result`.
   Where `Iterate` lists a reader budget as a `ReasonLimit` defect, `ExportJSONL` fails instead (G5-171, [JSONL §7]):
   with an error wrapping `ErrReadLimit`, before writing anything, when the footer was not used because it is over `MaxFooterLen` or the forward walk stopped at `MaxWalkedBlocks`,

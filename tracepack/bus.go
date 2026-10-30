@@ -291,7 +291,7 @@ func EncodeBusBody(br *BusRecord) ([]byte, error) {
 		Fidelity:   uint8(r.Fidelity),
 	}
 	if r.MonoPresent {
-		h.RecordFlags = uint8(RecordFlagsMonoPresent)
+		h.RecordFlags = uint8(recordFlagMonoPresent)
 	}
 
 	n := format.RecordHeaderLen

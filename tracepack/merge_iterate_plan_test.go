@@ -266,7 +266,6 @@ func TestMergeIteratePlanDiagnostics(t *testing.T) {
 	require.Error(t, readers[1].footerErr)
 	require.Error(t, readers[3].footerErr)
 	assert.Equal(t, []PackError{{Pack: 1, Err: readers[1].footerErr}, {Pack: 3, Err: readers[3].footerErr}}, p.res.FooterErrs)
-	assert.Nil(t, p.res.FooterErr)
 	assert.Empty(t, p.res.Conflicts)
 
 	// The Readers are unchanged: a Reader is shared across reads.

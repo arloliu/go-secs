@@ -509,19 +509,6 @@ func (r *Reader) Header() *PackHeader {
 	return h
 }
 
-// Info returns the pack's PackInfo:
-// the file header's pack_id and capture_id, and the pack metadata decoded afresh from the Reader's own copy of its bytes,
-// so no change to a PackHeader that Header returned reaches it.
-func (r *Reader) Info() PackInfo {
-	// Open decoded the same bytes under the same minor without error, so decoding them again cannot fail.
-	meta, _ := UnmarshalPackMetaMinor(r.metaRaw, r.hdr.FormatMinor)
-
-	// The Reader never modifies metaRaw, and PackInfo never hands it out, so the two share it.
-	return PackInfo{
-		packID: UUID(r.hdr.PackID), captureID: UUID(r.hdr.CaptureID), minor: r.hdr.FormatMinor, raw: r.metaRaw, meta: meta,
-	}
-}
-
 // Unobserved reports whether rec, a record of the pack r reads, is unobserved by design
 // (the tracepack semantics specification §2):
 // its stored quality carries bit 7, which is QualityUnobserved in a pack of format minor 1 or later

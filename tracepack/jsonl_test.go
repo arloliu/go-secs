@@ -166,11 +166,6 @@ func requireSameResultAs(t testing.TB, want, got Result, sameText bool) {
 
 	requireSameDefectsAs(t, want.Incomplete, got.Incomplete, sameText)
 	assert.Empty(t, got.Conflicts)
-	if want.FooterErr == nil {
-		require.NoError(t, got.FooterErr)
-	} else {
-		require.EqualError(t, got.FooterErr, want.FooterErr.Error())
-	}
 	require.Len(t, got.FooterErrs, len(want.FooterErrs))
 	for i := range want.FooterErrs {
 		assert.Equal(t, want.FooterErrs[i].Pack, got.FooterErrs[i].Pack)
@@ -538,19 +533,19 @@ func TestExportJSONL_SameAsIterate(t *testing.T) {
 			assert.Len(t, lines, 9)
 		}},
 		{"bad envelope, usable footer", flipByte(closed.file, at+8), func(t *testing.T, lines []string, res Result) {
-			require.NoError(t, res.FooterErr)
+			assert.Empty(t, res.FooterErrs)
 			require.Len(t, res.Incomplete, 1)
 			assert.Equal(t, ReasonCorruptBlock, res.Incomplete[0].Reason)
 			assert.Len(t, lines, 9, "the footer locates block 2")
 		}},
 		{"bad envelope, no usable footer", flipByte(invalidFooterFile(t, closed.file), at+8), func(t *testing.T, lines []string, res Result) {
-			require.ErrorIs(t, res.FooterErr, ErrInvalidFooter)
+			require.ErrorIs(t, soleFooterErr(t, res), ErrInvalidFooter)
 			require.Len(t, res.Incomplete, 1)
 			assert.Equal(t, ReasonTruncated, res.Incomplete[0].Reason)
 			assert.Len(t, lines, 5, "the walk stops at block 1")
 		}},
 		{"unused footer, complete walk", invalidFooterFile(t, closed.file), func(t *testing.T, lines []string, res Result) {
-			require.ErrorIs(t, res.FooterErr, ErrInvalidFooter)
+			require.ErrorIs(t, soleFooterErr(t, res), ErrInvalidFooter)
 			assert.Empty(t, res.Incomplete, "a footer error alone leaves the read complete")
 			assert.Len(t, lines, 13)
 		}},
@@ -713,8 +708,8 @@ func TestExportJSONL_Errors(t *testing.T) {
 		require.Len(t, res.Incomplete, 1)
 		assert.Equal(t, ReasonCoverage, res.Incomplete[0].Reason)
 		assert.Equal(t, coverage[0].Unknown, res.Incomplete[0].Coverage.Unknown)
-		require.ErrorIs(t, res.FooterErr, ErrInvalidFooter)
 		require.Len(t, res.FooterErrs, 1)
+		require.ErrorIs(t, res.FooterErrs[0], ErrInvalidFooter)
 		assert.Equal(t, 0, res.FooterErrs[0].Pack)
 		require.ErrorIs(t, res.FooterErrs[0].Err, ErrInvalidFooter)
 	}
@@ -783,7 +778,6 @@ func TestExportJSONL_Errors(t *testing.T) {
 		require.Len(t, res.Incomplete, 1, "the disagreement is listed before the block's records are written")
 		assert.Equal(t, ReasonIndexMismatch, res.Incomplete[0].Reason)
 		assert.Equal(t, 1, res.Incomplete[0].Block)
-		require.NoError(t, res.FooterErr)
 		assert.Empty(t, res.FooterErrs)
 	})
 

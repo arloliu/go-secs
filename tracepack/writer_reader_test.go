@@ -222,13 +222,11 @@ func checkSeqOrder(env *format.BlockEnvelope, prev []tracepack.Record, i int, se
 
 // recordOf converts a decoded record header and its payload into a Record.
 func recordOf(h *format.RecordHeader, payload []byte) tracepack.Record {
-	flags := tracepack.RecordFlags(h.RecordFlags)
-
 	return tracepack.Record{
 		Seq:           h.Seq,
 		TSUTCNs:       h.TSUTCNs,
 		MonoNs:        h.MonoNs,
-		MonoPresent:   flags.Has(tracepack.RecordFlagsMonoPresent),
+		MonoPresent:   h.RecordFlags&0x02 != 0, // record_flags bit 1, mono_present
 		Epoch:         h.Epoch,
 		Kind:          tracepack.Kind(h.Kind),
 		Dir:           tracepack.Dir(h.Dir),

@@ -25,18 +25,17 @@ func TestRecorderInstanceNameByMinor(t *testing.T) {
 	for name, e := range entries {
 		raw := jsonlTLV(append(jsonlV2Required(), e)...)
 		for _, minor := range []uint16{0, 1} {
-			p, err := NewPackInfoMinor(UUID{1}, UUID{2}, minor, raw)
+			m, err := UnmarshalPackMetaMinor(raw, minor)
 			require.NoError(t, err, "%s at minor %d", name, minor)
-			m := p.Meta()
 			assert.Nil(t, m.RecorderInstanceName, "%s at minor %d", name, minor)
 			assert.Equal(t, []RawEntry{{Tag: e.Tag, Type: uint8(e.Type), Value: e.Value}}, m.Unknown, "%s at minor %d", name, minor)
 		}
 
-		p, err := NewPackInfoMinor(UUID{1}, UUID{2}, 2, raw)
+		m, err := UnmarshalPackMetaMinor(raw, 2)
 		if name == "utf8" {
 			require.NoError(t, err)
-			assert.Equal(t, new("eqp"), p.Meta().RecorderInstanceName)
-			assert.Empty(t, p.Meta().Unknown)
+			assert.Equal(t, new("eqp"), m.RecorderInstanceName)
+			assert.Empty(t, m.Unknown)
 
 			continue
 		}

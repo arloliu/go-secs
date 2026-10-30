@@ -60,8 +60,7 @@ func clonePtr[T any](v *T) *T {
 // and returns the status of the read (the tracepack semantics specification §7.4).
 //
 // The Result starts with the defects every read of the pack carries, those Open found,
-// and with PackHeader.FooterErr as Result.FooterErr.
-// A non-nil FooterErr is also the one entry of Result.FooterErrs, for pack 0.
+// and with a non-nil PackHeader.FooterErr as the one entry of Result.FooterErrs, for pack 0.
 // Every Item and Defect names pack 0, no Item is a conflict, and Result.Conflicts stays empty.
 // Next come the coverage entries of the pack metadata that intersect the query (the tracepack format specification §5):
 // an entry of the pack's capture, an absent capture_id included, whose inclusive time interval meets [TimeFrom, TimeTo),
@@ -152,9 +151,9 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 // startResult returns the Result a read of the pack under the filter f starts with, before any block is read:
 // the defects Open found, then the coverage defects of f for the pack's own capture (appendCoverageDefects),
 // then, when the footer is used, the crash gaps of its F-5 statistics that meet f's time range,
-// with PackHeader.FooterErr as FooterErr and as the one entry of FooterErrs, for pack 0, when it is non-nil.
+// with PackHeader.FooterErr as the one entry of FooterErrs, for pack 0, when it is non-nil.
 func (r *Reader) startResult(f *Filter) Result {
-	res := Result{Incomplete: slices.Clone(r.openDefects), FooterErr: r.footerErr}
+	res := Result{Incomplete: slices.Clone(r.openDefects)}
 	if r.footerErr != nil {
 		res.FooterErrs = []PackError{{Pack: 0, Err: r.footerErr}}
 	}

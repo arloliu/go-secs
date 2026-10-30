@@ -133,7 +133,7 @@ func readCompat(t *testing.T, file []byte) *compatRead {
 	for qi, q := range compatQueries() {
 		run := iterate(t, r, q)
 		require.True(t, run.res.Complete(), "query %d: %v", qi, run.res.Incomplete)
-		require.NoError(t, run.res.FooterErr, "query %d", qi)
+		require.Empty(t, run.res.FooterErrs, "query %d", qi)
 
 		var pruned []int
 		for i := range r.blocks {
