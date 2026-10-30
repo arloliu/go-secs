@@ -365,7 +365,8 @@ For the storage service:
   Its `compacted_from` lists the inputs' own lineage and then every segment input, and its `supersedes` every archive input, in the order you give them.
   It refuses with `ErrMergeInput`, before writing anything, an input whose role is neither `segment` nor `archive`, and an input of another capture or hour.
   It opens up to `MaxParallelOpens` inputs at once, 16 by default, and checks them in your order,
-  so an error names the input opening them one after another would name; inputs after a failing one may have been read.
+  so, while ctx is not cancelled and each input's `ReaderAt` answers independently of the others',
+  an error names the input opening them one after another would name; inputs after a failing one may have been read.
   Which packs a merge takes, and when a merged pack may be deleted, is yours to decide (the storage specification §4);
   publish the archive only after `Merge` returned nil.
 - `Merge` merges packs of format 1.2: it carries the inputs' redaction policy, their redaction entries, their `thinning` and their `recorder_instance_name`,

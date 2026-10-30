@@ -9,6 +9,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"math"
 	"math/rand/v2"
 	"os"
 	"slices"
@@ -168,6 +169,7 @@ const (
 	inputDuplicateID
 	inputFailingRead
 	inputDeadlineRead
+	inputCanceledRead
 	inputConflicting
 	openInputKinds
 )
@@ -208,7 +210,8 @@ func openCase(t *testing.T, r *rand.Rand, codec Codec, n int) []openCaseInput {
 			for k := range steps {
 				steps[k].rec.Payload = append(slices.Clone(steps[k].rec.Payload), 0x5a)
 			}
-		case inputValid, inputBadMagic, inputBadMetaCRC, inputBadFooter, inputShort, inputFailingRead, inputDeadlineRead, openInputKinds:
+		case inputValid, inputBadMagic, inputBadMetaCRC, inputBadFooter, inputShort, inputFailingRead, inputDeadlineRead, inputCanceledRead,
+			openInputKinds:
 			// Written as a valid segment; the file or its reader is changed below.
 		default:
 			t.Fatalf("input kind %d", kind)
@@ -231,6 +234,8 @@ func openCase(t *testing.T, r *rand.Rand, codec Codec, n int) []openCaseInput {
 			c.fail = errInjected
 		case inputDeadlineRead:
 			c.fail = context.DeadlineExceeded
+		case inputCanceledRead:
+			c.fail = context.Canceled
 		case inputValid, inputOtherCapture, inputDuplicateID, inputConflicting, openInputKinds:
 			// Changed above, if at all, when it was written.
 		default:
@@ -272,7 +277,7 @@ func TestMergeOpenOutcomeSerial(t *testing.T) {
 		}
 		in := openCase(t, r, codec, 1+r.IntN(40))
 		opts := mergeOpts()
-		opts.MaxParallelOpens = []int{0, 1, 2, 5, 40}[r.IntN(5)]
+		opts.MaxParallelOpens = []int{0, 1, 2, 5, 40, math.MaxInt}[r.IntN(6)]
 		opts.Uncompressed = r.IntN(2) == 0
 		opts.NoCoalesce = r.IntN(2) == 0
 		if r.IntN(8) == 0 {
@@ -336,6 +341,11 @@ func entered(r *roundReader) bool { return r.calls.Load() > 0 }
 
 // mergeAsync runs a merge of inputs on a goroutine of its own and sends its error, or the value it panicked with, once it returns.
 func mergeAsync(ctx context.Context, inputs []MergeInput, opts MergeOptions, hooks mergeHooks) <-chan any {
+	return mergeAsyncTo(ctx, new(bytes.Buffer), inputs, opts, hooks)
+}
+
+// mergeAsyncTo is mergeAsync writing to dst, which the caller reads once the outcome came.
+func mergeAsyncTo(ctx context.Context, dst *bytes.Buffer, inputs []MergeInput, opts MergeOptions, hooks mergeHooks) <-chan any {
 	out := make(chan any, 1)
 	go func() {
 		defer func() {
@@ -343,8 +353,7 @@ func mergeAsync(ctx context.Context, inputs []MergeInput, opts MergeOptions, hoo
 				out <- v
 			}
 		}()
-		var dst bytes.Buffer
-		_, err := mergeWith(ctx, &dst, inputs, opts, hooks)
+		_, err := mergeWith(ctx, dst, inputs, opts, hooks)
 		out <- err
 	}()
 
@@ -545,11 +554,23 @@ func TestMergeOpenSpeculativePanic(t *testing.T) {
 				rs[0].at(0).after = release
 				rs[0].at(0).err = errInjected
 				rs[1].at(0).panic = "input 1"
+				sibling := make(chan struct{})
+				if tt.reader != (ReaderOptions{}) {
+					// The tail read of input 1's round is held while its head read panics.
+					rs[1].at(int64(len(files[1])) - 64).after = sibling
+				} else {
+					close(sibling)
+				}
 				opts := openTestOpts()
 				opts.Reader = tt.reader
 				got := mergeAsync(t.Context(), in, opts, mergeHooks{})
 				<-rs[1].at(0).done
 				close(release)
+				synctest.Wait()
+				if tt.reader != (ReaderOptions{}) {
+					requirePending(t, got)
+					close(sibling)
+				}
 				err, _ := (<-got).(error)
 				require.ErrorIs(t, err, errInjected)
 				assert.Contains(t, err.Error(), "input 0:")
@@ -696,5 +717,111 @@ func TestMergeParallelOpensNegative(t *testing.T) {
 	assert.Zero(t, dst.Len())
 	for _, r := range rs {
 		assert.False(t, entered(r))
+	}
+}
+
+// With MaxParallelOpens 1 no input is read before the one before it was checked, nor after a failure;
+// a wider window reads ahead exactly that far while a check is held.
+func TestMergeOpenWindowHeldCheck(t *testing.T) {
+	t.Parallel()
+
+	files := openTestFiles(t, 6)
+	for _, tt := range []struct {
+		opens, read int
+	}{{1, 1}, {3, 3}} {
+		t.Run(fmt.Sprint(tt.opens), func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				rs, in := gatedInputs(files)
+				hold := make(chan struct{})
+				hooks := mergeHooks{admitted: func(i int) {
+					if i == 0 {
+						<-hold
+					}
+				}}
+				opts := openTestOpts()
+				opts.MaxParallelOpens = tt.opens
+				got := mergeAsync(t.Context(), in, opts, hooks)
+				synctest.Wait()
+				for i, r := range rs {
+					assert.Equal(t, i < tt.read, entered(r), "input %d read while input 0's check is held", i)
+				}
+				close(hold)
+				require.Nil(t, <-got)
+			})
+		})
+	}
+	for _, tt := range []struct {
+		name   string
+		at     int
+		file   func(t *testing.T, files [][]byte)
+		reader func(rs []*roundReader)
+	}{
+		{"open fails", 0, func(*testing.T, [][]byte) {}, func(rs []*roundReader) { rs[0].at(0).err = errInjected }},
+		{"check fails", 1, func(t *testing.T, files [][]byte) { files[1] = withIDs(t, files[1], UUID{0x70, 1}, UUID{0x7c}) },
+			func([]*roundReader) {}},
+	} {
+		t.Run("1, "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fs := slices.Clone(files)
+			tt.file(t, fs)
+			synctest.Test(t, func(t *testing.T) {
+				rs, in := gatedInputs(fs)
+				tt.reader(rs)
+				opts := openTestOpts()
+				opts.MaxParallelOpens = 1
+				err, _ := (<-mergeAsync(t.Context(), in, opts, mergeHooks{})).(error)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), fmt.Sprintf("input %d", tt.at))
+				for i, r := range rs {
+					assert.Equal(t, i <= tt.at, entered(r), "input %d", i)
+				}
+			})
+		})
+	}
+}
+
+// Cancelling ctx while the checks run, at the window's refill boundaries or once every open succeeded,
+// fails the merge with ctx's error, writes nothing, and reads no input launched after the cancellation.
+func TestMergeOpenCancelledWhileChecking(t *testing.T) {
+	t.Parallel()
+
+	files := openTestFiles(t, 40)
+	for _, at := range []int{15, 16, 31, 32, 39} {
+		t.Run(fmt.Sprint(at), func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				rs, in := gatedInputs(files)
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				hooks := mergeHooks{admitted: func(i int) {
+					if i == at {
+						cancel()
+					}
+				}}
+				var dst bytes.Buffer
+				err, _ := (<-mergeAsyncTo(ctx, &dst, in, openTestOpts(), hooks)).(error)
+				require.ErrorIs(t, err, context.Canceled)
+				assert.Zero(t, dst.Len(), "nothing written")
+				for i := at + 16; i < len(rs); i++ {
+					assert.False(t, entered(rs[i]), "input %d launched after the cancellation", i)
+				}
+			})
+		})
+	}
+}
+
+// A window wider than the inputs, up to math.MaxInt, opens them as the default does.
+func TestMergeOpenWideWindow(t *testing.T) {
+	t.Parallel()
+
+	files := openTestFiles(t, 5)
+	for _, w := range []int{5, 6, math.MaxInt - 1, math.MaxInt} {
+		opts := mergeOpts()
+		opts.MaxParallelOpens = w
+		requireSerialOutcome(t, func() []MergeInput { return inputsOf(files...) }, opts)
 	}
 }
