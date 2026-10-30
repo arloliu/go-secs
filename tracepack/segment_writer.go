@@ -635,11 +635,11 @@ func (w *SegmentWriter) Close(ctx context.Context) error {
 	}
 
 	// Only this Close's own result is marked: a stored failure is the SegmentWriter's prior state,
-	// and a later Close returns this result as it is.
-	err := refuse(w.closeCapture(ctx))
+	// and a later Close returns this result unmarked, as any later call reports it.
+	err := w.closeCapture(ctx)
 	w.closed, w.closeErr = true, err
 
-	return err
+	return refuse(err)
 }
 
 // closeCapture does the work of Close once ctx was checked.

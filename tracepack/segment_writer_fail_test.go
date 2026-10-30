@@ -458,7 +458,9 @@ func TestSegmentWriterSeqCapacity(t *testing.T) {
 
 	err := w.Close(t.Context())
 	require.ErrorIs(t, err, ErrSeqOrder, "no seq left for stop")
-	assert.Equal(t, err, w.Close(t.Context()), "a second Close returns the same failure")
+	again := w.Close(t.Context())
+	assert.Equal(t, err.Error(), again.Error(), "a second Close returns the same failure")
+	assert.NotErrorIs(t, again, ErrRefused, "a second Close reports the prior state")
 	require.ErrorIs(t, w.Rotate(t.Context()), ErrWriterFailed)
 	sink.noMisuse(t)
 	assert.Zero(t, sink.aborts())
