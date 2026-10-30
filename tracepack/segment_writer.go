@@ -957,7 +957,8 @@ func (w *SegmentWriter) finalize(ctx context.Context) error {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		// Marked as the segment output's ctx error is, so a refusal joined with it stays unmarked.
+		return external(err)
 	}
 	if err := commitSegment(ctx, s.file); err != nil {
 		return fmt.Errorf("tracepack: commit segment: %w", err)
