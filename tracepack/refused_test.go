@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -738,5 +739,118 @@ func exprString(e ast.Expr) string {
 		return exprString(x.Fun) + "()"
 	default:
 		return fmt.Sprintf("%T", e)
+	}
+}
+
+// TestErrRefusedSegmentWriterCalls requires the refusals of AppendEvent and Tick to be marked at their own boundary.
+// Tick refuses nothing of its own input, now deciding only whether the segment rolls:
+// it returns the refusal of the segment's Writer closing the open block.
+func TestErrRefusedSegmentWriterCalls(t *testing.T) {
+	t.Parallel()
+
+	t.Run("AppendEvent", func(t *testing.T) {
+		t.Parallel()
+
+		w, _ := newSeg(t, nil)
+		requireRefused(t, w.AppendEvent(t.Context(), segAt(time.Second), 0, nil), ErrInvalidRecord)
+	})
+	t.Run("Tick", func(t *testing.T) {
+		t.Parallel()
+
+		w, _ := newSeg(t, nil)
+		require.NotNil(t, w.seg, "a segment is open")
+		w.seg.w.encodedHook = truncateBlock
+		requireRefused(t, w.Tick(t.Context(), time.Unix(0, w.seg.end)), ErrValidation)
+	})
+}
+
+// overflowArgumentSites names, in writer.go, the functions holding a check of a length against a u32 field
+// whose input cannot be built in a test, the pack metadata's length and the block count.
+var overflowArgumentSites = []string{"encodeHead", "Writer.finalize"}
+
+// TestErrRefusedOverflowArguments parses writer.go and requires each check of overflowArgumentSites
+// to return its error marked as an argument, as TestErrRefusedArguments requires of the checks a test can reach:
+// each function holds exactly one comparison with math.MaxUint32, whose body returns argument(...).
+func TestErrRefusedOverflowArguments(t *testing.T) {
+	t.Parallel()
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "writer.go", nil, parser.SkipObjectResolution)
+	require.NoError(t, err)
+	found := map[string]bool{}
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || !slices.Contains(overflowArgumentSites, funcName(fn)) {
+			continue
+		}
+		name := funcName(fn)
+		found[name] = true
+		var checks []*ast.IfStmt
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if s, ok := n.(*ast.IfStmt); ok {
+				if c, ok := s.Cond.(*ast.BinaryExpr); ok && c.Op == token.GTR && exprString(c.Y) == "math.MaxUint32" {
+					checks = append(checks, s)
+				}
+			}
+
+			return true
+		})
+		require.Len(t, checks, 1, "%s holds one u32 check", name)
+		body := checks[0].Body.List
+		require.NotEmpty(t, body, "%s: the u32 check returns", name)
+		ret, ok := body[len(body)-1].(*ast.ReturnStmt)
+		require.True(t, ok, "%s: the u32 check returns", name)
+		require.NotEmpty(t, ret.Results)
+		call, ok := ret.Results[len(ret.Results)-1].(*ast.CallExpr)
+		require.True(t, ok, "%s: %s returns a call", name, fset.Position(ret.Pos()))
+		id, ok := call.Fun.(*ast.Ident)
+		assert.True(t, ok && id.Name == "argument", "%s: %s returns its error marked by argument", name, fset.Position(ret.Pos()))
+	}
+	for _, name := range overflowArgumentSites {
+		assert.True(t, found[name], "writer.go declares %s", name)
+	}
+}
+
+// internalBoundaryCalls lists, by their receiver's source form, the calls named Append, Flush or Close
+// that TestErrRefusedInternalBoundary allows: calls on a value that is not a Writer.
+// It is empty.
+var internalBoundaryCalls = map[string]bool{}
+
+// TestErrRefusedInternalBoundary parses Merge's and the SegmentWriter's sources and requires them to make no call
+// named Append, Flush or Close, so they reach a Writer only through its unexported implementations:
+// a Merge error never passes a wrapper that adds ErrRefused, and the failure a SegmentWriter stores carries no marker.
+func TestErrRefusedInternalBoundary(t *testing.T) {
+	t.Parallel()
+
+	files, err := filepath.Glob("merge*.go")
+	require.NoError(t, err)
+	files = slices.DeleteFunc(files, func(name string) bool { return strings.HasSuffix(name, "_test.go") })
+	require.Contains(t, files, "merge_write.go")
+	files = append(files, "segment_writer.go")
+
+	fset := token.NewFileSet()
+	for _, name := range files {
+		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		require.NoError(t, err)
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			switch sel.Sel.Name {
+			case "Append", "Flush", "Close":
+				recv := exprString(sel.X)
+				assert.True(t, internalBoundaryCalls[recv], "%s: %s.%s calls a public writing method; call its unexported implementation",
+					fset.Position(sel.Pos()), recv, sel.Sel.Name)
+			default:
+				// Any other call is outside the boundary.
+			}
+
+			return true
+		})
 	}
 }
