@@ -140,6 +140,10 @@ type SegmentWriterOptions struct {
 // The seq counter is never rewound, so lost records leave a seq gap, never a reused seq.
 // Every later call returns an error wrapping ErrWriterFailed, and Close returns the failure without a sink call.
 //
+// ErrRefused: a refusal, and a failure the call's own record determines, such as ErrValidation, also wraps ErrRefused;
+// a failure that holds an error of the sink or of a segment file, an Abort error included, does not,
+// and neither does the failure a later call reports.
+//
 // A SegmentWriter is not safe for concurrent use.
 type SegmentWriter struct {
 	// desc is the descriptor, resolved, which the SegmentWriter owns.
@@ -217,7 +221,18 @@ type segmentOutput struct {
 //     or on classifier for an empty classifier Name;
 //     an invalid option, a CaptureOrigin that is not representable or a pack metadata value the encoding refuses;
 //     ctx's error; or an error of the sink or of writing the start boundary, after its segment was aborted.
+//     An error opts determines also wraps ErrRefused.
 func NewSegmentWriter(ctx context.Context, opts SegmentWriterOptions) (*SegmentWriter, error) {
+	w, err := startSegmentWriter(ctx, opts)
+	if err != nil {
+		return nil, refuse(err)
+	}
+
+	return w, nil
+}
+
+// startSegmentWriter does the work of NewSegmentWriter, without adding ErrRefused (refuse).
+func startSegmentWriter(ctx context.Context, opts SegmentWriterOptions) (*SegmentWriter, error) {
 	if err := opts.Capture.Validate(); err != nil {
 		return nil, err
 	}
@@ -245,10 +260,10 @@ func NewSegmentWriter(ctx context.Context, opts SegmentWriterOptions) (*SegmentW
 // prepareSegmentWriter checks the options, resolves the descriptor and returns the SegmentWriter, without a segment.
 func prepareSegmentWriter(opts *SegmentWriterOptions) (*SegmentWriter, error) {
 	if opts.Sink == nil {
-		return nil, errors.New("tracepack: SegmentWriterOptions.Sink is nil")
+		return nil, argument(errors.New("tracepack: SegmentWriterOptions.Sink is nil"))
 	}
 	if err := checkCompressionLevel("SegmentWriterOptions", opts.CompressionLevel); err != nil {
-		return nil, err
+		return nil, argument(err)
 	}
 
 	flush := opts.FlushInterval
@@ -257,7 +272,7 @@ func prepareSegmentWriter(opts *SegmentWriterOptions) (*SegmentWriter, error) {
 	}
 	// An interval that divides the hour is at most an hour long.
 	if flush < 0 || time.Hour%flush != 0 {
-		return nil, fmt.Errorf("tracepack: SegmentWriterOptions.FlushInterval %v does not divide one hour", flush)
+		return nil, argument(fmt.Errorf("tracepack: SegmentWriterOptions.FlushInterval %v does not divide one hour", flush))
 	}
 
 	maxBytes := opts.MaxSegmentBytes
@@ -265,7 +280,7 @@ func prepareSegmentWriter(opts *SegmentWriterOptions) (*SegmentWriter, error) {
 		maxBytes = DefaultMaxSegmentBytes
 	}
 	if maxBytes < 0 {
-		return nil, fmt.Errorf("tracepack: SegmentWriterOptions.MaxSegmentBytes %d is negative", maxBytes)
+		return nil, argument(fmt.Errorf("tracepack: SegmentWriterOptions.MaxSegmentBytes %d is negative", maxBytes))
 	}
 
 	params := segmentMetaParams{writer: writerTag}
@@ -305,7 +320,7 @@ func prepareSegmentWriter(opts *SegmentWriterOptions) (*SegmentWriter, error) {
 
 	origin := w.desc.CaptureOrigin
 	if _, ok := w.representable(origin); !ok {
-		return nil, fmt.Errorf("tracepack: CaptureOrigin %v is not representable with a %v flush interval", origin, flush)
+		return nil, argument(fmt.Errorf("tracepack: CaptureOrigin %v is not representable with a %v flush interval", origin, flush))
 	}
 	w.originMono = hasMonotonic(origin)
 	if w.desc.TimeSource == TimeSourceCaptureClock {
@@ -410,6 +425,16 @@ func ownedBoundary(ev *TransportEvent) bool {
 	return false
 }
 
+// commitSegment commits file, marking its error as the segment file's (externalError).
+func commitSegment(ctx context.Context, file SegmentFile) error {
+	return external(file.Commit(ctx))
+}
+
+// abortSegment aborts file, marking its error as the segment file's (externalError).
+func abortSegment(file SegmentFile) error {
+	return external(file.Abort())
+}
+
 // CaptureID returns the capture_id of every segment of the capture,
 // which a recorder persists to give as the next capture's PreviousCaptureID.
 func (w *SegmentWriter) CaptureID() UUID {
@@ -435,6 +460,11 @@ func (w *SegmentWriter) CaptureID() UUID {
 //     or for a quality carrying QualityUnobserved on a frame that is not unobserved by design, as Append refuses it;
 //     or a refusal or failure as SegmentWriter describes.
 func (w *SegmentWriter) AppendFrame(ctx context.Context, at time.Time, dir Dir, epoch uint32, frame []byte, quality Quality) error {
+	return refuse(w.addFrame(ctx, at, dir, epoch, frame, quality))
+}
+
+// addFrame does the work of AppendFrame, without adding ErrRefused (refuse).
+func (w *SegmentWriter) addFrame(ctx context.Context, at time.Time, dir Dir, epoch uint32, frame []byte, quality Quality) error {
 	if err := w.usable(); err != nil {
 		return err
 	}
@@ -481,6 +511,11 @@ func (w *SegmentWriter) AppendFrame(ctx context.Context, at time.Time, dir Dir, 
 //     or an ev whose encoding does not decode;
 //     the error of encoding ev; or a refusal or failure as SegmentWriter describes.
 func (w *SegmentWriter) AppendEvent(ctx context.Context, at time.Time, epoch uint32, ev *TransportEvent) error {
+	return refuse(w.addEvent(ctx, at, epoch, ev))
+}
+
+// addEvent does the work of AppendEvent, without adding ErrRefused (refuse).
+func (w *SegmentWriter) addEvent(ctx context.Context, at time.Time, epoch uint32, ev *TransportEvent) error {
 	if err := w.usable(); err != nil {
 		return err
 	}
@@ -516,6 +551,11 @@ func (w *SegmentWriter) AppendEvent(ctx context.Context, at time.Time, epoch uin
 //     or a transport-event or annotation record whose field_validity is not 0 or whose payload does not decode;
 //     or a refusal or failure as SegmentWriter describes.
 func (w *SegmentWriter) Append(ctx context.Context, r *Record) error {
+	return refuse(w.addRecord(ctx, r))
+}
+
+// addRecord does the work of Append, without adding ErrRefused (refuse).
+func (w *SegmentWriter) addRecord(ctx context.Context, r *Record) error {
 	if err := w.usable(); err != nil {
 		return err
 	}
@@ -535,6 +575,11 @@ func (w *SegmentWriter) Append(ctx context.Context, r *Record) error {
 // Returns:
 //   - error: ctx's error before any sink call, the SegmentWriter still usable; or a failure as SegmentWriter describes.
 func (w *SegmentWriter) Tick(ctx context.Context, now time.Time) error {
+	return refuse(w.rollDue(ctx, now))
+}
+
+// rollDue does the work of Tick, without adding ErrRefused (refuse).
+func (w *SegmentWriter) rollDue(ctx context.Context, now time.Time) error {
 	if err := w.usable(); err != nil {
 		return err
 	}
@@ -551,6 +596,11 @@ func (w *SegmentWriter) Tick(ctx context.Context, now time.Time) error {
 // Returns:
 //   - error: ctx's error before any sink call, the SegmentWriter still usable; or a failure as SegmentWriter describes.
 func (w *SegmentWriter) Rotate(ctx context.Context) error {
+	return refuse(w.rollOpen(ctx))
+}
+
+// rollOpen does the work of Rotate, without adding ErrRefused (refuse).
+func (w *SegmentWriter) rollOpen(ctx context.Context) error {
 	if err := w.usable(); err != nil {
 		return err
 	}
@@ -584,7 +634,9 @@ func (w *SegmentWriter) Close(ctx context.Context) error {
 		return err
 	}
 
-	err := w.closeCapture(ctx)
+	// Only this Close's own result is marked: a stored failure is the SegmentWriter's prior state,
+	// and a later Close returns this result as it is.
+	err := refuse(w.closeCapture(ctx))
 	w.closed, w.closeErr = true, err
 
 	return err
@@ -726,7 +778,7 @@ func (w *SegmentWriter) appendRecord(ctx context.Context, r *Record, caller bool
 func (w *SegmentWriter) appendToSegment(ctx context.Context, r *Record) error {
 	done := w.seg.out.use(ctx)
 	defer done()
-	if err := w.seg.w.Append(r); err != nil {
+	if err := w.seg.w.addRecord(r); err != nil {
 		return err
 	}
 
@@ -867,12 +919,9 @@ func (w *SegmentWriter) open(ctx context.Context, ts int64) error {
 		ToolID: w.desc.ToolID, CaptureID: w.captureID, PackID: packID, SeqFirst: w.nextSeq,
 		Hour: hourOf(start), PeriodStart: time.Unix(0, start).UTC(), PeriodEnd: time.Unix(0, end).UTC(),
 	}
-	file, err := w.sink.Create(ctx, info)
+	file, err := w.createSegment(ctx, info)
 	if err != nil {
-		return fmt.Errorf("tracepack: create segment: %w", err)
-	}
-	if file == nil {
-		return errors.New("tracepack: SegmentSink.Create returned no file")
+		return err
 	}
 	w.seg = &openSegment{file: file, w: wr, out: out, hour: info.Hour, start: start, end: end}
 
@@ -883,20 +932,34 @@ func (w *SegmentWriter) open(ctx context.Context, ts int64) error {
 	return out.attach(file)
 }
 
+// createSegment has the sink create the segment info describes,
+// marking the sink's error, and a file it did not return, as the sink's (externalError).
+func (w *SegmentWriter) createSegment(ctx context.Context, info SegmentInfo) (SegmentFile, error) {
+	file, err := w.sink.Create(ctx, info)
+	if err != nil {
+		return nil, fmt.Errorf("tracepack: create segment: %w", external(err))
+	}
+	if file == nil {
+		return nil, external(errors.New("tracepack: SegmentSink.Create returned no file"))
+	}
+
+	return file, nil
+}
+
 // finalize closes the open segment's Writer, then commits the segment and detaches it;
 // on an error the segment stays open, for fail to abort.
 func (w *SegmentWriter) finalize(ctx context.Context) error {
 	s := w.seg
 	done := s.out.use(ctx)
 	defer done()
-	cont, err := s.w.Close()
+	cont, err := s.w.closePack()
 	if err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := s.file.Commit(ctx); err != nil {
+	if err := commitSegment(ctx, s.file); err != nil {
 		return fmt.Errorf("tracepack: commit segment: %w", err)
 	}
 
@@ -920,7 +983,7 @@ func (w *SegmentWriter) fail(cause error) error {
 	err := cause
 	if s := w.seg; s != nil {
 		w.seg = nil
-		if aerr := s.file.Abort(); aerr != nil {
+		if aerr := abortSegment(s.file); aerr != nil {
 			err = errors.Join(cause, fmt.Errorf("tracepack: abort segment: %w", aerr))
 		}
 	}

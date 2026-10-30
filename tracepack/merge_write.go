@@ -119,7 +119,7 @@ func (p *mergePlan) write(ctx context.Context, dst io.Writer, opts *MergeOptions
 	if err := ctx.Err(); err != nil {
 		return MergeReport{}, fmt.Errorf("tracepack: merge: %w", err)
 	}
-	if _, err := m.w.Close(); err != nil {
+	if _, err := m.w.closePack(); err != nil {
 		return MergeReport{}, err
 	}
 	m.rep.Size = m.w.offset

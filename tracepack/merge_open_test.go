@@ -65,7 +65,7 @@ var mergeSentinels = map[string]error{
 	"ErrInvalidRecord": ErrInvalidRecord, "ErrMergeConflict": ErrMergeConflict, "ErrMergeInput": ErrMergeInput,
 	"ErrMergeLimit": ErrMergeLimit, "ErrMetadataCommitment": ErrMetadataCommitment, "ErrNotPrimary": ErrNotPrimary,
 	"ErrNotTracepack": ErrNotTracepack, "ErrPayloadTooLarge": ErrPayloadTooLarge, "ErrPublishUncertain": ErrPublishUncertain,
-	"ErrReadLimit": ErrReadLimit, "ErrRedactionDefect": ErrRedactionDefect, "ErrRequiredTag": ErrRequiredTag,
+	"ErrReadLimit": ErrReadLimit, "ErrRedactionDefect": ErrRedactionDefect, "ErrRefused": ErrRefused, "ErrRequiredTag": ErrRequiredTag,
 	"ErrReservedTag": ErrReservedTag, "ErrScopeBreach": ErrScopeBreach, "ErrSegmentConflict": ErrSegmentConflict,
 	"ErrSegmentExists": ErrSegmentExists, "ErrSeqOrder": ErrSeqOrder, "ErrUnsupportedFormat": ErrUnsupportedFormat,
 	"ErrValidation": ErrValidation, "ErrWriterFailed": ErrWriterFailed,

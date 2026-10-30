@@ -70,14 +70,15 @@ type CloseOptions struct {
 //     an error wrapping ErrScopeBreach when Trigger lies outside the UTC hour of the period, writing nothing;
 //     an error of NewWriter for metadata it refuses, such as a *FieldError, writing nothing;
 //     or the error of writing or syncing the pack, as Writer.Append and Writer.Close return it.
+//     An error opts determines also wraps ErrRefused.
 func WriteClose(w io.Writer, opts CloseOptions) (UUID, error) {
 	rec, meta, err := closeRecord(&opts)
 	if err != nil {
-		return UUID{}, err
+		return UUID{}, refuse(err)
 	}
 	packID, err := idOrNew(opts.PackID, opts.Now)
 	if err != nil {
-		return UUID{}, err
+		return UUID{}, refuse(err)
 	}
 
 	wr, err := NewWriter(w, WriterOptions{
@@ -90,13 +91,13 @@ func WriteClose(w io.Writer, opts CloseOptions) (UUID, error) {
 		Now:          opts.Now,
 	})
 	if err != nil {
-		return packID, err
+		return packID, refuse(err)
 	}
 	if err := wr.Append(rec); err != nil {
-		return packID, err
+		return packID, refuse(err)
 	}
 	if _, err := wr.Close(); err != nil {
-		return packID, err
+		return packID, refuse(err)
 	}
 
 	return packID, nil
@@ -106,15 +107,15 @@ func WriteClose(w io.Writer, opts CloseOptions) (UUID, error) {
 func closeRecord(opts *CloseOptions) (*Record, *PackMeta, error) {
 	switch {
 	case opts.Meta == nil:
-		return nil, nil, errors.New("tracepack: CloseOptions.Meta is nil")
+		return nil, nil, argument(errors.New("tracepack: CloseOptions.Meta is nil"))
 	case opts.CaptureID.IsZero():
-		return nil, nil, errors.New("tracepack: CloseOptions.CaptureID is the nil UUID")
+		return nil, nil, argument(errors.New("tracepack: CloseOptions.CaptureID is the nil UUID"))
 	case opts.Meta.TimeSource != TimeSourceCaptureClock:
-		return nil, nil, fmt.Errorf("tracepack: close of a capture of time_source %s, not capture-clock", opts.Meta.TimeSource)
+		return nil, nil, argument(fmt.Errorf("tracepack: close of a capture of time_source %s, not capture-clock", opts.Meta.TimeSource))
 	case opts.Meta.ClockStepToleranceNs == nil:
-		return nil, nil, errors.New("tracepack: close of a capture without clock_step_tolerance_ns")
+		return nil, nil, argument(errors.New("tracepack: close of a capture without clock_step_tolerance_ns"))
 	case !time.Unix(0, opts.Trigger.UnixNano()).Equal(opts.Trigger):
-		return nil, nil, fmt.Errorf("tracepack: close trigger %v is not representable as int64 nanoseconds", opts.Trigger)
+		return nil, nil, argument(fmt.Errorf("tracepack: close trigger %v is not representable as int64 nanoseconds", opts.Trigger))
 	}
 
 	meta := *opts.Meta

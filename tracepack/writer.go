@@ -95,6 +95,24 @@ var (
 	// (the tracepack storage specification §4, Merge).
 	// The record was not added and the Writer is still usable.
 	ErrScopeBreach = errors.New("tracepack: record outside its pack's scope")
+	// ErrRefused marks an error that the call's own arguments, options or records determine,
+	// so the same call with the same input fails the same way.
+	// It is added beside the error's own sentinel, such as ErrSeqOrder or ErrValidation, and does not change the error's text;
+	// it says nothing about whether the Writer is still usable, which the sentinel beside it says.
+	//
+	// The writing calls add it: NewWriter, Writer.Append, Writer.Flush and Writer.Close, WriteClose,
+	// NewSegmentWriter, and SegmentWriter's Append, AppendFrame, AppendEvent, Tick, Rotate and Close.
+	// They add it to an error wrapping ErrSeqOrder, ErrPayloadTooLarge, ErrFieldValidity, ErrMetadataCommitment,
+	// ErrValidation, ErrScopeBreach, ErrInvalidRecord, ErrRequiredTag, ErrFieldValue, ErrFieldLength,
+	// ErrAnnotationText or ErrReservedTag, and to an invalid argument or option, such as a nil WriterOptions.Meta.
+	//
+	// It is never added to an error of Merge, of ctx, or of the Writer's prior state (ErrWriterFailed, ErrClosed),
+	// nor to an error of the destination, a Syncer, a SegmentSink, a SegmentFile or the random source,
+	// nor to an error that holds one of those beside a refusal.
+	// An error from the caller's own io.Writer, Syncer, SegmentSink or SegmentFile is returned as it is, with no marker added,
+	// so one that wraps ErrRefused itself still matches it.
+	// An unmarked error may be transient: a caller that retries a failed write retries it.
+	ErrRefused = errors.New("tracepack: refused for the call's input")
 )
 
 // Syncer flushes written bytes to stable storage, such as *os.File.
@@ -206,6 +224,7 @@ type packCommitments struct {
 // A Writer is not safe for concurrent use.
 // Any failed write, sync or validation leaves it failed:
 // every later call returns an error wrapping ErrWriterFailed, and the caller discards the output (see ErrWriterFailed).
+// An error the call's own input determines also wraps ErrRefused, which a later call's ErrWriterFailed does not.
 type Writer struct {
 	out       io.Writer
 	packID    UUID
@@ -309,13 +328,19 @@ type Writer struct {
 //     an error wrapping ErrScopeBreach when the pack is not an extract and its period is empty or not inside one UTC hour,
 //     or the error of writing the header,
 //     which is io.ErrShortWrite when w takes fewer bytes than it was given without reporting an error.
+//     An error opts determines also wraps ErrRefused.
 func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	var err error
 	if opts.CaptureID, err = idOrNew(opts.CaptureID, opts.Now); err != nil {
-		return nil, err
+		return nil, refuse(err)
 	}
 
-	return startWriter(w, opts)
+	wr, err := startWriter(w, opts)
+	if err != nil {
+		return nil, refuse(err)
+	}
+
+	return wr, nil
 }
 
 // startWriter does the work of NewWriter, but writes opts.CaptureID as given, the nil UUID included,
@@ -408,13 +433,13 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 // checkOptions rejects options NewWriter cannot honor.
 func checkOptions(opts *WriterOptions) error {
 	if opts.Meta == nil {
-		return errors.New("tracepack: WriterOptions.Meta is nil")
+		return argument(errors.New("tracepack: WriterOptions.Meta is nil"))
 	}
 	if err := checkCompressionLevel("WriterOptions", opts.CompressionLevel); err != nil {
-		return err
+		return argument(err)
 	}
 	if opts.BlockThreshold < 0 || int64(opts.BlockThreshold) > int64(format.MaxLen32) {
-		return fmt.Errorf("tracepack: WriterOptions.BlockThreshold %d outside 0 to %d", opts.BlockThreshold, format.MaxLen32)
+		return argument(fmt.Errorf("tracepack: WriterOptions.BlockThreshold %d outside 0 to %d", opts.BlockThreshold, format.MaxLen32))
 	}
 
 	seqStart := opts.Meta.SeqStart
@@ -512,8 +537,8 @@ func checkFormat11(opts *WriterOptions) error {
 	case len(m.MaxFrameLens) > 1:
 		field = "max_frame_len"
 	case opts.AssignSeq:
-		return errors.New("tracepack: WriterOptions.AssignSeq and DetectClockSteps in a pack masked at write, " +
-			"whose redaction entries bind each record's seq before the Writer sees it")
+		return argument(errors.New("tracepack: WriterOptions.AssignSeq and DetectClockSteps in a pack masked at write, " +
+			"whose redaction entries bind each record's seq before the Writer sees it"))
 	default:
 		return nil
 	}
@@ -558,10 +583,10 @@ func checkClockOptions(opts *WriterOptions) error {
 		return nil
 	}
 	if !opts.AssignSeq {
-		return errors.New("tracepack: WriterOptions.DetectClockSteps requires AssignSeq, so a clock-step record can take the seq before its record")
+		return argument(errors.New("tracepack: WriterOptions.DetectClockSteps requires AssignSeq, so a clock-step record can take the seq before its record"))
 	}
 	if opts.Meta.TimeSource != TimeSourceCaptureClock {
-		return fmt.Errorf("tracepack: WriterOptions.DetectClockSteps requires time_source capture-clock, not %s", opts.Meta.TimeSource)
+		return argument(fmt.Errorf("tracepack: WriterOptions.DetectClockSteps requires time_source capture-clock, not %s", opts.Meta.TimeSource))
 	}
 
 	return nil
@@ -575,7 +600,7 @@ func encodeHead(meta *PackMeta, opts *WriterOptions) ([]byte, error) {
 		return nil, err
 	}
 	if uint64(len(metaBytes)) > math.MaxUint32 {
-		return nil, fmt.Errorf("tracepack: pack metadata of %d bytes exceeds its u32 length field", len(metaBytes))
+		return nil, argument(fmt.Errorf("tracepack: pack metadata of %d bytes exceeds its u32 length field", len(metaBytes)))
 	}
 
 	h := format.FileHeader{
@@ -604,13 +629,20 @@ func encodeHead(meta *PackMeta, opts *WriterOptions) ([]byte, error) {
 // writeFull writes b to w and returns what w reports it wrote;
 // a write that takes fewer bytes than b without an error is io.ErrShortWrite,
 // since the rest of b would otherwise be silently missing from the file.
+// Every write to a Writer's destination or a segment's file goes through it,
+// and it marks the error as the destination's (externalError).
 func writeFull(w io.Writer, b []byte) (int, error) {
 	n, err := w.Write(b)
 	if err == nil && n < len(b) {
 		err = io.ErrShortWrite
 	}
 
-	return n, err
+	return n, external(err)
+}
+
+// syncOut syncs s and marks its error as the Syncer's (externalError).
+func syncOut(s Syncer) error {
+	return external(s.Sync())
 }
 
 // clockOr returns now, or time.Now when now is nil.
@@ -630,12 +662,20 @@ func idOrNew(id UUID, now func() time.Time) (UUID, error) {
 		return id, nil
 	}
 
-	u, err := format.GenerateUUIDv7(clockOr(now), rand.Reader)
+	u, err := newUUIDv7(now)
 	if err != nil {
 		return UUID{}, fmt.Errorf("tracepack: generate UUIDv7: %w", err)
 	}
 
 	return UUID(u), nil
+}
+
+// newUUIDv7 returns a new UUIDv7 whose time part is now's, a nil now meaning time.Now,
+// and marks an error of the random source as external (externalError): it is an I/O failure, never a refusal.
+func newUUIDv7(now func() time.Time) (format.UUID, error) {
+	u, err := format.GenerateUUIDv7(clockOr(now), rand.Reader)
+
+	return u, external(err)
 }
 
 // canonicalHeader builds the record header the Writer stores for r under seq,
@@ -792,7 +832,13 @@ func clockDrift(r *Record, ev *TransportEvent, a clockAnchor, tolerance uint64) 
 //     or an error wrapping ErrScopeBreach, with r not added, no seq taken and the Writer still usable;
 //     an error wrapping ErrValidation or a write or sync error, after which the Writer has failed;
 //     ErrWriterFailed or ErrClosed on a failed or closed Writer.
+//     An error r determines also wraps ErrRefused.
 func (w *Writer) Append(r *Record) error {
+	return refuse(w.addRecord(r))
+}
+
+// addRecord does the work of Append, without adding ErrRefused (refuse).
+func (w *Writer) addRecord(r *Record) error {
 	if err := w.usable(); err != nil {
 		return err
 	}
@@ -861,6 +907,11 @@ func (w *Writer) Append(r *Record) error {
 // Returns:
 //   - error: as for Append's block close; ErrWriterFailed or ErrClosed on a failed or closed Writer.
 func (w *Writer) Flush() error {
+	return refuse(w.flushBlock())
+}
+
+// flushBlock does the work of Flush, without adding ErrRefused (refuse).
+func (w *Writer) flushBlock() error {
 	if err := w.usable(); err != nil {
 		return err
 	}
@@ -910,8 +961,16 @@ func (c Continuation) Next() (seq uint64, ok bool) {
 //     when the file header set redaction-present but no written record carries quality.redacted ("redaction-present"),
 //     or, in a pack masked at write, when a redaction entry names a seq no appended record carried ("redaction");
 //     ErrWriterFailed on a failed Writer, and ErrClosed when already closed.
+//     An error the pack's records determine also wraps ErrRefused.
 func (w *Writer) Close() (Continuation, error) {
-	if err := w.Flush(); err != nil {
+	c, err := w.closePack()
+
+	return c, refuse(err)
+}
+
+// closePack does the work of Close, without adding ErrRefused (refuse).
+func (w *Writer) closePack() (Continuation, error) {
+	if err := w.flushBlock(); err != nil {
 		return Continuation{}, err
 	}
 
@@ -1104,7 +1163,7 @@ func (w *Writer) writeBlock() error {
 // for the footer, placed as env and the block's position say, without its epoch index.
 func (w *Writer) finishBlock(s blockSummary, env *format.BlockEnvelope) error {
 	if w.syncer != nil {
-		if err := w.syncer.Sync(); err != nil {
+		if err := syncOut(w.syncer); err != nil {
 			return fmt.Errorf("tracepack: sync block: %w", err)
 		}
 	}
@@ -1246,7 +1305,7 @@ func (w *Writer) finalize() error {
 		}
 	}
 	if uint64(len(w.blocks)) > math.MaxUint32 {
-		return fmt.Errorf("tracepack: %d blocks exceed the u32 block_count", len(w.blocks))
+		return argument(fmt.Errorf("tracepack: %d blocks exceed the u32 block_count", len(w.blocks)))
 	}
 
 	footer, stats, err := buildFooter(w.blocks, w.maxF3ListLen, w.footerBudget)
@@ -1285,7 +1344,7 @@ func (w *Writer) finalize() error {
 		return err
 	}
 	if w.syncer != nil {
-		if err := w.syncer.Sync(); err != nil {
+		if err := syncOut(w.syncer); err != nil {
 			return fmt.Errorf("tracepack: sync trailer: %w", err)
 		}
 	}

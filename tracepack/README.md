@@ -191,6 +191,17 @@ else 1 when it holds a feature of format 1.1, and 0 otherwise.
 `next, ok := cont.Next()` gives the seq the capture's next pack starts at,
 and `ok` is false after a pack whose last record has seq 2^63 − 1, the last seq of a capture, since no pack follows it.
 
+The writing calls mark an error their own input determines with `ErrRefused`:
+`NewWriter`, the `Writer`'s `Append`, `Flush` and `Close`, `WriteClose`, `NewSegmentWriter`,
+and the `SegmentWriter`'s appends, `Tick`, `Rotate` and `Close`.
+`errors.Is(err, ErrRefused)` means the same call with the same arguments, options or records fails the same way,
+so a service retrying a flush parks that batch instead;
+the sentinel beside it, such as `ErrSeqOrder` or `ErrValidation`, says what was refused and whether the writer is still usable.
+An error without the marker may be transient, and is the one to retry:
+your `io.Writer`'s, `Syncer`'s, `SegmentSink`'s or `SegmentFile`'s error is returned as it is, never marked,
+and so is `ctx`'s, `Merge`'s, and the `ErrWriterFailed` or `ErrClosed` of a later call on a failed or closed writer.
+The marker leaves the error's text unchanged.
+
 ## Publishing a capture over a durable bus
 
 For a producer, such as an equipment gateway, that publishes each record of a capture as one bus message (the storage specification §4):
