@@ -5,6 +5,12 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-30
+
+This release keeps spec v2.38 and format 1.2.
+It adds `CompressionLevel`;
+at the zero-value options it writes the bytes tracepack/v0.10.0 wrote and returns the same results and errors, faster and with less allocated.
+
 ### Added
 
 - `CompressionLevel` on `WriterOptions`, `SegmentWriterOptions` and `MergeOptions` selects the zstd level of the block bodies and the footer a writer encodes (G5-276):
