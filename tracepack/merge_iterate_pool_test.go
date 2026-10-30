@@ -726,6 +726,8 @@ func TestFindTransactionsCacheOwnsItsRecords(t *testing.T) {
 // A held block within its Reader's retained bytes, compressed, allocates no raw:
 // it is read in place, so its load allocates about its on-disk length less than the same block's load through ReadAt.
 // It does not run in parallel: it measures the bytes each load allocates, which a test running beside it would add to.
+// It keeps the least of 16 loads: under the race detector a sync.Pool drops a quarter of what is put back,
+// so a load may build a new zstd decoder, several MB, and a few loads may all do so.
 func TestRetainedHeldBlockAllocatesNoRaw(t *testing.T) {
 	file := perfPack(t, perfHour(true, 0), 0, 0, 0)
 	allocs := func(opts ReaderOptions) (uint64, blockSizes) {
@@ -735,7 +737,7 @@ func TestRetainedHeldBlockAllocatesNoRaw(t *testing.T) {
 		require.Nil(t, def)
 		l := newReadAttempts(math64Max)
 		var least uint64
-		for k := range 4 {
+		for k := range 16 {
 			var before, after runtime.MemStats
 			runtime.ReadMemStats(&before)
 			h, def, err := l.load(r, 0, 0)
