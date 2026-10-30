@@ -213,8 +213,6 @@ func TestCheckMergeIterate(t *testing.T) {
 		}{
 			{in: MergeIterateOptions{Order: OrderTime},
 				want: MergeIterateOptions{Order: OrderTime, MaxHeldBytes: DefaultMaxHeldBytes, MaxConflicts: DefaultMaxConflicts}},
-			{in: MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: -1, MaxConflicts: -5},
-				want: MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: DefaultMaxHeldBytes, MaxConflicts: DefaultMaxConflicts}},
 			{in: MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: 1, MaxConflicts: 2},
 				want: MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: 1, MaxConflicts: 2}},
 		} {

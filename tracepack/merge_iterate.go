@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Default MergeIterateOptions values, which a zero or negative field takes.
+// Default MergeIterateOptions values, which a zero field takes.
 const (
 	// DefaultMaxHeldBytes is the default MergeIterateOptions.MaxHeldBytes: 512 MiB.
 	DefaultMaxHeldBytes = 512 << 20
@@ -36,7 +36,7 @@ type MergeIterateOptions struct {
 	// MaxHeldBytes bounds the bytes of the block buffers MergeIterate holds at once,
 	// those of the blocks it reads ahead included,
 	// each block's exact sizes reserved before it is read;
-	// zero or negative means DefaultMaxHeldBytes.
+	// zero means DefaultMaxHeldBytes; a negative value is refused.
 	// A held block may reuse a buffer an earlier read gave back when each of its slices is at most an eighth larger than the block needs,
 	// so the capacities of the buffers held stay within 9/8 of MaxHeldBytes,
 	// while what the limit admits is decided on the exact sizes alone.
@@ -48,7 +48,7 @@ type MergeIterateOptions struct {
 	// A read that would exceed it ends with an error wrapping ErrReadLimit, returned with the Result found so far.
 	MaxHeldBytes int64
 	// MaxConflicts bounds len(Result.Conflicts), not the size of one conflict;
-	// zero or negative means DefaultMaxConflicts.
+	// zero means DefaultMaxConflicts; a negative value is refused.
 	// One conflict more ends the read with an error wrapping ErrReadLimit, returned with the Result found so far.
 	MaxConflicts int
 }
@@ -188,7 +188,8 @@ var _ error = PackError{}
 //     On an error it holds what was found before the error;
 //     Result{} for an invalid argument, for ctx done when the arguments are validated, and for an empty readers.
 //   - error: an error wrapping ErrInvalidQuery, before anything is read:
-//     for a nil fn, an Order that is not one, an invalid q, a nil reader, a Reader given twice, or two readers of one pack_id;
+//     for a nil fn, an Order that is not one, an invalid q, a nil reader, a Reader given twice, two readers of one pack_id,
+//     or a negative MaxHeldBytes or MaxConflicts;
 //     ctx's error, wrapped;
 //     an error wrapping ErrReadLimit when a reservation would exceed MaxHeldBytes or one more conflict would exceed MaxConflicts;
 //     a ReadAt error, wrapped with the reader and block index;

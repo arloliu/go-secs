@@ -108,6 +108,11 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   whose `NoReplace` field replaces the option `DirSinkNoReplace()`,
   and the `Merge` bullet names `MaxOpenBlocks`'s default, `DefaultMaxOpenBlocks` (64) (G5-283).
   No rule of [STO §3] or [STO §7] changed.
+- 2026-10-31: the §3 `Reader`, `MergeIterate` and `FindTransaction` bullets state one rule for option values (G5-284):
+  a zero option field takes its default and a negative one is refused, with the function's argument error,
+  a plain error from `Open`, `Verify` and `Merge`, an error wrapping `ErrInvalidQuery` from `MergeIterate`, `FindTransaction` and `FindTransactions`;
+  a negative reader, merge-iterate or transaction budget used to take its default.
+  No format rule changed.
 
 ## Changes vs v1 (summary)
 

@@ -49,7 +49,6 @@ func TestFindTransactionArguments(t *testing.T) {
 		{name: "MinTxHour", key: at(MinTxHour), opts: TxOptions{MaxScopes: 1}},
 		{name: "MaxTxHour, one scope", key: at(MaxTxHour), opts: TxOptions{MaxScopes: 1}},
 		{name: "last hour MaxTxHour", key: at(MaxTxHour - 2), opts: TxOptions{MaxScopes: 3}},
-		{name: "negative limits", key: key, opts: TxOptions{MaxScopes: -1, MaxHeldBytes: -1, MaxConflicts: -1, MaxStateBytes: -1}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -92,13 +91,13 @@ func TestFindTransactionCancelled(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidQuery)
 }
 
-// TestCheckFindTransactionDefaults applies the defaults of TxOptions: every zero or negative field takes its default,
+// TestCheckFindTransactionDefaults applies the defaults of TxOptions: every zero field takes its default,
 // every positive field is kept.
 func TestCheckFindTransactionDefaults(t *testing.T) {
 	t.Parallel()
 
 	key := TxKey{CaptureID: captureLow, Hour: memTestHour}
-	got, err := checkFindTransaction(newMemSource(), key, TxOptions{MaxHeldBytes: -1, MaxConflicts: -1})
+	got, err := checkFindTransaction(newMemSource(), key, TxOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, TxOptions{
 		MaxScopes: DefaultTxMaxScopes, MaxHeldBytes: DefaultMaxHeldBytes,

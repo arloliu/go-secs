@@ -11,7 +11,7 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
-// Default TxOptions values, which a zero or negative field takes.
+// Default TxOptions values, which a zero field takes.
 const (
 	// DefaultTxMaxScopes is the default TxOptions.MaxScopes: the primary's hour and the next.
 	DefaultTxMaxScopes = 2
@@ -141,20 +141,20 @@ func TxKeyOf(captureID UUID, seq uint64, ts time.Time) TxKey {
 // TxOptions configures FindTransaction.
 type TxOptions struct {
 	// MaxScopes is the number of hours scheduled from TxKey.Hour on, empty hours included, each read once;
-	// zero or negative means DefaultTxMaxScopes.
+	// zero means DefaultTxMaxScopes; a negative value is refused.
 	MaxScopes int
 	// MaxHeldBytes bounds the block buffers each hour's read holds at once, as MergeIterateOptions.MaxHeldBytes does,
 	// outside of which the bootstrap bytes each Reader retains lie;
-	// zero or negative means DefaultMaxHeldBytes.
+	// zero means DefaultMaxHeldBytes; a negative value is refused.
 	MaxHeldBytes int64
 	// MaxConflicts bounds the conflicts of the whole lookup:
 	// each conflict an hour's read lists counts one, and so does each seq yielded by more than one hour's read, once however many,
 	// and a conflict at the primary among copies its hour's read did not compare;
-	// zero or negative means DefaultMaxConflicts.
+	// zero means DefaultMaxConflicts; a negative value is refused.
 	MaxConflicts int
 	// MaxStateBytes bounds the lookup's own state: the records it keeps, with their payloads and header extensions,
 	// and what it records of the seqs it visited, the conflicts, the gaps, the crash gaps and the hours read;
-	// zero or negative means DefaultTxMaxStateBytes.
+	// zero means DefaultTxMaxStateBytes; a negative value is refused.
 	// Each item is charged a fixed size as the state grows,
 	// a record also its payload and header-extension bytes, a copied coverage entry also the values of its unknown entries,
 	// and the charge of a record copied but not kept is released;
@@ -365,7 +365,7 @@ type TxResult struct {
 //     Searched lists only hours read to their end.
 //   - error: an error wrapping ErrInvalidQuery, before anything is read:
 //     for a nil src, a zero key.CaptureID, a key.Seq above 2^63-1, a key.Hour outside [MinTxHour, MaxTxHour],
-//     or a last hour key.Hour + MaxScopes - 1 above MaxTxHour;
+//     a negative field of opts, or a last hour key.Hour + MaxScopes - 1 above MaxTxHour;
 //     ErrNotPrimary;
 //     an error of src, wrapped with the hour; an error for a nil reader src gives;
 //     the error of an hour's MergeIterate, an error wrapping ErrInvalidQuery for a Reader or pack_id src gives twice among them;
@@ -413,12 +413,12 @@ func lookupHours(ctx context.Context, hours txHourSource, key TxKey, opts TxOpti
 // checkFindTransaction validates the arguments of FindTransaction before anything is read and applies the defaults of opts.
 //
 // It checks, in this order: src is not nil; key.CaptureID is not zero; key.Seq is a seq the format allows;
-// key.Hour lies in [MinTxHour, MaxTxHour];
+// key.Hour lies in [MinTxHour, MaxTxHour]; no field of opts is negative;
 // then, MaxScopes defaulted, the last hour scheduled, key.Hour + MaxScopes - 1, is not above MaxTxHour,
 // compared without overflow as MaxScopes - 1 > MaxTxHour - key.Hour.
 //
 // Returns:
-//   - TxOptions: opts with every zero or negative field defaulted, MaxHeldBytes and MaxConflicts as MergeIterate defaults them.
+//   - TxOptions: opts with every zero field defaulted, MaxHeldBytes and MaxConflicts as MergeIterate defaults them.
 //   - error: an error wrapping ErrInvalidQuery.
 func checkFindTransaction(src PackSource, key TxKey, opts TxOptions) (TxOptions, error) {
 	if src == nil {
@@ -432,6 +432,9 @@ func checkFindTransaction(src PackSource, key TxKey, opts TxOptions) (TxOptions,
 	}
 	if key.Hour < MinTxHour || key.Hour > MaxTxHour {
 		return opts, fmt.Errorf("%w: hour %d is outside [%d, %d]", ErrInvalidQuery, key.Hour, MinTxHour, MaxTxHour)
+	}
+	if msg := negativeOption("TxOptions", opts.budgets()...); msg != "" {
+		return opts, fmt.Errorf("%w: %s", ErrInvalidQuery, msg)
 	}
 	if opts.MaxScopes <= 0 {
 		opts.MaxScopes = DefaultTxMaxScopes
@@ -557,4 +560,14 @@ func (e TxPackError) Error() string {
 // Unwrap returns Err, so errors.Is and errors.As see the error about the pack.
 func (e TxPackError) Unwrap() error {
 	return e.Err
+}
+
+// budgets returns the budget fields of o, each refused when negative, in declaration order.
+func (o TxOptions) budgets() []optionField {
+	return []optionField{
+		{"MaxScopes", int64(o.MaxScopes)},
+		{"MaxHeldBytes", o.MaxHeldBytes},
+		{"MaxConflicts", int64(o.MaxConflicts)},
+		{"MaxStateBytes", o.MaxStateBytes},
+	}
 }

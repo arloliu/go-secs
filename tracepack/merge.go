@@ -153,7 +153,8 @@ type MergeInput struct {
 type MergeOptions struct {
 	// Reader configures the bootstrap and the reader budgets of every input, as for Open.
 	// Its FooterOffset hint, which locates one object's footer, applies to every input, so a caller leaves it zero.
-	// Its MaxPackMetadataLen, or DefaultMaxPackMetadataLen when it is zero or negative, also bounds the archive's pack metadata,
+	// A negative budget field fails Merge before it reads any input.
+	// Its MaxPackMetadataLen, or DefaultMaxPackMetadataLen when it is zero, also bounds the archive's pack metadata,
 	// so a reader with the same budget, the next merge included, accepts the archive.
 	Reader ReaderOptions
 	// Writer is the archive's writer tag, the implementation and version that writes it; required.
@@ -526,7 +527,7 @@ type mergeCluster = seqCluster[mergeBlock]
 //   - error: an empty opts.Writer, a nil opts.OnConflict, an opts.ScopeGeneration of 0,
 //     an opts.ScopeGeneration or opts.PublisherEpoch above 2^63-1,
 //     a negative or oversized opts.BlockThreshold, a negative opts.MaxOpenBlocks, opts.MaxParallelOpens or opts.MaxFooterLen,
-//     no inputs, or an input without a ReaderAt;
+//     no inputs, an input without a ReaderAt, or a negative budget field of opts.Reader;
 //     an opts.ReplacementSetID equal to an archive input's replacement_set_id,
 //     or an opts.PackID that names an input or a pack of an input's compacted_from or supersedes;
 //     an error wrapping ErrMergeInput; an error wrapping an input's ReaderAt error, or ErrReadLimit, naming the input;
@@ -628,7 +629,8 @@ func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions, hoo
 	return p, nil
 }
 
-// checkMergeOptions rejects options Merge cannot honor, no inputs, and an input without a ReaderAt.
+// checkMergeOptions rejects options Merge cannot honor, no inputs, an input without a ReaderAt,
+// and then a negative budget field of opts.Reader, so the errors before it win.
 func checkMergeOptions(inputs []MergeInput, opts *MergeOptions) error {
 	if err := checkCompressionLevel("MergeOptions", opts.CompressionLevel); err != nil {
 		return err
@@ -658,6 +660,9 @@ func checkMergeOptions(inputs []MergeInput, opts *MergeOptions) error {
 		if inputs[i].ReaderAt == nil {
 			return fmt.Errorf("tracepack: merge: input %d has no ReaderAt", i)
 		}
+	}
+	if msg := negativeOption("MergeOptions.Reader", opts.Reader.budgets()...); msg != "" {
+		return errors.New("tracepack: " + msg)
 	}
 
 	return nil

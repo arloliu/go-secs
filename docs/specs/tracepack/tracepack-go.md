@@ -314,6 +314,8 @@ The query service, its catalog database and the live-tail interface are designed
   A file system without hard links fails such a `Commit` with the link's error, nothing published.
 - `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a footer location the caller kept (e.g. from an earlier `Open` of the same object);
   the bytes it reads at bootstrap serve later block reads, so a pack up to the whole-read threshold (4 MiB by default) costs one request (G5-211).
+  A zero option field takes its default and a negative one is refused, with the function's argument error:
+  a plain error naming the `ReaderOptions` field from `Open` and `Verify`, and from `Merge` for `MergeOptions.Reader`, before any read (G5-284).
   The `Reader` keeps, for its lifetime, only the first round's buffers that hold blocks, the whole object or else the head and tail windows, never a footer-hint suffix:
   at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`) bytes, outside `MergeIterateOptions.MaxHeldBytes`, `TxOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`;
   it reads a block lying wholly inside them from them, a compressed block decoded in place into the read's own buffers and a None block copied first,
@@ -351,6 +353,7 @@ The query service, its catalog database and the live-tail interface are designed
   HSMS header fields are matched on payload values, available only where `field_validity` says so ([FMT §7.2]).
 - `MergeIterate(ctx, readers, Query, MergeIterateOptions, fn) (Result, error)`: one read over several packs, as [SEM §7.4] resolves and orders it;
   the options carry the `Order` (capture or time, required), `MaxHeldBytes` and `MaxConflicts`;
+  a zero option field takes its default and a negative one is refused, with the function's argument error, an error wrapping `ErrInvalidQuery` (G5-284);
   it prefetches the blocks of the packs it will read next instead of reading one block at a time (G5-211),
   in time order, and in capture order only when at most one capture has a cluster to read, since with several the filter decides which capture advances next.
   Prefetched blocks count against `MaxHeldBytes`, each admitted only when its whole reservation fits, so a read fails with `ErrReadLimit` exactly where it would without prefetch.
@@ -378,6 +381,8 @@ The query service, its catalog database and the live-tail interface are designed
   such as `NewReaderSource` returns over packs the caller opened.
   It derives the key from the primary (G5-122) and fails with `ErrNotPrimary` when the record is not a `data` record whose function is available and odd, or is absent from a complete read (G5-125).
   `TxOptions`: `MaxScopes` (the hours scheduled from `Hour`, default 2, G5-121), `MaxHeldBytes` per read, `MaxConflicts` over the lookup and `MaxStateBytes` for the lookup's own state.
+  A zero option field takes its default and a negative one is refused, with the function's argument error,
+  an error wrapping `ErrInvalidQuery` before `src` is called, as `FindTransactions` refuses one of `TxRangeOptions` or its `Lookup` (G5-284).
   `TxResult` holds the outcome (`TxMatched`, `TxAmbiguous`, `TxNotFound`; zero only beside an error), the derived key with the W bit,
   the window end, every kept version as a `TxRecord` with its roles as a `TxClass` bit set (primary, candidate, possible reply, same-key primary, possible same-key primary, closing record, outcome record) and its candidate flags,
   `Incomplete` with every reason of [SEM §7.2], beside any outcome and none hiding another, the hours read, the conflicts and the footer errors.

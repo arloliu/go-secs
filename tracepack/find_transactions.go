@@ -35,7 +35,7 @@ type TxRangeOptions struct {
 	Lookup TxOptions
 	// MaxCachedBytes bounds the hours FindTransactions holds at once, the records and diagnostics of each hour read,
 	// charged nominally, as TxOptions.MaxStateBytes charges a lookup's state;
-	// zero or negative means DefaultTxMaxCachedBytes.
+	// zero means DefaultTxMaxCachedBytes; a negative value is refused.
 	MaxCachedBytes int64
 }
 
@@ -254,10 +254,16 @@ func newTxBatch(src PackSource, r TxRange, opts TxRangeOptions, fn func(*TxPairi
 		return nil, fmt.Errorf("%w: the hours [%d, %d] of the range are outside [%d, %d]", ErrInvalidQuery, first, last, MinTxHour, MaxTxHour)
 	}
 
+	if msg := negativeOption("TxRangeOptions.Lookup", opts.Lookup.budgets()...); msg != "" {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidQuery, msg)
+	}
 	// checkFindTransaction applies the defaults and checks the scheduled tail of the last hour's primaries.
 	lookup, err := checkFindTransaction(src, TxKey{CaptureID: r.CaptureID, Hour: last}, opts.Lookup)
 	if err != nil {
 		return nil, err
+	}
+	if msg := negativeOption("TxRangeOptions", optionField{"MaxCachedBytes", opts.MaxCachedBytes}); msg != "" {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidQuery, msg)
 	}
 	limit := opts.MaxCachedBytes
 	if limit <= 0 {

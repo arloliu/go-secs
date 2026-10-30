@@ -13,7 +13,7 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
-// Default ReaderOptions values, which a zero or negative field takes.
+// Default ReaderOptions values, which a zero field takes.
 const (
 	// DefaultWholeReadThreshold is the default ReaderOptions.WholeReadThreshold: 4 MiB.
 	DefaultWholeReadThreshold = 4 << 20
@@ -59,7 +59,7 @@ var ErrReadLimit = errors.New("tracepack: structure exceeds a reader budget")
 
 // ReaderOptions configures Open.
 //
-// A zero or negative field takes its default.
+// A zero field takes its default, and a negative one fails Open.
 // HeadWindow is raised to at least the 80-byte file header and TailWindow to at least the 64-byte trailer,
 // so the first round always holds both.
 type ReaderOptions struct {
@@ -257,6 +257,12 @@ type bootstrap struct {
 	footer []byte
 }
 
+// optionField is a signed budget field of an options struct, by name, for negativeOption.
+type optionField struct {
+	name string
+	v    int64
+}
+
 // Open bootstraps a Reader over the tracepack file ra of size bytes (the tracepack format specification §13).
 //
 // It reads in rounds, each a set of concurrent ReadAt calls, and checks ctx before each.
@@ -286,6 +292,7 @@ type bootstrap struct {
 //   - *Reader: the Reader; nil on error.
 //   - error: ctx's error; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read;
 //     ErrNotTracepack for a size below 80 or a bad file header magic;
+//     an error naming a negative field of opts, after the size check and before any read;
 //     io.ErrUnexpectedEOF for a pack metadata past the end of the object;
 //     ErrUnsupportedFormat for a format_major other than 1;
 //     ErrChecksum for a bad file header or pack metadata CRC;
@@ -302,6 +309,9 @@ func openReader(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOpti
 	if size < format.FileHeaderLen {
 		return nil, fmt.Errorf("tracepack: object of %d bytes is shorter than the %d-byte file header: %w: %w",
 			size, format.FileHeaderLen, ErrNotTracepack, io.ErrUnexpectedEOF)
+	}
+	if msg := negativeOption("ReaderOptions", opts.budgets()...); msg != "" {
+		return nil, errors.New("tracepack: " + msg)
 	}
 
 	r := &Reader{ra: ra, size: size, opts: opts.withDefaults(), keepF3: keepF3}
@@ -472,6 +482,17 @@ func (s *blockSummary) blockInfo() BlockInfo {
 	}
 }
 
+// negativeOption returns "<prefix>.<name> <v> is negative" for the first of fields that is negative, or "" when none is.
+func negativeOption(prefix string, fields ...optionField) string {
+	for _, f := range fields {
+		if f.v < 0 {
+			return fmt.Sprintf("%s.%s %d is negative", prefix, f.name, f.v)
+		}
+	}
+
+	return ""
+}
+
 // positiveOr returns v when it is positive, else def.
 func positiveOr[T int | int64](v, def T) T {
 	if v > 0 {
@@ -564,8 +585,9 @@ func (r *Reader) Stats() (PackStats, bool) {
 	return r.footer.stats.public(UUID(r.hdr.CaptureID)), true
 }
 
-// withDefaults returns o with every zero or negative field set to its default
+// withDefaults returns o with every zero field set to its default
 // and the windows raised to hold the file header and the trailer.
+// A negative field, which Open and Merge refuse before calling it, also takes its default.
 func (o ReaderOptions) withDefaults() ReaderOptions {
 	o.WholeReadThreshold = positiveOr(o.WholeReadThreshold, DefaultWholeReadThreshold)
 	o.HeadWindow = max(positiveOr(o.HeadWindow, DefaultHeadWindow), format.FileHeaderLen)
@@ -576,6 +598,19 @@ func (o ReaderOptions) withDefaults() ReaderOptions {
 	o.MaxWalkedBlocks = positiveOr(o.MaxWalkedBlocks, DefaultMaxWalkedBlocks)
 
 	return o
+}
+
+// budgets returns the budget fields of o, each refused when negative, in declaration order.
+func (o ReaderOptions) budgets() []optionField {
+	return []optionField{
+		{"WholeReadThreshold", o.WholeReadThreshold},
+		{"HeadWindow", o.HeadWindow},
+		{"TailWindow", o.TailWindow},
+		{"MaxPackMetadataLen", o.MaxPackMetadataLen},
+		{"MaxFooterLen", o.MaxFooterLen},
+		{"MaxBlockLen", o.MaxBlockLen},
+		{"MaxWalkedBlocks", int64(o.MaxWalkedBlocks)},
+	}
 }
 
 // blocksStart returns 80 + pack_metadata_len, where the first block starts.
