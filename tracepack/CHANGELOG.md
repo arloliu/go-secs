@@ -5,6 +5,23 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+### Added
+
+- `MergeOptions.MaxParallelOpens`, with `DefaultMaxParallelOpens` (16), bounds how many inputs `Merge` opens at once (G5-278);
+  1 opens them one after another, as earlier versions did.
+
+### Changed
+
+- A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
+  it used to end the process from a goroutine of its own.
+
+### Performance
+
+- `Merge` opens its inputs concurrently and checks them in input order, so its archive, report, conflicts and error are those of opening them one after another,
+  while ctx is live and each input's `ReaderAt` answers independently of the others'; inputs after a failing one may have been read.
+  The busy hour's 12 segments, each read through a 10 ms `ReadAt`, merge in 19.6 ms instead of 132 ms (−85 %);
+  in memory, an idle hour's merge takes about 3 % less time and a busy hour's the same (GOMAXPROCS 1).
+
 ## [0.11.0] - 2026-10-30
 
 This release keeps spec v2.38 and format 1.2.

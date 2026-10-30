@@ -1936,3 +1936,20 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rejected *(editorial)*: charging the pooled capacity; reusing only buffers of exactly the sizes needed, which reads across packs almost never meet;
   not pooling held blocks.
   Spec: `tracepack-go.md` §3, v2.38.
+
+## 2026-10-30 opening merge inputs concurrently (owner's choice)
+
+- G5-278 `Merge` opens its inputs concurrently and checks them in input order (2026-10-30, Go mapping of [STO §4] Merge):
+  `MergeOptions.MaxParallelOpens` (zero means `DefaultMaxParallelOpens`, 16) is the most inputs `Merge` keeps opening, or opened and not yet checked, the next one checked included;
+  input i + W is launched only once input i was checked, an input no open has started yet is opened on the calling goroutine, and 1 opens every input there, one after another.
+  The checks run on the calling goroutine in input order, so, while ctx is live and each input's `ReaderAt` answers independently of the others',
+  opening fails with the input, and the error, that opening them one after another gives; the archive, report and conflicts are those of serial opening.
+  Inputs after a failing one may have been read; every open has returned when `Merge` returns, a `ReadAt` already entered being waited for;
+  an open's panic is raised on the caller when the checks reach its input, and discarded after an earlier failure;
+  a `ReadAt` panic in one of `Open`'s concurrent bootstrap reads is raised on `Open`'s caller once the round's calls returned, where it used to end the process.
+  Rationale *(editorial)*: over an object store a merge's time is its inputs' bootstrap reads:
+  the busy hour's 12 segments merge in 19.6 ms instead of 132 ms at 10 ms per read, and the in-memory merge is unchanged;
+  admission in input order keeps every outcome of serial opening, which the tests compare with a frozen copy of the serial loop.
+  Rejected *(editorial)*: a fixed window (the owner chose an option); `GOMAXPROCS` as the window, since the opens wait on I/O;
+  opening every input at once, unbounded on a scope of many segments; leaving it to the caller, who passes `MergeInput`s, not Readers.
+  Spec: `tracepack-go.md` §3, v2.38.
