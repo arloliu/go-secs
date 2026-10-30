@@ -339,6 +339,7 @@ and opening them at once removes that wait on any number of CPUs.
 
 - Opening in parallel changes nothing a read returns:
   `MergeIterate`, `FindTransaction` and `FindTransactions` take the Readers however they were opened.
+  See `ExampleOpen_parallel`, which keeps the errors by position, so the one it reports does not depend on timing.
 - A `PackSource` of your own may open an hour's packs in parallel inside `Readers(ctx, hour)`;
   a lookup asks for its hours one at a time.
 - Work done hour by hour, such as a batch over settled hours, can run one read per hour on several goroutines;
