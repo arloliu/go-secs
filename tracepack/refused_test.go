@@ -524,6 +524,44 @@ func TestErrRefusedMixedOrigin(t *testing.T) {
 	requireNotRefused(t, err)
 
 	requireRefused(t, appendRefused(t, nil), ErrValidation)
+
+	t.Run("ctx done after the segment's last sync", func(t *testing.T) {
+		t.Parallel()
+
+		// closeExhausted closes a SegmentWriter with no seq left for the stop boundary,
+		// so Close finalizes the segment without it and joins that refusal with finalize's error;
+		// cancelAt is the sync of Close, counted from 0, at which ctx is cancelled, or -1 for none.
+		// It returns the count of syncs Close made and Close's error.
+		closeExhausted := func(t *testing.T, cancelAt int) (int, error) {
+			t.Helper()
+
+			w, sink := newSeg(t, nil)
+			w.nextSeq = format.MaxU64 + 1
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			base := sink.calls[sinkSync]
+			sink.fault = func(op sinkOp, n int) error {
+				if op == sinkSync && n-base == cancelAt {
+					cancel()
+				}
+
+				return nil
+			}
+			err := w.Close(ctx)
+
+			return sink.calls[sinkSync] - base, err
+		}
+
+		syncs, err := closeExhausted(t, -1)
+		require.Positive(t, syncs, "Close syncs the segment")
+		requireRefused(t, err, ErrSeqOrder)
+
+		// Cancelled at the trailer's sync, which succeeds, ctx is first seen done after the pack is closed.
+		_, err = closeExhausted(t, syncs-1)
+		require.ErrorIs(t, err, ErrSeqOrder)
+		require.ErrorIs(t, err, context.Canceled)
+		requireNotRefused(t, err)
+	})
 }
 
 // TestErrRefusedNestedOnce requires WriteClose, whose nested NewWriter refuses its metadata, to mark its error once.
@@ -589,6 +627,20 @@ func TestErrRefusedPriorState(t *testing.T) {
 			requireNotRefused(t, err)
 		})
 	}
+	// A Close that fails is marked as any call is; a later Close returns its result as the prior state, unmarked.
+	t.Run("SegmentWriter Close", func(t *testing.T) {
+		t.Parallel()
+
+		w, _ := newSeg(t, nil)
+		r := segMonoRecord(time.Second, time.Second)
+		require.NoError(t, w.Append(t.Context(), &r))
+		w.seg.w.encodedHook = truncateBlock
+		requireRefused(t, w.Close(t.Context()), ErrValidation)
+
+		err := w.Close(t.Context())
+		require.ErrorIs(t, err, ErrValidation)
+		requireNotRefused(t, err)
+	})
 }
 
 // externalCallHelpers names, for each call on a supplied implementation or the random source,

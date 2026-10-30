@@ -21,7 +21,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   or of the destination, a `Syncer`, a sink, a segment file or the random source;
   an error from the caller's own implementation is returned as it is.
   The error text is unchanged.
-  `SegmentWriter.Close` on a failed writer still returns the stored failure, now without the marker the failing call's error carried.
+  `SegmentWriter.Close` on a failed writer still returns the stored failure, and a repeated `Close` its first result, now without the marker the failing call's error carried.
   For tracekeep: the sentinel list in `internal/ingest/flush.go` can become `errors.Is(err, tracepack.ErrRefused)`;
   `ErrMergeLimit` and `ErrReadLimit` in that list are unreachable from its flush,
   and it keeps checking `ErrReadLimit` where it reopens the working file.
