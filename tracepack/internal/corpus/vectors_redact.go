@@ -150,7 +150,7 @@ func writeMasked(s *maskedSpec) ([]byte, error) {
 				blocks[i] = append(blocks[i], *r)
 				continue
 			}
-			masked, entries, err := s.policy.Mask(capture, r, r.Quality&tracepack.QualityUnobserved != 0, corpusKeys{})
+			masked, entries, err := s.policy.Mask(context.Background(), capture, r, r.Quality&tracepack.QualityUnobserved != 0, corpusKeys{})
 			if err != nil {
 				return nil, fmt.Errorf("corpus: mask seq %d: %w", r.Seq, err)
 			}

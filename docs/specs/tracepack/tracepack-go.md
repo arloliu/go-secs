@@ -137,9 +137,10 @@ The query service, its catalog database and the live-tail interface are designed
   it imports the root package for its types, and the root package never imports it, so readers and `Merge` need no key material.
   `redact.Policy{ID, Version, DigestKeyID, Encryption, ItemRules, AnnotationRules}` is compiled by `redact.Compile`,
   which rejects an invalid domain or path, an item rule's stream above 127 (G5-262) and, under encryption, item rules of one stream and function that can select overlapping items, before use (G5-236).
-  `(*Compiled).Mask(capture, r, unobserved, keys) (Record, []RedactionEntry, error)` masks one record and returns its `redaction` entries ([SEM §8]),
+  `(*Compiled).Mask(ctx, capture, r, unobserved, keys) (Record, []RedactionEntry, error)` masks one record and returns its `redaction` entries ([SEM §8]),
   refusing a record that already carries `redacted` and is not unobserved (`ErrRedacted`, the record deferred, G5-262),
-  key access going through the `redact.Keys` interface, `DigestKey(keyID)` and `EncryptionKey(capture, keyID)`, so that custody stays with the caller.
+  key access going through the `redact.Keys` interface, `DigestKey(ctx, keyID)` and `EncryptionKey(ctx, capture, keyID)`, so that custody stays with the caller.
+  `Mask` checks `ctx` before each key request, returning `ctx.Err()`, and passes it to `Keys`; nothing else it does blocks (G5-281).
   Its output is the one [SEM §8] fixes (G5-268): the `redact-` corpus vectors, which the module's tests regenerate through `Mask`, pin it byte for byte.
   The caller says whether the record is unobserved, from the bus record's bit 7 or `Reader.Unobserved` for a record read back,
   since a stored bit 7 means nothing in a minor-0 pack;

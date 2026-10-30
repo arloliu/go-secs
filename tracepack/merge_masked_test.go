@@ -66,7 +66,7 @@ func writeSegment(t *testing.T, s segmentSpec) []byte {
 		require.NoError(t, tracepack.DeriveBusRecord(&br.Record, cls))
 		rec := br.Record
 		if s.policy != nil {
-			masked, es, err := s.policy.Mask(br.CaptureID, &br.Record, false, consumerKeys{})
+			masked, es, err := s.policy.Mask(t.Context(), br.CaptureID, &br.Record, false, consumerKeys{})
 			require.NoError(t, err)
 			rec, entries = masked, append(entries, es...)
 		}

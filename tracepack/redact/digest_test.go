@@ -23,7 +23,7 @@ func TestDigestAcrossCaptures(t *testing.T) {
 		t.Helper()
 
 		r := dataRecord(seq, frame(7, 3, ppbodyText(ppid, body)))
-		masked, entries, err := c.Mask(capture, r, false, &testKeys{})
+		masked, entries, err := c.Mask(t.Context(), capture, r, false, &testKeys{})
 		require.NoError(t, err)
 		require.Len(t, entries, 1)
 
@@ -53,14 +53,14 @@ func TestDigestAcrossCaptures(t *testing.T) {
 
 	// The same process program in S7F6, sharing the domain.
 	r := dataRecord(12, frame(7, 6, ppbodyText("PP1", body)))
-	_, entries, err := c.Mask(captureB, r, false, &testKeys{})
+	_, entries, err := c.Mask(t.Context(), captureB, r, false, &testKeys{})
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.Equal(t, base.Digest, entries[0].Digest)
 
 	// The same bytes as a U1 array: another encoded item.
 	u1 := dataRecord(13, frame(7, 3, list(ascii("PP1"), item(0o51, body...))))
-	_, entries, err = c.Mask(captureA, u1, false, &testKeys{})
+	_, entries, err = c.Mask(t.Context(), captureA, u1, false, &testKeys{})
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.Equal(t, base.MaskedRanges, entries[0].MaskedRanges)
@@ -72,7 +72,7 @@ func TestDigestAcrossCaptures(t *testing.T) {
 func TestDigest(t *testing.T) {
 	t.Parallel()
 
-	key, err := (&testKeys{}).DigestKey(digestKeyID)
+	key, err := (&testKeys{}).DigestKey(t.Context(), digestKeyID)
 	require.NoError(t, err)
 	got, err := redact.Digest(key, "ppbody", []byte{1, 2, 3})
 	require.NoError(t, err)

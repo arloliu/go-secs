@@ -129,7 +129,7 @@ func TestPackPolicy(t *testing.T) {
 	p.ItemRules[0].Path = "1"
 	p.Encryption.KeyID = "other"
 	r := dataRecord(1, frame(7, 3, ppbodyText("PP1", []byte("BODY"))))
-	_, entries, err := c.Mask(captureA, r, false, &testKeys{})
+	_, entries, err := c.Mask(t.Context(), captureA, r, false, &testKeys{})
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.Equal(t, new("2"), entries[0].ItemPath)

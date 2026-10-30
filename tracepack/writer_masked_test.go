@@ -3,6 +3,7 @@ package tracepack_test
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
@@ -25,12 +26,12 @@ var consumerCapture = tracepack.UUID{0xC0, 0x45, 0x01}
 // the digest key from one label, the encryption key from another and the capture.
 type consumerKeys struct{}
 
-func (consumerKeys) DigestKey(string) ([]byte, error) {
+func (consumerKeys) DigestKey(context.Context, string) ([]byte, error) {
 	k := sha256.Sum256([]byte("consumer pipeline digest key"))
 	return k[:], nil
 }
 
-func (consumerKeys) EncryptionKey(capture tracepack.UUID, _ string) ([]byte, error) {
+func (consumerKeys) EncryptionKey(_ context.Context, capture tracepack.UUID, _ string) ([]byte, error) {
 	k := sha512.Sum512(append([]byte("consumer pipeline encryption key"), capture[:]...))
 	return k[:], nil
 }
@@ -117,7 +118,7 @@ func busBatch(t *testing.T, first uint64, frames ...[]byte) []busMsg {
 // only then it writes the segment to out, its entries ordered by seq then first masked offset,
 // its blocks closing past threshold bytes.
 // A failure before the Writer exists writes nothing.
-func consumeBatch(out io.Writer, msgs []busMsg, c *redact.Compiled, cls tracepack.Classifier, threshold int) error {
+func consumeBatch(ctx context.Context, out io.Writer, msgs []busMsg, c *redact.Compiled, cls tracepack.Classifier, threshold int) error {
 	recs := make([]tracepack.Record, 0, len(msgs))
 	var entries []tracepack.RedactionEntry
 	for _, msg := range msgs {
@@ -128,7 +129,7 @@ func consumeBatch(out io.Writer, msgs []busMsg, c *redact.Compiled, cls tracepac
 		if err := tracepack.DeriveBusRecord(&br.Record, cls); err != nil {
 			return err
 		}
-		masked, es, err := c.Mask(br.CaptureID, &br.Record, br.Record.Quality.Has(tracepack.QualityUnobserved), consumerKeys{})
+		masked, es, err := c.Mask(ctx, br.CaptureID, &br.Record, br.Record.Quality.Has(tracepack.QualityUnobserved), consumerKeys{})
 		if err != nil {
 			return err
 		}
@@ -189,7 +190,7 @@ func readPack(t *testing.T, file []byte) (*tracepack.PackHeader, []readBack) {
 func restore(t *testing.T, h *tracepack.PackHeader, rb readBack) []byte {
 	t.Helper()
 
-	key, err := consumerKeys{}.EncryptionKey(h.CaptureID, *h.Meta.RedactionPolicy.EncryptionKeyID)
+	key, err := consumerKeys{}.EncryptionKey(t.Context(), h.CaptureID, *h.Meta.RedactionPolicy.EncryptionKeyID)
 	require.NoError(t, err)
 	orig, err := redact.Restore(h.CaptureID, &rb.rec, rb.redaction, h.Meta.RedactionPolicy, key)
 	require.NoError(t, err)
@@ -212,7 +213,7 @@ func TestConsumerPipeline(t *testing.T) {
 
 		frame := ppbody("PP1", []byte("SECRET-RECIPE"), 0xFF, 0xFF, 0xFF)
 		var out bytes.Buffer
-		require.NoError(t, consumeBatch(&out, busBatch(t, 0, s1f1, frame), c, cls, 0))
+		require.NoError(t, consumeBatch(t.Context(), &out, busBatch(t, 0, s1f1, frame), c, cls, 0))
 		h, recs := readPack(t, out.Bytes())
 		require.Len(t, recs, 2)
 		rb := recs[1]
@@ -233,7 +234,7 @@ func TestConsumerPipeline(t *testing.T) {
 		secret := ppbody("PP9", []byte("RECIPE-OF-THE-LAST-BLOCK"))
 		frames = append(frames, secret)
 		var out bytes.Buffer
-		require.NoError(t, consumeBatch(&out, busBatch(t, 100, frames...), c, cls, 3*(44+len(s1f1))))
+		require.NoError(t, consumeBatch(t.Context(), &out, busBatch(t, 100, frames...), c, cls, 3*(44+len(s1f1))))
 		h, recs := readPack(t, out.Bytes())
 		require.Len(t, recs, 10)
 		last := recs[9]
@@ -251,7 +252,7 @@ func TestConsumerPipeline(t *testing.T) {
 		t.Parallel()
 
 		var out bytes.Buffer
-		require.NoError(t, consumeBatch(&out, busBatch(t, 0, s1f1, busFrame(7, 4, nil)), c, cls, 0))
+		require.NoError(t, consumeBatch(t.Context(), &out, busBatch(t, 0, s1f1, busFrame(7, 4, nil)), c, cls, 0))
 		h, recs := readPack(t, out.Bytes())
 		require.Len(t, recs, 2)
 		policy := c.PackPolicy()
@@ -269,7 +270,7 @@ func TestConsumerPipeline(t *testing.T) {
 			deep = secsList(deep)
 		}
 		var out bytes.Buffer
-		err := consumeBatch(&out, busBatch(t, 0, s1f1, ppbody("PP1", []byte("BODY")), busFrame(7, 3, secsList(deep, secsItem(0o10, 9)))), c, cls, 0)
+		err := consumeBatch(t.Context(), &out, busBatch(t, 0, s1f1, ppbody("PP1", []byte("BODY")), busFrame(7, 3, secsList(deep, secsItem(0o10, 9)))), c, cls, 0)
 		require.ErrorIs(t, err, redact.ErrCannotScreen)
 		assert.Zero(t, out.Len(), "no output")
 	})
@@ -280,7 +281,7 @@ func TestConsumerPipeline(t *testing.T) {
 		var buf bytes.Buffer
 		out := struct{ io.Writer }{&buf}
 		frame := ppbody("PP1", []byte("BODY"))
-		require.NoError(t, consumeBatch(out, busBatch(t, 0, frame), c, cls, 0))
+		require.NoError(t, consumeBatch(t.Context(), out, busBatch(t, 0, frame), c, cls, 0))
 		h, recs := readPack(t, buf.Bytes())
 		require.Len(t, recs, 1)
 		assert.Equal(t, frame, restore(t, h, recs[0]))
@@ -298,8 +299,8 @@ func TestRedeliveryAcrossBatches(t *testing.T) {
 
 	// The first consumer has the record at seq 5 alone in its batch; the second, at the end of a batch of several blocks.
 	var first, second bytes.Buffer
-	require.NoError(t, consumeBatch(&first, busBatch(t, 5, secret), c, cls, 0))
-	require.NoError(t, consumeBatch(&second, busBatch(t, 1, s1f1, s1f1, s1f1, s1f1, secret), c, cls, 2*(44+len(s1f1))))
+	require.NoError(t, consumeBatch(t.Context(), &first, busBatch(t, 5, secret), c, cls, 0))
+	require.NoError(t, consumeBatch(t.Context(), &second, busBatch(t, 1, s1f1, s1f1, s1f1, s1f1, secret), c, cls, 2*(44+len(s1f1))))
 
 	_, a := readPack(t, first.Bytes())
 	hb, b := readPack(t, second.Bytes())

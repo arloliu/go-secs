@@ -2,6 +2,7 @@ package redact_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
@@ -37,7 +38,7 @@ type testKeys struct {
 var _ redact.Keys = (*testKeys)(nil)
 
 // DigestKey returns the digest key of keyID.
-func (k *testKeys) DigestKey(keyID string) ([]byte, error) {
+func (k *testKeys) DigestKey(_ context.Context, keyID string) ([]byte, error) {
 	k.calls++
 	key := sha256.Sum256([]byte("redact test digest key " + keyID))
 
@@ -45,7 +46,7 @@ func (k *testKeys) DigestKey(keyID string) ([]byte, error) {
 }
 
 // EncryptionKey returns the encryption key of capture and keyID.
-func (k *testKeys) EncryptionKey(capture tracepack.UUID, keyID string) ([]byte, error) {
+func (k *testKeys) EncryptionKey(_ context.Context, capture tracepack.UUID, keyID string) ([]byte, error) {
 	k.calls++
 
 	return encryptionKey(capture, keyID), nil
@@ -61,7 +62,7 @@ func encryptionKey(capture tracepack.UUID, keyID string) []byte {
 
 // digestOf is the digest the tracepack semantics specification §8 defines, computed independently of the package.
 func digestOf(domain string, original []byte) []byte {
-	key, _ := (&testKeys{}).DigestKey(digestKeyID)
+	key, _ := (&testKeys{}).DigestKey(context.Background(), digestKeyID)
 	mac := hmac.New(sha256.New, key)
 	mac.Write(binary.LittleEndian.AppendUint16(nil, uint16(len(domain))))
 	mac.Write([]byte(domain))
@@ -340,7 +341,7 @@ func TestMaskItem(t *testing.T) {
 				r := dataRecord(42, tt.payload)
 				orig := bytes.Clone(r.Payload)
 				keys := &testKeys{}
-				masked, entries, err := c.Mask(captureA, r, false, keys)
+				masked, entries, err := c.Mask(t.Context(), captureA, r, false, keys)
 				require.NoError(t, err)
 				assert.Equal(t, orig, r.Payload, "the caller's payload is unchanged")
 				checkMasked(t, tt, r, masked, entries, encrypted)
@@ -364,7 +365,7 @@ func TestMaskWholeText(t *testing.T) {
 				t.Parallel()
 
 				r := dataRecord(7, tt.payload)
-				masked, entries, err := c.Mask(captureA, r, false, &testKeys{})
+				masked, entries, err := c.Mask(t.Context(), captureA, r, false, &testKeys{})
 				require.NoError(t, err)
 				checkMasked(t, tt, r, masked, entries, encrypted)
 			})
@@ -377,7 +378,7 @@ func TestMaskWholeText(t *testing.T) {
 		p := baselinePolicy(true)
 		p.ItemRules = append(p.ItemRules, redact.ItemRule{Stream: 7, Function: 3, Path: "3", Domain: "other"})
 		r := dataRecord(7, frame(7, 3, ppbodyText("PP1", []byte("BODY"))))
-		_, entries, err := mustCompile(t, p).Mask(captureA, r, false, &testKeys{})
+		_, entries, err := mustCompile(t, p).Mask(t.Context(), captureA, r, false, &testKeys{})
 		require.NoError(t, err)
 		require.Len(t, entries, 1)
 		assert.Nil(t, entries[0].ItemPath)
@@ -407,7 +408,7 @@ func TestMaskAnnotation(t *testing.T) {
 			t.Parallel()
 
 			r := annotationRecord(t, 9, tt.a)
-			masked, entries, err := c.Mask(captureA, r, false, &testKeys{})
+			masked, entries, err := c.Mask(t.Context(), captureA, r, false, &testKeys{})
 			require.NoError(t, err)
 			if tt.value == nil {
 				assert.Empty(t, entries)
@@ -439,22 +440,100 @@ func TestMaskUnobserved(t *testing.T) {
 	r := dataRecord(1, sensitive)
 	r.Quality |= tracepack.QualityUnobserved
 	keys := &testKeys{}
-	masked, entries, err := c.Mask(captureA, r, true, keys)
+	masked, entries, err := c.Mask(t.Context(), captureA, r, true, keys)
 	require.NoError(t, err)
 	assert.Empty(t, entries)
 	assert.Equal(t, *r, masked)
 	assert.Zero(t, keys.calls)
 
-	_, _, err = c.Mask(captureA, dataRecord(2, sensitive), true, &testKeys{})
+	_, _, err = c.Mask(t.Context(), captureA, dataRecord(2, sensitive), true, &testKeys{})
 	require.ErrorIs(t, err, redact.ErrNotUnobserved)
 
 	// A record of a minor-0 pack, whose bit 7 is reserved.
-	masked, entries, err = c.Mask(captureA, r, false, &testKeys{})
+	masked, entries, err = c.Mask(t.Context(), captureA, r, false, &testKeys{})
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.True(t, masked.Quality.Has(tracepack.QualityRedacted))
 	assert.True(t, masked.Quality.Has(tracepack.QualityUnobserved), "the stored bit is kept")
 	assert.NotEqual(t, sensitive, masked.Payload)
+}
+
+// ctxKeys is a testKeys that records the context of each key request and runs onDigest, when set, inside DigestKey.
+type ctxKeys struct {
+	testKeys
+	ctxs     []context.Context
+	onDigest func()
+}
+
+// DigestKey records ctx, runs onDigest and returns the digest key of keyID.
+func (k *ctxKeys) DigestKey(ctx context.Context, keyID string) ([]byte, error) {
+	k.ctxs = append(k.ctxs, ctx)
+	if k.onDigest != nil {
+		k.onDigest()
+	}
+
+	return k.testKeys.DigestKey(ctx, keyID)
+}
+
+// EncryptionKey records ctx and returns the encryption key of capture and keyID.
+func (k *ctxKeys) EncryptionKey(ctx context.Context, capture tracepack.UUID, keyID string) ([]byte, error) {
+	k.ctxs = append(k.ctxs, ctx)
+
+	return k.testKeys.EncryptionKey(ctx, capture, keyID)
+}
+
+// TestMaskContext checks the context before each key request and passes the caller's context to Keys:
+// a done context is returned as is before any request, or before the encryption key once the digest key was served,
+// and a record that needs no key is returned whatever the context.
+func TestMaskContext(t *testing.T) {
+	t.Parallel()
+
+	c := mustCompile(t, baselinePolicy(true))
+	sensitive := frame(7, 3, ppbodyText("PP1", []byte("SECRET-RECIPE-01")))
+
+	t.Run("cancelled", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		keys := &ctxKeys{}
+		_, entries, err := c.Mask(ctx, captureA, dataRecord(1, sensitive), false, keys)
+		require.Equal(t, ctx.Err(), err)
+		assert.Nil(t, entries)
+		assert.Zero(t, keys.calls, "no key is requested under a done context")
+
+		r := dataRecord(2, frame(1, 1, nil))
+		masked, entries, err := c.Mask(ctx, captureA, r, false, keys)
+		require.NoError(t, err, "a record that needs no key ignores the context")
+		assert.Nil(t, entries)
+		assert.Equal(t, *r, masked)
+	})
+
+	t.Run("cancelled after the digest key", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		keys := &ctxKeys{onDigest: cancel}
+		_, _, err := c.Mask(ctx, captureA, dataRecord(1, sensitive), false, keys)
+		require.Equal(t, ctx.Err(), err)
+		assert.Equal(t, 1, keys.calls, "the encryption key is not requested once the context is done")
+	})
+
+	t.Run("caller's context", func(t *testing.T) {
+		t.Parallel()
+
+		type ctxKey struct{}
+		ctx := context.WithValue(t.Context(), ctxKey{}, "caller")
+		keys := &ctxKeys{}
+		_, entries, err := c.Mask(ctx, captureA, dataRecord(1, sensitive), false, keys)
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
+		require.Len(t, keys.ctxs, 2, "a digest key and an encryption key")
+		for _, got := range keys.ctxs {
+			assert.Equal(t, "caller", got.Value(ctxKey{}))
+		}
+	})
 }
 
 // TestMaskDeterministic masks one record twice, in two calls: identical records and entries.
@@ -464,9 +543,9 @@ func TestMaskDeterministic(t *testing.T) {
 	c := mustCompile(t, baselinePolicy(true))
 	for _, tt := range slices.Concat(itemCases(), wholeTextCases()) {
 		r := dataRecord(5, tt.payload)
-		m1, e1, err := c.Mask(captureA, r, false, &testKeys{})
+		m1, e1, err := c.Mask(t.Context(), captureA, r, false, &testKeys{})
 		require.NoError(t, err)
-		m2, e2, err := c.Mask(captureA, r, false, &testKeys{})
+		m2, e2, err := c.Mask(t.Context(), captureA, r, false, &testKeys{})
 		require.NoError(t, err)
 		assert.Equal(t, m1, m2, tt.name)
 		assert.Equal(t, e1, e2, tt.name)
@@ -491,23 +570,23 @@ func TestMaskCannotScreen(t *testing.T) {
 	}
 
 	// The PPBODY is element 2 of the root list; the deep list is element 1.
-	_, entries, err := c.Mask(captureA, dataRecord(1, frame(7, 3, list(nested(63), item(0o10, 9)))), false, &testKeys{})
+	_, entries, err := c.Mask(t.Context(), captureA, dataRecord(1, frame(7, 3, list(nested(63), item(0o10, 9)))), false, &testKeys{})
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	assert.Equal(t, new("2"), entries[0].ItemPath)
 
-	masked, entries, err := c.Mask(captureA, dataRecord(1, frame(7, 3, list(nested(64), item(0o10, 9)))), false, &testKeys{})
+	masked, entries, err := c.Mask(t.Context(), captureA, dataRecord(1, frame(7, 3, list(nested(64), item(0o10, 9)))), false, &testKeys{})
 	require.ErrorIs(t, err, redact.ErrCannotScreen)
 	assert.Empty(t, entries)
 	assert.Zero(t, masked)
 
 	ann := &tracepack.Record{Seq: 2, Kind: tracepack.KindAnnotation, Payload: []byte{0, 1, 2}}
-	_, _, err = c.Mask(captureA, ann, false, &testKeys{})
+	_, _, err = c.Mask(t.Context(), captureA, ann, false, &testKeys{})
 	require.ErrorIs(t, err, redact.ErrCannotScreen)
 
 	r := dataRecord(3, frame(7, 3, ppbodyText("PP1", []byte("BODY"))))
 	r.Quality |= tracepack.QualityRedacted
-	_, _, err = c.Mask(captureA, r, false, &testKeys{})
+	_, _, err = c.Mask(t.Context(), captureA, r, false, &testKeys{})
 	require.ErrorIs(t, err, redact.ErrRedacted)
 }
 
@@ -521,7 +600,7 @@ func TestMaskNeverMasked(t *testing.T) {
 	control.Kind = tracepack.KindControl
 	event := &tracepack.Record{Seq: 2, Kind: tracepack.KindTransportEvent, Payload: []byte{1, 2, 3}}
 	for _, r := range []*tracepack.Record{control, event} {
-		masked, entries, err := c.Mask(captureA, r, false, &testKeys{})
+		masked, entries, err := c.Mask(t.Context(), captureA, r, false, &testKeys{})
 		require.NoError(t, err)
 		assert.Empty(t, entries)
 		assert.Equal(t, *r, masked)
@@ -536,7 +615,7 @@ func TestMaskOverlappingZeroMasks(t *testing.T) {
 	p := baselinePolicy(false)
 	p.ItemRules = append(p.ItemRules, redact.ItemRule{Stream: 7, Function: 3, Path: "", Domain: "whole-ppbody"})
 	r := dataRecord(1, frame(7, 3, ppbodyText("PP1", []byte("BODY"))))
-	masked, entries, err := mustCompile(t, p).Mask(captureA, r, false, &testKeys{})
+	masked, entries, err := mustCompile(t, p).Mask(t.Context(), captureA, r, false, &testKeys{})
 	require.NoError(t, err)
 	require.Len(t, entries, 2)
 	assert.Equal(t, new(""), entries[0].ItemPath)
@@ -562,7 +641,7 @@ func BenchmarkMaskPPBODY(b *testing.B) {
 			b.SetBytes(int64(len(r.Payload)))
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, _, err := c.Mask(captureA, r, false, keys); err != nil {
+				if _, _, err := c.Mask(b.Context(), captureA, r, false, keys); err != nil {
 					b.Fatal(err)
 				}
 			}

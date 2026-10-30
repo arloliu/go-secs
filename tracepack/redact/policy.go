@@ -1,6 +1,7 @@
 package redact
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -69,12 +70,13 @@ type AnnotationRule struct {
 }
 
 // Keys gives Mask the keys a policy names; the caller keeps their custody.
-// Mask asks for a key only when a record has an entry that needs it.
+// Mask asks for a key only when a record has an entry that needs it,
+// and passes each method the context of its own call, which a key service can use to bound its request.
 type Keys interface {
 	// DigestKey returns the HMAC-SHA-256 key of keyID.
-	DigestKey(keyID string) ([]byte, error)
+	DigestKey(ctx context.Context, keyID string) ([]byte, error)
 	// EncryptionKey returns the 64-byte aes-siv-cmac-512 key of keyID for the capture.
-	EncryptionKey(capture tracepack.UUID, keyID string) ([]byte, error)
+	EncryptionKey(ctx context.Context, capture tracepack.UUID, keyID string) ([]byte, error)
 }
 
 // Compiled is a policy Compile validated, ready to mask records; it is safe for concurrent use.

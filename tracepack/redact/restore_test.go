@@ -27,7 +27,7 @@ func maskedInput(t *testing.T, seq uint64, payload []byte) restoreInput {
 	t.Helper()
 
 	c := mustCompile(t, baselinePolicy(true))
-	masked, entries, err := c.Mask(captureA, dataRecord(seq, payload), false, &testKeys{})
+	masked, entries, err := c.Mask(t.Context(), captureA, dataRecord(seq, payload), false, &testKeys{})
 	require.NoError(t, err)
 	require.NotEmpty(t, entries)
 	pol := c.PackPolicy()
@@ -203,7 +203,7 @@ func TestRestore(t *testing.T) {
 
 		c := mustCompile(t, baselinePolicy(true))
 		ann := annotationRecord(t, 25, &tracepack.Annotation{AnnotationKind: tracepack.AnnotationKindUnparsedEntry, Raw: []byte("raw")})
-		masked, entries, err := c.Mask(captureA, ann, false, &testKeys{})
+		masked, entries, err := c.Mask(t.Context(), captureA, ann, false, &testKeys{})
 		require.NoError(t, err)
 		pol := c.PackPolicy()
 		in := restoreInput{r: &masked, rr: &tracepack.RecordRedaction{Entries: entries}, policy: &pol, key: encryptionKey(captureA, encKeyID)}
@@ -294,7 +294,7 @@ func TestRestoreUntrustedInput(t *testing.T) {
 
 		c := mustCompile(t, baselinePolicy(true))
 		ann := annotationRecord(t, 31, &tracepack.Annotation{AnnotationKind: tracepack.AnnotationKindUnparsedEntry, Raw: []byte("raw")})
-		masked, entries, err := c.Mask(captureA, ann, false, &testKeys{})
+		masked, entries, err := c.Mask(t.Context(), captureA, ann, false, &testKeys{})
 		require.NoError(t, err)
 		require.Len(t, entries, 1)
 		entries[0].SIV, entries[0].HasSIV = make([]byte, 16), true
