@@ -63,7 +63,7 @@ func nowAt(at time.Time) func() time.Time {
 // segFrame appends blockTestFrame at segAt(d) on epoch 1 and fails the test on error.
 func segFrame(t testing.TB, w *SegmentWriter, d time.Duration) {
 	t.Helper()
-	require.NoError(t, w.AppendFrame(t.Context(), segAt(d), DirHostToEquipment, 1, blockTestFrame))
+	require.NoError(t, w.AppendFrame(t.Context(), segAt(d), DirHostToEquipment, 1, blockTestFrame, 0))
 }
 
 // segMonoRecord returns a data record over blockTestFrame, as Append takes it, on epoch 1:
@@ -171,7 +171,7 @@ func TestSegmentWriterWritesCapture(t *testing.T) {
 	id := w.CaptureID()
 	require.False(t, id.IsZero(), "CaptureID is set from construction on")
 	segFrame(t, w, time.Second)
-	require.NoError(t, w.AppendFrame(t.Context(), segAt(2*time.Second), DirEquipmentToHost, 0, controlTestFrame))
+	require.NoError(t, w.AppendFrame(t.Context(), segAt(2*time.Second), DirEquipmentToHost, 0, controlTestFrame, 0))
 	require.NoError(t, w.Close(t.Context()))
 
 	recs := checkCapture(t, w, sink)
@@ -565,11 +565,11 @@ func TestSegmentWriterAppendFrame(t *testing.T) {
 
 	w, sink := newSeg(t, nil)
 	for n := range len(frame) + 1 {
-		require.NoError(t, w.AppendFrame(t.Context(), segAt(time.Duration(n)), DirHostToEquipment, 2, frame[:n]))
+		require.NoError(t, w.AppendFrame(t.Context(), segAt(time.Duration(n)), DirHostToEquipment, 2, frame[:n], 0))
 	}
 	zeroSType := bytes.Clone(frame)
 	zeroSType[fieldSTypeOff] = 0
-	require.NoError(t, w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 2, zeroSType))
+	require.NoError(t, w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 2, zeroSType, 0))
 	require.NoError(t, w.Close(t.Context()))
 
 	recs := checkCapture(t, w, sink)[0]
@@ -608,7 +608,7 @@ func TestSegmentWriterAppendFrameFidelity(t *testing.T) {
 				o.Capture.CaptureMethod = tt.method
 				o.Capture.SourceDialect, o.Capture.SourceRefs = new("eap-log"), []string{"a.log"}
 			})
-			err := w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 1, blockTestFrame)
+			err := w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 1, blockTestFrame, 0)
 			if tt.want == FidelityUnknown {
 				require.ErrorIs(t, err, ErrInvalidRecord)
 				require.NoError(t, w.Close(t.Context()), "a refused frame leaves the writer usable")
@@ -619,6 +619,70 @@ func TestSegmentWriterAppendFrameFidelity(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, w.Close(t.Context()))
 			assert.Equal(t, tt.want, checkCapture(t, w, sink)[0][1].Fidelity)
+		})
+	}
+}
+
+// TestSegmentWriterAppendFrameQuality shows that AppendFrame treats its quality as Append treats Record.Quality:
+// for each quality, the record AppendFrame stores, or its refusal, equals Append's for the record AppendFrame builds.
+func TestSegmentWriterAppendFrameQuality(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		frame   []byte
+		quality Quality
+		want    Quality
+		wantErr error
+	}{
+		{name: "zero", frame: blockTestFrame},
+		{name: "ordering-uncertain", frame: blockTestFrame, quality: QualityOrderingUncertain, want: QualityOrderingUncertain},
+		{name: "direction-inferred", frame: blockTestFrame, quality: QualityDirectionInferred, want: QualityDirectionInferred},
+		{
+			name: "reserved bits dropped", frame: blockTestFrame,
+			quality: QualityOrderingUncertain | 1<<3 | 1<<8 | 1<<15, want: QualityOrderingUncertain,
+		},
+		{name: "derived capture-boundary replaced", frame: blockTestFrame, quality: QualityCaptureBoundary},
+		{name: "unobserved control frame", frame: controlTestFrame, quality: QualityUnobserved, wantErr: ErrInvalidRecord},
+		{name: "redacted without masking at write", frame: blockTestFrame, quality: QualityRedacted, wantErr: ErrMetadataCommitment},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			at := segAt(time.Second)
+			frameW, frameSink := newSeg(t, nil)
+			frameErr := frameW.AppendFrame(t.Context(), at, DirHostToEquipment, 1, tt.frame, tt.quality)
+
+			r := Record{
+				TSUTCNs: at.UnixNano(), Epoch: 1, Kind: KindData, Dir: DirHostToEquipment,
+				Fidelity: FidelityWireExact, DecodeStatus: DecodeStatusNotAttempted, Quality: tt.quality, Payload: tt.frame,
+			}
+			if tt.frame[fieldSTypeOff] != 0 {
+				r.Kind = KindControl
+			}
+			r.SetCapturedFieldValidity()
+			recW, recSink := newSeg(t, nil)
+			recErr := recW.Append(t.Context(), &r)
+
+			require.NoError(t, frameW.Close(t.Context()))
+			require.NoError(t, recW.Close(t.Context()))
+			frameRecs := checkCapture(t, frameW, frameSink)[0]
+			recRecs := checkCapture(t, recW, recSink)[0]
+			if tt.wantErr != nil {
+				require.ErrorIs(t, frameErr, tt.wantErr)
+				require.ErrorIs(t, recErr, tt.wantErr)
+				assert.Equal(t, recErr.Error(), frameErr.Error())
+				assert.Len(t, frameRecs, 2, "a refused frame adds no record")
+
+				return
+			}
+			require.NoError(t, frameErr)
+			require.NoError(t, recErr)
+			require.Len(t, frameRecs, 3)
+			require.Len(t, recRecs, 3)
+			assert.Equal(t, tt.want, frameRecs[1].Quality)
+			assert.Equal(t, recRecs[1], frameRecs[1])
 		})
 	}
 }
@@ -661,7 +725,7 @@ func TestSegmentWriterClassifier(t *testing.T) {
 			c := tt.c
 			w, sink := newSeg(t, func(o *SegmentWriterOptions) { o.Classifier = &c })
 			frame := bytes.Clone(blockTestFrame)
-			require.NoError(t, w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 1, frame))
+			require.NoError(t, w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 1, frame, 0))
 			require.Len(t, c.seen, 1)
 			assert.Same(t, &frame[0], &c.seen[0][0], "the classifier reads the caller's frame")
 			frame[0] = 0xEE // the caller reuses its buffer
@@ -702,7 +766,7 @@ func TestSegmentWriterClassifier(t *testing.T) {
 		for _, trailing := range values {
 			c := fakeClassifier{name: "fake/1", status: DecodeStatusOK, trailing: trailing}
 			w, sink := newSeg(t, func(o *SegmentWriterOptions) { o.Classifier = &c })
-			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 1, blockTestFrame), ErrInvalidRecord)
+			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 1, blockTestFrame, 0), ErrInvalidRecord)
 			require.NoError(t, w.Close(t.Context()))
 			assert.Equal(t, [][]uint64{{0, 1}}, segSeqs(checkCapture(t, w, sink)))
 		}
@@ -735,7 +799,7 @@ func TestSegmentWriterMono(t *testing.T) {
 			w, sink := newSeg(t, func(o *SegmentWriterOptions) {
 				o.Capture.TimeSource, o.Capture.CaptureOrigin, o.Now = tt.source, tt.origin, nowAt(stop)
 			})
-			require.NoError(t, w.AppendFrame(t.Context(), tt.at, DirHostToEquipment, 1, blockTestFrame))
+			require.NoError(t, w.AppendFrame(t.Context(), tt.at, DirHostToEquipment, 1, blockTestFrame, 0))
 			require.NoError(t, w.AppendEvent(t.Context(), tt.at, 1, &TransportEvent{Event: EventSocketConnect}))
 			require.NoError(t, w.Close(t.Context()))
 
@@ -848,7 +912,7 @@ func TestSegmentWriterCloseTwice(t *testing.T) {
 	calls := sink.calls
 	require.NoError(t, w.Close(t.Context()), "a second Close returns the first one's result")
 	assert.Equal(t, calls, sink.calls, "a second Close makes no sink call")
-	require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 1, blockTestFrame), ErrClosed)
+	require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 1, blockTestFrame, 0), ErrClosed)
 	require.ErrorIs(t, w.Rotate(t.Context()), ErrClosed)
 }
 

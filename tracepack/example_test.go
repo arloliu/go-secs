@@ -75,11 +75,11 @@ func ExampleSegmentWriter() {
 	// A SegmentWriter is not safe for concurrent use: a recorder serializes its observer callbacks into it.
 	// Epoch 1 is the first connection the recorder saw; 0 would mean the connection is unknown.
 	body := []byte{0x01, 0x02, 0x41, 0x0b, 'M', 'O', 'D', 'E', 'L', '-', 'X', '-', '2', '0', '0', 0x41, 0x05, '4', '.', '2', '.', '0'}
-	if err := w.AppendFrame(ctx, origin.Add(time.Second), tracepack.DirHostToEquipment, 1, s1Frame(1, true, 1, nil)); err != nil {
+	if err := w.AppendFrame(ctx, origin.Add(time.Second), tracepack.DirHostToEquipment, 1, s1Frame(1, true, 1, nil), 0); err != nil {
 		fmt.Println(err)
 		return
 	}
-	if err := w.AppendFrame(ctx, origin.Add(2*time.Second), tracepack.DirEquipmentToHost, 1, s1Frame(2, false, 1, body)); err != nil {
+	if err := w.AppendFrame(ctx, origin.Add(2*time.Second), tracepack.DirEquipmentToHost, 1, s1Frame(2, false, 1, body), 0); err != nil {
 		fmt.Println(err)
 		return
 	}
@@ -511,10 +511,10 @@ func recordExampleCapture(ctx context.Context, root string) (tracepack.UUID, err
 	if err != nil {
 		return tracepack.UUID{}, err
 	}
-	if err := w.AppendFrame(ctx, origin.Add(50*time.Second), tracepack.DirHostToEquipment, 1, s1Frame(1, true, 7, nil)); err != nil {
+	if err := w.AppendFrame(ctx, origin.Add(50*time.Second), tracepack.DirHostToEquipment, 1, s1Frame(1, true, 7, nil), 0); err != nil {
 		return tracepack.UUID{}, err
 	}
-	if err := w.AppendFrame(ctx, origin.Add(65*time.Second), tracepack.DirEquipmentToHost, 1, s1Frame(2, false, 7, nil)); err != nil {
+	if err := w.AppendFrame(ctx, origin.Add(65*time.Second), tracepack.DirEquipmentToHost, 1, s1Frame(2, false, 7, nil), 0); err != nil {
 		return tracepack.UUID{}, err
 	}
 

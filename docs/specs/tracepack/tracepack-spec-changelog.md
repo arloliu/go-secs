@@ -113,6 +113,10 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   a plain error from `Open`, `Verify` and `Merge`, an error wrapping `ErrInvalidQuery` from `MergeIterate`, `FindTransaction` and `FindTransactions`;
   a negative reader, merge-iterate or transaction budget used to take its default.
   No format rule changed.
+- 2026-10-31: the §3 `SegmentWriter` bullet gives `AppendFrame` the producer's quality bits as a last parameter,
+  `AppendFrame(ctx, at, dir, epoch, frame, quality Quality)`, kept as `Append` keeps `Record.Quality`'s:
+  undefined bits dropped, the derived bits the writer's, and `unobserved` and `redacted` checked as for `Append` (G5-285).
+  No rule of [SEM §6] changed.
 
 ## Changes vs v1 (summary)
 

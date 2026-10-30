@@ -70,10 +70,10 @@ func recordCapture(t *testing.T, root string, c capture) tracepack.UUID {
 		Now:  func() time.Time { return findOrigin.Add(10 * time.Minute) },
 	})
 	require.NoError(t, err)
-	require.NoError(t, w.AppendFrame(ctx, findOrigin.Add(time.Second), tracepack.DirHostToEquipment, 1, s1Frame(1, true, 7, nil)))
+	require.NoError(t, w.AppendFrame(ctx, findOrigin.Add(time.Second), tracepack.DirHostToEquipment, 1, s1Frame(1, true, 7, nil), 0))
 	for k := range c.replies {
 		at := findOrigin.Add(time.Duration(2+k) * time.Second)
-		require.NoError(t, w.AppendFrame(ctx, at, tracepack.DirEquipmentToHost, 1, s1Frame(2, false, 7, nil)))
+		require.NoError(t, w.AppendFrame(ctx, at, tracepack.DirEquipmentToHost, 1, s1Frame(2, false, 7, nil), 0))
 	}
 	if c.open {
 		require.NoError(t, w.Rotate(ctx))

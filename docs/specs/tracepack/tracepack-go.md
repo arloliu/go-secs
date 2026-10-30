@@ -205,7 +205,7 @@ The query service, its catalog database and the live-tail interface are designed
   `Now` also reaches each segment `Writer` as its `WriterOptions.Now` (G5-174),
   and gives the time part of the `capture_id` and of every segment `pack_id` the writer generates, also those it generates before a segment's `Writer` exists.
   Every method that can create, commit or abort a segment takes a `ctx`:
-  `AppendFrame(ctx, at, dir, epoch, frame)`, `AppendEvent(ctx, at, epoch, ev)`, `Append(ctx, r)`, `Tick(ctx, now)`, `Rotate(ctx)` and `Close(ctx)`;
+  `AppendFrame(ctx, at, dir, epoch, frame, quality)`, `AppendEvent(ctx, at, epoch, ev)`, `Append(ctx, r)`, `Tick(ctx, now)`, `Rotate(ctx)` and `Close(ctx)`;
   the writer stores none, checks `ctx` before its first mutation (a done `ctx` there returns its error, the writer still usable),
   passes it to the sink's `Create` and `Commit`, and checks it between sink calls.
   - Times: a time `t` is representable when `time.Unix(0, t.UnixNano()).Equal(t)` and its whole flush interval, start and exclusive end, fits in `int64` nanoseconds;
@@ -235,7 +235,7 @@ The query service, its catalog database and the live-tail interface are designed
     A record of the period's hour before `period_start`, after a backward clock step, stays in the open segment.
   - Clock steps: for a `capture-clock` descriptor it applies the anchor rule of [SEM §4] to every record with a monotonic reading,
     and the anchor in force carries over from one segment to the next, so a new segment never re-detects a step an earlier one recorded.
-  - Records: `AppendFrame(ctx, at time.Time, dir Dir, epoch uint32, frame []byte)` writes a data or control record of a captured frame,
+  - Records: `AppendFrame(ctx, at time.Time, dir Dir, epoch uint32, frame []byte, quality Quality)` writes a data or control record of a captured frame,
     for a capture method whose bytes establish the fields they hold: `raw-stream`, `decoded-message` and `generator`.
     For a `log` capture it fails without writing, since a reconstructed frame holds placeholder bytes for identities its source lacks ([FMT §7.2]);
     a log converter uses `Append` with the record's `field_validity`, `quality` and `decode_status` set by the converter.
@@ -245,6 +245,10 @@ The query service, its catalog database and the live-tail interface are designed
     `ts_utc_ns` is `at`'s wall clock; for a `capture-clock` descriptor, `mono_ns` is `at` − `CaptureOrigin` when both carry a monotonic reading,
     and for any other time source, or without both readings, `mono_present` is clear ([SEM §4]);
     `decode_status` and `trailing_bytes` come from the classifier when one is set, which classifies a short or malformed frame as [SEM §3] says, and are `not-attempted` and 0 otherwise.
+    `quality` is the producer's bits, which go through the record path as `Append` treats `Record.Quality` (G5-285):
+    bits outside the defined set are dropped, `capture-boundary` and the epoch-0 `correlation-incomplete` are the writer's ([SEM §6]),
+    and `unobserved` and `redacted` are checked as for `Append`, against the record (`ErrInvalidRecord`) and the commitments of the segments' metadata (`ErrMetadataCommitment`); no other check is added.
+    A producer that knows a frame's ordering or direction is uncertain says so here, and one that passes 0 asserts those conditions do not occur.
     `AppendEvent(ctx, at, epoch, *TransportEvent)` marshals the event into a transport-event record;
     `Append(ctx, *Record)` takes a record the producer built, its `Seq` assigned by the writer and every other field as given; the classifier is not applied to it.
     Each copies what it keeps, so the caller may reuse its buffers when it returns.
