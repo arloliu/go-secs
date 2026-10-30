@@ -203,8 +203,8 @@ func (a *Annotation) MarshalBinary() ([]byte, error) {
 
 // UnmarshalTransportEvent decodes a transport-event record payload (the tracepack format specification §8) from b.
 //
-// It decodes b and checks it against the transport-event tag registry with tlv.Decode and tlv.Validate,
-// which enforce the required event tag and every value type.
+// It decodes b and checks it against the transport-event tag registry,
+// which requires the event tag and checks every value type.
 // An entry whose tag is not in the registry is preserved in the returned TransportEvent's Unknown field.
 //
 // Returns:
@@ -247,8 +247,8 @@ func UnmarshalTransportEvent(b []byte) (*TransportEvent, error) {
 
 // UnmarshalAnnotation decodes an annotation record payload (the tracepack format specification §8) from b.
 //
-// It decodes b and checks it against the annotation tag registry with tlv.Decode and tlv.Validate,
-// which enforce the required annotation_kind tag and every value type,
+// It decodes b and checks it against the annotation tag registry,
+// which requires the annotation_kind tag and checks every value type,
 // then rejects a payload whose text and raw tags are not exactly one of the two.
 // An entry whose tag is not in the registry is preserved in the returned Annotation's Unknown field.
 //

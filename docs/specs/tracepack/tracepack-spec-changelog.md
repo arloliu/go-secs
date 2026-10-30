@@ -121,6 +121,11 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   the writing calls mark with it every error their own arguments, options or records determine,
   never an error of `Merge`, `ctx`, the writer's prior state or a supplied implementation, and leave the error text unchanged.
   No format rule changed.
+- 2026-10-31: the §3 masking bullet states the bound of the redaction entries, which stay in the pack metadata (G5-279):
+  the readers' `MaxPackMetadataLen`, 64 MiB by default, the default interoperability budget, with `Merge`'s `ErrMergeLimit`.
+  The §3 documentation bullet names the Compatibility section of the package documentation and the README, the v1 compatibility promise (G5-280),
+  and §7 states that the CLI's flags, exit codes, stdout/stderr split and `dump --jsonl` bytes are contract and the text of the `verify` and `find` reports is not.
+  No format rule changed.
 
 ## Changes vs v1 (summary)
 
@@ -1735,7 +1740,8 @@ Summary:
 - The v1 compatibility promise: what tracepack v1 guarantees and what it does not; `tracepack-jsonl/1`–`/3` and `tracepack-corpus/5` are no longer drafts (G5-280).
 - [GO] §3: `redact.Keys` and `Mask` take a ctx (G5-281); `PackInfo`, `Reader.Info` and `Result.FooterErr` go and `RecordFlags` is unexported (G5-282);
   `BusLayout1`, `classify.Name`, `classify.Frame`, `CaptureID`, the `IncompleteReason` and `VerifyOutcome` names, `DirSinkOptions` and `DefaultMaxOpenBlocks` (G5-283);
-  a negative option field is refused (G5-284); `AppendFrame` takes quality bits (G5-285); `ErrRefused` (G5-286).
+  a negative option field is refused (G5-284); `AppendFrame` takes quality bits (G5-285); `ErrRefused` (G5-286);
+  the masking bullet states the metadata bound (G5-279), and the documentation bullet names the Compatibility section (G5-280).
 - [GO] §7: the text of the `verify` and `find` reports is not a contract.
 - The overview's list of decisions reaches G5-286.
 

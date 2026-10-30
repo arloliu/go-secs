@@ -29,7 +29,8 @@ const usageText = `Usage:
 Flags come before the paths. Run "tracepack <command> -h" for a command's flags.
 find holds every pack it is given open during the lookup, a file descriptor and
 the pack's index in memory each.
-The text of the verify and find reports is not a contract before tracepack v1.0.0.
+The flags, exit codes, stdout/stderr split and dump --jsonl bytes are contract;
+the text of the verify and find reports is not, and may change in any release.
 
 Exit codes: 0 the report is clean; 1 the report is not clean (an incomplete read
 or lookup, a verify outcome other than finalized-consistent); 2 the command could

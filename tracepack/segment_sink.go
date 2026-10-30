@@ -27,7 +27,7 @@ type SegmentSink interface {
 // A SegmentWriter writes the segment's bytes in file order, calls Sync after every block and after the trailer,
 // then Commit once the segment is finalized, or Abort after any failure.
 // It calls Commit at most once and Abort at most once, and Abort exactly once after a failed Commit.
-// Write, Sync and Abort take no context: the sink bounds each by its own deadline, as an Object bounds ReadAt.
+// Write, Sync and Abort take no context: the sink bounds each by its own deadline, as the io.ReaderAt given to Open bounds each ReadAt.
 type SegmentFile interface {
 	io.Writer
 	// Sync makes the bytes written so far durable.

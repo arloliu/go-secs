@@ -355,7 +355,7 @@ type TxResult struct {
 //
 // Parameters:
 //   - ctx: cancels the lookup; it is checked before each call to the source, during each hour's read,
-//     every 4096 iterations of the lookup's own loops, and before returning.
+//     periodically in the lookup's own loops, currently every 4096 iterations, a period that may change, and before returning.
 //   - src: the source of the packs; not nil.
 //   - key: the primary; CaptureID not zero, Hour in [MinTxHour, MaxTxHour].
 //   - opts: the limits; see TxOptions.

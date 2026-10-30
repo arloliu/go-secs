@@ -69,7 +69,7 @@
 //
 // Open bootstraps a Reader over one pack, and Reader.Iterate reads its records.
 // A Reader keeps the bytes of Open's first round that hold blocks and serves block reads from them,
-// so a pack up to ReaderOptions.WholeReadThreshold, 4 MiB by default, costs one ReadAt for Open and none afterwards;
+// so a pack up to ReaderOptions.WholeReadThreshold, 4 MiB by default, currently costs one ReadAt for Open and none afterwards;
 // it keeps at most max(WholeReadThreshold, HeadWindow + TailWindow) bytes,
 // outside the budgets of MergeIterateOptions.MaxHeldBytes, TxOptions.MaxHeldBytes and TxOptions.MaxStateBytes.
 // MergeIterate is one read over several packs, typically the packs of the scopes a query touches
@@ -113,7 +113,7 @@
 // A damaged pack exports the records of its validated blocks, with the Result Iterate returns for it:
 // a failed block or a crash gap makes it incomplete, while a footer that is not used only adds an entry to FooterErrs.
 // A reader budget that keeps part of the pack out fails the export with an error wrapping ErrReadLimit instead.
-// Each line is written in pieces of at most 64 KiB, so one line may take several Write calls.
+// A line may be written in several pieces, currently of at most 64 KiB each, so one line may take several Write calls.
 // Verify reads every block of a pack and reports its outcome, from finalized-consistent to corrupt.
 //
 // # Merging and storage
@@ -131,4 +131,34 @@
 // The caller decides which packs a merge takes and when a pack may be deleted,
 // and publishes the archive only after Merge returns nil (the tracepack storage specification §4).
 // SegmentKey and ArchiveKey build the keys of the tracepack storage specification §3, and EscapeToolID spells a tool as a key does.
+//
+// # Compatibility
+//
+// From tracepack v1.0.0 on, every v1 release keeps what this documentation states as contract:
+//   - the exported identifiers and their signatures;
+//   - which sentinel error an error wraps, ErrRefused included;
+//   - the outcomes, orders and determinism the documentation states, and its byte-identity promises:
+//     the close WriteClose writes, the export ExportJSONL writes, and the output of Mask in tracepack/redact;
+//   - reading every pack of format 1.x;
+//   - the JSONL schema values tracepack-jsonl/1 to tracepack-jsonl/3, each naming fixed bytes:
+//     any change to the bytes of an export takes a new schema value;
+//   - the flags and exit codes of the tracepack command, its split of output between stdout and stderr, and the bytes of its dump --jsonl.
+//
+// These are not guaranteed, and may change in any release:
+//   - the text of error messages;
+//   - how often a call checks ctx, how far a read reads ahead, how many goroutines a call runs and how many ReadAt calls it issues,
+//     the size of the pieces a write is made of, and how much larger than needed a reused buffer may be;
+//     where this documentation gives such a number, it says what the implementation currently does;
+//   - the default values of the budgets, which may be tuned;
+//   - the bytes zstd compresses to, across versions of this module and of the zstd library it uses;
+//   - the text of the verify and find reports of the tracepack command.
+//
+// Every enum may gain values in a later format minor, so a switch over one needs a default case.
+//
+// A pack's redaction entries are part of its pack metadata,
+// which a Reader opens only within ReaderOptions.MaxPackMetadataLen, DefaultMaxPackMetadataLen (64 MiB) by default.
+// So 64 MiB is the default interoperability budget, since every reader of a deployment's packs must agree on the budget;
+// Merge refuses an archive whose pack metadata would exceed the budget of MergeOptions.Reader, with ErrMergeLimit.
+// The limit is in bytes, since an entry's size varies with its item path, domain and ranges:
+// 64 MiB holds about 450,000 entries of 147 bytes, as an example.
 package tracepack

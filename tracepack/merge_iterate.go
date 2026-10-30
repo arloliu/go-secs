@@ -37,9 +37,9 @@ type MergeIterateOptions struct {
 	// those of the blocks it reads ahead included,
 	// each block's exact sizes reserved before it is read;
 	// zero means DefaultMaxHeldBytes; a negative value is refused.
-	// A held block may reuse a buffer an earlier read gave back when each of its slices is at most an eighth larger than the block needs,
-	// so the capacities of the buffers held stay within 9/8 of MaxHeldBytes,
-	// while what the limit admits is decided on the exact sizes alone.
+	// What the limit admits is decided on the exact sizes alone.
+	// A held block may reuse a buffer an earlier read gave back that is larger than it needs, within a bound that may change:
+	// currently each of its slices is at most an eighth larger, so the capacities of the buffers held stay within 9/8 of MaxHeldBytes.
 	// It does not bound the process heap:
 	// the readers, the block descriptors and clusters MergeIterate builds before reading,
 	// its queues, codec state and Result.Conflicts lie outside it, as do buffers given back for reuse and not yet reused,
@@ -134,7 +134,8 @@ var _ error = PackError{}
 // It does not bound the process heap: the readers, the block descriptors and clusters MergeIterate builds before reading,
 // its queues, codec state and Result.Conflicts lie outside it.
 // In OrderTime, and in OrderCapture when at most one capture has a cluster to read,
-// MergeIterate reads up to 8 of the next blocks it will read ahead of the one it resolves, their ReadAt calls concurrent,
+// MergeIterate reads some of the next blocks it will read ahead of the one it resolves, currently up to 8, a depth that may change,
+// their ReadAt calls concurrent,
 // each admitted only when its whole reservation fits beside those held,
 // and never at the expense of a block the read needs:
 // a read ends with ErrReadLimit exactly where it would without reading ahead.
@@ -170,9 +171,9 @@ var _ error = PackError{}
 // fn receives each selected record as an Item that is valid only during the call:
 // MergeIterate reuses the Item, and Record.Payload and HeaderExtra alias the representative's block, held until fn returns.
 // ctx is checked once after the arguments are validated, before each block read,
-// after a seq group is gathered, whenever the count of copies gathered reaches or passes a multiple of 4096,
-// before the 4096th call of fn, the 8192nd and so on,
-// and once more before returning nil.
+// after a seq group is gathered, periodically while copies are gathered and while fn is called,
+// and once more before returning nil;
+// the period is currently every 4096 copies gathered and every 4096 calls of fn, and may change.
 // A failed check returns ctx's error, and fn is not called again;
 // when fn returns an error, that error is returned, whatever became of ctx during the call.
 //
@@ -239,7 +240,7 @@ func (o Order) String() string {
 	}
 }
 
-// Error returns Err's text, prefixed with the pack index.
+// Error returns a text naming the pack index and Err; as with every error, the text may change.
 func (e PackError) Error() string {
 	return fmt.Sprintf("tracepack: pack %d: %v", e.Pack, e.Err)
 }
