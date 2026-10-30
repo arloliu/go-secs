@@ -9,6 +9,7 @@ import (
 	"math"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
@@ -843,9 +844,11 @@ func (e *inputReadError) Unwrap() error {
 // and a finalized footer that checkInputFooter accepts.
 // It keeps the Readers, and the facts of every input's records, in p.
 //
-// It opens up to p.parallelOpens inputs at once, each on a goroutine of its own,
+// With p.parallelOpens 1 it opens each input on the calling goroutine, once the one before it was checked.
+// Otherwise it opens up to p.parallelOpens inputs at once, each on a goroutine of its own,
 // and admits them on the calling goroutine in input order: it waits for input i's open, checks input i,
 // and only then launches input i + p.parallelOpens.
+// An input whose goroutine has not started its open when the checks reach it is opened on the calling goroutine instead.
 // So the input an error names, the open's or the checks', is the one opening them one after another would name,
 // while ctx is not cancelled and each ReaderAt answers independently of the others'.
 // A panic of an open is raised again here when input i is admitted.
@@ -855,6 +858,22 @@ func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts Re
 	seen := make(map[UUID]int, len(inputs))
 	p.inputs = make([]*Reader, 0, len(inputs))
 	p.thinned = make([]map[SF]struct{}, 0, len(inputs))
+
+	window := p.parallelOpens
+	if window == 1 {
+		// One at a time: each input is opened here, on the calling goroutine, once the one before it was checked.
+		for i := range inputs {
+			r, err := openInput(ctx, i, inputs[i], opts)
+			if err != nil {
+				return err
+			}
+			if err := p.admitInput(i, r, seen); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
 
 	octx, stop := context.WithCancel(ctx)
 	slots := make([]openSlot, len(inputs))
@@ -867,6 +886,9 @@ func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts Re
 		s := &slots[k]
 		s.done = make(chan struct{})
 		wg.Go(func() {
+			if !s.claimed.CompareAndSwap(false, true) {
+				return
+			}
 			defer func() {
 				if v := recover(); v != nil {
 					s.panicked = &caughtPanic{value: v}
@@ -876,37 +898,28 @@ func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts Re
 			s.r, s.err = openInput(octx, k, inputs[k], opts)
 		})
 	}
-	window := p.parallelOpens
 	for k := range min(window, len(inputs)) {
 		launch(k)
 	}
 
 	for i := range inputs {
-		s := &slots[i]
-		<-s.done
-		if s.panicked != nil {
-			panic(s.panicked.value)
+		var r *Reader
+		var err error
+		// An input no goroutine has started yet is opened here, which saves a goroutine where nothing waits on I/O.
+		if s := &slots[i]; s.claimed.CompareAndSwap(false, true) {
+			r, err = openInput(octx, i, inputs[i], opts)
+		} else {
+			<-s.done
+			if s.panicked != nil {
+				panic(s.panicked.value)
+			}
+			r, err, s.r = s.r, s.err, nil
 		}
-		r, err := s.r, s.err
-		s.r = nil
 		if err != nil {
 			return err
 		}
-		id := UUID(r.hdr.PackID)
-		if j, dup := seen[id]; dup {
-			return inputError(i, id, fmt.Errorf("the pack_id of input %d", j))
-		}
-		seen[id] = i
-		facts, err := p.checkInput(i, r)
-		if err != nil {
-			return inputError(i, id, err)
-		}
-		p.facts.AnyClassified = p.facts.AnyClassified || facts.AnyClassified
-		p.facts.AnyOversized = p.facts.AnyOversized || facts.AnyOversized
-		p.inputs = append(p.inputs, r)
-		p.thinned = append(p.thinned, thinnedSFs(r.meta.Thinning))
-		if p.admitted != nil {
-			p.admitted(i)
+		if err := p.admitInput(i, r, seen); err != nil {
+			return err
 		}
 		if next := i + window; next < len(inputs) {
 			launch(next)
@@ -916,8 +929,34 @@ func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts Re
 	return nil
 }
 
-// openSlot is the outcome of one input's open in openInputs: written by the open's goroutine before done is closed, read after.
+// admitInput checks input i, which r opened, against the inputs admitted before it, whose pack_ids seen maps to their positions,
+// and keeps it in p, as openInputs states.
+func (p *mergePlan) admitInput(i int, r *Reader, seen map[UUID]int) error {
+	id := UUID(r.hdr.PackID)
+	if j, dup := seen[id]; dup {
+		return inputError(i, id, fmt.Errorf("the pack_id of input %d", j))
+	}
+	seen[id] = i
+	facts, err := p.checkInput(i, r)
+	if err != nil {
+		return inputError(i, id, err)
+	}
+	p.facts.AnyClassified = p.facts.AnyClassified || facts.AnyClassified
+	p.facts.AnyOversized = p.facts.AnyOversized || facts.AnyOversized
+	p.inputs = append(p.inputs, r)
+	p.thinned = append(p.thinned, thinnedSFs(r.meta.Thinning))
+	if p.admitted != nil {
+		p.admitted(i)
+	}
+
+	return nil
+}
+
+// openSlot is the outcome of one input's open in openInputs:
+// written by the open's goroutine before done is closed, and read after, when that goroutine claimed the input.
 type openSlot struct {
+	// claimed is set by whichever opens the input first, its goroutine or the calling one; the other leaves it.
+	claimed  atomic.Bool
 	r        *Reader
 	err      error
 	panicked *caughtPanic

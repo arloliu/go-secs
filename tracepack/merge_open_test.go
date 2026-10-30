@@ -576,6 +576,8 @@ func TestMergeOpenAdmittedPanic(t *testing.T) {
 				rs[0].at(0).panic = "input 0"
 				peer := make(chan struct{})
 				rs[3].at(0).after = peer
+				// Input 0 panics only once input 3's read is in flight.
+				rs[0].at(0).after = rs[3].at(0).entered
 				opts := openTestOpts()
 				opts.Reader = tt.reader
 				got := mergeAsync(t.Context(), in, opts, mergeHooks{})
@@ -584,6 +586,38 @@ func TestMergeOpenAdmittedPanic(t *testing.T) {
 				requirePending(t, got)
 				close(peer)
 				assert.Equal(t, "input 0", <-got)
+			})
+		})
+	}
+}
+
+// A panic of an admitted input's open on a goroutine of its own is raised on Merge's caller, with its value, when its input is checked,
+// in a round of one request or of two.
+func TestMergeOpenAdmittedWorkerPanic(t *testing.T) {
+	t.Parallel()
+
+	files := openTestFiles(t, 3)
+	for _, tt := range []struct {
+		name   string
+		reader ReaderOptions
+	}{{"one request", ReaderOptions{}}, {"two requests", roundOptions}} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				rs, in := gatedInputs(files)
+				release := make(chan struct{})
+				rs[0].at(0).after = release
+				rs[1].at(0).panic = "input 1"
+				opts := openTestOpts()
+				opts.Reader = tt.reader
+				got := mergeAsync(t.Context(), in, opts, mergeHooks{})
+				// Input 1 panicked on its own goroutine while input 0 is held.
+				<-rs[1].at(0).done
+				synctest.Wait()
+				requirePending(t, got)
+				close(release)
+				assert.Equal(t, "input 1", <-got)
 			})
 		})
 	}
