@@ -10,6 +10,21 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - `MergeOptions.MaxParallelOpens`, with `DefaultMaxParallelOpens` (16), bounds how many inputs `Merge` opens at once (G5-278);
   1 opens them one after another, as earlier versions did.
 - `DefaultMaxOpenBlocks` (64) names the `MergeOptions.MaxOpenBlocks` that zero selects (G5-283); the default is unchanged.
+- `ErrRefused` marks an error that a writing call's own arguments, options or records determine (G5-286),
+  so the same call with the same input fails the same way:
+  `NewWriter`, `Writer.Append`, `Flush` and `Close`, `WriteClose`, `NewSegmentWriter`,
+  and `SegmentWriter`'s `Append`, `AppendFrame`, `AppendEvent`, `Tick`, `Rotate` and `Close` add it
+  to an error wrapping `ErrSeqOrder`, `ErrPayloadTooLarge`, `ErrFieldValidity`, `ErrMetadataCommitment`, `ErrValidation`, `ErrScopeBreach`,
+  `ErrInvalidRecord`, `ErrRequiredTag`, `ErrFieldValue`, `ErrFieldLength`, `ErrAnnotationText` or `ErrReservedTag`,
+  and to an invalid argument or option.
+  It is never added to an error of `Merge`, of `ctx`, of the writer's prior state (`ErrWriterFailed`, `ErrClosed`),
+  or of the destination, a `Syncer`, a sink, a segment file or the random source;
+  an error from the caller's own implementation is returned as it is.
+  The error text is unchanged.
+  `SegmentWriter.Close` on a failed writer still returns the stored failure, now without the marker the failing call's error carried.
+  For tracekeep: the sentinel list in `internal/ingest/flush.go` can become `errors.Is(err, tracepack.ErrRefused)`;
+  `ErrMergeLimit` and `ErrReadLimit` in that list are unreachable from its flush,
+  and it keeps checking `ErrReadLimit` where it reopens the working file.
 
 ### Changed
 

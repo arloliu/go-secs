@@ -149,7 +149,8 @@ type CaptureDescriptor struct {
 //     a *FieldError naming the field, whose Err wraps ErrFieldValue and the encoding's reason.
 func (d *CaptureDescriptor) Validate() error {
 	if err := checkKeyTool(d.ToolID); err != nil {
-		return &FieldError{Field: "tool_id", Err: keyArgError(err)}
+		// A ToolID no key can hold is the caller's argument, so the writing calls that check it mark it (refuse).
+		return &FieldError{Field: "tool_id", Err: argument(keyArgError(err))}
 	}
 
 	checks := []struct {

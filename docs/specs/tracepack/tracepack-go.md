@@ -173,6 +173,22 @@ The query service, its catalog database and the live-tail interface are designed
   so no caller can take the result for a start and a capture never restarts at seq 0 (G5-231).
   `SegmentWriter` then refuses every later record with `ErrSeqOrder`, and `Merge` and `WriteClose` treat it as success.
   `NewWriter` refuses a `seq_start` or `NextSeq` above 2^63 − 1.
+- `ErrRefused` (G5-286): the writing calls — `NewWriter`, `Writer.Append`, `Flush` and `Close`, `WriteClose`, `NewSegmentWriter`,
+  and the `SegmentWriter`'s `Append`, `AppendFrame`, `AppendEvent`, `Tick`, `Rotate` and `Close` —
+  mark with it every error the call's own arguments, options or records determine,
+  so the same call with the same input fails the same way:
+  an error wrapping `ErrSeqOrder`, `ErrPayloadTooLarge`, `ErrFieldValidity`, `ErrMetadataCommitment`, `ErrValidation`, `ErrScopeBreach`, `ErrInvalidRecord`,
+  `ErrRequiredTag`, `ErrFieldValue`, `ErrFieldLength`, `ErrAnnotationText` or `ErrReservedTag`, and an invalid argument or option.
+  It says nothing about whether the writer is still usable; the sentinel beside it does.
+  It is never added to an error of `Merge`, of `ctx` or of the writer's prior state (`ErrWriterFailed`, `ErrClosed`),
+  nor to an error of the destination, a `Syncer`, a sink, a segment file or the random source,
+  nor to one holding such an error beside a refusal;
+  the caller's own implementation's error is returned as it is, with no marker added,
+  so one that is `ErrRefused` still matches it.
+  The marking is by origin: an error from a supplied implementation is marked external where it enters,
+  and the external mark wins,
+  so a destination returning an error that wraps a refusal sentinel is not taken for a refusal.
+  The error text is unchanged.
 - Close writer (G5-223, G5-231, G5-240): `WriteClose(w io.Writer, opts CloseOptions) (UUID, error)` writes the close segment of [STO §4] *Closing a capture left open*,
   one `stop-unclean` record at seq 2^63 − 1 alone in a segment.
   `CloseOptions` holds `Meta`, the capture's descriptor and its consumer-owned values; `CaptureID`; `Trigger`, the close's time;

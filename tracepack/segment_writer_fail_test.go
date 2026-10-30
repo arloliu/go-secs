@@ -775,9 +775,14 @@ func TestSegmentWriterWriterFailure(t *testing.T) {
 	w.seg.w.encodedHook = truncate
 	err := w.Rotate(t.Context())
 	require.ErrorIs(t, err, ErrValidation)
+	require.ErrorIs(t, err, ErrRefused, "the block's records determine the failure")
 	assert.Equal(t, 1, sink.aborts())
 	assert.Empty(t, sink.keys)
-	assert.Equal(t, err, w.Close(t.Context()))
+	// Close returns the stored failure, the SegmentWriter's prior state, without the marker.
+	cerr := w.Close(t.Context())
+	require.EqualError(t, cerr, err.Error())
+	require.ErrorIs(t, cerr, ErrValidation)
+	require.NotErrorIs(t, cerr, ErrRefused)
 	sink.noMisuse(t)
 
 	// With SkipValidation the segment's Writer writes the damaged block, so the segment is published.

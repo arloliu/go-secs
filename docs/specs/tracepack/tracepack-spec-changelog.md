@@ -117,6 +117,10 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   `AppendFrame(ctx, at, dir, epoch, frame, quality Quality)`, kept as `Append` keeps `Record.Quality`'s:
   undefined bits dropped, the derived bits the writer's, and `unobserved` and `redacted` checked as for `Append` (G5-285).
   No rule of [SEM §6] changed.
+- 2026-10-31: §3 gains the `ErrRefused` bullet beside the `Writer`'s sentinels (G5-286):
+  the writing calls mark with it every error their own arguments, options or records determine,
+  never an error of `Merge`, `ctx`, the writer's prior state or a supplied implementation, and leave the error text unchanged.
+  No format rule changed.
 
 ## Changes vs v1 (summary)
 
