@@ -18,6 +18,14 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   A key error is wrapped as before, and `Restore` is unchanged.
   Migration: an implementation of `redact.Keys` adds a leading `ctx context.Context` to both methods and may bound its key request with it;
   a caller of `Mask` passes its context first.
+- **Breaking:** `BusLayout1` is the untyped string `"1"`, the `Tpk-Layout` value itself, instead of the integer 1 (G5-283).
+  Migration: set the `Tpk-Layout` header to `tracepack.BusLayout1` instead of `strconv.Itoa(tracepack.BusLayout1)`,
+  and compare a received layout with it directly.
+- **Breaking:** `classify.Name` is a function, `classify.Name() string`, instead of a variable; it returns the same value (G5-283).
+  Migration: write `classify.Name()` where `classify.Name` was read.
+- **Breaking:** `classify.Frame` takes its frame-length limit as a `uint64`, as `classify.New` and `Classifier.MaxFrameLen` do (G5-283).
+  0 still means no limit, and a limit above the largest `int` makes no frame oversized.
+  Migration: pass the pack's `max_frame_len` as it is, without converting it to `int`.
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 

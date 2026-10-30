@@ -16,7 +16,7 @@ import (
 // (the tracepack storage specification §4, "Bus message" and "Large records").
 const (
 	// BusLayout1 is the only layout of the bus message, the value of its Tpk-Layout header.
-	BusLayout1 = 1
+	BusLayout1 = "1"
 	// BusHeaderLayout names the header carrying the message's layout.
 	BusHeaderLayout = "Tpk-Layout"
 	// BusHeaderMsgID names the header carrying "<capture_id>.<seq>", by which the stream stores a retry once.
@@ -339,7 +339,7 @@ func EncodeBusBody(br *BusRecord) ([]byte, error) {
 //   - BusRecord: the record; the zero BusRecord on error.
 //   - error: an error wrapping ErrBusMalformed or ErrBusNotAccepted.
 func CheckBusMessage(env BusEnvelope, body []byte) (BusRecord, error) {
-	if env.Layout != strconv.Itoa(BusLayout1) {
+	if env.Layout != BusLayout1 {
 		return BusRecord{}, fmt.Errorf("%w: %s %q is not a known layout", ErrBusMalformed, BusHeaderLayout, env.Layout)
 	}
 	if len(body) < format.RecordHeaderLen {

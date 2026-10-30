@@ -106,7 +106,7 @@ func TestWalkAgainstClassify(t *testing.T) {
 				if len(f) <= 14 {
 					continue
 				}
-				status, _ := classify.Frame(f, int(maxFrameLen))
+				status, _ := classify.Frame(f, maxFrameLen)
 				if !reachesItemPredicate(status) {
 					continue
 				}

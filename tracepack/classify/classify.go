@@ -26,18 +26,26 @@ const goSecsModulePath = "github.com/arloliu/go-secs/v2"
 // unknownName is what [Name] reports when the go-secs/v2 module version cannot be determined.
 const unknownName = "go-secs/unknown"
 
+// buildName is what [Name] returns, resolved once, at package initialization.
+var buildName = classifierName()
+
 // Name identifies this classifier for the pack metadata's classifier tag of the tracepack format specification.
 //
-// It is set once, at package initialization, from the go-secs/v2 module version reported by runtime/debug.ReadBuildInfo.
+// Its value is set once, at package initialization, from the go-secs/v2 module version reported by runtime/debug.ReadBuildInfo,
+// so every call returns the same string.
 // It falls back to "go-secs/unknown" when build info is unavailable or does not name that dependency.
 // A Go workspace build hits that fallback: it resolves the dependency to a local directory instead of a versioned module.
-var Name = classifierName()
+func Name() string {
+	return buildName
+}
 
 // Frame classifies a captured HSMS frame per the tracepack semantics specification §3 decision table.
 // It evaluates the table's rows in the table's own order.
 //
-// maxFrameLen is the pack's configured maximum frame length; zero or negative means no ceiling,
+// maxFrameLen is the pack's configured maximum frame length; zero means no ceiling,
 // so the oversized row never matches.
+// It is compared with the frame's length as uint64 values, as the classifier [New] returns compares it,
+// so a ceiling above the largest int is never truncated and makes no frame oversized.
 // Frame never panics: every input, however malformed, yields a decode_status and a trailing-byte count.
 //
 // Parameters:
@@ -48,13 +56,8 @@ var Name = classifierName()
 // Returns:
 //   - tracepack.DecodeStatus: the decision-table row that matched.
 //   - int: trailing_bytes, meaningful only when the status is DecodeStatusOK or DecodeStatusOKWithTrailing.
-func Frame(frame []byte, maxFrameLen int) (tracepack.DecodeStatus, int) {
-	var ceiling uint64
-	if maxFrameLen > 0 {
-		ceiling = uint64(maxFrameLen)
-	}
-
-	return classifyFrame(frame, ceiling)
+func Frame(frame []byte, maxFrameLen uint64) (tracepack.DecodeStatus, int) {
+	return classifyFrame(frame, maxFrameLen)
 }
 
 // New returns a [tracepack.Classifier] that classifies frames as [Frame] does, under the ceiling maxFrameLen.
@@ -70,7 +73,7 @@ func Frame(frame []byte, maxFrameLen int) (tracepack.DecodeStatus, int) {
 // Returns:
 //   - tracepack.Classifier: the classifier, safe for concurrent use.
 func New(maxFrameLen uint64) tracepack.Classifier {
-	return classifier{name: Name, maxFrameLen: maxFrameLen}
+	return classifier{name: buildName, maxFrameLen: maxFrameLen}
 }
 
 // NewNamed returns a [tracepack.Classifier] that classifies frames as [New] does, under the ceiling maxFrameLen,

@@ -94,6 +94,10 @@ The decision log and the outcome of every proposal are listed in `README.md`.
 - 2026-10-31: the §3 `Reader` bullet no longer names `NewPackInfo` and `NewPackInfoMinor`, which are removed with `PackInfo` and `Reader.Info`,
   and the `ExportJSONL` bullet speaks of `FooterErrs` alone, `Result.FooterErr` being removed (G5-282).
   No format rule changed.
+- 2026-10-31: the §3 bus codec bullet makes `BusLayout1` the untyped string `"1"`, compared with `BusEnvelope.Layout` directly,
+  and the `SegmentWriter` bullet names the classifier's build-info name `classify.Name()`, a function (G5-283).
+  The root `Classifier` interface is unchanged; `classify.Frame` now takes its limit as a `uint64`, the type of `Classifier.MaxFrameLen()`.
+  No rule of [STO §4] or [SEM §3] changed.
 
 ## Changes vs v1 (summary)
 
