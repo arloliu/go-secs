@@ -5,6 +5,23 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-31
+
+This release freezes the API for v1.0: spec v2.39, format 1.2.
+Packs, JSONL exports and the corpus are byte-identical to tracepack/v0.11.0's;
+the API is not, and every breaking entry below carries its migration line.
+The v1 compatibility promise is in the package documentation's Compatibility section.
+
+### Upgrade notes
+
+- Renames: `Item.Input`, `MergeOptions.WriterTag`, `HasAny`/`HasAll`, `TxOptions.MaxHours`, `TxHour`, the `CaptureID` fields,
+  the `IncompleteReason*` and `VerifyOutcome*` names, and `HSMSTimers.T1Ms`..`T8Ms`.
+- The bus codec moved to `tracepack/bus`, its names without the `Bus` prefix; error text is unchanged.
+- Signatures: `redact.Keys` and `Mask` take a ctx, and `AppendFrame` takes quality bits;
+  `NewDirSink` takes `DirSinkOptions` and returns `*DirSink`, which has `Close`.
+- `ErrRefused` marks the writing calls' input refusals;
+  an undecodable event or annotation payload is now refused by `Writer.Append` and reported as `bus.ErrMalformed` by the bus checks.
+
 ### Added
 
 - `MergeOptions.MaxParallelOpens`, with `DefaultMaxParallelOpens` (16), bounds how many inputs `Merge` opens at once (G5-278);
