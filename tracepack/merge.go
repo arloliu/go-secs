@@ -535,7 +535,6 @@ type mergeCluster = seqCluster[mergeBlock]
 //     no inputs, an input without a ReaderAt, or a negative budget field of opts.Reader;
 //     an error wrapping ErrInvalidArgument for an opts.ReplacementSetID equal to an archive input's replacement_set_id,
 //     or an opts.PackID that names an input or a pack of an input's compacted_from or supersedes;
-//     an error of the system's random source, wrapped, drawing a new UUIDv7 for an opts.ReplacementSetID or opts.PackID left zero;
 //     an error wrapping ErrMergeInput; an error wrapping an input's ReaderAt error, or ErrReadLimit, naming the input;
 //     a *FieldError validating the archive's pack metadata;
 //     an error wrapping ErrMergeLimit for archive pack metadata longer than opts.Reader.MaxPackMetadataLen,

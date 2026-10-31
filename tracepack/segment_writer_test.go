@@ -910,10 +910,14 @@ func TestSegmentWriterCloseTwice(t *testing.T) {
 	w, sink := newSeg(t, nil)
 	require.NoError(t, w.Close(t.Context()))
 	calls := sink.calls
-	require.NoError(t, w.Close(t.Context()), "a second Close returns the first one's result")
+	err := w.Close(t.Context())
+	require.ErrorIs(t, err, ErrClosed, "a second Close reports the SegmentWriter closed")
+	require.NotErrorIs(t, err, ErrWriterFailed)
+	requireNotRefused(t, err)
 	assert.Equal(t, calls, sink.calls, "a second Close makes no sink call")
 	require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Second), DirHostToEquipment, 1, blockTestFrame, 0), ErrClosed)
 	require.ErrorIs(t, w.Rotate(t.Context()), ErrClosed)
+	assert.Equal(t, calls, sink.calls, "no sink call after Close")
 }
 
 func TestWriterTagOf(t *testing.T) {

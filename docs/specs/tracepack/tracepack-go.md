@@ -205,17 +205,18 @@ The query service, its catalog database and the live-tail interface are designed
   `NewWriter` refuses a `seq_start` or `NextSeq` above 2^63 − 1.
 - `ErrRefused` (G5-286): the writing calls — `NewWriter`, `Writer.Append`, `Flush` and `Close`, `WriteClose`, `NewSegmentWriter`,
   and the `SegmentWriter`'s `Append`, `AppendFrame`, `AppendEvent`, `Tick`, `Rotate` and `Close` —
-  mark with it every error the call's own arguments, options or records determine,
-  so the same call with the same input fails the same way:
+  mark with it every error the call's own arguments or options, or the records written, determine,
+  so the same sequence of calls with the same input fails the same way:
   an error wrapping `ErrSeqOrder`, `ErrPayloadTooLarge`, `ErrFieldValidity`, `ErrMetadataCommitment`, `ErrValidation`, `ErrScopeBreach`, `ErrInvalidRecord`,
-  `ErrRequiredTag`, `ErrFieldValue`, `ErrFieldLength`, `ErrAnnotationText` or `ErrReservedTag`, and an invalid argument or option, which wraps `ErrInvalidArgument` (G5-296).
+  `ErrRequiredTag`, `ErrFieldValue`, `ErrFieldLength`, `ErrAnnotationText` or `ErrReservedTag`, an invalid argument or option, which wraps `ErrInvalidArgument` (G5-296),
+  and a format limit the records written reach, such as a block's F-3 entry list too long for the footer's u32 `summary_len`, which does not wrap `ErrInvalidArgument`.
   It says nothing about whether the writer is still usable; the sentinel beside it does.
   It is never added to an error of `Merge`, of `ctx` or of the writer's prior state (`ErrWriterFailed`, `ErrClosed`),
   nor to an error of the destination, a `Syncer`, a sink or a segment file,
   nor to one holding such an error beside a refusal;
   the caller's own implementation's error is returned wrapped, its chain intact, with no marker added,
   so one that is `ErrRefused` still matches it.
-  The marking is by origin: an error from a supplied implementation is marked external where it enters,
+  The marking is by origin: an error from a supplied implementation, `ctx` included, is marked external where it enters,
   and the external mark wins,
   so a destination returning an error that wraps a refusal sentinel is not taken for a refusal.
   The error text is unchanged.

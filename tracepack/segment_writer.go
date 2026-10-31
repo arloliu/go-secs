@@ -142,11 +142,14 @@ type SegmentWriterOptions struct {
 // a segment whose Commit returned nil is no longer open, so a later failure leaves it published.
 // The error of a Commit that failed after the segment became visible wraps ErrPublishUncertain.
 // The seq counter is never rewound, so lost records leave a seq gap, never a reused seq.
-// Every later call returns an error wrapping ErrWriterFailed, and Close returns the failure without a sink call.
+// Every later call, Close included, returns an error wrapping ErrWriterFailed and the failure, without a sink call.
 //
-// ErrRefused: a refusal, and a failure the call's own record determines, such as ErrValidation, also wraps ErrRefused;
-// a failure that holds an error of the sink or of a segment file, an Abort error included, does not,
-// and neither does the failure a later call reports.
+// Closed: after a Close that completed without error, every later call, Close included, returns ErrClosed without a sink call;
+// the committed segments are the capture.
+//
+// ErrRefused: a refusal, and a failure the records written determine, such as ErrValidation, also wraps ErrRefused;
+// a failure that holds an error of the sink, of a segment file or of ctx, an Abort error included, does not,
+// and neither does the ErrWriterFailed or ErrClosed a later call reports.
 //
 // A SegmentWriter is not safe for concurrent use.
 type SegmentWriter struct {
@@ -179,9 +182,8 @@ type SegmentWriter struct {
 	seg *openSegment
 	// failure is the error that failed the SegmentWriter; nil while it is usable.
 	failure error
-	// closed is set once Close has run, with closeErr its result.
-	closed   bool
-	closeErr error
+	// closed is set once Close has run past its ctx check; failure tells a Close that failed from one that completed.
+	closed bool
 }
 
 // openSegment is the segment a SegmentWriter is writing.
@@ -248,7 +250,7 @@ func startSegmentWriter(ctx context.Context, opts SegmentWriterOptions) (*Segmen
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := ctxErr(ctx); err != nil {
 		return nil, err
 	}
 
@@ -442,6 +444,12 @@ func abortSegment(file SegmentFile) error {
 	return external(file.Abort())
 }
 
+// ctxErr returns ctx's error, marked as the error of a supplied implementation (externalError):
+// ctx is the caller's, so an error it reports is never a refusal, whatever it wraps.
+func ctxErr(ctx context.Context) error {
+	return external(ctx.Err())
+}
+
 // CaptureID returns the capture_id of every segment of the capture,
 // which a recorder persists to give as the next capture's PreviousCaptureID.
 func (w *SegmentWriter) CaptureID() UUID {
@@ -465,7 +473,8 @@ func (w *SegmentWriter) CaptureID() UUID {
 //     for an unknown capture method, which has no fidelity rule,
 //     for an at that is not representable, for a classifier's trailing_bytes outside 0 to 2^32-1,
 //     or for a quality carrying QualityUnobserved on a frame that is not unobserved by design, as Append refuses it;
-//     or a refusal or failure as SegmentWriter describes.
+//     a refusal or failure as SegmentWriter describes;
+//     or ErrWriterFailed, wrapping the failure, on a failed SegmentWriter, and ErrClosed after Close.
 //     A SegmentWriter's segments declare no thinning, so QualityUnobserved is always refused:
 //     a *FieldError wrapping ErrMetadataCommitment ("thinning") for a frame unobserved by design, ErrInvalidRecord for any other.
 func (w *SegmentWriter) AppendFrame(ctx context.Context, at time.Time, dir Dir, epoch uint32, frame []byte, quality Quality) error {
@@ -521,7 +530,8 @@ func (w *SegmentWriter) addFrame(ctx context.Context, at time.Time, dir Dir, epo
 //     an error wrapping a *FieldError naming the first value of ev the encoding refuses (see FieldError),
 //     such as a string that is not valid UTF-8 or a malformed Unknown entry,
 //     after which the SegmentWriter is still usable;
-//     or a refusal or failure as SegmentWriter describes.
+//     a refusal or failure as SegmentWriter describes;
+//     or ErrWriterFailed, wrapping the failure, on a failed SegmentWriter, and ErrClosed after Close.
 func (w *SegmentWriter) AppendEvent(ctx context.Context, at time.Time, epoch uint32, ev *TransportEvent) error {
 	return refuse(w.addEvent(ctx, at, epoch, ev))
 }
@@ -563,7 +573,8 @@ func (w *SegmentWriter) addEvent(ctx context.Context, at time.Time, epoch uint32
 //   - error: ErrInvalidRecord for a nil r, a ts_utc_ns that is not representable,
 //     a capture boundary of kind start, stop or stop-unclean,
 //     or a transport-event or annotation record whose field_validity is not 0 or whose payload does not decode;
-//     or a refusal or failure as SegmentWriter describes.
+//     a refusal or failure as SegmentWriter describes;
+//     or ErrWriterFailed, wrapping the failure, on a failed SegmentWriter, and ErrClosed after Close.
 func (w *SegmentWriter) Append(ctx context.Context, r *Record) error {
 	return refuse(w.addRecord(ctx, r))
 }
@@ -587,7 +598,8 @@ func (w *SegmentWriter) addRecord(ctx context.Context, r *Record) error {
 // so an idle segment is not held open; it does nothing without an open segment.
 //
 // Returns:
-//   - error: ctx's error before any sink call, the SegmentWriter still usable; or a failure as SegmentWriter describes.
+//   - error: ctx's error before any sink call, the SegmentWriter still usable; a failure as SegmentWriter describes;
+//     or ErrWriterFailed, wrapping the failure, on a failed SegmentWriter, and ErrClosed after Close.
 func (w *SegmentWriter) Tick(ctx context.Context, now time.Time) error {
 	return refuse(w.rollDue(ctx, now))
 }
@@ -608,7 +620,8 @@ func (w *SegmentWriter) rollDue(ctx context.Context, now time.Time) error {
 // The next record opens a segment for its own period.
 //
 // Returns:
-//   - error: ctx's error before any sink call, the SegmentWriter still usable; or a failure as SegmentWriter describes.
+//   - error: ctx's error before any sink call, the SegmentWriter still usable; a failure as SegmentWriter describes;
+//     or ErrWriterFailed, wrapping the failure, on a failed SegmentWriter, and ErrClosed after Close.
 func (w *SegmentWriter) Rotate(ctx context.Context) error {
 	return refuse(w.rollOpen(ctx))
 }
@@ -630,30 +643,32 @@ func (w *SegmentWriter) rollOpen(ctx context.Context) error {
 // A Now() that is not representable fails Close with ErrInvalidRecord, a refusal as the same fault of an append is,
 // and Close aborts the open segment and writes no stop.
 // When too few seqs are left for the stop boundary, Close finalizes and commits the open segment without it and fails.
-// Once a Close has run to its end, a later Close returns its result without a sink call,
-// as does a Close on a failed SegmentWriter, which returns the failure;
-// a Close refused because ctx was done leaves the SegmentWriter usable, and can be retried.
+// A Close refused because ctx was done before any sink call leaves the SegmentWriter usable, and can be retried.
+// A later Close makes no sink call:
+// on a SegmentWriter that has failed, through any earlier call or an earlier Close, it returns an error wrapping ErrWriterFailed and the failure,
+// and after a Close that completed without error it returns ErrClosed;
+// the failure is checked first, so a Close that failed is reported as failed, not closed.
+// Neither is marked ErrRefused, so a caller retrying unmarked errors stops on ErrWriterFailed and ErrClosed, which it tests first.
 //
 // Returns:
 //   - error: ctx's error before any sink call, the SegmentWriter still usable;
 //     an error wrapping ErrInvalidRecord for a Now() that is not representable, the SegmentWriter failed;
-//     an error wrapping ErrSeqOrder when no seq is left for the stop boundary;
-//     or a failure as SegmentWriter describes.
+//     an error wrapping ErrSeqOrder when no seq is left for the stop boundary, the SegmentWriter failed;
+//     a failure as SegmentWriter describes;
+//     or, from a later Close, ErrWriterFailed, wrapping the failure, on a failed SegmentWriter, and ErrClosed after a Close that completed.
 func (w *SegmentWriter) Close(ctx context.Context) error {
-	if w.closed {
-		return w.closeErr
+	// The failure is checked before closed, so a Close that failed is reported as failed;
+	// either way no sink call follows, and the error reports the SegmentWriter's prior state, unmarked.
+	if err := w.usable(); err != nil {
+		return err
 	}
-	if w.failure != nil {
-		return w.failure
-	}
-	if err := ctx.Err(); err != nil {
+	if err := ctxErr(ctx); err != nil {
 		return err
 	}
 
-	// Only this Close's own result is marked: a stored failure is the SegmentWriter's prior state,
-	// and a later Close returns this result unmarked, as any later call reports it.
+	// Every error of closeCapture has failed the SegmentWriter, so a later call reports it with ErrWriterFailed.
 	err := w.closeCapture(ctx)
-	w.closed, w.closeErr = true, err
+	w.closed = true
 
 	return refuse(err)
 }
@@ -775,7 +790,7 @@ func (w *SegmentWriter) appendRecord(ctx context.Context, r *Record, caller bool
 	if err := w.preflight(r, caller); err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
+	if err := ctxErr(ctx); err != nil {
 		return err
 	}
 
@@ -799,7 +814,7 @@ func (w *SegmentWriter) appendToSegment(ctx context.Context, r *Record) error {
 		return err
 	}
 
-	return ctx.Err()
+	return ctxErr(ctx)
 }
 
 // preflight checks r as the segment's Writer will, and against what the SegmentWriter owns, without touching a segment:
@@ -877,7 +892,7 @@ func (w *SegmentWriter) place(ctx context.Context, ts int64, caller bool) error 
 			if err := w.finalize(ctx); err != nil {
 				return err
 			}
-			if err := ctx.Err(); err != nil {
+			if err := ctxErr(ctx); err != nil {
 				return err
 			}
 		}
@@ -891,7 +906,7 @@ func (w *SegmentWriter) place(ctx context.Context, ts int64, caller bool) error 
 
 // roll finalizes and commits the open segment for Tick and Rotate, after checking ctx.
 func (w *SegmentWriter) roll(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
+	if err := ctxErr(ctx); err != nil {
 		return err
 	}
 	if err := w.finalize(ctx); err != nil {
@@ -942,7 +957,7 @@ func (w *SegmentWriter) open(ctx context.Context, ts int64) error {
 	}
 	w.seg = &openSegment{file: file, w: wr, out: out, hour: info.Hour, start: start, end: end}
 
-	if err := ctx.Err(); err != nil {
+	if err := ctxErr(ctx); err != nil {
 		return err
 	}
 
@@ -973,9 +988,8 @@ func (w *SegmentWriter) finalize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
-		// Marked as the segment output's ctx error is, so a refusal joined with it stays unmarked.
-		return external(err)
+	if err := ctxErr(ctx); err != nil {
+		return err
 	}
 	if err := commitSegment(ctx, s.file); err != nil {
 		return fmt.Errorf("tracepack: commit segment: %w", err)
@@ -1016,7 +1030,7 @@ func (o *segmentOutput) Write(p []byte) (int, error) {
 		o.head = append(o.head, p...)
 		return len(p), nil
 	}
-	if err := o.ctx.Err(); err != nil {
+	if err := ctxErr(o.ctx); err != nil {
 		return 0, err
 	}
 
@@ -1026,7 +1040,7 @@ func (o *segmentOutput) Write(p []byte) (int, error) {
 // Sync syncs the segment's file unless ctx is done;
 // the Writer syncs only after a block or the trailer, once the file is attached.
 func (o *segmentOutput) Sync() error {
-	if err := o.ctx.Err(); err != nil {
+	if err := ctxErr(o.ctx); err != nil {
 		return err
 	}
 
