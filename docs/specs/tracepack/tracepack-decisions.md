@@ -2069,3 +2069,15 @@ Source: the v1.0 API usability review (items 7–14), with tracekeep and veq con
   afterwards it uses only their decoded header and metadata, so the caller may close that hour's backing objects. No API is added.
   Rationale *(editorial)*: a lazy source had to keep every hour's objects open for the whole call; tracekeep asked for the exact point instead of a release hook.
   Spec: `tracepack-go.md` §3, v2.39.
+
+## 2026-10-31 undecodable event payloads (owner's choice, tracekeep consulted)
+
+- G5-294 A writer refuses a transport-event or annotation record whose payload is not a valid TLV body, and a durable-bus consumer treats one as malformed (2026-10-31, [FMT §8, §13], [STO §4], Go mapping):
+  `Writer.Append` refuses such a record with `ErrInvalidRecord`, marked `ErrRefused`, as `SegmentWriter` already did; the record is not added and the Writer stays usable.
+  `bus.CheckMessage` returns an error wrapping `bus.ErrMalformed` for such a payload, so the consumer counts its seq as a gap.
+  `Merge` copies its inputs as they are, and `Verify` still reports such a record of another writer as a writer defect.
+  A valid TLV body keeps the §14 rule: a tag or enum value the reader does not know is preserved, so a payload only newer than the reader is never refused.
+  Rationale *(editorial)*: the payload is invalid in every minor, so storing it only preserves a defect that readers then show;
+  refusing it in `Writer.Append` alone would park a consumer's whole batch, so the bus check comes first.
+  Rejected *(editorial)*: storing it as received (tracekeep: it surfaces in record queries); a new not-accepted sentinel (no valid payload is refused, so nothing waits for a newer consumer).
+  Spec: `tracepack-format.md` §8 and §13, `tracepack-storage.md` §4, `tracepack-go.md` §3, v2.39.
