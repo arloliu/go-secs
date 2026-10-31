@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 )
 
 const (
@@ -50,6 +51,27 @@ type DirSinkOptions struct {
 	NoReplace bool
 }
 
+// DirSink is the SegmentSink NewDirSink returns,
+// which stores each segment as a file under a root directory, as NewDirSink describes.
+// It holds that directory open until Close:
+// close it after the SegmentWriter using it is closed.
+// It is safe for concurrent use; each SegmentFile it creates is not.
+type DirSink struct {
+	fsys dirFS
+	// prefix is the bucket prefix, accepted as checkDirSinkPrefix checks it.
+	prefix string
+	// noReplace reports the sink publishing by hard link, never replacing a file at a key, as DirSinkOptions.NoReplace sets it.
+	noReplace bool
+	// mu orders the sink's operations against Close:
+	// Create, Commit and Abort hold it shared for their whole run, and Close holds it exclusively,
+	// so Close waits for every operation in progress, and an operation that starts after it finds the sink closed.
+	mu sync.RWMutex
+	// closed reports the sink closed, its root with it; mu guards it.
+	closed bool
+}
+
+var _ SegmentSink = (*DirSink)(nil)
+
 // dirSegmentState is where a dirSegment stands in the SegmentFile contract.
 type dirSegmentState int
 
@@ -68,20 +90,9 @@ const (
 	dirSegmentAborted
 )
 
-// dirSink is the SegmentSink NewDirSink returns.
-type dirSink struct {
-	fsys dirFS
-	// prefix is the bucket prefix, accepted as checkDirSinkPrefix checks it.
-	prefix string
-	// noReplace reports the sink publishing by hard link, never replacing a file at a key, as DirSinkOptions.NoReplace sets it.
-	noReplace bool
-}
-
-var _ SegmentSink = (*dirSink)(nil)
-
-// dirSegment is a segment a dirSink is writing: a temporary file under .partial/ until Commit renames or links it to its key.
+// dirSegment is a segment a DirSink is writing: a temporary file under .partial/ until Commit renames or links it to its key.
 type dirSegment struct {
-	sink *dirSink
+	sink *DirSink
 	file dirFile
 	key  string
 	// temp and dir are the names of the temporary file and of the key's directory; the key names the file once committed.
@@ -93,7 +104,7 @@ type dirSegment struct {
 
 var _ SegmentFile = (*dirSegment)(nil)
 
-// dirFS is the file system a dirSink works on:
+// dirFS is the file system a DirSink works on:
 // the root opened as an os.Root, or a test's that injects faults and records the calls.
 // Every name is relative to the root and '/'-separated, "." naming the root.
 type dirFS interface {
@@ -115,6 +126,8 @@ type dirFS interface {
 	syncDir(name string) error
 	// remove removes the file name.
 	remove(name string) error
+	// closeRoot closes the root; every later call fails.
+	closeRoot() error
 }
 
 // dirFile is a file a dirFS created.
@@ -131,7 +144,7 @@ type rootFS struct {
 
 var _ dirFS = rootFS{}
 
-// NewDirSink returns a SegmentSink that stores each segment as a file under root,
+// NewDirSink returns a DirSink, a SegmentSink that stores each segment as a file under root,
 // at the path its segment key spells:
 // <root>/<SegmentKey(prefix, info.ToolID, info.CaptureID, info.SeqFirst, info.PackID)>,
 // so a local recording is laid out as a bucket is (the tracepack storage specification §3).
@@ -147,7 +160,7 @@ var _ dirFS = rootFS{}
 // Such a link fails NewDirSink or Create, or Commit with a plain error, nothing published.
 // These checks guard against a misconfigured root,
 // not against a process that writes to root while the sink runs, which can remove segments anyway.
-// The sink keeps root open for as long as it is reachable; it has nothing to close.
+// The sink keeps root open until Close, which the caller calls after the SegmentWriter using the sink is closed.
 // NewDirSink creates <root>/.partial/ and syncs root.
 // It fails on js, where os.Root cannot exclude a link replaced after its check.
 // prefix is empty, or a relative '/'-separated path none of whose components is empty, "." or "..",
@@ -198,6 +211,7 @@ var _ dirFS = rootFS{}
 //
 // A second Commit, a Commit after Abort, and a Write or Sync after Commit or Abort return an error;
 // a second Abort does nothing.
+// After Close, Create and the Commit of a segment not yet committed fail, publishing nothing, as Close describes.
 // The sink is safe for concurrent use; each SegmentFile it creates is not.
 //
 // Parameters:
@@ -206,13 +220,13 @@ var _ dirFS = rootFS{}
 //   - opts: the options; the zero value replaces a file at a key.
 //
 // Returns:
-//   - SegmentSink: the sink; nil on error.
+//   - *DirSink: the sink; nil on error.
 //   - error: non-nil, before any file is created, on js, for a prefix outside that form, or for a root that is not an existing directory;
 //     the error of creating .partial/, which a .partial leading out of root fails;
 //     an error for a .partial that is a symbolic link;
 //     an error for a prefix whose first component names .partial/ or leads out of root;
 //     or the error of syncing root.
-func NewDirSink(root, prefix string, opts DirSinkOptions) (SegmentSink, error) {
+func NewDirSink(root, prefix string, opts DirSinkOptions) (*DirSink, error) {
 	if runtime.GOOS == "js" {
 		return nil, errors.New("tracepack: DirSink: unsupported on js, where os.Root cannot exclude a link replaced after its check")
 	}
@@ -233,7 +247,7 @@ func NewDirSink(root, prefix string, opts DirSinkOptions) (SegmentSink, error) {
 }
 
 // newDirSinkFS is NewDirSink over the file system fsys, its root already open.
-func newDirSinkFS(prefix string, fsys dirFS, opts DirSinkOptions) (*dirSink, error) {
+func newDirSinkFS(prefix string, fsys dirFS, opts DirSinkOptions) (*DirSink, error) {
 	if err := checkDirSinkPrefix(prefix); err != nil {
 		return nil, err
 	}
@@ -250,7 +264,7 @@ func newDirSinkFS(prefix string, fsys dirFS, opts DirSinkOptions) (*dirSink, err
 		return nil, fmt.Errorf("tracepack: DirSink: sync root: %w", err)
 	}
 
-	s := &dirSink{fsys: fsys, prefix: prefix, noReplace: opts.NoReplace}
+	s := &DirSink{fsys: fsys, prefix: prefix, noReplace: opts.NoReplace}
 
 	return s, nil
 }
@@ -323,10 +337,17 @@ func checkDirSinkPrefix(prefix string) error {
 //   - SegmentFile: the segment; nil on error.
 //   - error: ctx's error; the SegmentKey error, wrapping ErrInvalidKey, for a segment no key can name;
 //     an error for a .partial that is a symbolic link;
+//     an error after Close;
 //     or the error of creating the temporary file.
-func (s *dirSink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, error) {
+func (s *DirSink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if s.closed {
+		return nil, errors.New("tracepack: DirSink: Create after Close")
 	}
 	key, err := SegmentKey(s.prefix, info.ToolID, info.CaptureID, info.SeqFirst, info.PackID)
 	if err != nil {
@@ -343,6 +364,33 @@ func (s *dirSink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, er
 	}
 
 	return &dirSegment{sink: s, file: file, key: key, temp: temp, dir: path.Dir(key)}, nil
+}
+
+// Close closes the sink's root once every Create, Commit and Abort in progress on the sink has returned;
+// close the sink after the SegmentWriter using it is closed.
+// A Commit thus either completes before Close, with the result it has without Close, ErrPublishUncertain included,
+// or starts after it.
+// After Close, Create fails, and the Commit of a segment not yet committed fails with a plain error, publishing nothing;
+// the Abort of such a segment closes its temporary file and returns an error saying the file could not be removed:
+// it stays under .partial/, as a temporary file a crash left does.
+// A segment already published, refused or aborted is unaffected: Abort does nothing, and Commit returns its error as before.
+// A second Close does nothing.
+//
+// Returns:
+//   - error: the error of closing the root; nil from a second Close.
+func (s *DirSink) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	if err := s.fsys.closeRoot(); err != nil {
+		return fmt.Errorf("tracepack: DirSink: close root: %w", err)
+	}
+
+	return nil
 }
 
 // keyDirs returns the directories from key's directory up to root, deepest first, root, ".", included.
@@ -380,9 +428,15 @@ func (f *dirSegment) Commit(ctx context.Context) error {
 		return f.misuse("Commit")
 	}
 	f.state = dirSegmentCommitting
+	// The shared lock spans the whole commit, its directory syncs included, so Close waits for it.
+	f.sink.mu.RLock()
+	defer f.sink.mu.RUnlock()
 
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if f.sink.closed {
+		return fmt.Errorf("tracepack: DirSink: Commit of segment %s after Close", f.key)
 	}
 	if err := f.file.Sync(); err != nil {
 		return fmt.Errorf("tracepack: DirSink: sync segment %s: %w", f.key, err)
@@ -536,11 +590,14 @@ func (f *dirSegment) syncDirs(ctx context.Context, dirs []string) error {
 
 // Abort closes and removes the temporary file, ignoring one already gone;
 // it does nothing once Commit published or refused the segment, or after an earlier Abort.
+// After the sink's Close it closes the file and leaves it under .partial/.
 func (f *dirSegment) Abort() error {
 	if f.state == dirSegmentPublished || f.state == dirSegmentRefused || f.state == dirSegmentAborted {
 		return nil
 	}
 	f.state = dirSegmentAborted
+	f.sink.mu.RLock()
+	defer f.sink.mu.RUnlock()
 
 	var closeErr, removeErr error
 	if !f.closed {
@@ -549,7 +606,9 @@ func (f *dirSegment) Abort() error {
 			closeErr = fmt.Errorf("tracepack: DirSink: close segment %s: %w", f.key, err)
 		}
 	}
-	if err := f.sink.fsys.remove(f.temp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if f.sink.closed {
+		removeErr = fmt.Errorf("tracepack: DirSink: remove segment %s: the sink is closed, so its temporary file %s stays", f.key, f.temp)
+	} else if err := f.sink.fsys.remove(f.temp); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		removeErr = fmt.Errorf("tracepack: DirSink: remove segment %s: %w", f.key, err)
 	}
 
@@ -608,4 +667,8 @@ func (f rootFS) syncDir(name string) error {
 
 func (f rootFS) remove(name string) error {
 	return f.root.Remove(filepath.FromSlash(name))
+}
+
+func (f rootFS) closeRoot() error {
+	return f.root.Close()
 }

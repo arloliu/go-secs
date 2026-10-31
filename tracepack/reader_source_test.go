@@ -167,6 +167,7 @@ func TestReaderSourceEndToEnd(t *testing.T) {
 	require.NoError(t, w.AppendFrame(t.Context(), primaryAt, DirHostToEquipment, 1, e2eFrame(1, true), 0))
 	require.NoError(t, w.AppendFrame(t.Context(), replyAt, DirEquipmentToHost, 1, e2eFrame(2, false), 0))
 	require.NoError(t, w.Close(t.Context()))
+	require.NoError(t, sink.Close())
 
 	keys, partial := dirFiles(t, root)
 	assert.Empty(t, partial)

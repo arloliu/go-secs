@@ -115,6 +115,15 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   `DirSinkOptions.NoReplace` replaces `DirSinkNoReplace()`, which is removed with `DirSinkOption` (G5-283).
   Migration: veq's `NewDirSink(root, prefix, tracepack.DirSinkNoReplace())` becomes `NewDirSink(root, prefix, tracepack.DirSinkOptions{NoReplace: true})`,
   and tracekeep's `NewDirSink(root, prefix)` becomes `NewDirSink(root, prefix, tracepack.DirSinkOptions{})`.
+- **Breaking:** `NewDirSink` returns `*DirSink`, an exported type, instead of `SegmentSink`,
+  and `(*DirSink).Close()` closes the sink's root directory, which only the garbage collector released before (G5-292).
+  `Close` waits for every `Create`, `Commit` and `Abort` in progress, so a `Commit` ends with its own result, `ErrPublishUncertain` included;
+  afterwards `Create` and the `Commit` of a segment not yet committed fail with a plain error, publishing nothing,
+  and the `Abort` of such a segment closes its temporary file and returns an error, the file staying under `.partial/`.
+  A segment already published, refused or aborted is unaffected, and a second `Close` returns nil.
+  Migration: call `Close` on the sink after the `SegmentWriter` using it is closed;
+  code that stores the result in a `SegmentSink`, as veq's `cmd/eapconv` does, compiles unchanged,
+  and code that declared a `SegmentSink` variable for it, or a function returning one, keeps the `*DirSink` to close it.
 - **Breaking:** a negative budget field of `ReaderOptions`, `MergeIterateOptions`, `TxOptions` or `TxRangeOptions` is refused instead of taking its default (G5-284);
   zero still takes the default, as `MergeOptions` already did.
   `Open`, `Verify` and `Merge` (for `MergeOptions.Reader`) return a plain error naming the field before any read,
