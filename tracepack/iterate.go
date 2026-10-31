@@ -83,7 +83,8 @@ func clonePtr[T any](v *T) *T {
 // Every block Iterate reads is read in full and checked against I-2 before any of its records is used
 // (the tracepack format specification §6).
 // A block that fails a check, or exceeds ReaderOptions.MaxBlockLen, adds a Defect and yields nothing,
-// and iteration continues with the next block.
+// and iteration continues with the next block;
+// each Defect's Err wraps the sentinel Defect.Err names for its reason, ErrChecksum or ErrCorrupt for a failed check.
 // An indexed block whose records disagree with its F-2 entry adds an IncompleteReasonIndexMismatch Defect
 // and still yields its records, which passed every check of the block itself.
 //

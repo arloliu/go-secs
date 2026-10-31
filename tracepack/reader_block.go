@@ -1,6 +1,7 @@
 package tracepack
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -86,12 +87,31 @@ func storedRecord(h *format.RecordHeader, payload []byte) Record {
 // blockDefect returns the defect of block i, whose BlockInfo is info, at the block's envelope offset.
 // Every defect of a block carries that offset,
 // because a failed check of the decoded body has no file offset of its own.
+//
+// Its Err wraps err beside the sentinel of the reason (blockFault):
+// none for IncompleteReasonLimit, whose err wraps ErrReadLimit;
+// ErrChecksum for a CRC mismatch, and ErrCorrupt for any other failed check or disagreement.
+// The checks the Writer shares with a read return their errors unclassified,
+// so only a read's defect, never a Writer's refusal, carries ErrCorrupt.
 func blockDefect(i int, info *BlockInfo, reason IncompleteReason, err error) *Defect {
-	return &Defect{
-		Reason: reason,
-		Block:  i,
-		Offset: int64(info.Offset),
-		Err:    fmt.Errorf("tracepack: block %d at offset %d: %w", i, info.Offset, err),
+	e := fmt.Errorf("tracepack: block %d at offset %d: %w", i, info.Offset, err)
+	if class := blockFault(reason, err); class != nil {
+		e = wrapf("tracepack: block %d at offset %d: %w: %w", i, info.Offset, class, err)
+	}
+
+	return &Defect{Reason: reason, Block: i, Offset: int64(info.Offset), Err: e}
+}
+
+// blockFault returns the sentinel a defect of reason, caused by err, wraps:
+// nil for IncompleteReasonLimit, ErrChecksum for an err wrapping format.ErrCRC, else ErrCorrupt.
+func blockFault(reason IncompleteReason, err error) error {
+	switch {
+	case reason == IncompleteReasonLimit:
+		return nil
+	case errors.Is(err, format.ErrCRC):
+		return ErrChecksum
+	default:
+		return ErrCorrupt
 	}
 }
 
@@ -112,7 +132,7 @@ func checkEnvelope(raw []byte, info *BlockInfo) (format.BlockEnvelope, Incomplet
 	}
 	// The envelope agrees with info, so the body behind it is exactly body_len bytes.
 	if crc := format.CRC(raw[format.EnvelopeLen:]); crc != env.BodyCRC {
-		return env, IncompleteReasonCorruptBlock, fmt.Errorf("body CRC 0x%08X, body_crc 0x%08X", crc, env.BodyCRC)
+		return env, IncompleteReasonCorruptBlock, fmt.Errorf("body CRC 0x%08X, body_crc 0x%08X: %w", crc, env.BodyCRC, format.ErrCRC)
 	}
 	if !codec.Known(env.Codec) {
 		return env, IncompleteReasonUnknownCodec, fmt.Errorf("codec %d: %w", env.Codec, codec.ErrUnknownCodec)
@@ -294,8 +314,9 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 //     IncompleteReasonLimit, wrapping ErrReadLimit, for a block over MaxBlockLen;
 //     IncompleteReasonUnknownCodec for a codec outside the registry;
 //     IncompleteReasonCorruptBlock for any other failed check, all three with a nil block;
-//     IncompleteReasonIndexMismatch, with the block, for an indexed block whose records disagree with its F-2 entry.
-//   - error: the ReadAt error, wrapping io.ErrUnexpectedEOF for a short read; never one for a block from kept bytes.
+//     IncompleteReasonIndexMismatch, with the block, for an indexed block whose records disagree with its F-2 entry;
+//     all but the first wrap ErrChecksum or ErrCorrupt (blockDefect).
+//   - error: the ReadAt error, as it is, wrapping io.ErrUnexpectedEOF for a short read; never one for a block from kept bytes.
 func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error) {
 	info := &r.blocks[i]
 	if err := r.checkBlockBudget(info); err != nil {

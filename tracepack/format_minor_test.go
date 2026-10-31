@@ -66,11 +66,14 @@ func TestReaderVersionAware(t *testing.T) {
 	requireMinor0Numbers(t, m)
 	// Minor 1 knows the numbers: the entry's siv is not repeatable, and the other values have the wrong types.
 	_, err = UnmarshalPackMetaMinor(raw, 1)
+	require.ErrorIs(t, err, ErrCorrupt)
 	require.ErrorIs(t, err, tlv.ErrDuplicate)
 	_, err = UnmarshalPackMeta(raw)
-	require.ErrorIs(t, err, tlv.ErrDuplicate, "UnmarshalPackMeta decodes with the newest registry")
+	require.ErrorIs(t, err, ErrCorrupt, "UnmarshalPackMeta decodes with the newest registry")
+	require.ErrorIs(t, err, tlv.ErrDuplicate)
 	_, err = openBytes(t, patchHeader(t, file, func(fh *format.FileHeader) { fh.FormatMinor = 1 }), ReaderOptions{})
-	require.ErrorIs(t, err, tlv.ErrDuplicate, "the same metadata in a pack of minor 1 is invalid")
+	require.ErrorIs(t, err, ErrCorrupt, "the same metadata in a pack of minor 1 is invalid")
+	require.ErrorIs(t, err, tlv.ErrDuplicate)
 
 	// Without the entry's second siv, the first value of the wrong type is found.
 	entries, err := tlv.Decode(raw)
@@ -84,6 +87,7 @@ func TestReaderVersionAware(t *testing.T) {
 	_, err = UnmarshalPackMetaMinor(noRedaction, 0)
 	require.NoError(t, err)
 	_, err = UnmarshalPackMetaMinor(noRedaction, 1)
+	require.ErrorIs(t, err, ErrCorrupt)
 	require.ErrorIs(t, err, tlv.ErrType)
 
 	var seen int

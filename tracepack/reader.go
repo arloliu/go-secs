@@ -43,10 +43,11 @@ var (
 	// ErrUnsupportedFormat reports a file whose format_major this package does not read
 	// (the tracepack format specification §14).
 	ErrUnsupportedFormat = errors.New("tracepack: unsupported format version")
-	// ErrChecksum reports a CRC that does not match the bytes it covers:
+	// ErrChecksum reports a CRC that does not match the bytes it covers, of any structure:
 	// the bytes changed after they were written.
 	// Open returns it for the file header and the pack metadata;
-	// PackHeader.FooterErr wraps it for the footer.
+	// PackHeader.FooterErr wraps it for the footer, and for the trailer beside ErrNotFinalized;
+	// Defect.Err wraps it for a block envelope or a block body, whether a read or the forward walk found it.
 	// It also matches ErrCorrupt.
 	ErrChecksum = newChildSentinel("tracepack: checksum mismatch", ErrCorrupt)
 )
@@ -181,10 +182,16 @@ type PackHeader struct {
 	// the trailer places the footer at or after the end of the pack metadata and ending where the trailer starts,
 	// and the footer CRC matches.
 	Finalized bool
-	// FooterErr is non-nil when the footer was not used and the blocks came from the forward walk:
-	// no valid trailer, a footer CRC mismatch,
-	// a footer, or the blocks' F-3 lists in it, over MaxFooterLen (wrapping ErrReadLimit),
-	// or a footer that fails to decode or validate (wrapping ErrInvalidFooter).
+	// FooterErr is non-nil when the footer was not used and the blocks came from the forward walk.
+	// It wraps:
+	// ErrNotFinalized for no valid trailer, alone when the trailer's magic is absent,
+	// beside ErrChecksum for a trailer CRC mismatch,
+	// and beside ErrCorrupt for a trailer whose CRC holds but whose content is invalid
+	// (its version, a value over a format limit, or a footer it places outside the object's block region);
+	// ErrChecksum for a footer CRC mismatch;
+	// ErrReadLimit for a footer, or the blocks' F-3 lists in it, over MaxFooterLen;
+	// or ErrInvalidFooter for a footer that fails to decode or validate.
+	// ErrChecksum and ErrInvalidFooter also match ErrCorrupt.
 	FooterErr error
 	// Trailer is the trailer's content; nil when the trailer is invalid.
 	Trailer *TrailerInfo
@@ -299,11 +306,13 @@ type optionField struct {
 //   - error: ctx's error; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read;
 //     ErrNotTracepack for a size below 80 or a bad file header magic;
 //     an error naming a negative field of opts, after the size check and before any read;
-//     io.ErrUnexpectedEOF for a pack metadata past the end of the object;
+//     ErrCorrupt beside io.ErrUnexpectedEOF for a pack metadata past the end of the object;
 //     ErrUnsupportedFormat for a format_major other than 1;
 //     ErrChecksum for a bad file header or pack metadata CRC;
 //     ErrReadLimit for a pack metadata over MaxPackMetadataLen;
-//     the error of UnmarshalPackMeta.
+//     the error of UnmarshalPackMetaMinor for pack metadata that does not decode or validate,
+//     wrapping ErrCorrupt, beside a *FieldError when an entry is at fault.
+//     A ReadAt error is returned as it is, never as ErrCorrupt.
 func Open(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
 	return openReader(ctx, ra, size, opts, false)
 }
@@ -690,10 +699,11 @@ func (r *Reader) parseFileHeader(head []byte) error {
 	r.hdr = hdr
 
 	if end := r.blocksStart(); end > uint64(r.size) {
-		return fmt.Errorf("tracepack: pack metadata of %d bytes ends at %d, past the %d-byte object: %w",
-			hdr.PackMetadataLen, end, r.size, io.ErrUnexpectedEOF)
+		return wrapf("tracepack: pack metadata of %d bytes ends at %d, past the %d-byte object: %w: %w",
+			hdr.PackMetadataLen, end, r.size, ErrCorrupt, io.ErrUnexpectedEOF)
 	}
-	if int64(hdr.PackMetadataLen) > r.opts.MaxPackMetadataLen {
+	// A limit within the int range keeps the pack metadata addressable where int is 32 bits.
+	if limit := min(r.opts.MaxPackMetadataLen, int64(math.MaxInt-format.FileHeaderLen)); int64(hdr.PackMetadataLen) > limit {
 		return fmt.Errorf("tracepack: pack metadata at offset %d: %d bytes exceed MaxPackMetadataLen %d: %w",
 			format.FileHeaderLen, hdr.PackMetadataLen, r.opts.MaxPackMetadataLen, ErrReadLimit)
 	}
@@ -781,7 +791,7 @@ func (r *Reader) decodeMeta(raw []byte) error {
 // only a read or ctx error fails it.
 func (r *Reader) settleFooter(ctx context.Context, b *bootstrap) error {
 	if b.trailerErr != nil {
-		r.footerErr = fmt.Errorf("tracepack: no valid trailer: %w", b.trailerErr)
+		r.footerErr = trailerError(b.trailerErr)
 
 		return nil
 	}
@@ -892,5 +902,20 @@ func fileHeaderClass(err error) error {
 		return ErrUnsupportedFormat
 	default:
 		return nil
+	}
+}
+
+// trailerError returns the footer error of a pack whose trailer is not valid, its cause err, wrapping ErrNotFinalized:
+// alone for an absent trailer, whose magic does not match;
+// beside ErrChecksum for a trailer CRC mismatch;
+// beside ErrCorrupt for any other fault of a trailer whose magic and CRC hold.
+func trailerError(err error) error {
+	switch {
+	case errors.Is(err, format.ErrBadMagic), errors.Is(err, format.ErrShort):
+		return wrapf("tracepack: no valid trailer: %w: %w", ErrNotFinalized, err)
+	case errors.Is(err, format.ErrCRC):
+		return wrapf("tracepack: no valid trailer: %w: %w: %w", ErrNotFinalized, ErrChecksum, err)
+	default:
+		return wrapf("tracepack: no valid trailer: %w: %w: %w", ErrNotFinalized, ErrCorrupt, err)
 	}
 }

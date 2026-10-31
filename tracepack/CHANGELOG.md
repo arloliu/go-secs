@@ -36,10 +36,31 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   Error text changed with the new wrapping; text is not part of the contract.
   For tracekeep and veq: test `errors.Is` against `ErrCorrupt`, `ErrRequiredTag`, `ErrFieldValue` or `ErrFieldLength`, or `errors.As` into a `*tracepack.FieldError`,
   instead of matching text; `ErrRefused` on the writing calls, `bus.ErrMalformed`, `bus.ErrNotAccepted` and `redact.ErrCannotScreen` match as before.
+- **Breaking:** for code matching read error text or internal causes, the reading calls classify a damaged pack with public sentinels,
+  each fault the same on every path (`Open`, `Iterate`'s `Defect.Err`, `Verify`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `ExportJSONL`,
+  and `Merge` beside `ErrMergeInput`), the cause kept beside it (G5-296).
+  A CRC mismatch of any structure wraps `ErrChecksum`: the trailer's, a block envelope's and a block body's now too.
+  A block that does not decode or validate, an unknown block codec, records, summaries or a walk that disagree with the index or a valid trailer,
+  and pack metadata extending past the end of the object, beside `io.ErrUnexpectedEOF`, wrap `ErrCorrupt`.
+  `PackHeader.FooterErr` wraps `ErrNotFinalized` for a pack with no valid trailer, beside `ErrChecksum` or `ErrCorrupt` when a trailer is present but damaged.
+  `Defect.Err` wraps the sentinel of its `Reason`, `ErrNotFinalized` at the end of the walk of a pack that is not finalized
+  (whose unexported sentinel is gone, its text unchanged), and the README lists them by reason;
+  coverage and crash-gap defects stay descriptive.
+  `Verify`'s `WriterDefect.Err` wraps `ErrInvalidRecord` for `WriterDefectEventFieldValidity` and `WriterDefectEventPayload`.
+  A caller's `ReadAt` error is still returned as it is, never as corrupt.
+  Error text changed with the new wrapping; text is not part of the contract.
+  For tracekeep and veq: test `ErrNotFinalized` (possibly still being written: retry later) before `ErrCorrupt` (report and skip),
+  instead of matching text or reading `Defect.Err`'s text; `Defect.Reason` classifies as before,
+  and tracekeep's orphan quarantine now has `ErrCorrupt` as positive evidence.
 - **Breaking:** `redact.Compile` refuses, with `redact.ErrInvalidPolicy`, a policy whose `PackPolicy` the pack metadata cannot hold:
   an `ID`, `DigestKeyID` or `Encryption.KeyID` that is not valid UTF-8, or a `Version` above 2^63 − 1.
   `NewWriter` refused every such policy's pack metadata, at each flush; it now fails once, at configuration.
   For tracekeep and veq: handle `ErrInvalidPolicy` from `Compile` as before; such a policy never wrote a pack.
+
+### Fixed
+
+- `Open` caps `ReaderOptions.MaxPackMetadataLen` at the largest pack metadata a 32-bit platform can address,
+  so on such a platform a raised budget and a hostile `pack_metadata_len` of 2 GiB or more fail with `ErrReadLimit` instead of panicking.
 
 ## [0.12.0] - 2026-10-31
 
