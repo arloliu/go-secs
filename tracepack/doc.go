@@ -56,7 +56,7 @@
 // The module imports no NATS client.
 //
 // The log service, the consumer that writes the capture's packs, checks each message with the same subpackage,
-// which gives the producer's values of a start through DecodeDescriptor
+// which returns a start's descriptor bytes, whose producer values DecodeDescriptor gives,
 // and derives the values the consumer sets from the payload as received,
 // classified by a Classifier such as classify.NewNamed returns, before any masking.
 // Under a redaction policy the package tracepack/redact masks the records of a flush batch and computes their entries;

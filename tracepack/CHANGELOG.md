@@ -55,7 +55,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   a string that is not valid UTF-8, a u64 above 2^63-1 or a malformed `Unknown` entry.
   It is never added to an error of `Merge`, of `ctx`, of the writer's prior state (`ErrWriterFailed`, `ErrClosed`),
   or of the destination, a `Syncer`, a sink, a segment file or the random source;
-  an error from the caller's own implementation is returned as it is.
+  an error from the caller's own implementation is returned wrapped, its chain intact, with no marker added.
   The error text is unchanged.
   `SegmentWriter.Close` on a failed writer still returns the stored failure, and a repeated `Close` its first result, now without the marker the failing call's error carried.
   For tracekeep: the sentinel list in `internal/ingest/flush.go` can become `errors.Is(err, tracepack.ErrRefused)`;

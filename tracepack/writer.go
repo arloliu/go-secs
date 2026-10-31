@@ -75,7 +75,8 @@ var (
 	// the block was not written and the Writer has failed.
 	ErrValidation = errors.New("tracepack: block failed validation")
 	// ErrWriterFailed reports a call on a Writer that an earlier failure left unusable:
-	// a failed validation, a failed or short write, or a failed sync.
+	// any failed write, short write included, sync, validation or block encoding,
+	// and any error of Close's finalize, a refusal included.
 	// A failure before Close writes the footer leaves the pack unfinalized;
 	// a failure of the footer-and-trailer write or of the sync after it may leave a finalized pack,
 	// which the Writer still reports as failed, since it cannot vouch for it.
@@ -110,8 +111,8 @@ var (
 	// It is never added to an error of Merge, of ctx, or of the Writer's prior state (ErrWriterFailed, ErrClosed),
 	// nor to an error of the destination, a Syncer, a SegmentSink, a SegmentFile or the random source,
 	// nor to an error that holds one of those beside a refusal.
-	// An error from the caller's own io.Writer, Syncer, SegmentSink or SegmentFile is returned as it is, with no marker added,
-	// so one that wraps ErrRefused itself still matches it.
+	// An error from the caller's own io.Writer, Syncer, SegmentSink or SegmentFile is returned wrapped, its chain intact,
+	// with no marker added, so one that wraps ErrRefused itself still matches it.
 	// An unmarked error may be transient: a caller that retries a failed write retries it.
 	ErrRefused = errors.New("tracepack: refused for the call's input")
 )
@@ -142,7 +143,7 @@ type WriterOptions struct {
 	// It has no effect with Uncompressed, but an undefined value fails NewWriter either way.
 	CompressionLevel CompressionLevel
 	// BlockThreshold is the uncompressed block size, in bytes, at which a block is closed;
-	// zero means DefaultBlockThreshold.
+	// zero means DefaultBlockThreshold, and a negative value or one above 2^31-1 is refused.
 	// A block never exceeds it, except a block holding a single record larger than it.
 	BlockThreshold int
 	// SkipValidation turns off the check a Writer runs on every encoded block before writing it:
@@ -223,7 +224,7 @@ type packCommitments struct {
 // the Writer refuses an empty period, a period across UTC hours and a record of another hour than the period's, with ErrScopeBreach.
 //
 // A Writer is not safe for concurrent use.
-// Any failed write, sync or validation leaves it failed:
+// Any failed write, sync, validation or block encoding, and any error of Close's finalize, a refusal included, leaves it failed:
 // every later call returns an error wrapping ErrWriterFailed, and the caller discards the output (see ErrWriterFailed).
 // An error the call's own input determines also wraps ErrRefused, which a later call's ErrWriterFailed does not.
 type Writer struct {
@@ -329,6 +330,7 @@ type Writer struct {
 //     nor masked at write, or when the metadata breaks a writer rule of format 1.1 (see ErrMetadataCommitment),
 //     an error for AssignSeq in a pack masked at write,
 //     an error wrapping ErrScopeBreach when the pack is not an extract and its period is empty or not inside one UTC hour,
+//     an error wrapping ErrSeqOrder for a seq_start, or a NextSeq under AssignSeq, above 2^63-1,
 //     an error naming the first value of opts.Meta the encoding refuses, such as a string that is not valid UTF-8,
 //     a u64 above 2^63-1 or a malformed Unknown entry,
 //     or the error of writing the header,
@@ -823,7 +825,7 @@ func clockDrift(r *Record, ev *TransportEvent, a clockAnchor, tolerance uint64) 
 // r carries quality.redacted exactly when an entry names it, it is a data record or an annotation,
 // and each entry fits it, as a reader checks the record when it reads it;
 // the entries are the ones NewWriter wrote, whatever the caller changed in its pack metadata since.
-// Append copies r.Payload and does not modify any other field of r:
+// Append copies r.Payload and does not modify any field of r other than Seq under AssignSeq:
 // the header it stores is canonical as described on Record, whatever r holds.
 // With WriterOptions.DetectClockSteps, a record whose drift exceeds the tolerance is preceded by a clock-step record,
 // written with the seq before r's in a block of its own after the open block is closed;

@@ -63,7 +63,8 @@ when the next record lies in another hour,
 when it reaches `MaxSegmentBytes` (a soft limit),
 and on `Rotate`.
 `classify.New(maxFrameLen)` returns the go-secs-backed classifier;
-a frame longer than its ceiling is recorded with decode status `oversized` and is not decoded.
+a frame longer than its ceiling is recorded with decode status `oversized` and is not decoded,
+unless an earlier row of the decision table matches.
 `ExampleSegmentWriter` in [example_test.go](example_test.go) records a capture into a directory.
 
 ### Recorder checklist
@@ -202,8 +203,9 @@ and the `SegmentWriter`'s appends, `Tick`, `Rotate` and `Close`.
 so a service retrying a flush parks that batch instead;
 the sentinel beside it, such as `ErrSeqOrder` or `ErrValidation`, says what was refused and whether the writer is still usable.
 An error without the marker may be transient, and is the one to retry:
-your `io.Writer`'s, `Syncer`'s, `SegmentSink`'s or `SegmentFile`'s error is returned as it is, never marked,
-and so is `ctx`'s, `Merge`'s, and the `ErrWriterFailed` or `ErrClosed` of a later call on a failed or closed writer.
+never marked are your `io.Writer`'s, `Syncer`'s, `SegmentSink`'s or `SegmentFile`'s error,
+which is returned wrapped with its chain intact,
+`ctx`'s, `Merge`'s, and the `ErrWriterFailed` or `ErrClosed` of a later call on a failed or closed writer.
 The marker leaves the error's text unchanged.
 
 ## Publishing a capture over a durable bus
