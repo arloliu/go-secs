@@ -2,9 +2,13 @@ package tracepack
 
 import "errors"
 
-// errExternal marks an error that came back from an implementation the caller supplied,
-// or from the system's random source; externalError matches it.
+// errExternal marks an error that came back from an implementation the caller supplied, a ctx included,
+// or from the system's random source, which is not expected to fail (newUUIDv7); externalError matches it.
 var errExternal = errors.New("tracepack: error of a supplied implementation")
+
+// errRecordLimit marks an error that the records written determine and that has no sentinel of its own,
+// a limit of the format they reach; recordLimitError matches it.
+var errRecordLimit = errors.New("tracepack: format limit the records reach")
 
 // refusalSentinels are the sentinels whose errors refuse marks when a writing call returns one:
 // each reports a fault the call's own arguments, options or records determine.
@@ -30,13 +34,21 @@ type argError struct {
 	err error
 }
 
+// recordLimitError marks err as a limit of the format that the records written reach, without changing its text,
+// such as an F-3 entry list longer than the footer's u32 summary_len:
+// refuse marks it, as it does a refusal sentinel, and it matches no public sentinel,
+// so it is neither an invalid argument nor, outside a writing call such as in Merge, a refusal.
+type recordLimitError struct {
+	err error
+}
+
 // refuse returns err with ErrRefused added when it is a refusal of a writing call, and err unchanged otherwise.
 //
 // It returns err unchanged when err is nil or already matches ErrRefused, so nested writing calls mark once;
 // when err holds an external error, which wins over any sentinel beside it,
 // so a supplied implementation cannot impersonate a refusal and a chain of mixed origin stays unmarked;
 // and when err reports the Writer's prior state, ErrWriterFailed or ErrClosed.
-// Otherwise it marks err when it wraps one of refusalSentinels or ErrInvalidArgument.
+// Otherwise it marks err when it wraps one of refusalSentinels or ErrInvalidArgument, or is a recordLimitError.
 //
 // Those exclusions come before the ErrInvalidArgument check,
 // since ErrInvalidQuery and ErrInvalidKey also match ErrInvalidArgument:
@@ -49,7 +61,7 @@ func refuse(err error) error {
 		return err
 	case errors.Is(err, ErrWriterFailed), errors.Is(err, ErrClosed):
 		return err
-	case errors.Is(err, ErrInvalidArgument):
+	case errors.Is(err, ErrInvalidArgument), errors.Is(err, errRecordLimit):
 		return &refusedError{err: err}
 	}
 	for _, s := range refusalSentinels {
@@ -73,6 +85,11 @@ func external(err error) error {
 // argument returns err marked as an invalid argument or option of the call, matching ErrInvalidArgument, its text unchanged.
 func argument(err error) error {
 	return &argError{err: err}
+}
+
+// recordLimit returns err marked as a limit of the format the records written reach (recordLimitError), its text unchanged.
+func recordLimit(err error) error {
+	return &recordLimitError{err: err}
 }
 
 // Error returns the text of the error it marks.
@@ -101,3 +118,12 @@ func (e *argError) Unwrap() error { return e.err }
 
 // Is reports whether target is ErrInvalidArgument.
 func (e *argError) Is(target error) bool { return target == ErrInvalidArgument }
+
+// Error returns the text of the error it marks.
+func (e *recordLimitError) Error() string { return e.err.Error() }
+
+// Unwrap returns the error it marks.
+func (e *recordLimitError) Unwrap() error { return e.err }
+
+// Is reports whether target is errRecordLimit.
+func (e *recordLimitError) Is(target error) bool { return target == errRecordLimit }

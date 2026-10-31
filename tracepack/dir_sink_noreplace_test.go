@@ -403,6 +403,73 @@ func TestDirSinkNoReplaceAfterLink(t *testing.T) {
 	}
 }
 
+// TestDirSinkNoReplaceRemoveFailsSyncs fails the removal of the temporary file after the link succeeded:
+// Commit still syncs every directory of the key, so the published link is made durable,
+// and returns the removal's error, wrapping ErrPublishUncertain, joined before any directory sync's error;
+// the temporary file, a second link to the segment, stays under .partial/.
+func TestDirSinkNoReplaceRemoveFailsSyncs(t *testing.T) {
+	t.Parallel()
+
+	syncErr := errors.New("sync failed")
+	tests := []struct {
+		name string
+		// syncFails makes the sync of root fail too.
+		syncFails bool
+	}{
+		{name: "the syncs succeed"},
+		{name: "a sync fails too", syncFails: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			root := t.TempDir()
+			s, fsys := newNoReplaceDirSink(t, root)
+			key := dirTestKey(t, 0, dirTestPackA)
+			temp := ".partial/" + dirTestPackA.String() + ".tpk"
+			f := writeSegment(t, s, dirTestInfo(0, dirTestPackA), "segment")
+			fsys.fail = func(call string) error {
+				switch {
+				case strings.HasPrefix(call, "remove "):
+					return errInjected
+				case tt.syncFails && call == "syncDir .":
+					return syncErr
+				default:
+					return nil
+				}
+			}
+
+			n := len(fsys.calls)
+			err := f.Commit(t.Context())
+			require.ErrorIs(t, err, ErrPublishUncertain)
+			require.ErrorIs(t, err, errInjected)
+			require.NotErrorIs(t, err, ErrSegmentExists)
+			require.NotErrorIs(t, err, ErrSegmentConflict)
+			calls := fsys.calls[n:]
+			at := slices.Index(calls, "remove "+temp)
+			require.NotEqual(t, -1, at, "the temporary file's removal attempted")
+			assert.Equal(t, dirTestSyncs(), calls[at+1:], "every directory synced after the failed removal")
+			var joined interface{ Unwrap() []error }
+			require.ErrorAs(t, err, &joined)
+			parts := joined.Unwrap()
+			if tt.syncFails {
+				require.Len(t, parts, 2)
+				require.ErrorIs(t, parts[0], errInjected, "the removal's error first")
+				require.ErrorIs(t, parts[1], syncErr, "the sync's error after it")
+				require.ErrorIs(t, parts[1], ErrPublishUncertain)
+			} else {
+				require.Len(t, parts, 1)
+				require.NotErrorIs(t, err, syncErr)
+			}
+
+			keys, partial := dirFiles(t, root)
+			assert.Equal(t, []string{key}, keys, "the segment visible")
+			assert.Len(t, partial, 1, "the temporary file stays")
+			assert.Equal(t, "segment", readKey(t, root, key))
+		})
+	}
+}
+
 // TestDirSinkReplacesByDefault commits a segment whose key already holds a file through a sink without the option:
 // the rename replaces the existing file.
 func TestDirSinkReplacesByDefault(t *testing.T) {
