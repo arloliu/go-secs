@@ -2,6 +2,7 @@ package tracepack
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -96,6 +97,8 @@ func newMergeUnit(raw []byte, d *decodedBlock, s blockSummary, f3 []byte) mergeU
 // then the footer and the trailer.
 // An error after the header returns without closing the Writer, so no footer or trailer is written,
 // and so does a conflict, once every cluster was read and compared.
+// A limit of the format that the archive's blocks reach when the Writer closes (recordLimit) also wraps ErrMergeLimit,
+// as the footer budget does: the archive is over a limit, not a merge input.
 // On error the report holds only the conflicts found.
 func (p *mergePlan) write(ctx context.Context, dst io.Writer, opts *MergeOptions) (MergeReport, error) {
 	m, err := p.startRun(dst, opts)
@@ -120,6 +123,10 @@ func (p *mergePlan) write(ctx context.Context, dst io.Writer, opts *MergeOptions
 		return MergeReport{}, fmt.Errorf("tracepack: merge: %w", err)
 	}
 	if _, err := m.w.closePack(); err != nil {
+		if errors.Is(err, errRecordLimit) {
+			err = wrapf("%w: %w", err, ErrMergeLimit)
+		}
+
 		return MergeReport{}, err
 	}
 	m.rep.Size = m.w.offset
@@ -145,6 +152,9 @@ func (p *mergePlan) startRun(dst io.Writer, opts *MergeOptions) (*mergeRun, erro
 	}
 	// newMergePlan applied the default, so the budget is never 0, which would leave the Writer without one.
 	w.footerBudget = uint64(p.maxFooterLen)
+	if p.maxF3ListLen != 0 {
+		w.maxF3ListLen = p.maxF3ListLen
+	}
 
 	m := &mergeRun{
 		p: p, w: w, codec: w.codec, level: w.level, onConflict: opts.OnConflict, coalesce: !opts.NoCoalesce,
