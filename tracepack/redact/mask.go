@@ -6,7 +6,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"slices"
 
 	"github.com/arloliu/go-secs/tracepack"
@@ -93,21 +92,24 @@ type match struct {
 //   - tracepack.Record: r masked, with quality.redacted added and a payload of its own, when there is an entry;
 //     else r itself, its payload shared with r.
 //   - []tracepack.RedactionEntry: the record's entries; nil when nothing matched.
-//   - error: an error wrapping ErrCannotScreen, ErrNotUnobserved, ErrRedacted or ErrKeySize, or the error of keys;
+//   - error: an error wrapping ErrCannotScreen, ErrNotUnobserved, ErrRedacted or ErrKeySize,
+//     each deterministic: the same record under the same policy and keys fails the same way;
+//     an error wrapping the error of keys, which may be transient, so the call may be retried;
 //     ctx.Err() itself when ctx is done before a key request;
 //     no record or entry is returned with it.
+//     Each error but ctx's names the record's seq after the redact namespace.
 func (c *Compiled) Mask(
 	ctx context.Context, capture tracepack.UUID, r *tracepack.Record, unobserved bool, keys Keys,
 ) (tracepack.Record, []tracepack.RedactionEntry, error) {
 	if unobserved {
 		if !r.Quality.HasAny(tracepack.QualityUnobserved) {
-			return tracepack.Record{}, nil, fmt.Errorf("seq %d: %w", r.Seq, ErrNotUnobserved)
+			return tracepack.Record{}, nil, wrapf("redact: seq %d: %w", r.Seq, ErrNotUnobserved)
 		}
 
 		return *r, nil, nil
 	}
 	if r.Quality.HasAny(tracepack.QualityRedacted) {
-		return tracepack.Record{}, nil, fmt.Errorf("seq %d: %w", r.Seq, ErrRedacted)
+		return tracepack.Record{}, nil, wrapf("redact: seq %d: %w", r.Seq, ErrRedacted)
 	}
 
 	// Control records, transport events and records of any other kind are never masked.
@@ -122,7 +124,7 @@ func (c *Compiled) Mask(
 		ms, err = c.annotationMatches(r.Payload)
 	}
 	if err != nil {
-		return tracepack.Record{}, nil, fmt.Errorf("seq %d: %w", r.Seq, err)
+		return tracepack.Record{}, nil, wrapf("redact: seq %d: %w", r.Seq, err)
 	}
 	if len(ms) == 0 {
 		return *r, nil, nil
@@ -133,7 +135,7 @@ func (c *Compiled) Mask(
 	}
 	digestKey, err := keys.DigestKey(ctx, c.policy.DigestKeyID)
 	if err != nil {
-		return tracepack.Record{}, nil, fmt.Errorf("seq %d: redact: digest key %q: %w", r.Seq, c.policy.DigestKeyID, err)
+		return tracepack.Record{}, nil, wrapf("redact: seq %d: digest key %q: %w", r.Seq, c.policy.DigestKeyID, err)
 	}
 	var encKey []byte
 	if slices.ContainsFunc(ms, func(m match) bool { return m.encrypt }) {
@@ -142,16 +144,16 @@ func (c *Compiled) Mask(
 		}
 		encKey, err = keys.EncryptionKey(ctx, capture, c.policy.Encryption.KeyID)
 		if err != nil {
-			return tracepack.Record{}, nil, fmt.Errorf("seq %d: redact: encryption key %q: %w", r.Seq, c.policy.Encryption.KeyID, err)
+			return tracepack.Record{}, nil, wrapf("redact: seq %d: encryption key %q: %w", r.Seq, c.policy.Encryption.KeyID, err)
 		}
 		if len(encKey) != KeySize {
-			return tracepack.Record{}, nil, fmt.Errorf("seq %d: %w: key %q holds %d bytes", r.Seq, ErrKeySize, c.policy.Encryption.KeyID, len(encKey))
+			return tracepack.Record{}, nil, wrapf("redact: seq %d: %w: key %q holds %d bytes", r.Seq, ErrKeySize, c.policy.Encryption.KeyID, len(encKey))
 		}
 	}
 
 	masked, entries, err := apply(capture, r, ms, digestKey, encKey)
 	if err != nil {
-		return tracepack.Record{}, nil, fmt.Errorf("seq %d: %w", r.Seq, err)
+		return tracepack.Record{}, nil, wrapf("redact: seq %d: %w", r.Seq, err)
 	}
 
 	return masked, entries, nil
@@ -170,7 +172,7 @@ func (c *Compiled) dataMatches(payload []byte) ([]match, error) {
 
 	text, err := secsitem.Screen(payload[framePrefixLen:])
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrCannotScreen, err)
+		return nil, wrapf("%w: %w", ErrCannotScreen, err)
 	}
 	if text.OneItem() && !text.HasContent() {
 		return nil, nil
@@ -228,7 +230,7 @@ func (c *Compiled) annotationMatches(payload []byte) ([]match, error) {
 	}
 	a, err := tracepack.UnmarshalAnnotation(payload)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrCannotScreen, err)
+		return nil, wrapf("%w: %w", ErrCannotScreen, err)
 	}
 	domains := c.annotations[a.AnnotationKind]
 	if len(domains) == 0 {
@@ -292,7 +294,7 @@ func apply(
 		ad := siv.AssociatedData(capture, r.Seq, m.ranges[0].Offset)
 		iv, ct, err := siv.Seal(encKey, ad[:], gather(r.Payload, m.ranges))
 		if err != nil {
-			return tracepack.Record{}, nil, fmt.Errorf("redact: encrypt: %w", err)
+			return tracepack.Record{}, nil, wrapf("redact: encrypt: %w", err)
 		}
 		scatter(out.Payload, m.ranges, ct)
 		entries[i].SIV, entries[i].HasSIV = iv[:], true

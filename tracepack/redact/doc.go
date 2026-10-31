@@ -26,6 +26,15 @@
 // to the holder of the capture's encryption key;
 // it reruns every Marking check on its own inputs and trusts no value its caller built.
 //
+// Errors: each error this package builds wraps one of its sentinels or the cause it reports, under the redact namespace,
+// which each line of its text names once; Mask names the record's seq after it.
+// Every error is deterministic, the same input failing the same way,
+// but an error of the caller's Keys, which Mask returns wrapped, may be transient, and ctx's, which Mask returns as it is.
+// A caller acts on the first of this package's sentinels an error matches, before any cause it wraps:
+// ErrCannotScreen, ErrRedacted and ErrNotUnobserved defer the record;
+// ErrKeySize, ErrInvalidPolicy and ErrDomain call for a fix of the configuration;
+// Restore's sentinels, and tracepack.ErrRedactionDefect for defective stored entries, say why a record cannot be restored.
+//
 // The package imports the tracepack package for its types; tracepack never imports it,
 // so a program that only reads packs links no masking or encryption code.
 package redact

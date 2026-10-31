@@ -204,3 +204,21 @@ func policyMeta(pol *tracepack.RedactionPolicy) *tracepack.PackMeta {
 
 	return m
 }
+
+// TestCompileErrorText names the namespace once when ErrInvalidPolicy wraps another sentinel of this package.
+func TestCompileErrorText(t *testing.T) {
+	t.Parallel()
+
+	p := baselinePolicy(false)
+	p.AnnotationRules = []redact.AnnotationRule{{Kind: tracepack.AnnotationKindUnparsedEntry}}
+	_, err := redact.Compile(p)
+	require.ErrorIs(t, err, redact.ErrInvalidPolicy)
+	require.ErrorIs(t, err, redact.ErrDomain)
+	require.EqualError(t, err, "redact: invalid policy: annotation rule 0: a domain is not 1 to 65535 bytes of UTF-8: 0 bytes")
+
+	p = baselinePolicy(true)
+	p.ItemRules = append(p.ItemRules, p.ItemRules[0])
+	_, err = redact.Compile(p)
+	require.ErrorIs(t, err, redact.ErrOverlappingRules)
+	require.Equal(t, 1, strings.Count(err.Error(), "redact: "), err.Error())
+}

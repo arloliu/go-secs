@@ -2,6 +2,7 @@ package redact_test
 
 import (
 	"bytes"
+	"errors"
 	"slices"
 	"testing"
 
@@ -312,16 +313,40 @@ func TestRestoreUntrustedInput(t *testing.T) {
 		in.rr = nil
 		_, err := in.restore(t)
 		require.ErrorIs(t, err, redact.ErrNotRestorable)
+		require.EqualError(t, err, "redact: the record holds no original to restore: no record or no Marking")
+		_, err = redact.Restore(captureA, nil, &tracepack.RecordRedaction{}, in.policy, in.key)
+		require.ErrorIs(t, err, redact.ErrNotRestorable)
 
 		in = maskedInput(t, 32, ppbody)
 		in.rr.Defects = []tracepack.RedactionDefect{{Seq: 32, Entry: 0, Err: tracepack.ErrRedactionDefect}}
 		_, err = in.restore(t)
 		require.ErrorIs(t, err, tracepack.ErrRedactionDefect)
+		require.EqualError(t, err, "tracepack: redaction defect: seq 32: its Marking lists 1 defects\ntracepack: redaction defect")
 
 		in = maskedInput(t, 32, ppbody)
 		in.rr.WhollyMasked = true
 		_, err = in.restore(t)
 		require.ErrorIs(t, err, tracepack.ErrRedactionDefect)
+		require.EqualError(t, err, "tracepack: redaction defect: seq 32 is wholly masked")
+	})
+
+	t.Run("every listed defect", func(t *testing.T) {
+		t.Parallel()
+
+		first := errors.New("first defect")
+		second := errors.New("second defect")
+		in := maskedInput(t, 34, ppbody)
+		in.rr.Defects = []tracepack.RedactionDefect{
+			{Seq: 34, Entry: 0, Err: first},
+			{Seq: 34, Entry: -1, Err: nil},
+			{Seq: 34, Entry: -1, Err: second},
+		}
+		got, err := in.restore(t)
+		assert.Nil(t, got)
+		require.ErrorIs(t, err, tracepack.ErrRedactionDefect, "even when no listed error wraps it")
+		require.ErrorIs(t, err, first)
+		require.ErrorIs(t, err, second)
+		require.EqualError(t, err, "tracepack: redaction defect: seq 34: its Marking lists 3 defects\nfirst defect\nsecond defect")
 	})
 
 	t.Run("unsupported algorithm", func(t *testing.T) {

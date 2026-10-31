@@ -166,6 +166,7 @@ The query service, its catalog database and the live-tail interface are designed
   refusing a record that already carries `redacted` and is not unobserved (`ErrRedacted`, the record deferred, G5-262),
   key access going through the `redact.Keys` interface, `DigestKey(ctx, keyID)` and `EncryptionKey(ctx, capture, keyID)`, so that custody stays with the caller.
   `Mask` checks `ctx` before each key request, returning `ctx.Err()`, and passes it to `Keys`; nothing else it does blocks (G5-281).
+  An error of `Keys` is returned wrapped and may be transient; every other error of `Mask` is deterministic (G5-296).
   Its output is the one [SEM §8] fixes (G5-268): the `redact-` corpus vectors, which the module's tests regenerate through `Mask`, pin it byte for byte.
   The caller says whether the record is unobserved, from the bus record's bit 7 or `Reader.Unobserved` for a record read back,
   since a stored bit 7 means nothing in a minor-0 pack;
@@ -257,7 +258,7 @@ The query service, its catalog database and the live-tail interface are designed
   given its Marking as `Item.Redaction` reports it and the capture's encryption key, all or nothing per record ([SEM §8] Encryption);
   the caller keeps custody of the key.
   It trusts no value its caller built:
-  it refuses a Marking listing a defect or wholly masked, a policy without both encryption tags (`ErrNoEncryption`),
+  it refuses a Marking listing a defect, its error joining every listed defect's, or wholly masked, a policy without both encryption tags (`ErrNoEncryption`),
   an algorithm other than `aes-siv-cmac-512`, before any decryption, since the associated data does not bind it (`ErrUnsupportedAlgorithm`),
   and a key that is not 64 bytes;
   and it reruns every Marking check on its own inputs.

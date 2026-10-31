@@ -116,7 +116,7 @@ type itemRule struct {
 //     identical patterns, a pattern that is a prefix of another, or patterns whose * and numbered steps can select one item.
 func Compile(p Policy) (*Compiled, error) {
 	if err := checkPackPolicy(&p); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidPolicy, err)
+		return nil, wrapf("%w: %w", ErrInvalidPolicy, err)
 	}
 
 	c := &Compiled{
@@ -126,20 +126,20 @@ func Compile(p Policy) (*Compiled, error) {
 	}
 	for i, r := range p.ItemRules {
 		if err := checkDomain(r.Domain); err != nil {
-			return nil, fmt.Errorf("%w: item rule %d: %w", ErrInvalidPolicy, i, err)
+			return nil, wrapf("%w: item rule %d: %w", ErrInvalidPolicy, i, err)
 		}
 		if r.Stream > maxStream {
-			return nil, fmt.Errorf("%w: item rule %d: stream %d is above %d", ErrInvalidPolicy, i, r.Stream, maxStream)
+			return nil, wrapf("%w: item rule %d: stream %d is above %d", ErrInvalidPolicy, i, r.Stream, maxStream)
 		}
 		pattern, err := secsitem.ParsePattern(r.Path)
 		if err != nil {
-			return nil, fmt.Errorf("%w: item rule %d: %w", ErrInvalidPolicy, i, err)
+			return nil, wrapf("%w: item rule %d: %w", ErrInvalidPolicy, i, err)
 		}
 		key := sf{r.Stream, r.Function}
 		if p.Encryption != nil {
 			for _, other := range c.items[key] {
 				if pattern.Overlaps(other.pattern) {
-					return nil, fmt.Errorf("%w: item rule %d (%q) and the rule of path %q for S%dF%d: %w",
+					return nil, wrapf("%w: item rule %d (%q) and the rule of path %q for S%dF%d: %w",
 						ErrInvalidPolicy, i, r.Path, other.pattern, r.Stream, r.Function, ErrOverlappingRules)
 				}
 			}
@@ -148,7 +148,7 @@ func Compile(p Policy) (*Compiled, error) {
 	}
 	for i, r := range p.AnnotationRules {
 		if err := checkDomain(r.Domain); err != nil {
-			return nil, fmt.Errorf("%w: annotation rule %d: %w", ErrInvalidPolicy, i, err)
+			return nil, wrapf("%w: annotation rule %d: %w", ErrInvalidPolicy, i, err)
 		}
 		c.annotations[r.Kind] = append(c.annotations[r.Kind], r.Domain)
 	}
