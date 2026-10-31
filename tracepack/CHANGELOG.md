@@ -238,6 +238,10 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   when the read reaches the block and once its other calls in flight returned; it used to end the process from a goroutine of its own.
   `FindTransaction` and `FindTransactions` read each hour through `MergeIterate`, so the same holds for them.
   A block read ahead that the read never reaches is dropped with its panic, as with its error.
+- `Verify` lists a block whose records disagree with both its F-2 entry and its F-3 summary once in `VerifyReport.Disagreements`,
+  with its F-2 disagreement, as the format specification §13 requires; it used to list the block twice.
+  The outcome, `tracepack verify`'s `complete` line and the conformance corpus are unchanged;
+  `tracepack verify` prints one `disagreement` line for such a block instead of two.
 
 ### Performance
 

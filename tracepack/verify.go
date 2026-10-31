@@ -140,6 +140,7 @@ type VerifyReport struct {
 	// and the point where the forward walk stopped (IncompleteReasonTruncated, Block -1).
 	Failed []Defect
 	// Disagreements lists, with IncompleteReasonIndexMismatch, every validated block whose records disagree with its F-2 entry or F-3 summary,
+	// once per block in file order, with its F-2 disagreement when it has both,
 	// and, with Block -1, walked blocks that disagree with the trailer's block_count or record_count.
 	Disagreements []Defect
 	// WriterDefects lists the writer defects of the validated blocks, in file order.
@@ -251,11 +252,12 @@ func (r *Reader) analyze(ctx context.Context) (VerifyReport, error) {
 
 			continue
 		}
+		// A block is listed once (the tracepack format specification §13): its F-3 summary is compared only when it agrees with its F-2 entry.
+		if def == nil {
+			def = r.summarize(i, d)
+		}
 		if def != nil {
 			rep.Disagreements = append(rep.Disagreements, *def)
-		}
-		if disagreement := r.summarize(i, d); disagreement != nil {
-			rep.Disagreements = append(rep.Disagreements, *disagreement)
 		}
 
 		if !hasPrev && d.count() > 0 {

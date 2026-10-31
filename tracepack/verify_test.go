@@ -367,6 +367,19 @@ func TestVerifyFooterSummaryDisagrees(t *testing.T) {
 	}
 }
 
+// TestVerifyBlockDisagreesOnce lists a block whose records disagree with both its F-2 entry and its F-3 summary once,
+// with its F-2 disagreement (the tracepack format specification §13).
+func TestVerifyBlockDisagreesOnce(t *testing.T) {
+	t.Parallel()
+
+	rich := richFooterPack(t, CodecZstd)
+	file := resummarized(t, rich.file, rich.blocks, 2, func(s *blockSummary) {
+		s.tsMax++
+		s.qualityUnion |= QualityOrderingUncertain
+	})
+	requireInconsistent(t, mustVerify(t, file), 2, "ts_max")
+}
+
 func TestVerifyRichPackConsistent(t *testing.T) {
 	t.Parallel()
 
