@@ -265,6 +265,7 @@ report each fault of a pack with the same sentinel on every path, the cause kept
 A `ReadAt` the module calls on a goroutine of its own that ends the goroutine instead of returning, through `runtime.Goexit` as `t.FailNow` does,
 fails the call with an error saying the `ReadAt` did not return, never read as the pack's bytes;
 under `Merge` it is a failed read of that input, not `ErrMergeInput`.
+It matches no sentinel of the module: treat it as an error of your `ReaderAt`.
 
 Only a fault of the file header or the pack metadata fails `Open`.
 A trailer or footer that cannot be used is reported by `PackHeader.FooterErr`, and by the read's `FooterErrs`, as `PackError.Err` or `TxPackError.Err`;

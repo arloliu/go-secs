@@ -214,6 +214,7 @@ func TestCompileErrorText(t *testing.T) {
 	_, err := redact.Compile(p)
 	require.ErrorIs(t, err, redact.ErrInvalidPolicy)
 	require.ErrorIs(t, err, redact.ErrDomain)
+	require.NotErrorIs(t, err, tracepack.ErrInvalidArgument, "redact keeps its own sentinels")
 	require.EqualError(t, err, "redact: invalid policy: annotation rule 0: a domain is not 1 to 65535 bytes of UTF-8: 0 bytes")
 
 	p = baselinePolicy(true)

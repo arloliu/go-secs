@@ -1046,7 +1046,7 @@ func TestMergeIteratePrefetchGoexit(t *testing.T) {
 				got := read.finish(t)
 				require.EqualError(t, got.err, fmt.Sprintf("tracepack: pack 0, block 3: read %d bytes at offset %d: ReadAt did not return",
 					info.OnDiskLen, info.Offset))
-				require.NotErrorIs(t, got.err, ErrCorrupt)
+				requireFamilies(t, got.err)
 				assert.Empty(t, got.res.Incomplete, "no defect")
 				assert.Len(t, got.items, 6, "the records of the first three clusters")
 				assert.Zero(t, got.queued, "nothing queued")
