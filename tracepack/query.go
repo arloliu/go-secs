@@ -10,12 +10,17 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
-// ErrInvalidQuery reports a read that cannot run, before anything is read:
+// ErrInvalidQuery reports a read that cannot run, before anything is read,
+// except a Reader or pack_id that a PackSource gives twice for one hour, found when that hour is read:
 // for Reader.Iterate and MergeIterate, a nil fn or a Query whose TimeFrom is after its TimeTo;
 // for MergeIterate also an Order that is not one,
-// a nil reader, a Reader given twice, or two readers holding the same pack_id;
+// a nil reader, a Reader given twice, two readers holding the same pack_id, or a negative MaxHeldBytes or MaxConflicts;
 // for FindTransaction a nil PackSource, a zero TxKey.CaptureID, a TxKey.Seq above 2^63-1, a TxKey.Hour outside [MinTxHour, MaxTxHour],
-// or a last hour scheduled past MaxTxHour;
+// a negative field of TxOptions, a last hour scheduled past MaxTxHour,
+// or a Reader or pack_id the PackSource gives twice for one hour;
+// for FindTransactions a nil PackSource, a nil fn, a zero TxRange.CaptureID, a range not representable as int64 nanoseconds or empty,
+// hours of the range outside [MinTxHour, MaxTxHour], a negative field of TxRangeOptions or of its Lookup,
+// a last hour scheduled past MaxTxHour, or a Reader or pack_id the PackSource gives twice for one hour;
 // for NewReaderSource a nil reader, a Reader given twice, two readers of one pack_id, readers of several tool_ids,
 // an extract, or a reader whose period is empty or not inside one UTC hour.
 var ErrInvalidQuery = errors.New("tracepack: invalid query")
@@ -74,7 +79,8 @@ type Filter struct {
 // the read reuses the Item, and Record.Payload and HeaderExtra alias its buffers,
 // for MergeIterate the block of the record's representative, held until the callback returns.
 // A caller that keeps an Item keeps its Clone.
-// Redaction is allocated for each record and shares no storage with the read, so a kept pointer to it stays valid.
+// Redaction is allocated for each record and shares no storage with the read,
+// so a copy of the pointer taken during the callback stays valid after it.
 type Item struct {
 	// Record is the record as stored.
 	// Payload is set iff Query.Payloads; without it Record.HSMSHeader reports no field available, and HSMSHeader holds the fields.
@@ -101,7 +107,7 @@ type Item struct {
 	Unobserved bool
 	// HSMSHeader is Record.HSMSHeader of the record as stored, whatever Query.Payloads:
 	// the HSMS header fields of its payload and which of them are available.
-	// It is a value, valid after the callback.
+	// It is a value: a copy taken during the callback stays valid after it.
 	HSMSHeader HSMSHeader
 	// Redaction is the Marking of a record that carries quality.redacted or that a redaction entry of its pack names
 	// (the tracepack semantics specification §8), for MergeIterate the entries of the representative's pack:

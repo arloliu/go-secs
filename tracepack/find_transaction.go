@@ -76,10 +76,11 @@ const (
 	// or with its SessionID or System Bytes unavailable.
 	TxGapNoKey TxGapReason = iota + 1
 	// TxGapConflict reports a conflict on a seq of the primary's capture at or above the primary's,
-	// within one hour's read or across hour reads.
+	// within one hour's read or across hour reads; after an early return, only a conflict at the primary.
 	TxGapConflict
 	// TxGapIndex reports a disagreement an hour's read detected (IncompleteReasonIndexMismatch):
-	// a block whose records disagree with its F-2 entry, or another footer value that disagrees with the records it describes.
+	// a block whose records disagree with its F-2 entry, or another footer value that disagrees with the records it describes;
+	// or one the lookup itself detected, records above the primary yielded before it, with Defect zero and no Pack.
 	// The lookup then guarantees only that it is incomplete with this gap; every other fact it reports is best-effort.
 	TxGapIndex
 	// TxGapRead reports a defect of an hour's read other than a coverage entry, a crash gap and an index mismatch:
@@ -134,6 +135,8 @@ type TxKey struct {
 // TxKeyOf returns the TxKey of a primary from its record:
 // the capture_id of its pack, its seq, and its ts_utc_ns as a time, whose UTC hour, HourOf(ts), is the key's Hour.
 // For a record r of a pack whose capture_id is captureID, it is TxKeyOf(captureID, r.Seq, time.Unix(0, r.TSUTCNs)).
+// A ts in an hour outside [MinTxHour, MaxTxHour], such as the first or the last hour that int64 nanoseconds reach,
+// yields a key FindTransaction refuses.
 func TxKeyOf(captureID UUID, seq uint64, ts time.Time) TxKey {
 	return TxKey{CaptureID: captureID, Seq: seq, Hour: HourOf(ts)}
 }
@@ -207,13 +210,13 @@ type TxRecord struct {
 	// InWindow reports that the seq lies inside the window:
 	// above the primary's and below WindowEnd, or above the primary's while WindowEnd is nil.
 	InWindow bool
-	// Bound reports that this version is the closing record or same-key primary at WindowEnd.
+	// Bound reports that this version bounds the window: a same-key primary, or a closing record without a conflict, at WindowEnd.
 	Bound bool
 	// Decidable, Eligible and Valid are the candidate flags, set only when Class has TxCandidate.
 	// Decidable: the version's stream and function, and the primary's stream, are available.
 	// Eligible: the seq lies inside the window and below the first possible same-key primary inside it.
 	// Valid: the version is a valid match, eligible and decidable,
-	// with the primary's stream and the primary's function + 1, or function 0.
+	// with the primary's stream, and either the primary's function + 1 or function 0.
 	Decidable, Eligible, Valid bool
 }
 
@@ -243,7 +246,8 @@ type TxGap struct {
 	// the seq of the first ordering-uncertain record read, the seq of a version outside its hour;
 	// nil when none, as for a crash gap, whose seq Boundary holds.
 	Seq *uint64
-	// Defect is the reason of the read defect a TxGapRead or TxGapIndex reports; zero otherwise.
+	// Defect is the reason of the read defect a TxGapRead or TxGapIndex reports;
+	// zero otherwise, a TxGapIndex gap the lookup itself detected included.
 	Defect IncompleteReason
 	// Coverage is the coverage entry a TxGapCoverage reports,
 	// or, for a TxGapNoKey gap of a missing primary, the first coverage entry that meets the primary's seq and hour;
@@ -331,13 +335,16 @@ type TxResult struct {
 // From the primary it derives the transaction key:
 // the epoch, direction, SessionID and System Bytes, and the stream and function to match.
 // It searches only the seqs above the primary's.
-// The window ends at the smallest seq of a same-key primary or closing record the lookup read;
+// The window ends at the smallest seq of a same-key primary, or closing record without a conflict, the lookup read;
 // a footer's close_seq or boundary entry never bounds it.
 //
 // A primary that is missing where something in its hour's read explains it, conflicting within that read, or without a key
 // ends the lookup after that one hour: such an early return is TxNotFound and incomplete.
+// An early return keeps only the primary's versions and reports only the primary's own gaps,
+// that hour's read defects, scope breaches and unevaluated packs, and the crash gaps meeting that hour;
+// no conflict above the primary, coverage entry, capture-boundary, ordering-uncertain or window reason.
 // A missing primary is explained by a read defect other than a coverage entry or a crash gap, a scope breach,
-// a coverage entry that meets its seq and hour, or a crash gap of its capture that meets its hour;
+// a coverage entry of its capture that meets its seq and hour, or a crash gap of its capture that meets its hour;
 // a primary missing where nothing explains it fails the lookup with ErrNotPrimary.
 //
 // The comparison of a record's copies covers the hours the lookup reads, as MergeIterate's covers the packs it is given:
@@ -579,7 +586,8 @@ func (e TxPackError) Unwrap() error {
 
 // Complete reports whether the lookup is complete: whether Incomplete is empty.
 // A conflict that bears on the lookup is reported in Incomplete as a TxGapConflict gap
-// (the tracepack semantics specification §7.2), while a conflict unrelated to it is listed in Conflicts only;
+// (the tracepack semantics specification §7.2), except one above the primary after an early return (see FindTransaction),
+// while a conflict unrelated to it is listed in Conflicts only;
 // FooterErrs alone never make the lookup incomplete.
 func (r *TxResult) Complete() bool {
 	return len(r.Incomplete) == 0

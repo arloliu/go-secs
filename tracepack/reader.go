@@ -51,7 +51,8 @@ var (
 )
 
 // ErrReadLimit reports a structure larger than a reader budget of ReaderOptions,
-// or a read by MergeIterate over a limit of MergeIterateOptions: MaxHeldBytes or MaxConflicts.
+// or a read by MergeIterate, FindTransaction or FindTransactions over a limit of their options:
+// MaxHeldBytes, MaxConflicts, MaxStateBytes or MaxCachedBytes.
 // It is a resource limit of the reader, not a format defect:
 // a caller raises the budget to read a legitimately larger structure.
 // The error that wraps it names the structure and its offset, or the limit and what would exceed it.
@@ -119,7 +120,7 @@ type ReaderOptions struct {
 // (see ReaderOptions.WholeReadThreshold for which and how many),
 // and reads a block from them when they hold it whole:
 // a compressed block is checked and decoded from them in place, into buffers of the read's own,
-// and a None block, whose body is its records' payloads, is copied first,
+// and a None block, whose on-disk body is its decoded body, is copied first,
 // so nothing a read hands its callback aliases them;
 // any other block is read from the object, currently with one ReadAt.
 // The other buffers Open reads into are dropped when it returns:
@@ -175,7 +176,9 @@ type PackHeader struct {
 	CaptureID        UUID
 	// Meta is the pack metadata, decoded afresh for every PackHeader.
 	Meta *PackMeta
-	// Finalized reports I-5: the trailer magic, the trailer CRC and the footer CRC match.
+	// Finalized reports I-5: the trailer magic and CRC match,
+	// the trailer places the footer at or after the end of the pack metadata and ending where the trailer starts,
+	// and the footer CRC matches.
 	Finalized bool
 	// FooterErr is non-nil when the footer was not used and the blocks came from the forward walk:
 	// no valid trailer, a footer CRC mismatch,
