@@ -435,6 +435,9 @@ type mergeCluster = seqCluster[mergeBlock]
 // inputs after a failing one may already have been read, a ReadAt already entered is waited for whatever ctx says,
 // every open has returned when Merge returns,
 // and a panic of an open is raised on Merge's caller only when the checks reach its input, after every started open has returned;
+// a ReadAt that ends its goroutine instead of returning, as runtime.Goexit does, on a goroutine Merge started,
+// fails its input's open with an error saying it did not return, a failed read of the input,
+// and one made on the caller's goroutine ends that goroutine, as it would anywhere;
 // checks that the inputs carry the same capture-level tags, agree on masking, and allow the archive's format_minor;
 // checks the archive's identities against the inputs;
 // compares the inputs' redaction entries (ErrMergeConflict);
@@ -540,7 +543,8 @@ type mergeCluster = seqCluster[mergeBlock]
 //     no inputs, an input without a ReaderAt, or a negative budget field of opts.Reader;
 //     an error wrapping ErrInvalidArgument for an opts.ReplacementSetID equal to an archive input's replacement_set_id,
 //     or an opts.PackID that names an input or a pack of an input's compacted_from or supersedes;
-//     an error wrapping ErrMergeInput; an error wrapping an input's ReaderAt error, or ErrReadLimit, naming the input;
+//     an error wrapping ErrMergeInput; an error wrapping an input's ReaderAt error, or ErrReadLimit, naming the input,
+//     or saying the input's ReadAt did not return;
 //     a *FieldError validating the archive's pack metadata;
 //     an error wrapping ErrMergeLimit for archive pack metadata longer than opts.Reader.MaxPackMetadataLen,
 //     for an archive footer, or the block summaries kept for it, over opts.MaxFooterLen,
@@ -760,7 +764,7 @@ func openInput(ctx context.Context, i int, in MergeInput, opts ReaderOptions) (*
 	case err == nil:
 	case ctx.Err() != nil && errors.Is(err, ctx.Err()):
 		return nil, fmt.Errorf("tracepack: merge: %w", err)
-	case errors.As(err, &readErr), errors.Is(err, ErrReadLimit):
+	case errors.As(err, &readErr), errors.Is(err, errNoReturn), errors.Is(err, ErrReadLimit):
 		return nil, fmt.Errorf("tracepack: merge: input %d: %w", i, err)
 	default:
 		return nil, fmt.Errorf("%w: input %d: %w", ErrMergeInput, i, err)
@@ -882,7 +886,8 @@ func (e *inputReadError) Unwrap() error {
 // An input whose goroutine has not started its open when the checks reach it is opened on the calling goroutine instead.
 // So the input an error names, the open's or the checks', is the one opening them one after another would name,
 // while ctx is not cancelled and each ReaderAt answers independently of the others'.
-// A panic of an open is raised again here when input i is admitted.
+// A panic of an open is raised again here when input i is admitted;
+// an open whose goroutine ended without returning, which only the input's ReadAt can do (runtime.Goexit), fails input i.
 // Whatever it returns, and when it panics, it first stops the opens it will not admit and waits for every open it launched,
 // so no goroutine of it runs and no ReadAt it issued is in flight once it returns.
 func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts ReaderOptions) error {
@@ -921,13 +926,18 @@ func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts Re
 			if !s.claimed.CompareAndSwap(false, true) {
 				return
 			}
+			returned := false
 			defer func() {
 				if v := recover(); v != nil {
 					s.panicked = &caughtPanic{value: v}
+				} else if !returned {
+					// Only the input's ReadAt runs a caller's code here: it ended the goroutine, as runtime.Goexit does.
+					s.r, s.err = nil, wrapf("tracepack: merge: input %d: %w", k, errNoReturn)
 				}
 				close(s.done)
 			}()
 			s.r, s.err = openInput(octx, k, inputs[k], opts)
+			returned = true
 		})
 	}
 	for k := range min(window, len(inputs)) {

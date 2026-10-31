@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime"
 	"slices"
 	"sync"
 	"testing"
@@ -34,6 +35,8 @@ type readGate struct {
 	fail func(k gateKey) bool
 	// panics selects the calls that panic with readAtPanic, after the gate releases them.
 	panics func(k gateKey) bool
+	// goexits selects the calls that end their goroutine with runtime.Goexit, after the gate releases them.
+	goexits func(k gateKey) bool
 	// release is closed to release the calls held.
 	release chan struct{}
 	// inflight is the calls started and not returned, held or not; peak is its high-water mark.
@@ -88,9 +91,13 @@ func (a *gatedAt) ReadAt(p []byte, off int64) (int, error) {
 	g.inflight--
 	failed := g.fail != nil && g.fail(k)
 	panicking := g.panics != nil && g.panics(k)
+	exiting := g.goexits != nil && g.goexits(k)
 	g.mu.Unlock()
 	if panicking {
 		panic(readAtPanic)
+	}
+	if exiting {
+		runtime.Goexit()
 	}
 	if failed {
 		return 0, errInjected
@@ -1008,6 +1015,44 @@ func TestMergeIteratePrefetchPanic(t *testing.T) {
 				})
 				require.ErrorIs(t, err, errStopIterate)
 				assert.Equal(t, 1, g.calls[panicking], "the panicking block was read ahead")
+			})
+		})
+	}
+}
+
+// TestMergeIteratePrefetchGoexit makes the ReadAt of the fourth of ten one-block clusters, a call the prefetch issues ahead of the demand,
+// end its goroutine with runtime.Goexit instead of returning.
+// A read that reaches the block fails, in each order, with an error saying the ReadAt did not return, wrapped with the block,
+// never reading the unfilled buffer as the block's bytes:
+// it yields the records of the first three clusters, reports no defect, and keeps nothing held, queued or lent.
+func TestMergeIteratePrefetchGoexit(t *testing.T) {
+	t.Parallel()
+
+	file := nonePack(t, seg0, captureLow, prefetchSteps(10))
+	info := mustOpen(t, file, uncachedWindows()).blocks[3]
+	exiting := gateKey{reader: 0, off: int64(info.Offset)}
+	for _, order := range []Order{OrderTime, OrderCapture} {
+		t.Run(order.String(), func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				g := passingGate()
+				g.goexits = func(k gateKey) bool { return k == exiting }
+				readers := openBehindGate(t, g, uncachedWindows(), file)
+				pools := lendTo(readers)
+				read := planPrefetch(t, t.Context(), g, readers, Query{}, MergeIterateOptions{Order: order}, false, nil)
+				read.run(t.Context())
+				require.NotNil(t, read.p.loader.pf, "the block was read ahead")
+				got := read.finish(t)
+				require.EqualError(t, got.err, fmt.Sprintf("tracepack: pack 0, block 3: tracepack: read %d bytes at offset %d: ReadAt did not return",
+					info.OnDiskLen, info.Offset))
+				require.NotErrorIs(t, got.err, ErrCorrupt)
+				assert.Empty(t, got.res.Incomplete, "no defect")
+				assert.Len(t, got.items, 6, "the records of the first three clusters")
+				assert.Zero(t, got.queued, "nothing queued")
+				assert.Zero(t, got.inflight, "no speculative read in flight")
+				requireReturned(t, pools)
+				assert.Equal(t, 1, g.calls[exiting], "the block was read once")
 			})
 		})
 	}

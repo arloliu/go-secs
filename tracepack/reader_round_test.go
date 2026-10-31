@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -30,12 +31,13 @@ type roundAct struct {
 	entered chan struct{}
 	// after, when not nil, is waited on before the call acts.
 	after <-chan struct{}
-	// err fails the call; panic, when not nil, makes it panic instead.
-	err   error
-	panic any
+	// err fails the call; panic, when not nil, makes it panic instead, and goexit makes it end its goroutine with runtime.Goexit.
+	err    error
+	panic  any
+	goexit bool
 	// n is the length the call was asked for.
 	n int
-	// done is closed once the call has returned, normally or by a panic.
+	// done is closed once the call has returned, normally or by a panic, or ended its goroutine.
 	done chan struct{}
 	once sync.Once
 }
@@ -69,6 +71,9 @@ func (r *roundReader) ReadAt(p []byte, off int64) (int, error) {
 	}
 	if a.panic != nil {
 		panic(a.panic)
+	}
+	if a.goexit {
+		runtime.Goexit()
 	}
 	if a.err != nil {
 		return 0, a.err
@@ -203,5 +208,31 @@ func TestReadRoundPanicPrecedence(t *testing.T) {
 				assert.True(t, r.returned(first[0]) && r.returned(first[1]))
 			})
 		})
+	}
+}
+
+// A ReadAt that ends its goroutine with runtime.Goexit, on one of a round's goroutines, fails Open with an error saying it did not return,
+// once every call of the round has returned: the bytes it did not read are never taken for the pack's.
+func TestReadRoundGoexit(t *testing.T) {
+	t.Parallel()
+
+	file, first, second := roundPack(t)
+	for _, round := range [][2]int64{first, second} {
+		for k, off := range round {
+			t.Run(fmt.Sprintf("offset %d", off), func(t *testing.T) {
+				t.Parallel()
+
+				r := newRoundReader(file)
+				exiting := r.at(off)
+				exiting.goexit = true
+				r.at(round[1-k]) // the other call of the round, which reads normally
+				_, err := Open(t.Context(), r, int64(len(file)), roundOptions)
+				require.EqualError(t, err, fmt.Sprintf("tracepack: read %d bytes at offset %d: ReadAt did not return", exiting.n, off))
+				for _, class := range []error{ErrCorrupt, ErrNotTracepack, ErrNotFinalized, ErrReadLimit, ErrInvalidArgument} {
+					require.NotErrorIs(t, err, class)
+				}
+				assert.True(t, r.returned(off) && r.returned(round[1-k]), "both calls of the round ended before Open returned")
+			})
+		}
 	}
 }

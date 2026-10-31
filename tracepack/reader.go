@@ -60,6 +60,11 @@ var (
 // The error that wraps it names the structure and its offset, or the limit and what would exceed it.
 var ErrReadLimit = errors.New("tracepack: structure exceeds a reader budget")
 
+// errNoReturn is the cause of the error that reports a ReadAt call on a goroutine of this package
+// that ended the goroutine, as runtime.Goexit does, instead of returning or panicking;
+// Merge counts it as a failed read of its input, not as a pack it refuses.
+var errNoReturn = errors.New("ReadAt did not return")
+
 // ReaderOptions configures Open.
 //
 // A zero field takes its default, and a negative one fails Open.
@@ -298,12 +303,17 @@ type optionField struct {
 //     once every call of its round has returned;
 //     MergeIterate, and FindTransaction and FindTransactions through it, panic likewise when the read reaches the block of that ReadAt,
 //     once every call in flight has returned (see MergeIterate).
+//     A ReadAt that ends its goroutine instead of returning, as runtime.Goexit does (a test's t.FailNow, for one),
+//     fails Open with an error saying it did not return when the call ran on a goroutine Open started for its round,
+//     and ends the caller's goroutine when it ran there, as a round of one request does;
+//     the bytes it did not read are never taken for the pack's.
 //   - size: the object's size, known before reading.
 //   - opts: see ReaderOptions.
 //
 // Returns:
 //   - *Reader: the Reader; nil on error.
 //   - error: ctx's error; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read;
+//     an error saying a ReadAt did not return, naming its offset;
 //     ErrNotTracepack for a size below 80 or a bad file header magic;
 //     an error wrapping ErrInvalidArgument naming a negative field of opts, after the size check and before any read;
 //     ErrCorrupt beside io.ErrUnexpectedEOF for a pack metadata past the end of the object;
@@ -421,11 +431,20 @@ func readAt(ra io.ReaderAt, buf []byte, off int64) error {
 	return fmt.Errorf("tracepack: read %d bytes at offset %d: %w", len(buf), off, err)
 }
 
+// noReturnError returns the error of a ReadAt call of n bytes at offset off, made on a goroutine of this package,
+// that ended the goroutine, as runtime.Goexit does, instead of returning or panicking:
+// the call returned no count, so nothing it may have put in the buffer is read.
+func noReturnError(n int, off int64) error {
+	return wrapf("tracepack: read %d bytes at offset %d: %w", n, off, errNoReturn)
+}
+
 // readRound checks ctx, then issues the ReadAt calls of reqs concurrently and waits for all of them.
 // It returns the error of the first failing request in the order of reqs, so the result does not depend on timing.
 // A ReadAt that panics on one of the round's goroutines does not end the process:
 // once every call has returned, readRound panics on its caller with the value of the first panicking request in the order of reqs,
 // before any error is considered.
+// A ReadAt that ends its goroutine instead of returning, as runtime.Goexit does, fails its request (noReturnError).
+// A round of one request is read on the caller's goroutine, where such a call ends the caller's goroutine.
 func readRound(ctx context.Context, ra io.ReaderAt, reqs []readReq) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("tracepack: open: %w", err)
@@ -439,12 +458,16 @@ func readRound(ctx context.Context, ra io.ReaderAt, reqs []readReq) error {
 	var wg sync.WaitGroup
 	for i := range reqs {
 		wg.Go(func() {
+			returned := false
 			defer func() {
 				if v := recover(); v != nil {
 					panics[i] = &caughtPanic{value: v}
+				} else if !returned {
+					errs[i] = noReturnError(len(reqs[i].buf), reqs[i].off)
 				}
 			}()
 			errs[i] = readAt(ra, reqs[i].buf, reqs[i].off)
+			returned = true
 		})
 	}
 	wg.Wait()
