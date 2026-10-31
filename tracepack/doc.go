@@ -105,6 +105,7 @@
 // It reports TxMatched, TxAmbiguous or TxNotFound,
 // with the records it kept and every reason the lookup is incomplete, each a TxGap in TxResult.Incomplete, beside any outcome;
 // TxNotFound states nothing about records outside the packs given.
+// TxResult.Complete, Matches and PrimaryVersions give the lookup's completeness, its valid matches and the primary's versions.
 // FindTransactions pairs every primary of one capture in a time range the same way, reading each hour once,
 // and passes each primary's result, equal to FindTransaction's for it, to a callback in ascending hour, then seq.
 // NewReaderSource returns a PackSource over packs the caller opened, all of one tool, such as the files of a NewDirSink,

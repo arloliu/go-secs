@@ -232,11 +232,9 @@ func ExampleFindTransaction() {
 		return
 	}
 	fmt.Println(res.Outcome, "incomplete:", len(res.Incomplete))
-	for _, v := range res.Records {
-		if v.Valid {
-			hdr := v.Record.HSMSHeader()
-			fmt.Printf("reply S%dF%d, %d hour after the primary\n", hdr.Stream, hdr.Function, v.Hour-key.Hour)
-		}
+	for _, v := range res.Matches() {
+		hdr := v.Record.HSMSHeader()
+		fmt.Printf("reply S%dF%d, %d hour after the primary\n", hdr.Stream, hdr.Function, v.Hour-key.Hour)
 	}
 	// Output:
 	// matched incomplete: 0
@@ -322,13 +320,9 @@ func ExampleFindTransactions() {
 	from := time.Unix(0, first).UTC().Truncate(time.Hour)
 	res, err := tracepack.FindTransactions(ctx, src, tracepack.TxRange{CaptureID: capture, From: from, To: from.Add(time.Hour)},
 		tracepack.TxRangeOptions{}, func(p *tracepack.TxPairing) error {
-			for _, v := range p.Result.Records {
-				if v.Class.HasAny(tracepack.TxPrimary) {
-					hdr := v.Record.HSMSHeader()
-					fmt.Printf("S%dF%d: %v\n", hdr.Stream, hdr.Function, p.Result.Outcome)
-
-					break
-				}
+			if pv := p.Result.PrimaryVersions(); pv != nil {
+				hdr := pv[0].Record.HSMSHeader()
+				fmt.Printf("S%dF%d: %v\n", hdr.Stream, hdr.Function, p.Result.Outcome)
 			}
 
 			return nil

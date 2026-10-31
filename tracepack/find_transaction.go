@@ -572,6 +572,51 @@ func (e TxPackError) Unwrap() error {
 	return e.Err
 }
 
+// Complete reports whether the lookup is complete: whether Incomplete is empty.
+// A conflict that bears on the lookup is reported in Incomplete as a TxGapConflict gap
+// (the tracepack semantics specification §7.2), while a conflict unrelated to it is listed in Conflicts only;
+// FooterErrs alone never make the lookup incomplete.
+func (r *TxResult) Complete() bool {
+	return len(r.Incomplete) == 0
+}
+
+// Matches returns every kept version that is a valid match, one with Valid set, in Records order;
+// nil when there is none.
+//
+// Records still holds every version the lookup kept, the diagnostic ones included.
+// The pointers alias elements of the backing array of r.Records:
+// writing through one changes that element,
+// and replacing or reallocating r.Records detaches them from it.
+func (r *TxResult) Matches() []*TxRecord {
+	var out []*TxRecord
+	for i := range r.Records {
+		if r.Records[i].Valid {
+			out = append(out, &r.Records[i])
+		}
+	}
+
+	return out
+}
+
+// PrimaryVersions returns every kept version of the primary, one whose Class has TxPrimary, in Records order,
+// those a later hour's read yielded included;
+// nil when there is none.
+//
+// Records still holds every version the lookup kept, the diagnostic ones included.
+// The pointers alias elements of the backing array of r.Records:
+// writing through one changes that element,
+// and replacing or reallocating r.Records detaches them from it.
+func (r *TxResult) PrimaryVersions() []*TxRecord {
+	var out []*TxRecord
+	for i := range r.Records {
+		if r.Records[i].Class.HasAny(TxPrimary) {
+			out = append(out, &r.Records[i])
+		}
+	}
+
+	return out
+}
+
 // budgets returns the budget fields of o, each refused when negative, in declaration order.
 func (o TxOptions) budgets() []optionField {
 	return []optionField{

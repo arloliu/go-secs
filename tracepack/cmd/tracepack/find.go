@@ -155,7 +155,7 @@ func packPaths(args []string) ([]string, error) {
 // writeFindReport writes the report of the lookup of key.
 func writeFindReport(rw *reportWriter, key tracepack.TxKey, res *tracepack.TxResult) {
 	rw.linef("outcome", "%s", res.Outcome)
-	rw.linef("complete", "%t", len(res.Incomplete) == 0)
+	rw.linef("complete", "%t", res.Complete())
 	rw.linef("key", "capture %s seq %d hour %d", key.CaptureID, key.Seq, key.Hour)
 	stream, function := "unavailable", strconv.Itoa(int(res.Function))
 	if res.StreamAvailable {

@@ -21,6 +21,17 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   `Reader.Iterate` and `MergeIterate` take about 7 ns more per record yielded.
   For tracekeep: the hand copy of an `Item` in `restore.go` becomes `it.Clone()`,
   and `r.Unobserved(&it.Record)` can become `it.Unobserved`.
+- `TxResult.Complete()`, `Matches()` and `PrimaryVersions()`, on `*TxResult`, replace the filters every caller wrote over `Records` (G5-291).
+  `Complete` reports an empty `Incomplete`:
+  unlike a read's, a conflict that bears on the lookup is reported there as a `TxGapConflict` gap,
+  while an unrelated conflict is listed in `Conflicts` only, and footer errors alone never make the lookup incomplete.
+  `Matches` returns the versions with `Valid`,
+  and `PrimaryVersions` those whose `Class` has `TxPrimary`, later hours' included,
+  in `Records` order and nil when there is none.
+  Their pointers alias the elements of `Records`' backing array: writing through one changes that element,
+  and replacing or reallocating `Records` detaches them.
+  `Records` is unchanged and keeps every diagnostic version.
+  The `tracepack find` report and the examples use them; the report's bytes are unchanged.
 - `Quality.HasAll`, `FieldValidity.HasAll` and `TxClass.HasAll` report whether every bit of the argument is set (G5-287);
   `HasAll(0)` is true, and `HasAny(0)` false.
 - `ErrRefused` marks an error that a writing call's own arguments, options or records determine (G5-286),
