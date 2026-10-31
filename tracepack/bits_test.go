@@ -75,13 +75,30 @@ func TestQuality_String(t *testing.T) {
 	}
 }
 
-func TestQuality_Has(t *testing.T) {
+// TestQuality_HasAnyHasAll checks both methods against a value holding two bits,
+// including the zero argument, which no bit of q matches but every bit of q covers.
+func TestQuality_HasAnyHasAll(t *testing.T) {
 	t.Parallel()
 
 	q := tracepack.QualityRedacted | tracepack.QualityCaptureBoundary
-	require.True(t, q.Has(tracepack.QualityRedacted))
-	require.True(t, q.Has(tracepack.QualityCaptureBoundary))
-	require.False(t, q.Has(tracepack.QualityOrderingUncertain))
+	tests := []struct {
+		name     string
+		bits     tracepack.Quality
+		any, all bool
+	}{
+		{"zero", 0, false, true},
+		{"one set", tracepack.QualityRedacted, true, true},
+		{"one clear", tracepack.QualityOrderingUncertain, false, false},
+		{"both set", tracepack.QualityRedacted | tracepack.QualityCaptureBoundary, true, true},
+		{"one set, one clear", tracepack.QualityRedacted | tracepack.QualityOrderingUncertain, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.any, q.HasAny(tt.bits))
+			require.Equal(t, tt.all, q.HasAll(tt.bits))
+		})
+	}
 }
 
 func TestFieldValidity_Names(t *testing.T) {
@@ -140,11 +157,28 @@ func TestFieldValidity_String(t *testing.T) {
 	}
 }
 
-func TestFieldValidity_Has(t *testing.T) {
+// TestFieldValidity_HasAnyHasAll checks both methods against a value holding two bits,
+// including the zero argument, which no bit of v matches but every bit of v covers.
+func TestFieldValidity_HasAnyHasAll(t *testing.T) {
 	t.Parallel()
 
 	v := tracepack.FieldValiditySessionID | tracepack.FieldValidityPType
-	require.True(t, v.Has(tracepack.FieldValiditySessionID))
-	require.True(t, v.Has(tracepack.FieldValidityPType))
-	require.False(t, v.Has(tracepack.FieldValidityFunction))
+	tests := []struct {
+		name     string
+		bits     tracepack.FieldValidity
+		any, all bool
+	}{
+		{"zero", 0, false, true},
+		{"one set", tracepack.FieldValidityPType, true, true},
+		{"one clear", tracepack.FieldValidityFunction, false, false},
+		{"both set", tracepack.FieldValiditySessionID | tracepack.FieldValidityPType, true, true},
+		{"one set, one clear", tracepack.FieldValiditySessionID | tracepack.FieldValidityFunction, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.any, v.HasAny(tt.bits))
+			require.Equal(t, tt.all, v.HasAll(tt.bits))
+		})
+	}
 }

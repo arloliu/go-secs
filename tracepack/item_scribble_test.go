@@ -19,7 +19,7 @@ func scribbleItem(it *Item) {
 	*it = Item{
 		Record:      Record{Seq: 1 << 62, TSUTCNs: -1, MonoPresent: true, Kind: 0xff, Payload: []byte{0xee}},
 		HeaderExtra: []byte{0xdd},
-		Pack:        99,
+		Input:       99,
 		Block:       -7,
 		Conflict:    true,
 		Redaction:   &RecordRedaction{WhollyMasked: true},

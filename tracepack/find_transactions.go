@@ -29,7 +29,7 @@ type TxRange struct {
 // TxRangeOptions configures FindTransactions.
 type TxRangeOptions struct {
 	// Lookup applies to the lookup of each primary as it applies to one FindTransaction:
-	// MaxScopes, and MaxHeldBytes, MaxConflicts and MaxStateBytes, each per lookup;
+	// MaxHours, and MaxHeldBytes, MaxConflicts and MaxStateBytes, each per lookup;
 	// as many lookups as FindTransactions runs at once, currently up to GOMAXPROCS, are charged MaxStateBytes each at once (see FindTransactions).
 	// MaxHeldBytes also bounds the read of each hour into the cache, as it bounds a lookup's read of that hour.
 	Lookup TxOptions
@@ -73,7 +73,7 @@ type TxRangeResult struct {
 //
 // FindTransactions calls src.Readers once for each hour it reads, in ascending order,
 // from the hour of r.From to the last hour a primary's lookup schedules
-// (the hour of r.To − 1 ns plus MaxScopes − 1);
+// (the hour of r.To − 1 ns plus MaxHours − 1);
 // the readers it gets for an hour, in that order, are the hour's observation for the whole call,
 // and they must stay valid until FindTransactions returns.
 // The result of every primary it reports equals FindTransaction's for its key over a PackSource that returns each hour's observation,
@@ -82,14 +82,14 @@ type TxRangeResult struct {
 // that is FindTransaction over src itself.
 //
 // It passes the pairings to fn in ascending hour, then ascending seq;
-// a primary of hour H is passed once hour H + MaxScopes − 1 is read,
+// a primary of hour H is passed once hour H + MaxHours − 1 is read,
 // also when its lookup ended after hour H, as the lookup of a missing, conflicting or keyless primary does.
 // A primary near the end of the hours read can report TxGapOpenWindow
 // because a later hour is empty or not yet written: FindTransactions cannot tell a settled empty hour from one not yet settled.
-// A caller that needs settled results keeps the hour of r.To − 1 ns at or before the last settled hour minus MaxScopes − 1,
+// A caller that needs settled results keeps the hour of r.To − 1 ns at or before the last settled hour minus MaxHours − 1,
 // or calls again once later hours are settled.
 //
-// Each hour is held, read once, while a primary's lookup still needs it, so at most MaxScopes hours at once,
+// Each hour is held, read once, while a primary's lookup still needs it, so at most MaxHours hours at once,
 // bounded by TxRangeOptions.MaxCachedBytes.
 //
 // The lookups of an hour's primaries may run on several goroutines at once:
@@ -273,7 +273,7 @@ func newTxBatch(src PackSource, r TxRange, opts TxRangeOptions, fn func(*TxPairi
 
 	return &txBatch{
 		src: src, r: r, opts: lookup, fn: fn, fromNs: fromNs, toNs: toNs, first: first, last: last,
-		// The map grows with the hours held, at most MaxScopes, each charged when filled; no capacity is reserved ahead of them.
+		// The map grows with the hours held, at most MaxHours, each charged when filled; no capacity is reserved ahead of them.
 		hours: map[int64]*txHourRecord{}, cache: txCacheBudget{limit: limit},
 		ticks: ctxCounter{step: txCtxStep}, workers: runtime.GOMAXPROCS(0),
 	}, nil
@@ -286,8 +286,8 @@ func representableNs(t time.Time) bool {
 
 // run reads the hours in ascending order and pairs the primaries of each hour once its lookups have every hour they read.
 func (b *txBatch) run(ctx context.Context) error {
-	m := int64(b.opts.MaxScopes)
-	// newTxBatch checked that last + MaxScopes - 1 does not pass MaxTxHour.
+	m := int64(b.opts.MaxHours)
+	// newTxBatch checked that last + MaxHours - 1 does not pass MaxTxHour.
 	for h := b.first; h <= b.last+m-1; h++ {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: find transactions: %w", err)
@@ -427,7 +427,7 @@ func (b *txBatch) keep(ctx context.Context, rec *txHourRecord, it *Item, flags u
 // whose ts_utc_ns lies in the hour read and in the batch's range.
 func (b *txBatch) pairs(rec *txHourRecord, it *Item) bool {
 	r := &it.Record
-	if UUID(rec.readers[it.Pack].hdr.CaptureID) != b.r.CaptureID || r.Kind != KindData {
+	if UUID(rec.readers[it.Input].hdr.CaptureID) != b.r.CaptureID || r.Kind != KindData {
 		return false
 	}
 	if r.TSUTCNs < b.fromNs || r.TSUTCNs >= b.toNs || hourOf(r.TSUTCNs) != rec.hour {

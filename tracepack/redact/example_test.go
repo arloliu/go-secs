@@ -50,7 +50,7 @@ func Example() {
 	}
 	e := entries[0]
 	fmt.Println("path:", *e.ItemPath, "domain:", e.Domain, "ranges:", e.MaskedRanges, "siv bytes:", len(e.SIV))
-	fmt.Println("redacted:", masked.Quality.Has(tracepack.QualityRedacted), "header kept:", bytes.Equal(masked.Payload[:23], frame[:23]))
+	fmt.Println("redacted:", masked.Quality.HasAny(tracepack.QualityRedacted), "header kept:", bytes.Equal(masked.Payload[:23], frame[:23]))
 
 	// A reader reports the record's entries and defects in Item.Redaction, and the policy in the pack header.
 	policy := compiled.PackPolicy()

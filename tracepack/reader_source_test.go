@@ -111,14 +111,14 @@ func TestFindTransactionAnyRole(t *testing.T) {
 		txBlock(txBoundaryAt(t, 20, txTestEpoch+1, BoundaryKindStopUnclean, new(h+100), new(h+200)))), 9)
 	src, err := NewReaderSource(openAll(t, segment, retired, unknown))
 	require.NoError(t, err)
-	res, err := FindTransaction(t.Context(), src, txKeyAt(12), TxOptions{MaxScopes: 1})
+	res, err := FindTransaction(t.Context(), src, txKeyAt(12), TxOptions{MaxHours: 1})
 	require.NoError(t, err)
 	assert.Equal(t, TxMatched, res.Outcome)
 	assert.Equal(t, []string{"12@0 primary", "13@0 candidate in eligible decidable valid", "14@0 closing bound"}, recordFlags(res.Records))
 	assert.Equal(t, seg1, res.Records[1].Pack)
 	require.Equal(t, []string{"crash-gap"}, gapSeqs(res.Incomplete))
 	assert.Equal(t, new(seg2), res.Incomplete[0].Pack)
-	assert.Equal(t, []TxScope{{Hour: memTestHour, Packs: []UUID{seg0, seg1, seg2}}}, res.Searched)
+	assert.Equal(t, []TxHour{{Hour: memTestHour, Packs: []UUID{seg0, seg1, seg2}}}, res.Searched)
 }
 
 // TestTxKeyOf builds the key of a primary from its record's time: its hour is HourOf's, before 1970 too.
@@ -194,7 +194,7 @@ func TestReaderSourceEndToEnd(t *testing.T) {
 
 		src, err := NewReaderSource(readers)
 		require.NoError(t, err)
-		res, err := FindTransaction(t.Context(), src, key, TxOptions{MaxScopes: 2})
+		res, err := FindTransaction(t.Context(), src, key, TxOptions{MaxHours: 2})
 		require.NoError(t, err)
 
 		return res

@@ -369,7 +369,7 @@ The query service, its catalog database and the live-tail interface are designed
 - `Query` = `Filter` plus `Payloads`, which decides only whether payloads are returned ([SEM §7.4]);
   without payloads a read over several packs still reads and compares them.
   `Result` carries `Incomplete` and `Conflicts` side by side; neither hides the other.
-  `Incomplete`'s defects and every `Item` name the pack they come from (`Pack`, an index into the readers given; 0 for `Iterate`),
+  `Incomplete`'s defects (`Pack`) and every `Item` (`Input`) name the pack they come from, an index into the readers given (0 for `Iterate`, G5-287),
   and a read over several packs reports a `coverage` entry one pack holds for another capture it reads, located at the pack that holds it (G5-215);
   `FooterErrs` lists each pack whose footer was not used, outside `Incomplete`, since a finalized pack whose walk accounts for every block is complete without its footer.
 - `Filter` uses typed slices (`[]SF`, `[]Kind`, `*[4]byte`) and a time range, with nil meaning "any"; no sentinel values.
@@ -403,12 +403,12 @@ The query service, its catalog database and the live-tail interface are designed
   the readers of every pack given for one UTC hour, of any capture, distinct `pack_id`s, in a fresh slice,
   such as `NewReaderSource` returns over packs the caller opened.
   It derives the key from the primary (G5-122) and fails with `ErrNotPrimary` when the record is not a `data` record whose function is available and odd, or is absent from a complete read (G5-125).
-  `TxOptions`: `MaxScopes` (the hours scheduled from `Hour`, default 2, G5-121), `MaxHeldBytes` per read, `MaxConflicts` over the lookup and `MaxStateBytes` for the lookup's own state.
+  `TxOptions`: `MaxHours` (the hours scheduled from `Hour`, default 2, G5-121, G5-287), `MaxHeldBytes` per read, `MaxConflicts` over the lookup and `MaxStateBytes` for the lookup's own state.
   A zero option field takes its default and a negative one is refused, with the function's argument error,
   an error wrapping `ErrInvalidQuery` before `src` is called, as `FindTransactions` refuses one of `TxRangeOptions` or its `Lookup` (G5-284).
   `TxResult` holds the outcome (`TxMatched`, `TxAmbiguous`, `TxNotFound`; zero only beside an error), the derived key with the W bit,
-  the window end, every kept version as a `TxRecord` with its roles as a `TxClass` bit set (primary, candidate, possible reply, same-key primary, possible same-key primary, closing record, outcome record) and its candidate flags,
-  `Incomplete` with every reason of [SEM §7.2], beside any outcome and none hiding another, the hours read, the conflicts and the footer errors.
+  the window end, every kept version as a `TxRecord` with its roles as a `TxClass` bit set (primary, candidate, possible reply, same-key primary, possible same-key primary, closing record, outcome record), which `HasAny` and `HasAll` test (G5-287), and its candidate flags,
+  `Incomplete` with every reason of [SEM §7.2], beside any outcome and none hiding another, the hours read (`Searched`, each a `TxHour`), the conflicts and the footer errors.
   `TxNotFound` states nothing about records outside the packs given;
   when it detects that a block it read disagrees with its F-2 entry or its F-3 summary, or that another footer value disagrees with the records it describes,
   only `Incomplete` and that defect are guaranteed, every other fact best-effort (G5-203).
@@ -418,7 +418,7 @@ The query service, its catalog database and the live-tail interface are designed
   `TxRangeOptions` holds `Lookup`, the `TxOptions` of every primary's lookup, and `MaxCachedBytes` (default 256 MiB), which bounds, nominally, the hours held at once.
   It calls `src.Readers` once for each hour it reads, in ascending order, reads each hour once into an immutable record,
   and replays it to the lookup of every primary that needs it, so each pairing's `Result` equals `FindTransaction`'s for its key over the same observations;
-  at most `MaxScopes` hours are held, a primary's pairing being passed once the last of its hours scheduled is read.
+  at most `MaxHours` hours are held, a primary's pairing being passed once the last of its hours scheduled is read.
   `fn` receives each `TxPairing{Key, Result}` in ascending hour, then seq, as the caller's own copy, error values shared;
   the first error (a source or read error, `ErrReadLimit` from a budget, ctx, or `fn`'s, returned as is) ends the call, and `TxRangeResult{HoursRead, Primaries}` counts what was done.
   It runs the lookups of an hour's primaries on up to `runtime.GOMAXPROCS(0)` goroutines, none when that is 1 or less (G5-275):

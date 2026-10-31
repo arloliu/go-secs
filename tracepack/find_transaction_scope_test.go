@@ -164,7 +164,7 @@ func TestFindTransactionScopeBreach(t *testing.T) {
 			if tt.other {
 				s.addPack(t, memTestHour, withIDs(t, txBreachPack(t, seg2, 0, false, inHours(1, txBlock(txNote(40, nil)))), seg2, captureHigh))
 			}
-			key, opts := txKeyAt(12), TxOptions{MaxScopes: 2}
+			key, opts := txKeyAt(12), TxOptions{MaxHours: 2}
 			res, err := findTx(t, t.Context(), s, key, opts)
 			require.NoError(t, err)
 			assert.Equal(t, tt.outcome, res.Outcome)
@@ -178,8 +178,8 @@ func TestFindTransactionScopeBreach(t *testing.T) {
 				}
 			}
 
-			snap := newTxSnapshot(t, s, captureLow, key.Hour, key.Hour+int64(opts.MaxScopes))
-			want, notPrimary := snap.expect(key, opts.MaxScopes)
+			snap := newTxSnapshot(t, s, captureLow, key.Hour, key.Hour+int64(opts.MaxHours))
+			want, notPrimary := snap.expect(key, opts.MaxHours)
 			requireTxExpected(t, want, notPrimary, res, err)
 		})
 	}
@@ -235,7 +235,7 @@ func TestFindTransactionScopeBreachSettlement(t *testing.T) {
 
 			s := txHours(t, tt.files, later)
 			key := txKeyAt(tt.seq)
-			res, err := findTx(t, t.Context(), s, key, TxOptions{MaxScopes: 2})
+			res, err := findTx(t, t.Context(), s, key, TxOptions{MaxHours: 2})
 			if tt.notPri {
 				require.ErrorIs(t, err, ErrNotPrimary)
 				assert.Zero(t, res.Outcome)
@@ -266,7 +266,7 @@ func TestFindTransactionScopeBreachGapOrder(t *testing.T) {
 
 	breach := txBreachPack(t, seg1, 0, false, append(txBlock(txRecord(12, nil)), inHours(1, txBlock(txNote(13, nil), txNote(14, nil)))...))
 	s := txHours(t, [][]byte{txMisindexed(t, 20), breach})
-	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 1})
 	require.NoError(t, err)
 	assert.Equal(t, TxNotFound, res.Outcome)
 	assert.Equal(t, []string{"scope-breach@0/13", "scope-breach@0/14", "index@0", "index@0/12", "open-window@"}, gapHours(res.Incomplete))

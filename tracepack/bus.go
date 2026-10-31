@@ -266,7 +266,7 @@ func NewBusRecord(r *Record) BusRecord {
 //     or an inline record whose PayloadLen differs from its payload's length.
 func EncodeBusBody(br *BusRecord) ([]byte, error) {
 	r := &br.Record
-	if r.Quality.Has(QualityRedacted) {
+	if r.Quality.HasAny(QualityRedacted) {
 		return nil, fmt.Errorf("%w: seq %d carries quality.redacted, which a producer never sets", ErrBusMalformed, r.Seq)
 	}
 	if r.Seq > busMaxSeq {
@@ -576,7 +576,7 @@ func DeriveBusRecord(r *Record, cls Classifier) error {
 	}
 
 	status, trailing := DecodeStatusNotAttempted, uint32(0)
-	if cls != nil && (r.Kind != KindData || !r.Quality.Has(QualityUnobserved)) {
+	if cls != nil && (r.Kind != KindData || !r.Quality.HasAny(QualityUnobserved)) {
 		s, n := cls.Frame(r.Payload)
 		status = s
 		if s == DecodeStatusOK || s == DecodeStatusOKWithTrailing {

@@ -93,7 +93,7 @@ func TestMergeMinor(t *testing.T) {
 		r, recs := readMergedRecords(t, out)
 		assert.Equal(t, uint16(0), r.Header().FormatMinor)
 		require.Equal(t, uint64(10), recs[0].Seq)
-		assert.True(t, recs[0].Quality.Has(QualityUnobserved), "the stored bit is kept")
+		assert.True(t, recs[0].Quality.HasAny(QualityUnobserved), "the stored bit is kept")
 		assert.False(t, r.Unobserved(&recs[0]), "and has no meaning")
 	})
 
@@ -158,7 +158,7 @@ func TestMergeMinor0V040(t *testing.T) {
 	a, b := mergeGolden(t, "a.tpk"), mergeGolden(t, "b.tpk")
 	now := time.Unix(0, 1_789_999_200_000_000_000+int64(30*time.Minute)).UTC()
 	opts := mergeOpts()
-	opts.Writer, opts.ReplacementSetID, opts.PackID = "merger/golden", UUID{0x5E, 0x75}, UUID{0xA4, 0xC1}
+	opts.WriterTag, opts.ReplacementSetID, opts.PackID = "merger/golden", UUID{0x5E, 0x75}, UUID{0xA4, 0xC1}
 	opts.Now = func() time.Time { return now }
 	out, _ := mustMerge(t, inputsOf(a, b), opts)
 	assert.Equal(t, uint16(0), layoutHeader(t, out).FormatMinor)

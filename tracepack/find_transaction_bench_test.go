@@ -147,7 +147,7 @@ func perfReuseKeys(recs []Record) []Record {
 }
 
 // BenchmarkFindTransactions pairs every primary of the first of three busy hours with one FindTransactions call,
-// against BenchmarkFindTransactionHour's lookup per primary, with MaxScopes 1, 2 (the default) and 3.
+// against BenchmarkFindTransactionHour's lookup per primary, with MaxHours 1, 2 (the default) and 3.
 // Each "fill" case reads the same hours for a capture without primaries, the cost of filling the cache alone,
 // which pair-ns/primary leaves out; "reuse" pairs traffic whose primaries share association keys heavily.
 func BenchmarkFindTransactions(b *testing.B) {
@@ -186,7 +186,7 @@ func perfFindTransactions(b *testing.B, name string, packs [][]byte, r TxRange, 
 		var stats perfStats
 		src := perfTxSource(b, packs, ReaderOptions{}, 0, &stats)
 		stats.reset()
-		opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: scopes}}
+		opts := TxRangeOptions{Lookup: TxOptions{MaxHours: scopes}}
 		b.ReportAllocs()
 		var res TxRangeResult
 		var records int

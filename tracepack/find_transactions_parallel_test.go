@@ -33,7 +33,7 @@ func txParHour(t *testing.T, n int) (PackSource, TxRange) {
 
 // txParMark returns the result the protocol tests' lookups give for the i-th key: one searched scope, of hour i.
 func txParMark(i int) TxResult {
-	return TxResult{Searched: []TxScope{{Hour: int64(i)}}}
+	return TxResult{Searched: []TxHour{{Hour: int64(i)}}}
 }
 
 // txParOut is what a FindTransactions call of the parallel protocol tests did:
@@ -61,7 +61,7 @@ func txParRun(t *testing.T, ctx context.Context, out *txParOut, n int,
 	})
 	defer watchdog.Stop()
 	src, r := txParHour(t, n)
-	out.res, out.err = findTransactionsWith(ctx, src, r, TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}}, func(p *TxPairing) error {
+	out.res, out.err = findTransactionsWith(ctx, src, r, TxRangeOptions{Lookup: TxOptions{MaxHours: 1}}, func(p *TxPairing) error {
 		k := len(out.passed)
 		want := TxKey{CaptureID: captureLow, Seq: 10 + uint64(k), Hour: memTestHour}
 		if !assert.Equal(t, want, p.Key, "pairing %d", k) || !assert.Equal(t, txParMark(k), p.Result, "pairing %d", k) {

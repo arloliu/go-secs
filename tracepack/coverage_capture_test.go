@@ -110,7 +110,7 @@ func TestFindTransactionCoverageOtherCapture(t *testing.T) {
 
 		cov := Coverage{CaptureID: new(captureLow), SeqFirst: new(uint64(14)), SeqLast: new(uint64(14))}
 		own := txPack(t, seg0, nil, txBlock(txRecord(12, nil), txNote(13, nil), txNote(14, nil), txNote(15, nil), txRecord(16, nil)))
-		res, err := findTx(t, t.Context(), txSource(t, own, foreign(cov)), txKeyAt(12), TxOptions{MaxScopes: 1})
+		res, err := findTx(t, t.Context(), txSource(t, own, foreign(cov)), txKeyAt(12), TxOptions{MaxHours: 1})
 		require.NoError(t, err)
 		assert.Equal(t, TxNotFound, res.Outcome)
 		require.Len(t, res.Incomplete, 1)
@@ -127,7 +127,7 @@ func TestFindTransactionCoverageOtherCapture(t *testing.T) {
 
 		cov := Coverage{CaptureID: new(captureLow), SeqFirst: new(uint64(12)), SeqLast: new(uint64(12))}
 		s := txSource(t, missing, foreign(cov))
-		res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+		res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 3})
 		requireOneScopeRead(t, s)
 		require.NoError(t, err)
 		assert.Equal(t, TxNotFound, res.Outcome)
@@ -137,14 +137,14 @@ func TestFindTransactionCoverageOtherCapture(t *testing.T) {
 		assert.Equal(t, new(uint64(12)), noKey.Seq)
 		assert.Equal(t, &cov, noKey.Coverage)
 		assert.Empty(t, res.Records)
-		assert.Equal(t, []TxScope{{Hour: memTestHour, Packs: []UUID{seg0, seg1}}}, res.Searched)
+		assert.Equal(t, []TxHour{{Hour: memTestHour, Packs: []UUID{seg0, seg1}}}, res.Searched)
 	})
 
 	t.Run("missing primary, an entry of the other capture", func(t *testing.T) {
 		t.Parallel()
 
 		s := txSource(t, missing, foreign(Coverage{CaptureID: new(captureHigh)}))
-		res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+		res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 3})
 		requireOneScopeRead(t, s)
 		require.ErrorIs(t, err, ErrNotPrimary)
 		assert.Empty(t, res.Incomplete)
@@ -185,10 +185,10 @@ func TestFindTransactionCoverageAcrossHours(t *testing.T) {
 			t.Parallel()
 
 			s := txHours(t, [][]byte{own}, [][]byte{foreignIn(1, tt.cov)})
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 2})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 2})
 			require.NoError(t, err)
 			assert.Equal(t, TxNotFound, res.Outcome)
-			assert.Equal(t, []TxScope{{Hour: memTestHour, Packs: []UUID{seg0}}, {Hour: memTestHour + 1, Packs: []UUID{seg1}}}, res.Searched)
+			assert.Equal(t, []TxHour{{Hour: memTestHour, Packs: []UUID{seg0}}, {Hour: memTestHour + 1, Packs: []UUID{seg1}}}, res.Searched)
 			if !tt.gap {
 				assert.Empty(t, res.Incomplete)
 
@@ -208,20 +208,20 @@ func TestFindTransactionCoverageAcrossHours(t *testing.T) {
 
 		cov := Coverage{CaptureID: new(captureLow), SeqFirst: new(uint64(12)), SeqLast: new(uint64(12))}
 		s := txSource(t, foreignIn(0, cov))
-		res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+		res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 3})
 		requireOneScopeRead(t, s)
 		require.NoError(t, err)
 		assert.Equal(t, TxNotFound, res.Outcome)
 		assert.Equal(t, []TxGapReason{TxGapNoKey}, gapReasons(res.Incomplete))
 		assert.Equal(t, &cov, res.Incomplete[0].Coverage)
-		assert.Equal(t, []TxScope{{Hour: memTestHour, Packs: []UUID{seg1}}}, res.Searched)
+		assert.Equal(t, []TxHour{{Hour: memTestHour, Packs: []UUID{seg1}}}, res.Searched)
 	})
 
 	t.Run("missing primary, no pack of its capture, an entry of the other capture", func(t *testing.T) {
 		t.Parallel()
 
 		s := txSource(t, foreignIn(0, Coverage{CaptureID: new(captureHigh)}))
-		_, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+		_, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 3})
 		requireOneScopeRead(t, s)
 		require.ErrorIs(t, err, ErrNotPrimary)
 	})

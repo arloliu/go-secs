@@ -155,7 +155,7 @@ func TestFindOutcomes(t *testing.T) {
 				gaps = append(gaps, strings.TrimSuffix(strings.Fields(g)[0], ":"))
 			}
 			assert.Equal(t, tt.gaps, gaps)
-			assert.Len(t, reportLines(stdout, "searched"), tracepack.DefaultTxMaxScopes)
+			assert.Len(t, reportLines(stdout, "searched"), tracepack.DefaultTxMaxHours)
 			opened, open := o.counts()
 			assert.Positive(t, opened)
 			assert.Zero(t, open, "every file closed")

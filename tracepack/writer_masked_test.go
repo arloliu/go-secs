@@ -129,7 +129,7 @@ func consumeBatch(ctx context.Context, out io.Writer, msgs []busMsg, c *redact.C
 		if err := tracepack.DeriveBusRecord(&br.Record, cls); err != nil {
 			return err
 		}
-		masked, es, err := c.Mask(ctx, br.CaptureID, &br.Record, br.Record.Quality.Has(tracepack.QualityUnobserved), consumerKeys{})
+		masked, es, err := c.Mask(ctx, br.CaptureID, &br.Record, br.Record.Quality.HasAny(tracepack.QualityUnobserved), consumerKeys{})
 		if err != nil {
 			return err
 		}

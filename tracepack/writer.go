@@ -296,8 +296,10 @@ type Writer struct {
 // With opts.AssignSeq the pack metadata's seq_start is opts.NextSeq.
 // A pack that is not an extract needs a period inside one UTC hour, its scope.
 //
-// The file header's format_minor is 1 exactly when the pack holds a format 1.1 feature, and 0 otherwise
-// (the tracepack format specification §14):
+// The file header's format_minor is 2 when the pack holds a format 1.2 feature, recorder_instance_name;
+// else 1 when it holds a format 1.1 feature, and 0 otherwise
+// (the tracepack format specification §14).
+// The format 1.1 features are
 // a redaction entry in a pack whose role is not extract, a redaction_policy with the encryption tags,
 // a redaction entry with siv, or a thinning entry.
 // The pack metadata decides it, since every record that is a format 1.1 feature needs one of them:
@@ -1312,7 +1314,7 @@ func (w *Writer) finalize() error {
 	if err != nil {
 		return err
 	}
-	if w.redactionPresent && !stats.qualityUnion.Has(QualityRedacted) {
+	if w.redactionPresent && !stats.qualityUnion.HasAny(QualityRedacted) {
 		return &FieldError{Field: "redaction-present", Err: ErrMetadataCommitment}
 	}
 
@@ -1372,7 +1374,7 @@ func (c *packCommitments) checkCommitments(r *Record) error {
 	}
 	classified := r.DecodeStatus != DecodeStatusNotAttempted && r.DecodeStatus != DecodeStatusNotApplicable
 
-	return c.checkCommitmentFacts(classified, r.DecodeStatus == DecodeStatusOversized, r.Quality.Has(QualityRedacted))
+	return c.checkCommitmentFacts(classified, r.DecodeStatus == DecodeStatusOversized, r.Quality.HasAny(QualityRedacted))
 }
 
 // checkUnobserved rejects r when it carries quality.unobserved but is not a data record unobserved by design
@@ -1380,7 +1382,7 @@ func (c *packCommitments) checkCommitments(r *Record) error {
 // an error wrapping ErrInvalidRecord when r's own fields break the rule,
 // and a *FieldError wrapping ErrMetadataCommitment when the pack's thinning does not declare its stream and function.
 func (c *packCommitments) checkUnobserved(r *Record) error {
-	if !r.Quality.Has(QualityUnobserved) {
+	if !r.Quality.HasAny(QualityUnobserved) {
 		return nil
 	}
 
@@ -1391,7 +1393,7 @@ func (c *packCommitments) checkUnobserved(r *Record) error {
 		why = "a " + r.Kind.String() + " record"
 	case len(r.Payload) <= fieldSystemBytesEnd:
 		why = fmt.Sprintf("a payload of %d bytes, which holds no message text", len(r.Payload))
-	case !h.Available.Has(FieldValidityStreamAndW) || !h.Available.Has(FieldValidityFunction):
+	case !h.Available.HasAny(FieldValidityStreamAndW) || !h.Available.HasAny(FieldValidityFunction):
 		why = "its stream or function unavailable"
 	case slices.ContainsFunc(r.Payload[fieldSystemBytesEnd:], func(b byte) bool { return b != 0 }):
 		why = "a message text that is not zero-filled"
@@ -1399,7 +1401,7 @@ func (c *packCommitments) checkUnobserved(r *Record) error {
 		why = "decode_status " + r.DecodeStatus.String()
 	case r.TrailingBytes != 0:
 		why = fmt.Sprintf("%d trailing bytes", r.TrailingBytes)
-	case r.Quality.Has(QualityRedacted):
+	case r.Quality.HasAny(QualityRedacted):
 		why = "quality.redacted, but an unobserved record is never masked"
 	default:
 		// r is unobserved by design; only its stream and function remain to check.

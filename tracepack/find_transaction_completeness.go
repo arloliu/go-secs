@@ -13,14 +13,14 @@ import (
 // (the tracepack semantics specification §7.2, `incomplete` reasons):
 // the coverage entries of the primary's capture that meet the lookup's query, the crash gaps that meet the hours scheduled,
 // the capture-boundary records of the primary's epoch, and its ordering-uncertain records.
-// The time range is the one of the hours scheduled, [key.Hour, key.Hour + MaxScopes), in nanoseconds:
+// The time range is the one of the hours scheduled, [key.Hour, key.Hour + MaxHours), in nanoseconds:
 // evaluation runs only once every one of them is read.
 //
 // Returns:
 //   - error: ctx's error, as is; the error of a gap's charge, wrapping ErrReadLimit.
 func (l *txLookup) completenessGaps(ctx context.Context, w *txWindow) error {
 	// checkFindTransaction bounded the last hour by MaxTxHour, so the range fits.
-	from, to := l.key.Hour*hourNs, (l.key.Hour+int64(l.opts.MaxScopes))*hourNs
+	from, to := l.key.Hour*hourNs, (l.key.Hour+int64(l.opts.MaxHours))*hourNs
 	if err := l.coverageGaps(ctx, w, from, to); err != nil {
 		return err
 	}

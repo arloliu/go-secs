@@ -78,7 +78,7 @@ func inputsOf(files ...[]byte) []MergeInput {
 
 // mergeOpts returns the MergeOptions of the tests: a writer tag, generation 1 of epoch 1, and a conflict sink.
 func mergeOpts() MergeOptions {
-	return MergeOptions{Writer: "merge-test", ScopeGeneration: 1, PublisherEpoch: 1, OnConflict: func(Conflict) {}}
+	return MergeOptions{WriterTag: "merge-test", ScopeGeneration: 1, PublisherEpoch: 1, OnConflict: func(Conflict) {}}
 }
 
 // uncachedMergeOpts returns mergeOpts with windows that hold no block (uncachedWindows),
@@ -229,7 +229,7 @@ func TestMergeOptionErrors(t *testing.T) {
 		inputs []MergeInput
 		msg    string
 	}{
-		{name: "no writer", edit: func(o *MergeOptions) { o.Writer = "" }, msg: "Writer is empty"},
+		{name: "no writer", edit: func(o *MergeOptions) { o.WriterTag = "" }, msg: "WriterTag is empty"},
 		{name: "no conflict sink", edit: func(o *MergeOptions) { o.OnConflict = nil }, msg: "OnConflict is nil"},
 		{name: "no conflict sink before an unreadable input", edit: func(o *MergeOptions) { o.OnConflict = nil }, inputs: notPacks, msg: "OnConflict"},
 		{name: "generation 0", edit: func(o *MergeOptions) { o.ScopeGeneration = 0 }, msg: "ScopeGeneration is 0"},

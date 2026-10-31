@@ -27,7 +27,7 @@ type txWindow struct {
 // Any conflict on a seq above the primary's makes the lookup incomplete,
 // so a disputed same-key primary decides nothing more.
 func boundsWindow(v *TxRecord) bool {
-	return v.Class.Has(TxSameKeyPrimary) || v.Class.Has(TxClosing) && !v.Conflict
+	return v.Class.HasAny(TxSameKeyPrimary) || v.Class.HasAny(TxClosing) && !v.Conflict
 }
 
 // in reports whether seq lies inside the window.
@@ -130,7 +130,7 @@ func (l *txLookup) finalWindow(ctx context.Context) (txWindow, error) {
 			w.e, w.bounded = seq, true
 			break
 		}
-		if !w.hasPossible && v.Class.Has(TxPossiblePrimary) {
+		if !w.hasPossible && v.Class.HasAny(TxPossiblePrimary) {
 			w.possible, w.hasPossible = seq, true
 		}
 	}
@@ -148,7 +148,7 @@ func (l *txLookup) windowGaps(ctx context.Context, w *txWindow) error {
 	if !w.bounded {
 		return l.addGap(ctx, TxGap{
 			Reason: TxGapOpenWindow, Block: -1, Offset: -1,
-			Err: fmt.Errorf("no record read in hours [%d, %d) bounds the window", l.key.Hour, l.key.Hour+int64(l.opts.MaxScopes)),
+			Err: fmt.Errorf("no record read in hours [%d, %d) bounds the window", l.key.Hour, l.key.Hour+int64(l.opts.MaxHours)),
 		})
 	}
 	if l.skipSeqGap {
@@ -241,7 +241,7 @@ func (l *txLookup) flagRecords(ctx context.Context, w *txWindow) (int, error) {
 		seq := v.Record.Seq
 		v.InWindow = w.in(seq)
 		v.Bound = w.bounded && seq == w.e && boundsWindow(v)
-		if v.Class.Has(TxCandidate) {
+		if v.Class.HasAny(TxCandidate) {
 			l.flagCandidate(v, w)
 			if v.Valid {
 				valid++
@@ -281,11 +281,11 @@ func (l *txLookup) unavailable(v *TxRecord, w *txWindow) string {
 	switch {
 	case !v.InWindow:
 		return ""
-	case v.Class.Has(TxPossibleReply):
+	case v.Class.HasAny(TxPossibleReply):
 		return fmt.Sprintf("seq %d could be the reply: a field it would need is unknown or unavailable", v.Record.Seq)
-	case v.Class.Has(TxCandidate) && v.Eligible && !v.Decidable:
+	case v.Class.HasAny(TxCandidate) && v.Eligible && !v.Decidable:
 		return fmt.Sprintf("the candidate at seq %d cannot be decided: a stream or function is unavailable", v.Record.Seq)
-	case v.Class.Has(TxCandidate) && !v.Eligible:
+	case v.Class.HasAny(TxCandidate) && !v.Eligible:
 		return fmt.Sprintf("the candidate at seq %d lies at or after a possible primary of the same key at seq %d", v.Record.Seq, w.possible)
 	default:
 		return ""

@@ -104,7 +104,7 @@ func TestMergeClose(t *testing.T) {
 			assert.Equal(t, []uint64{0, 1, 2, format.MaxU64}, run.seqs())
 			last := run.items[3].rec
 			assert.Equal(t, KindTransportEvent, last.Kind)
-			assert.True(t, last.Quality.Has(QualityCaptureBoundary))
+			assert.True(t, last.Quality.HasAny(QualityCaptureBoundary))
 
 			// A merge of the close alone.
 			alone, rep, err := mergeBytes(t.Context(), inputsOf(closePack), opts)

@@ -135,7 +135,7 @@ func markingRecord(rec *Record) marking.Record {
 		kind = marking.KindAnnotation
 	}
 
-	return marking.Record{Seq: rec.Seq, Kind: kind, Redacted: rec.Quality.Has(QualityRedacted), Payload: rec.Payload}
+	return marking.Record{Seq: rec.Seq, Kind: kind, Redacted: rec.Quality.HasAny(QualityRedacted), Payload: rec.Payload}
 }
 
 // redactionDefectError returns err, a failed Marking check, as the Err of a RedactionDefect.
@@ -218,7 +218,7 @@ func newAppendMarking(policy *RedactionPolicy, entries []RedactionEntry, redacti
 //     for the first failed check.
 func (am *appendMarking) check(rec *Record) error {
 	idx := am.x.bySeq[rec.Seq]
-	if len(idx) == 0 && !rec.Quality.Has(QualityRedacted) {
+	if len(idx) == 0 && !rec.Quality.HasAny(QualityRedacted) {
 		return nil
 	}
 
@@ -286,7 +286,7 @@ func (x *redactionIndex) headerDefects() []RedactionDefect {
 // else the copies of its entries, its bootstrap and read defects, and whether it is wholly masked.
 func (x *redactionIndex) record(rec *Record) *RecordRedaction {
 	idx := x.bySeq[rec.Seq]
-	if len(idx) == 0 && !rec.Quality.Has(QualityRedacted) {
+	if len(idx) == 0 && !rec.Quality.HasAny(QualityRedacted) {
 		return nil
 	}
 

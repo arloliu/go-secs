@@ -916,7 +916,7 @@ func TestEncodeBusBodyRefuses(t *testing.T) {
 	payload := busFrame(1, 3, nil)
 	br, err := CheckBusMessage(busEnvelope(t, 5), busRawBody(5, uint16(QualityRedacted), payload))
 	require.NoError(t, err)
-	assert.True(t, br.Record.Quality.Has(QualityRedacted))
+	assert.True(t, br.Record.Quality.HasAny(QualityRedacted))
 	_, err = EncodeBusBody(&br)
 	require.ErrorIs(t, err, ErrBusMalformed)
 }

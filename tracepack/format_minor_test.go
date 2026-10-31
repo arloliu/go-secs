@@ -90,7 +90,7 @@ func TestReaderVersionAware(t *testing.T) {
 	_, err = r.Iterate(t.Context(), Query{Payloads: true}, func(it *Item) error {
 		if it.Record.Seq == 1 {
 			seen++
-			assert.True(t, it.Record.Quality.Has(QualityUnobserved), "the stored bit 7 is kept")
+			assert.True(t, it.Record.Quality.HasAny(QualityUnobserved), "the stored bit 7 is kept")
 			assert.False(t, r.Unobserved(&it.Record), "a minor-0 pack gives bit 7 no meaning")
 		}
 

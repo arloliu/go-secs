@@ -115,7 +115,7 @@ func mergeInputs(files ...[]byte) []tracepack.MergeInput {
 // maskedMergeOpts returns the options of the masked merge tests, every conflict appended to conflicts.
 func maskedMergeOpts(conflicts *[]tracepack.Conflict) tracepack.MergeOptions {
 	return tracepack.MergeOptions{
-		Writer: "merge-test", ScopeGeneration: 1, PublisherEpoch: 1,
+		WriterTag: "merge-test", ScopeGeneration: 1, PublisherEpoch: 1,
 		OnConflict: func(c tracepack.Conflict) { *conflicts = append(*conflicts, c) },
 	}
 }

@@ -662,10 +662,10 @@ func readCheckedWith(t *testing.T, readers []*Reader, q Query, opts MergeIterate
 		latest[[2]int{pack, block}] = buf
 	}
 	fn := func(it *Item) error {
-		buf := latest[[2]int{it.Pack, it.Block}]
-		require.NotNil(t, buf, "pack %d, block %d: the representative was read", it.Pack, it.Block)
-		require.NotNil(t, buf.view, "pack %d, block %d: the representative is held while fn runs", it.Pack, it.Block)
-		require.True(t, pool.lent(buf), "pack %d, block %d: the representative's buffer is lent while fn runs", it.Pack, it.Block)
+		buf := latest[[2]int{it.Input, it.Block}]
+		require.NotNil(t, buf, "pack %d, block %d: the representative was read", it.Input, it.Block)
+		require.NotNil(t, buf.view, "pack %d, block %d: the representative is held while fn runs", it.Input, it.Block)
+		require.True(t, pool.lent(buf), "pack %d, block %d: the representative's buffer is lent while fn runs", it.Input, it.Block)
 		out.items = append(out.items, copyItem(it))
 		if call != nil {
 			return call(it)

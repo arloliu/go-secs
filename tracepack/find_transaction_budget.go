@@ -27,9 +27,9 @@ const (
 	// txGapCharge is the fixed charge of a gap, its seq and pack_id included; each hour of its own Hours adds txHourCharge.
 	txGapCharge = (int64(unsafe.Sizeof(TxGap{})+unsafe.Sizeof(uint64(0))+unsafe.Sizeof(UUID{})) +
 		txAlignMask) &^ txAlignMask
-	// txScopeCharge is the fixed charge of an hour's read: its TxScope and its run set;
+	// txScopeCharge is the fixed charge of an hour's read: its TxHour and its run set;
 	// each pack of the hour adds txPackCharge.
-	txScopeCharge = (int64(unsafe.Sizeof(TxScope{})+unsafe.Sizeof(txRuns{})+unsafe.Sizeof(uintptr(0))) +
+	txScopeCharge = (int64(unsafe.Sizeof(TxHour{})+unsafe.Sizeof(txRuns{})+unsafe.Sizeof(uintptr(0))) +
 		txAlignMask) &^ txAlignMask
 	// txPackCharge is the charge of one pack_id.
 	txPackCharge = int64(unsafe.Sizeof(UUID{}))

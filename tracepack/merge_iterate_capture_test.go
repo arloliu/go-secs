@@ -272,7 +272,7 @@ func TestRunCaptureExcluded(t *testing.T) {
 		require.NoError(t, p.build(t.Context(), readers, &early))
 		var items []yieldView
 		require.NoError(t, p.runCapture(t.Context(), &early, func(it *Item) error {
-			items = append(items, yieldView{pack: it.Pack, block: it.Block, seq: it.Record.Seq})
+			items = append(items, yieldView{pack: it.Input, block: it.Block, seq: it.Record.Seq})
 			return nil
 		}))
 		assert.Equal(t, []yieldView{{pack: 1, seq: 1}, {pack: 1, seq: 2}, {pack: 1, block: 1, seq: 3}}, items)
@@ -293,7 +293,7 @@ func TestRunCaptureExcluded(t *testing.T) {
 			var items []yieldView
 			var blocks [][2]int
 			yield := func(it *Item) error {
-				items = append(items, yieldView{pack: it.Pack, block: it.Block, seq: it.Record.Seq, conflict: it.Conflict})
+				items = append(items, yieldView{pack: it.Input, block: it.Block, seq: it.Record.Seq, conflict: it.Conflict})
 				return nil
 			}
 			o, err := checkMergeIterate(t.Context(), readers, &q, MergeIterateOptions{Order: OrderCapture}, yield)

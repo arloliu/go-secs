@@ -306,7 +306,7 @@ func BenchmarkMergeSegments(b *testing.B) {
 		}{{"default", false}, {"uncompressed", true}} {
 			b.Run(profile.name+"/"+mode.name, func(b *testing.B) {
 				opts := MergeOptions{
-					Writer: "bench", ScopeGeneration: 1, PublisherEpoch: 1, Uncompressed: mode.uncompressed,
+					WriterTag: "bench", ScopeGeneration: 1, PublisherEpoch: 1, Uncompressed: mode.uncompressed,
 					OnConflict: func(Conflict) {},
 				}
 				b.SetBytes(perfContentBytes(recs))
@@ -412,7 +412,7 @@ func BenchmarkCompressionLevels(b *testing.B) {
 		})
 		b.Run("merge/"+level.String(), func(b *testing.B) {
 			opts := MergeOptions{
-				Writer: "bench", ScopeGeneration: 1, PublisherEpoch: 1, CompressionLevel: level,
+				WriterTag: "bench", ScopeGeneration: 1, PublisherEpoch: 1, CompressionLevel: level,
 				OnConflict: func(Conflict) {},
 			}
 			b.SetBytes(perfContentBytes(recs))

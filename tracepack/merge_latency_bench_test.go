@@ -10,7 +10,7 @@ import (
 func BenchmarkMergeSegmentsLatency(b *testing.B) {
 	recs := perfHour(true, 0)
 	segs := mergeBenchSegments(b, recs)
-	opts := MergeOptions{Writer: "bench", ScopeGeneration: 1, PublisherEpoch: 1, OnConflict: func(Conflict) {}}
+	opts := MergeOptions{WriterTag: "bench", ScopeGeneration: 1, PublisherEpoch: 1, OnConflict: func(Conflict) {}}
 	var stats perfStats
 	var out bytes.Buffer
 	b.SetBytes(perfContentBytes(recs))

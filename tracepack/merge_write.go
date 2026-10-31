@@ -232,8 +232,8 @@ func (p *mergePlan) readInputBlock(ctx context.Context, b *mergeBlock, buf *bloc
 //   - error: the first record that fails a check, by seq; nil when every record passes.
 func (p *mergePlan) checkRecords(i int, d *decodedBlock, s *blockSummary) error {
 	r := p.inputs[i]
-	marked := r.meta.RedactionPolicy != nil && (s.qualityUnion.Has(QualityRedacted) || r.redaction.namesAny(s.firstSeq, s.lastSeq))
-	unobserved := r.hdr.FormatMinor >= 1 && s.qualityUnion.Has(QualityUnobserved)
+	marked := r.meta.RedactionPolicy != nil && (s.qualityUnion.HasAny(QualityRedacted) || r.redaction.namesAny(s.firstSeq, s.lastSeq))
+	unobserved := r.hdr.FormatMinor >= 1 && s.qualityUnion.HasAny(QualityUnobserved)
 	if !marked && !unobserved {
 		return nil
 	}
@@ -243,7 +243,7 @@ func (p *mergePlan) checkRecords(i int, d *decodedBlock, s *blockSummary) error 
 	for k := range d.count() {
 		h := d.header(k)
 		rec := storedRecord(&h, d.payload(k))
-		if unobserved && rec.Quality.Has(QualityUnobserved) {
+		if unobserved && rec.Quality.HasAny(QualityUnobserved) {
 			if err := thinned.checkUnobserved(&rec); err != nil {
 				return fmt.Errorf("seq %d: %w", rec.Seq, err)
 			}
