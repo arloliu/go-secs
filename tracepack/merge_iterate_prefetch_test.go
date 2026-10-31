@@ -946,6 +946,7 @@ func comparePrefetch(t *testing.T, open func(*readGate) []*Reader, q Query, opts
 // TestMergeIteratePrefetchPanic makes the ReadAt of the fourth of ten one-block clusters panic, a call the prefetch issues ahead of the demand.
 // A read that reaches the block panics with the same value on the caller's goroutine, in each order, as the read without prefetch does,
 // having yielded the records of the first three clusters, with no ReadAt call in flight, nothing held and nothing queued;
+// with prefetch and without, nothing stays reserved once the panic is recovered, and every buffer lent was given back.
 // synctest.Test returning shows that no goroutine of the read is left.
 // A read fn stops at its first record never reaches the block: it returns fn's error, the panic dropped with the block,
 // although the prefetch issued the call.
@@ -962,16 +963,21 @@ func TestMergeIteratePrefetchPanic(t *testing.T) {
 				// The read without prefetch issues the call when it reaches the block, on the caller's goroutine.
 				g := passingGate()
 				g.panics = func(k gateKey) bool { return k == panicking }
-				want := planPrefetch(t, t.Context(), g, openBehindGate(t, g, uncachedWindows(), file), Query{},
-					MergeIterateOptions{Order: order}, true, nil)
+				readers := openBehindGate(t, g, uncachedWindows(), file)
+				pools := lendTo(readers)
+				want := planPrefetch(t, t.Context(), g, readers, Query{}, MergeIterateOptions{Order: order}, true, nil)
 				assert.PanicsWithValue(t, readAtPanic, func() { want.run(t.Context()) })
+				want.finish(t)
+				requireReturned(t, pools)
 
 				g = passingGate()
 				g.panics = func(k gateKey) bool { return k == panicking }
-				read := planPrefetch(t, t.Context(), g, openBehindGate(t, g, uncachedWindows(), file), Query{},
-					MergeIterateOptions{Order: order}, false, nil)
+				readers = openBehindGate(t, g, uncachedWindows(), file)
+				pools = lendTo(readers)
+				read := planPrefetch(t, t.Context(), g, readers, Query{}, MergeIterateOptions{Order: order}, false, nil)
 				assert.PanicsWithValue(t, readAtPanic, func() { read.run(t.Context()) })
 				got := read.finish(t)
+				requireReturned(t, pools)
 				assert.Equal(t, want.out.items, got.items, "the records of the first three clusters")
 				assert.Len(t, got.items, 6, "the records of the first three clusters")
 				assert.Zero(t, got.queued, "nothing queued")
@@ -982,7 +988,7 @@ func TestMergeIteratePrefetchPanic(t *testing.T) {
 
 				g = passingGate()
 				g.panics = func(k gateKey) bool { return k == panicking }
-				readers := openBehindGate(t, g, uncachedWindows(), file)
+				readers = openBehindGate(t, g, uncachedWindows(), file)
 				g.arm()
 				yielded := 0
 				assert.PanicsWithValue(t, readAtPanic, func() {
@@ -1004,6 +1010,72 @@ func TestMergeIteratePrefetchPanic(t *testing.T) {
 				assert.Equal(t, 1, g.calls[panicking], "the panicking block was read ahead")
 			})
 		})
+	}
+}
+
+// TestMergeIterateReadPanicReleases makes the ReadAt of a block that a read reads on the caller's goroutine, without prefetch, panic:
+// a block of a capture-order read over two captures, which reads one block at a time,
+// and a walked block's first read, before the read yields anything.
+// The read panics with the same value, and once the panic is recovered nothing stays reserved and every buffer lent was given back.
+func TestMergeIterateReadPanicReleases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("capture order over two captures", func(t *testing.T) {
+		t.Parallel()
+
+		files := [][]byte{nonePack(t, seg0, captureLow, prefetchSteps(6)), nonePack(t, seg1, captureHigh, prefetchSteps(6))}
+		panicking := gateKey{reader: 0, off: int64(mustOpen(t, files[0], uncachedWindows()).blocks[3].Offset)}
+		g := passingGate()
+		g.panics = func(k gateKey) bool { return k == panicking }
+		readers := openBehindGate(t, g, uncachedWindows(), files...)
+		pools := lendTo(readers)
+		read := planPrefetch(t, t.Context(), g, readers, Query{}, MergeIterateOptions{Order: OrderCapture}, false, nil)
+		assert.PanicsWithValue(t, readAtPanic, func() { read.run(t.Context()) })
+		assert.Nil(t, read.p.loader.pf, "no prefetch over two captures")
+		read.finish(t)
+		requireReturned(t, pools)
+		assert.Equal(t, 1, g.calls[panicking], "the panicking block was read once")
+	})
+
+	t.Run("walked block", func(t *testing.T) {
+		t.Parallel()
+
+		file := writeReaderPack(t, readerPackConfig{codec: CodecNone, open: true}, hourRecords(3, 4)).file
+		g := passingGate()
+		readers := openBehindGate(t, g, uncachedWindows(), file)
+		require.False(t, readers[0].blocks[1].Indexed, "the pack is walked")
+		panicking := gateKey{reader: 0, off: int64(readers[0].blocks[1].Offset)}
+		g.panics = func(k gateKey) bool { return k == panicking }
+		pools := lendTo(readers)
+		q := Query{}
+		o, err := checkMergeIterate(t.Context(), readers, &q, MergeIterateOptions{Order: OrderCapture}, acceptItems)
+		require.NoError(t, err)
+		p := newMergeIteratePlan(o)
+		g.arm()
+		assert.PanicsWithValue(t, readAtPanic, func() { _ = p.build(t.Context(), readers, &q) })
+		assert.Zero(t, p.loader.budget.held, "nothing stays reserved")
+		requireReturned(t, pools)
+		assert.Equal(t, 1, g.calls[panicking], "the panicking block was read once")
+	})
+}
+
+// lendTo gives each of readers a loanBufs of its own to take its block buffers from, and returns them in the order of readers.
+func lendTo(readers []*Reader) []*loanBufs {
+	pools := make([]*loanBufs, len(readers))
+	for i, r := range readers {
+		pools[i] = &loanBufs{}
+		r.bufs = pools[i]
+	}
+
+	return pools
+}
+
+// requireReturned requires every buffer each of pools lent to have been given back exactly once.
+func requireReturned(t *testing.T, pools []*loanBufs) {
+	t.Helper()
+
+	for _, pool := range pools {
+		pool.requireSettled(t, -1)
 	}
 }
 
