@@ -2,14 +2,9 @@ package tracepack
 
 import "errors"
 
-var (
-	// errExternal marks an error that came back from an implementation the caller supplied,
-	// or from the system's random source; externalError matches it.
-	errExternal = errors.New("tracepack: error of a supplied implementation")
-	// errArgument marks an error the call's arguments or options determine that wraps no sentinel of its own;
-	// argError matches it.
-	errArgument = errors.New("tracepack: invalid argument")
-)
+// errExternal marks an error that came back from an implementation the caller supplied,
+// or from the system's random source; externalError matches it.
+var errExternal = errors.New("tracepack: error of a supplied implementation")
 
 // refusalSentinels are the sentinels whose errors refuse marks when a writing call returns one:
 // each reports a fault the call's own arguments, options or records determine.
@@ -29,7 +24,8 @@ type externalError struct {
 	err error
 }
 
-// argError marks err as an invalid argument or option of the call, without changing its text.
+// argError marks err as an invalid argument or option of the call, without changing its text:
+// it matches ErrInvalidArgument.
 type argError struct {
 	err error
 }
@@ -40,7 +36,11 @@ type argError struct {
 // when err holds an external error, which wins over any sentinel beside it,
 // so a supplied implementation cannot impersonate a refusal and a chain of mixed origin stays unmarked;
 // and when err reports the Writer's prior state, ErrWriterFailed or ErrClosed.
-// Otherwise it marks err when it wraps one of refusalSentinels or errArgument.
+// Otherwise it marks err when it wraps one of refusalSentinels or ErrInvalidArgument.
+//
+// Those exclusions come before the ErrInvalidArgument check,
+// since ErrInvalidQuery and ErrInvalidKey also match ErrInvalidArgument:
+// a supplied implementation's error wrapping either one stays unmarked.
 func refuse(err error) error {
 	switch {
 	case err == nil, errors.Is(err, ErrRefused):
@@ -49,7 +49,7 @@ func refuse(err error) error {
 		return err
 	case errors.Is(err, ErrWriterFailed), errors.Is(err, ErrClosed):
 		return err
-	case errors.Is(err, errArgument):
+	case errors.Is(err, ErrInvalidArgument):
 		return &refusedError{err: err}
 	}
 	for _, s := range refusalSentinels {
@@ -70,7 +70,7 @@ func external(err error) error {
 	return &externalError{err: err}
 }
 
-// argument returns err marked as an invalid argument or option of the call.
+// argument returns err marked as an invalid argument or option of the call, matching ErrInvalidArgument, its text unchanged.
 func argument(err error) error {
 	return &argError{err: err}
 }
@@ -99,5 +99,5 @@ func (e *argError) Error() string { return e.err.Error() }
 // Unwrap returns the error it marks.
 func (e *argError) Unwrap() error { return e.err }
 
-// Is reports whether target is errArgument.
-func (e *argError) Is(target error) bool { return target == errArgument }
+// Is reports whether target is ErrInvalidArgument.
+func (e *argError) Is(target error) bool { return target == ErrInvalidArgument }

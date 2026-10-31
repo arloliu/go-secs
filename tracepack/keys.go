@@ -37,7 +37,8 @@ const (
 // the key builders return an error wrapping it for arguments no key can hold,
 // and CaptureDescriptor.Validate for a ToolID no key can hold.
 // A retry does not cure it.
-var ErrInvalidKey = errors.New("tracepack: invalid object key")
+// It also matches ErrInvalidArgument.
+var ErrInvalidKey = newChildSentinel("tracepack: invalid object key", ErrInvalidArgument)
 
 // HourOf returns the UTC hour holding t, numbered in whole hours from 1970-01-01T00:00Z,
 // as TxKey.Hour and ArchiveKey number a scope's hour;

@@ -58,11 +58,12 @@ var serialHooks = mergeHooks{open: serialOpenInputs}
 // the io and context sentinels a merge may wrap, and the tests' injected cause,
 // so two outcomes are compared on each, present or absent.
 var mergeSentinels = map[string]error{
-	"ErrAnnotationText": ErrAnnotationText, "ErrChecksum": ErrChecksum, "ErrClosed": ErrClosed,
+	"ErrAnnotationText": ErrAnnotationText, "ErrChecksum": ErrChecksum, "ErrClosed": ErrClosed, "ErrCorrupt": ErrCorrupt,
 	"ErrFieldLength": ErrFieldLength, "ErrFieldValidity": ErrFieldValidity, "ErrFieldValue": ErrFieldValue,
-	"ErrInvalidFooter": ErrInvalidFooter, "ErrInvalidKey": ErrInvalidKey, "ErrInvalidQuery": ErrInvalidQuery,
-	"ErrInvalidRecord": ErrInvalidRecord, "ErrMergeConflict": ErrMergeConflict, "ErrMergeInput": ErrMergeInput,
-	"ErrMergeLimit": ErrMergeLimit, "ErrMetadataCommitment": ErrMetadataCommitment, "ErrNotPrimary": ErrNotPrimary,
+	"ErrInvalidArgument": ErrInvalidArgument, "ErrInvalidFooter": ErrInvalidFooter, "ErrInvalidKey": ErrInvalidKey,
+	"ErrInvalidQuery": ErrInvalidQuery, "ErrInvalidRecord": ErrInvalidRecord, "ErrMergeConflict": ErrMergeConflict,
+	"ErrMergeInput": ErrMergeInput, "ErrMergeLimit": ErrMergeLimit, "ErrMetadataCommitment": ErrMetadataCommitment,
+	"ErrNotFinalized": ErrNotFinalized, "ErrNotPrimary": ErrNotPrimary,
 	"ErrNotTracepack": ErrNotTracepack, "ErrPayloadTooLarge": ErrPayloadTooLarge, "ErrPublishUncertain": ErrPublishUncertain,
 	"ErrReadLimit": ErrReadLimit, "ErrRedactionDefect": ErrRedactionDefect, "ErrRefused": ErrRefused, "ErrRequiredTag": ErrRequiredTag,
 	"ErrReservedTag": ErrReservedTag, "ErrScopeBreach": ErrScopeBreach, "ErrSegmentConflict": ErrSegmentConflict,

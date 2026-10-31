@@ -205,11 +205,19 @@ and the `SegmentWriter`'s appends, `Tick`, `Rotate` and `Close`.
 `errors.Is(err, ErrRefused)` means the same call with the same arguments, options or records fails the same way,
 so a service retrying a flush parks that batch instead;
 the sentinel beside it, such as `ErrSeqOrder` or `ErrValidation`, says what was refused and whether the writer is still usable.
+An invalid argument or option with no sentinel of its own, such as a nil `WriterOptions.Meta`, wraps `ErrInvalidArgument`.
 An error without the marker may be transient, and is the one to retry:
 never marked are your `io.Writer`'s, `Syncer`'s, `SegmentSink`'s or `SegmentFile`'s error,
 which is returned wrapped with its chain intact,
 `ctx`'s, `Merge`'s, and the `ErrWriterFailed` or `ErrClosed` of a later call on a failed or closed writer.
 The marker leaves the error's text unchanged.
+
+Some sentinels belong to a family, and also match its parent under `errors.Is`:
+`ErrChecksum` and `ErrInvalidFooter` match `ErrCorrupt`, bytes that are not a valid tracepack encoding,
+and `ErrInvalidQuery` and `ErrInvalidKey` match `ErrInvalidArgument`, an argument or option the call cannot take.
+`ErrNotFinalized`, a pack with no valid trailer, has no parent.
+Each member keeps its identity and text, so a test of the member matches as before,
+and a caller that handles the whole family tests the parent.
 
 ## Publishing a capture over a durable bus
 

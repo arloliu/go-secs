@@ -105,8 +105,8 @@ var (
 	// NewSegmentWriter, and SegmentWriter's Append, AppendFrame, AppendEvent, Tick, Rotate and Close.
 	// They add it to an error wrapping ErrSeqOrder, ErrPayloadTooLarge, ErrFieldValidity, ErrMetadataCommitment,
 	// ErrValidation, ErrScopeBreach, ErrInvalidRecord, ErrRequiredTag, ErrFieldValue, ErrFieldLength,
-	// ErrAnnotationText or ErrReservedTag, and to an invalid argument or option, such as a nil WriterOptions.Meta,
-	// or a value of the pack metadata or of an AppendEvent event that the encoding refuses.
+	// ErrAnnotationText or ErrReservedTag, and to an invalid argument or option, which wraps ErrInvalidArgument,
+	// such as a nil WriterOptions.Meta, or a value of the pack metadata or of an AppendEvent event that the encoding refuses.
 	//
 	// It is never added to an error of Merge, of ctx, or of the Writer's prior state (ErrWriterFailed, ErrClosed),
 	// nor to an error of the destination, a Syncer, a SegmentSink, a SegmentFile or the random source,

@@ -19,7 +19,8 @@ const maxQualityUnion = math.MaxUint16
 
 // ErrInvalidFooter reports a footer that fails the footer validation of the tracepack format specification §10.
 // A reader that meets it falls back to the forward walk of I-1 and never trusts the footer's index.
-var ErrInvalidFooter = errors.New("tracepack: invalid footer")
+// It also matches ErrCorrupt.
+var ErrInvalidFooter = newChildSentinel("tracepack: invalid footer", ErrCorrupt)
 
 // footerIndex is a decoded footer that passed the footer validation of the tracepack format specification §10.
 type footerIndex struct {

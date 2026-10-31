@@ -47,7 +47,8 @@ var (
 	// the bytes changed after they were written.
 	// Open returns it for the file header and the pack metadata;
 	// PackHeader.FooterErr wraps it for the footer.
-	ErrChecksum = errors.New("tracepack: checksum mismatch")
+	// It also matches ErrCorrupt.
+	ErrChecksum = newChildSentinel("tracepack: checksum mismatch", ErrCorrupt)
 )
 
 // ErrReadLimit reports a structure larger than a reader budget of ReaderOptions,
