@@ -91,10 +91,13 @@ var (
 	// over MergeOptions.MaxFooterLen, the archive's footer, decoded or on disk,
 	// or the block summaries a merge keeps for it while it writes;
 	// or, over MergeOptions.MaxOpenBlocks, the blocks that the record-by-record resolution of an overlap cluster holds at once,
-	// which the error names by its seqs.
+	// which the error names by its seqs;
+	// or an archive over a limit of the format that its blocks reach,
+	// a block's F-3 entry list longer than the footer's u32 summary_len or more blocks than the u32 block_count,
+	// which Merge finds as it builds the footer and reports beside the error naming the limit.
 	// Merge checks MaxOpenBlocks once the block that would exceed it was read and checked,
 	// so a defective block is ErrMergeInput first.
-	// It wraps no other error.
+	// No other sentinel is wrapped beside it.
 	ErrMergeLimit = errors.New("tracepack: merge over its budget")
 )
 
@@ -380,6 +383,8 @@ type mergePlan struct {
 	scratch scratchPool[mergeScratch]
 	// stashHook, set only by tests, receives the run as it ends, before its buffers are cleaned and given back.
 	stashHook func(m *mergeRun)
+	// maxF3ListLen, set only by tests when not 0, lowers the archive Writer's maxF3ListLen to reach the check.
+	maxF3ListLen uint64
 }
 
 // mergeBlock is one block of a merge input, as the input's validated footer indexes it.
@@ -539,7 +544,9 @@ type mergeCluster = seqCluster[mergeBlock]
 //     a *FieldError validating the archive's pack metadata;
 //     an error wrapping ErrMergeLimit for archive pack metadata longer than opts.Reader.MaxPackMetadataLen,
 //     for an archive footer, or the block summaries kept for it, over opts.MaxFooterLen,
-//     or for a cluster whose resolution would hold more than opts.MaxOpenBlocks blocks;
+//     for a cluster whose resolution would hold more than opts.MaxOpenBlocks blocks,
+//     or, beside the error naming it, for an archive over a limit of the format that its blocks reach:
+//     a block's F-3 entry list longer than the footer's u32 summary_len, or more blocks than the u32 block_count;
 //     an error wrapping ErrMergeConflict once every block was compared,
 //     or, before any block is read, for redaction entries that differ;
 //     the error of a new block of the resolution that fails its check, which reports a defect of this package;

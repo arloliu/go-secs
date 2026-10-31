@@ -963,6 +963,25 @@ func TestMergeFooterBudgetBelowAnEmptyFooter(t *testing.T) {
 	assert.Equal(t, full[format.FileHeaderLen:l.blocksStart], out[format.FileHeaderLen:], "only the header is written")
 }
 
+// TestMergeFormatLimit merges into an archive whose first block's F-3 entry list is longer than the footer's u32 summary_len,
+// lowered for the test so a small pack reaches it:
+// the merge fails when it closes with ErrMergeLimit, the archive over a limit of the format,
+// beside neither ErrMergeInput, ErrRefused nor ErrInvalidArgument, writing no footer or trailer.
+func TestMergeFormatLimit(t *testing.T) {
+	t.Parallel()
+
+	in := mergePack(t, seg0, nil, hourSteps(1, 4, 2))
+	out, rep, err := writeWithHooks(t, inputsOf(in), mergeOpts(), func(p *mergePlan) { p.maxF3ListLen = 1 })
+	require.ErrorIs(t, err, ErrMergeLimit)
+	require.ErrorContains(t, err, "block 0: F-3 entry list of")
+	require.ErrorContains(t, err, "exceeds the u32 summary_len")
+	for _, class := range []error{ErrMergeInput, ErrRefused, ErrInvalidArgument, ErrCorrupt} {
+		assert.NotErrorIs(t, err, class)
+	}
+	assert.Equal(t, MergeReport{}, rep)
+	requireNoTrailer(t, out, 1)
+}
+
 // TestMergeCarriesWriterDefects merges an input with readable writer defects, which a merge does not refuse,
 // copying its blocks, resolving them with another input's blocks of the same records under another codec,
 // and coalescing the blocks copied or resolved into one:
