@@ -226,7 +226,10 @@ Never marked are your `io.Writer`'s, `Syncer`'s, `SegmentSink`'s or `SegmentFile
 which is returned wrapped with its chain intact,
 `ctx`'s, `Merge`'s, and the `ErrWriterFailed` or `ErrClosed` of a later call on a failed or closed writer.
 So test `ErrClosed` and `ErrWriterFailed` first, which say to stop using the writer;
-an error without the marker otherwise may be transient, and is the one to retry.
+an error of a writing call without the marker otherwise may be transient, and is the one to retry.
+This retry rule is the writing calls' alone:
+the reading calls classify a fault by the tables below,
+and a bus consumer and the package `redact` act by their own tables, under [Writing the packs of a bus capture](#writing-the-packs-of-a-bus-capture).
 The marker leaves the error's text unchanged.
 
 Some sentinels belong to a family, and also match its parent under `errors.Is`:
@@ -346,6 +349,17 @@ For the log service, the consumer that writes a durable-bus capture's packs:
   Your `redact.Keys` hands out the digest and encryption keys, whose custody stays yours;
   `Mask` checks `ctx` before each key request and passes it to `Keys`, so a key service can bound its call.
   A record that cannot be screened, `redact.ErrCannotScreen`, is deferred, never written unscreened.
+  Act on the first sentinel an error of `Compile`, `Mask` or `redact.Digest` matches, before any cause it wraps,
+  since a `redact.ErrCannotScreen` error may also wrap a decoder's `ErrCorrupt` or `*FieldError`:
+
+  | Error | Meaning | Action |
+  |---|---|---|
+  | `redact.ErrCannotScreen`, `redact.ErrRedacted`, `redact.ErrNotUnobserved` | a record `Mask` cannot screen, one already redacted, or one called unobserved that does not carry bit 7 | defer the record, never write it unscreened |
+  | `redact.ErrKeySize`, `redact.ErrInvalidPolicy`, `redact.ErrDomain` | an encryption key that is not 64 bytes, a policy `Compile` refuses, a domain `Digest` refuses | fix the configuration |
+  | `ctx`'s error | | stop |
+  | anything else: an error of your `Keys`, returned wrapped | | may be transient: retry |
+
+  Every error but ctx's and your `Keys`' is deterministic: the same record under the same policy and keys fails the same way.
   Collect the entries into `PackMeta.Redaction`, ordered by seq, then by first masked offset,
   set `RedactionPolicy` to `(*Compiled).PackPolicy()`, and only then call `NewWriter`, which writes the pack metadata first.
   See the `redact` package's example.
@@ -363,6 +377,14 @@ For the log service, the consumer that writes a durable-bus capture's packs:
   one `stop-unclean` record at seq 2^63 − 1, alone in a segment, from the `CloseOptions` you give.
   A retry with the same `PackID` and `Now` writes the same bytes, and the pack id is returned with an error once the options are valid.
 - `redact.Restore` gives the holder of a capture's encryption key the original payload of a masked data record, all or nothing.
+  Its errors are deterministic, so none is retried:
+
+  | Error | Meaning |
+  |---|---|
+  | `redact.ErrNoEncryption`, `redact.ErrUnsupportedAlgorithm`, `redact.ErrNotRestorable` | the record cannot be restored under this policy, or holds no original |
+  | `redact.ErrKeySize` | wrong key material |
+  | `redact.ErrAuthentication` | a wrong key, or masked bytes or a siv that changed |
+  | `tracepack.ErrRedactionDefect` | the stored entries are defective: the error joins every listed defect, or every failed Marking check |
 
 ## Reading packs
 

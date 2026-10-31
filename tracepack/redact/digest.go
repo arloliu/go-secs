@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"hash"
 	"unicode/utf8"
 )
@@ -46,7 +45,7 @@ func Digest(key []byte, domain string, original []byte) ([]byte, error) {
 // checkDomain checks that domain is 1 to 65535 bytes of UTF-8.
 func checkDomain(domain string) error {
 	if len(domain) == 0 || len(domain) > maxDomainLen || !utf8.ValidString(domain) {
-		return fmt.Errorf("%w: %d bytes", ErrDomain, len(domain))
+		return wrapf("%w: %d bytes", ErrDomain, len(domain))
 	}
 
 	return nil

@@ -129,6 +129,16 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   the wrapped errors are unchanged, so `errors.Is` and `errors.As` match as before.
   Error text was never part of the contract.
   For tracekeep and veq: nothing to change, unless a test or a log filter matches the doubled text.
+- The package `redact` renders its errors by the same rule for its `redact: ` namespace (G5-296):
+  `redact: invalid policy: item rule 0: a domain is not 1 to 65535 bytes of UTF-8: 0 bytes` rather than repeating `redact: `,
+  and `Mask` names the record's seq after the namespace, `redact: seq 3: the record already carries quality.redacted`
+  rather than `seq 3: redact: …`.
+  `Restore`'s error for a Marking that lists defects reads `seq <n>: its Marking lists <k> defects` and joins every listed defect's error,
+  where it named the record wholly masked and kept the first defect only;
+  for a nil record or Marking it reads `no record or no Marking`.
+  `Mask` documents that an error of the caller's `Keys`, returned wrapped, may be transient, and that its other errors are deterministic;
+  the README scopes its "an unmarked error may be transient" rule to the writing calls and gives the actions for `Mask`'s and `Restore`'s errors.
+  For tracekeep and veq: nothing to change; the sentinels match as before.
 
 ### Fixed
 

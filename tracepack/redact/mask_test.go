@@ -6,7 +6,9 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -588,6 +590,91 @@ func TestMaskCannotScreen(t *testing.T) {
 	r.Quality |= tracepack.QualityRedacted
 	_, _, err = c.Mask(t.Context(), captureA, r, false, &testKeys{})
 	require.ErrorIs(t, err, redact.ErrRedacted)
+}
+
+// failingKeys is a testKeys whose DigestKey or EncryptionKey returns its error when set,
+// and whose EncryptionKey returns encKey instead of the derived key when set.
+type failingKeys struct {
+	testKeys
+	digestErr, encErr error
+	encKey            []byte
+}
+
+// DigestKey returns digestErr when set, else the digest key of keyID.
+func (k *failingKeys) DigestKey(ctx context.Context, keyID string) ([]byte, error) {
+	if k.digestErr != nil {
+		return nil, k.digestErr
+	}
+
+	return k.testKeys.DigestKey(ctx, keyID)
+}
+
+// EncryptionKey returns encErr when set, else encKey when set, else the encryption key of capture and keyID.
+func (k *failingKeys) EncryptionKey(ctx context.Context, capture tracepack.UUID, keyID string) ([]byte, error) {
+	if k.encErr != nil {
+		return nil, k.encErr
+	}
+	if k.encKey != nil {
+		return k.encKey, nil
+	}
+
+	return k.testKeys.EncryptionKey(ctx, capture, keyID)
+}
+
+// TestMaskKeysErrors returns the error of Keys wrapped, and an encryption key of the wrong size as ErrKeySize,
+// with no record and no entry, the seq after the namespace.
+func TestMaskKeysErrors(t *testing.T) {
+	t.Parallel()
+
+	errUnavailable := errors.New("key service unavailable")
+	c := mustCompile(t, baselinePolicy(true))
+	sensitive := frame(7, 3, ppbodyText("PP1", []byte("SECRET-RECIPE-01")))
+	tests := []struct {
+		name string
+		keys *failingKeys
+		want error
+		text string
+	}{
+		{"digest key", &failingKeys{digestErr: errUnavailable}, errUnavailable,
+			`redact: seq 4: digest key "test-digest-1": key service unavailable`},
+		{"encryption key", &failingKeys{encErr: errUnavailable}, errUnavailable,
+			`redact: seq 4: encryption key "test-enc-1": key service unavailable`},
+		{"32-byte encryption key", &failingKeys{encKey: make([]byte, 32)}, redact.ErrKeySize,
+			`redact: seq 4: encryption key is not 64 bytes: key "test-enc-1" holds 32 bytes`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			masked, entries, err := c.Mask(t.Context(), captureA, dataRecord(4, sensitive), false, tt.keys)
+			require.ErrorIs(t, err, tt.want)
+			require.EqualError(t, err, tt.text)
+			assert.NotErrorIs(t, err, redact.ErrCannotScreen)
+			assert.Zero(t, masked)
+			assert.Nil(t, entries)
+		})
+	}
+}
+
+// TestMaskErrorText puts the seq after the namespace, which each line names once.
+func TestMaskErrorText(t *testing.T) {
+	t.Parallel()
+
+	c := mustCompile(t, baselinePolicy(true))
+	r := dataRecord(3, frame(7, 3, ppbodyText("PP1", []byte("BODY"))))
+	r.Quality |= tracepack.QualityRedacted
+	_, _, err := c.Mask(t.Context(), captureA, r, false, &testKeys{})
+	require.EqualError(t, err, "redact: seq 3: the record already carries quality.redacted")
+
+	_, _, err = c.Mask(t.Context(), captureA, dataRecord(5, frame(7, 3, nil)), true, &testKeys{})
+	require.EqualError(t, err, "redact: seq 5: the record does not carry quality.unobserved")
+
+	ann := &tracepack.Record{Seq: 2, Kind: tracepack.KindAnnotation, Payload: []byte{0, 1, 2}}
+	_, _, err = c.Mask(t.Context(), captureA, ann, false, &testKeys{})
+	require.ErrorIs(t, err, redact.ErrCannotScreen)
+	require.True(t, strings.HasPrefix(err.Error(), "redact: seq 2: the record cannot be screened: tracepack: "), err.Error())
+	require.Equal(t, 1, strings.Count(err.Error(), "redact: "), err.Error())
+	require.Equal(t, 1, strings.Count(err.Error(), "tracepack: "), err.Error())
 }
 
 // TestMaskNeverMasked leaves control records, transport events and records of other stream and function untouched.
