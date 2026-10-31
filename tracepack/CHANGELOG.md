@@ -118,6 +118,14 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   (`var pe tracepack.PackError`, `var te tracepack.TxPackError`), not a pointer, and wrap the sentinels `PackHeader.FooterErr` lists;
   `Merge`, `MergeIterate` and `FindTransactions` document that once `ctx` is done their error may be `ctx`'s even when a read or a lookup also failed,
   and is otherwise independent of timing; `VerifyOutcomeUnfinalized` documents that it also covers a valid trailer whose footer CRC fails (G5-296).
+- The text of an error the module builds over another error, in the root package and in `bus`,
+  names the `tracepack: ` namespace once on each line instead of repeating it at every wrap (G5-296):
+  `tracepack: writer failed: write block: …` rather than `tracepack: writer failed: tracepack: write block: …`,
+  and `FieldError`, `PackError` and `TxPackError` read `tracepack: <field>: …`, `tracepack: pack <i>: …` and `tracepack: hour <h> pack <uuid>: …`.
+  A later `tracepack: ` on a line, a wrapped caller's error's included, is left out of the text only;
+  the wrapped errors are unchanged, so `errors.Is` and `errors.As` match as before.
+  Error text was never part of the contract.
+  For tracekeep and veq: nothing to change, unless a test or a log filter matches the doubled text.
 
 ### Fixed
 

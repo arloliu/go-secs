@@ -48,7 +48,7 @@ func (w *txWindow) in(seq uint64) bool {
 //     the result holds what was decided until then, without an outcome.
 func (l *txLookup) evaluate(ctx context.Context) error {
 	if err := l.evaluateWindow(ctx); err != nil {
-		return fmt.Errorf("tracepack: find transaction: %w", err)
+		return wrapf("tracepack: find transaction: %w", err)
 	}
 
 	return nil

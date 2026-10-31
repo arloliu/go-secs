@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -135,7 +134,7 @@ type Record struct {
 //   - error: an error wrapping ErrMalformed for a toolID that is empty, "." or "..", which no key can hold.
 func ToolToken(toolID string) (string, error) {
 	if err := keyesc.CheckTool(toolID); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrMalformed, err)
+		return "", wrapf("%w: %w", ErrMalformed, err)
 	}
 
 	var b strings.Builder
@@ -171,18 +170,18 @@ func ParseToolToken(token string) (string, error) {
 			continue
 		}
 		if c != '%' {
-			return "", fmt.Errorf("%w: tool token %q: byte %#02x at %d is neither kept nor an escape", ErrMalformed, token, c, i)
+			return "", wrapf("%w: tool token %q: byte %#02x at %d is neither kept nor an escape", ErrMalformed, token, c, i)
 		}
 		if i+2 >= len(token) {
-			return "", fmt.Errorf("%w: tool token %q: escape at %d is cut short", ErrMalformed, token, i)
+			return "", wrapf("%w: tool token %q: escape at %d is cut short", ErrMalformed, token, i)
 		}
 		hi, lo := strings.IndexByte(keyesc.UpperHex, token[i+1]), strings.IndexByte(keyesc.UpperHex, token[i+2])
 		if hi < 0 || lo < 0 {
-			return "", fmt.Errorf("%w: tool token %q: escape at %d is not two uppercase hex digits", ErrMalformed, token, i)
+			return "", wrapf("%w: tool token %q: escape at %d is not two uppercase hex digits", ErrMalformed, token, i)
 		}
 		v := byte(hi<<4 | lo) // two hex digits, below 256
 		if isTokenByte(v) {
-			return "", fmt.Errorf("%w: tool token %q: escape at %d encodes the kept byte %q", ErrMalformed, token, i, v)
+			return "", wrapf("%w: tool token %q: escape at %d encodes the kept byte %q", ErrMalformed, token, i, v)
 		}
 		b.WriteByte(v)
 		i += 2
@@ -190,7 +189,7 @@ func ParseToolToken(token string) (string, error) {
 
 	tool := b.String()
 	if err := keyesc.CheckTool(tool); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrMalformed, err)
+		return "", wrapf("%w: %w", ErrMalformed, err)
 	}
 
 	return tool, nil
@@ -211,7 +210,7 @@ func ParseToolToken(token string) (string, error) {
 func Subject(prefix, toolID string, capture tracepack.UUID) (string, error) {
 	for tok := range strings.SplitSeq(prefix, ".") {
 		if tok == "" || strings.ContainsFunc(tok, func(r rune) bool { return r <= ' ' || r == 0x7F || r == '*' || r == '>' }) {
-			return "", fmt.Errorf("%w: subject prefix %q", ErrMalformed, prefix)
+			return "", wrapf("%w: subject prefix %q", ErrMalformed, prefix)
 		}
 	}
 	token, err := ToolToken(toolID)
@@ -230,7 +229,7 @@ func Subject(prefix, toolID string, capture tracepack.UUID) (string, error) {
 //   - error: an error wrapping ErrMalformed for seq 2^63-1, which no producer assigns, or a larger one.
 func MsgID(capture tracepack.UUID, seq uint64) (string, error) {
 	if seq > maxSeq {
-		return "", fmt.Errorf("%w: seq %d is not a producer's (at most %d)", ErrMalformed, seq, maxSeq)
+		return "", wrapf("%w: seq %d is not a producer's (at most %d)", ErrMalformed, seq, maxSeq)
 	}
 
 	return capture.String() + "." + strconv.FormatUint(seq, 10), nil
@@ -246,19 +245,19 @@ func MsgID(capture tracepack.UUID, seq uint64) (string, error) {
 func ParseMsgID(s string) (tracepack.UUID, uint64, error) {
 	const uuidLen = 36
 	if len(s) < uuidLen+2 || s[uuidLen] != '.' {
-		return tracepack.UUID{}, 0, fmt.Errorf("%w: %s %q is not <capture_id>.<seq>", ErrMalformed, HeaderMsgID, s)
+		return tracepack.UUID{}, 0, wrapf("%w: %s %q is not <capture_id>.<seq>", ErrMalformed, HeaderMsgID, s)
 	}
 	capture, err := keyesc.ParseUUID(s[:uuidLen])
 	if err != nil {
-		return tracepack.UUID{}, 0, fmt.Errorf("%w: %s %q: %w", ErrMalformed, HeaderMsgID, s, err)
+		return tracepack.UUID{}, 0, wrapf("%w: %s %q: %w", ErrMalformed, HeaderMsgID, s, err)
 	}
 	digits := s[uuidLen+1:]
 	seq, err := strconv.ParseUint(digits, 10, 64)
 	if err != nil || (digits[0] == '0' && len(digits) > 1) {
-		return tracepack.UUID{}, 0, fmt.Errorf("%w: %s %q: seq is not decimal without a leading zero", ErrMalformed, HeaderMsgID, s)
+		return tracepack.UUID{}, 0, wrapf("%w: %s %q: seq is not decimal without a leading zero", ErrMalformed, HeaderMsgID, s)
 	}
 	if seq > maxSeq {
-		return tracepack.UUID{}, 0, fmt.Errorf("%w: %s %q: seq %d is not a producer's", ErrMalformed, HeaderMsgID, s, seq)
+		return tracepack.UUID{}, 0, wrapf("%w: %s %q: seq %d is not a producer's", ErrMalformed, HeaderMsgID, s, seq)
 	}
 
 	return tracepack.UUID(capture), seq, nil
@@ -293,16 +292,16 @@ func NewRecord(r *tracepack.Record) Record {
 func EncodeBody(br *Record) ([]byte, error) {
 	r := &br.Record
 	if r.Quality.HasAny(tracepack.QualityRedacted) {
-		return nil, fmt.Errorf("%w: seq %d carries quality.redacted, which a producer never sets", ErrMalformed, r.Seq)
+		return nil, wrapf("%w: seq %d carries quality.redacted, which a producer never sets", ErrMalformed, r.Seq)
 	}
 	if r.Seq > maxSeq {
-		return nil, fmt.Errorf("%w: seq %d is not a producer's (at most %d)", ErrMalformed, r.Seq, maxSeq)
+		return nil, wrapf("%w: seq %d is not a producer's (at most %d)", ErrMalformed, r.Seq, maxSeq)
 	}
 	if br.PayloadLen > format.MaxLen32 {
-		return nil, fmt.Errorf("%w: payload_len %d exceeds %d", ErrMalformed, br.PayloadLen, format.MaxLen32)
+		return nil, wrapf("%w: payload_len %d exceeds %d", ErrMalformed, br.PayloadLen, format.MaxLen32)
 	}
 	if !br.ClaimCheck && uint64(br.PayloadLen) != uint64(len(r.Payload)) {
-		return nil, fmt.Errorf("%w: payload_len %d, payload of %d bytes", ErrMalformed, br.PayloadLen, len(r.Payload))
+		return nil, wrapf("%w: payload_len %d, payload of %d bytes", ErrMalformed, br.PayloadLen, len(r.Payload))
 	}
 
 	h := format.RecordHeader{
@@ -376,25 +375,25 @@ func EncodeBody(br *Record) ([]byte, error) {
 //     each tested before any decoder cause it wraps.
 func CheckMessage(env Envelope, body []byte) (Record, error) {
 	if env.Layout != Layout1 {
-		return Record{}, fmt.Errorf("%w: %s %q", ErrUnsupportedLayout, HeaderLayout, env.Layout)
+		return Record{}, wrapf("%w: %s %q", ErrUnsupportedLayout, HeaderLayout, env.Layout)
 	}
 	if len(body) < format.RecordHeaderLen {
-		return Record{}, fmt.Errorf("%w: body of %d bytes, shorter than the record header", ErrMalformed, len(body))
+		return Record{}, wrapf("%w: body of %d bytes, shorter than the record header", ErrMalformed, len(body))
 	}
 	h, err := format.UnmarshalRecordHeader(body, format.RecordHeaderLen)
 	if err != nil {
-		return Record{}, fmt.Errorf("%w: %w", ErrMalformed, err)
+		return Record{}, wrapf("%w: %w", ErrMalformed, err)
 	}
 	capture, seq, err := ParseMsgID(env.MsgID)
 	if err != nil {
 		return Record{}, err
 	}
 	if seq != h.Seq {
-		return Record{}, fmt.Errorf("%w: %s names seq %d, the record header %d", ErrMalformed, HeaderMsgID, seq, h.Seq)
+		return Record{}, wrapf("%w: %s names seq %d, the record header %d", ErrMalformed, HeaderMsgID, seq, h.Seq)
 	}
 	// Checked before the claim-check return, so an inline and a claim-check message are checked alike.
 	if !layout1Kind(tracepack.Kind(h.Kind)) {
-		return Record{}, fmt.Errorf("%w: seq %d: record of kind %s, which layout 1 does not carry", ErrMalformed, h.Seq, tracepack.Kind(h.Kind))
+		return Record{}, wrapf("%w: seq %d: record of kind %s, which layout 1 does not carry", ErrMalformed, h.Seq, tracepack.Kind(h.Kind))
 	}
 
 	br := Record{CaptureID: capture, PayloadLen: h.PayloadLen, ClaimCheck: env.PayloadRef != ""}
@@ -431,21 +430,21 @@ func CheckMessage(env Envelope, body []byte) (Record, error) {
 func (br *Record) checkBody(env Envelope, bodyLen int) error {
 	if !br.ClaimCheck {
 		if env.PayloadDigest != "" {
-			return fmt.Errorf("%w: %s without %s", ErrMalformed, HeaderPayloadDigest, HeaderPayloadRef)
+			return wrapf("%w: %s without %s", ErrMalformed, HeaderPayloadDigest, HeaderPayloadRef)
 		}
 		if uint64(bodyLen) != uint64(format.RecordHeaderLen)+uint64(br.PayloadLen) {
-			return fmt.Errorf("%w: inline body of %d bytes, payload_len %d", ErrMalformed, bodyLen, br.PayloadLen)
+			return wrapf("%w: inline body of %d bytes, payload_len %d", ErrMalformed, bodyLen, br.PayloadLen)
 		}
 
 		return nil
 	}
 
 	if bodyLen != format.RecordHeaderLen {
-		return fmt.Errorf("%w: claim-check body of %d bytes, not the record header alone", ErrMalformed, bodyLen)
+		return wrapf("%w: claim-check body of %d bytes, not the record header alone", ErrMalformed, bodyLen)
 	}
 	bucket, object, found := strings.Cut(env.PayloadRef, "/")
 	if !found || bucket == "" || object != env.MsgID {
-		return fmt.Errorf("%w: %s %q does not name the object %s/%s", ErrMalformed, HeaderPayloadRef, env.PayloadRef, "<bucket>", env.MsgID)
+		return wrapf("%w: %s %q does not name the object %s/%s", ErrMalformed, HeaderPayloadRef, env.PayloadRef, "<bucket>", env.MsgID)
 	}
 	digest, err := parsePayloadDigest(env.PayloadDigest)
 	if err != nil {
@@ -461,11 +460,11 @@ func parsePayloadDigest(s string) ([32]byte, error) {
 	enc, ok := strings.CutPrefix(s, payloadDigestPrefix)
 	// base64 decoding skips line breaks, which the one spelling of a digest never holds.
 	if !ok || strings.ContainsAny(enc, "\r\n") {
-		return [32]byte{}, fmt.Errorf("%w: %s %q is not %s<digest>", ErrMalformed, HeaderPayloadDigest, s, payloadDigestPrefix)
+		return [32]byte{}, wrapf("%w: %s %q is not %s<digest>", ErrMalformed, HeaderPayloadDigest, s, payloadDigestPrefix)
 	}
 	b, err := base64.URLEncoding.Strict().DecodeString(enc)
 	if err != nil || len(b) != sha256.Size {
-		return [32]byte{}, fmt.Errorf("%w: %s %q does not decode to 32 bytes", ErrMalformed, HeaderPayloadDigest, s)
+		return [32]byte{}, wrapf("%w: %s %q does not decode to 32 bytes", ErrMalformed, HeaderPayloadDigest, s)
 	}
 
 	return [32]byte(b), nil
@@ -478,18 +477,18 @@ func (br *Record) checkStart(header string, ev *tracepack.TransportEvent) error 
 		return nil
 	}
 	if header == "" {
-		return fmt.Errorf("%w: start without %s", ErrNotAccepted, HeaderDescriptor)
+		return wrapf("%w: start without %s", ErrNotAccepted, HeaderDescriptor)
 	}
 	// base64 decoding skips line breaks, which standard base64 with padding never holds.
 	if strings.ContainsAny(header, "\r\n") {
-		return fmt.Errorf("%w: %s holds a line break", ErrNotAccepted, HeaderDescriptor)
+		return wrapf("%w: %s holds a line break", ErrNotAccepted, HeaderDescriptor)
 	}
 	desc, err := base64.StdEncoding.Strict().DecodeString(header)
 	if err != nil {
-		return fmt.Errorf("%w: %s is not standard base64 with padding: %w", ErrNotAccepted, HeaderDescriptor, err)
+		return wrapf("%w: %s is not standard base64 with padding: %w", ErrNotAccepted, HeaderDescriptor, err)
 	}
 	if _, err := tracepack.DecodeDescriptor(desc); err != nil {
-		return fmt.Errorf("%w: %w", ErrNotAccepted, err)
+		return wrapf("%w: %w", ErrNotAccepted, err)
 	}
 	br.Descriptor = desc
 
@@ -523,7 +522,7 @@ func checkEventPayload(r *tracepack.Record) (*tracepack.TransportEvent, error) {
 		_, err = tracepack.UnmarshalAnnotation(r.Payload)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: seq %d: %s record payload: %w", ErrMalformed, r.Seq, r.Kind, err)
+		return nil, wrapf("%w: seq %d: %s record payload: %w", ErrMalformed, r.Seq, r.Kind, err)
 	}
 
 	return ev, nil
@@ -580,13 +579,13 @@ func PayloadDigest(payload []byte) string {
 //     Each sentinel of this package is tested before any decoder cause it wraps.
 func CheckPayload(br *Record, payload []byte) error {
 	if !br.ClaimCheck {
-		return fmt.Errorf("%w: bus record is not claim-check", tracepack.ErrInvalidArgument)
+		return wrapf("%w: bus record is not claim-check", tracepack.ErrInvalidArgument)
 	}
 	if uint64(len(payload)) != uint64(br.PayloadLen) {
-		return fmt.Errorf("%w: object of %d bytes, payload_len %d", ErrPayloadMismatch, len(payload), br.PayloadLen)
+		return wrapf("%w: object of %d bytes, payload_len %d", ErrPayloadMismatch, len(payload), br.PayloadLen)
 	}
 	if sha256.Sum256(payload) != br.Digest {
-		return fmt.Errorf("%w: object digest differs from %s", ErrPayloadMismatch, HeaderPayloadDigest)
+		return wrapf("%w: object digest differs from %s", ErrPayloadMismatch, HeaderPayloadDigest)
 	}
 
 	ev, err := checkEventPayload(&tracepack.Record{Seq: br.Record.Seq, Kind: br.Record.Kind, Payload: payload})
@@ -602,7 +601,7 @@ func CheckPayload(br *Record, payload []byte) error {
 // or an error when that length does not fit an int, as on a 32-bit platform near 2^31 bytes.
 func inlineBodyLen(payloadLen int) (int, error) {
 	if payloadLen > math.MaxInt-format.RecordHeaderLen {
-		return 0, fmt.Errorf("%w: an inline body of a %d-byte payload does not fit in memory", ErrMalformed, payloadLen)
+		return 0, wrapf("%w: an inline body of a %d-byte payload does not fit in memory", ErrMalformed, payloadLen)
 	}
 
 	return format.RecordHeaderLen + payloadLen, nil
@@ -638,13 +637,13 @@ func Inline(bodyLen, maxPayload int) bool {
 func CheckStart(headerBlockLen, bodyLen, maxPayload int) error {
 	switch {
 	case maxPayload < MinMaxPayload:
-		return fmt.Errorf("%w: max_payload %d is below %d", tracepack.ErrInvalidArgument, maxPayload, MinMaxPayload)
+		return wrapf("%w: max_payload %d is below %d", tracepack.ErrInvalidArgument, maxPayload, MinMaxPayload)
 	case headerBlockLen < 0 || bodyLen < format.RecordHeaderLen:
-		return fmt.Errorf("%w: header block of %d bytes, body of %d bytes", tracepack.ErrInvalidArgument, headerBlockLen, bodyLen)
+		return wrapf("%w: header block of %d bytes, body of %d bytes", tracepack.ErrInvalidArgument, headerBlockLen, bodyLen)
 	case headerBlockLen > HeaderBlockLimit:
-		return fmt.Errorf("%w: header block of %d bytes exceeds %d", ErrMalformed, headerBlockLen, HeaderBlockLimit)
+		return wrapf("%w: header block of %d bytes exceeds %d", ErrMalformed, headerBlockLen, HeaderBlockLimit)
 	case bodyLen > maxPayload-headerBlockLen: // no overflow: maxPayload is at least 4140 and headerBlockLen at most 4096
-		return fmt.Errorf("%w: header block of %d bytes and body of %d bytes exceed max_payload %d", ErrMalformed, headerBlockLen, bodyLen, maxPayload)
+		return wrapf("%w: header block of %d bytes and body of %d bytes exceed max_payload %d", ErrMalformed, headerBlockLen, bodyLen, maxPayload)
 	}
 
 	return nil
@@ -671,7 +670,7 @@ func DeriveRecord(r *tracepack.Record, cls tracepack.Classifier) error {
 		return nil
 	}
 	if r.Kind != tracepack.KindData && r.Kind != tracepack.KindControl {
-		return fmt.Errorf("tracepack: bus record of kind %s: %w", r.Kind, tracepack.ErrInvalidRecord)
+		return wrapf("tracepack: bus record of kind %s: %w", r.Kind, tracepack.ErrInvalidRecord)
 	}
 
 	status, trailing := tracepack.DecodeStatusNotAttempted, uint32(0)
@@ -680,7 +679,7 @@ func DeriveRecord(r *tracepack.Record, cls tracepack.Classifier) error {
 		status = s
 		if s == tracepack.DecodeStatusOK || s == tracepack.DecodeStatusOKWithTrailing {
 			if n < 0 || uint64(n) > math.MaxUint32 {
-				return fmt.Errorf("tracepack: classifier trailing_bytes %d outside 0 to %d: %w", n, uint32(math.MaxUint32), tracepack.ErrInvalidRecord)
+				return wrapf("tracepack: classifier trailing_bytes %d outside 0 to %d: %w", n, uint32(math.MaxUint32), tracepack.ErrInvalidRecord)
 			}
 			trailing = uint32(n)
 		}

@@ -3,7 +3,6 @@ package tracepack
 import (
 	"bytes"
 	"cmp"
-	"fmt"
 	"slices"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
@@ -157,7 +156,7 @@ func (it *Item) Clone() Item {
 func (q *Query) validate() error {
 	f := &q.Filter
 	if inverted(f.TimeFrom, f.TimeTo) {
-		return fmt.Errorf("%w: TimeFrom %d is after TimeTo %d", ErrInvalidQuery, *f.TimeFrom, *f.TimeTo)
+		return wrapf("%w: TimeFrom %d is after TimeTo %d", ErrInvalidQuery, *f.TimeFrom, *f.TimeTo)
 	}
 
 	return nil

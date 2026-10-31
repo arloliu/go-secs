@@ -231,7 +231,7 @@ func requireBatchOverHour(t testing.TB, src PackSource, key TxKey, opts TxOption
 		require.Less(t, first, len(keys), "a lookup fails alone: %v", err)
 		k, serr := keys[first], singles[first].err
 		require.Equal(t, TxKey{CaptureID: key.CaptureID, Seq: seq, Hour: hour}, k, "the batch fails at the first key failing alone")
-		assert.Equal(t, fmt.Sprintf("tracepack: find transactions: primary seq %d of hour %d: %v", k.Seq, k.Hour, serr), err.Error())
+		assert.Equal(t, dedupNamespace(fmt.Sprintf("tracepack: find transactions: primary seq %d of hour %d: %v", k.Seq, k.Hour, serr)), err.Error())
 		for _, target := range []error{ErrReadLimit, ErrNotPrimary, ErrInvalidQuery} {
 			assert.Equal(t, errors.Is(serr, target), errors.Is(err, target), "errors.Is %v", target)
 		}
@@ -568,7 +568,7 @@ func checkTxRangeWith(t *testing.T, g *txGen, exp *txRangeWant, fromNs, toNs int
 	for i, key := range want {
 		if serr := serrs[i]; serr != nil {
 			require.Error(t, err, "workers %d: key %v fails alone", workers, key)
-			assert.Equal(t, fmt.Sprintf("tracepack: find transactions: primary seq %d of hour %d: %v", key.Seq, key.Hour, serr), err.Error())
+			assert.Equal(t, dedupNamespace(fmt.Sprintf("tracepack: find transactions: primary seq %d of hour %d: %v", key.Seq, key.Hour, serr)), err.Error())
 			assert.Equal(t, errors.Is(serr, ErrReadLimit), errors.Is(err, ErrReadLimit))
 			require.Len(t, gotKeys, i, "the keys before the failing one")
 			assert.Equal(t, i, res.Primaries)

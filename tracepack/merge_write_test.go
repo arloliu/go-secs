@@ -520,7 +520,7 @@ func TestMergeDropsExactDuplicates(t *testing.T) {
 		in := [][]byte{a, falseF3, e, d}
 		out, rep, err := mergeBytes(t.Context(), inputsOf(in...), mergeOpts())
 		require.ErrorIs(t, err, ErrMergeInput)
-		require.ErrorContains(t, err, "input 1, pack "+seg1.String()+": tracepack: block 1 at offset")
+		require.ErrorContains(t, err, "input 1, pack "+seg1.String()+": block 1 at offset")
 		require.ErrorContains(t, err, "F-3 quality_union")
 		assert.Equal(t, MergeReport{}, rep)
 		// The first block waited in its coalescing group, which is not written.

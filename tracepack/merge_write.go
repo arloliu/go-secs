@@ -3,7 +3,6 @@ package tracepack
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 )
 
@@ -112,7 +111,7 @@ func (p *mergePlan) write(ctx context.Context, dst io.Writer, opts *MergeOptions
 		}
 	}
 	if n := m.rep.Conflicts; n > 0 {
-		return MergeReport{Conflicts: n, ConflictsComplete: true}, fmt.Errorf("tracepack: merge: %d conflicts: %w", n, ErrMergeConflict)
+		return MergeReport{Conflicts: n, ConflictsComplete: true}, wrapf("tracepack: merge: %d conflicts: %w", n, ErrMergeConflict)
 	}
 
 	// No unit follows the last group.
@@ -120,7 +119,7 @@ func (p *mergePlan) write(ctx context.Context, dst io.Writer, opts *MergeOptions
 		return MergeReport{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return MergeReport{}, fmt.Errorf("tracepack: merge: %w", err)
+		return MergeReport{}, wrapf("tracepack: merge: %w", err)
 	}
 	if _, err := m.w.closePack(); err != nil {
 		if errors.Is(err, errRecordLimit) {
@@ -200,16 +199,16 @@ func (p *mergePlan) readUnit(ctx context.Context, b *mergeBlock, buf *blockBuf) 
 //     or the ErrReadLimit of a block over MaxBlockLen, naming the input and the block.
 func (p *mergePlan) readInputBlock(ctx context.Context, b *mergeBlock, buf *blockBuf) (*decodedBlock, blockSummary, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, blockSummary{}, fmt.Errorf("tracepack: merge: %w", err)
+		return nil, blockSummary{}, wrapf("tracepack: merge: %w", err)
 	}
 
 	r, id := p.inputs[b.input], p.inputID(b.input)
 	d, def, err := r.readBlock(b.block, buf)
 	switch {
 	case err != nil:
-		return nil, blockSummary{}, fmt.Errorf("tracepack: merge: input %d, pack %s, block %d: %w", b.input, id, b.block, err)
+		return nil, blockSummary{}, wrapf("tracepack: merge: input %d, pack %s, block %d: %w", b.input, id, b.block, err)
 	case def != nil && def.Reason == IncompleteReasonLimit:
-		return nil, blockSummary{}, fmt.Errorf("tracepack: merge: input %d, pack %s: %w", b.input, id, def.Err)
+		return nil, blockSummary{}, wrapf("tracepack: merge: input %d, pack %s: %w", b.input, id, def.Err)
 	case def != nil:
 		// A failed block, or a block whose records disagree with its F-2 entry, which readBlock returns beside the block.
 		return nil, blockSummary{}, inputError(b.input, id, def.Err)
@@ -220,7 +219,7 @@ func (p *mergePlan) readInputBlock(ctx context.Context, b *mergeBlock, buf *bloc
 		return nil, blockSummary{}, inputError(b.input, id, blockDefect(b.block, &r.blocks[b.block], IncompleteReasonIndexMismatch, err).Err)
 	}
 	if err := p.checkRecords(b.input, d, &s); err != nil {
-		return nil, blockSummary{}, inputError(b.input, id, fmt.Errorf("block %d: %w", b.block, err))
+		return nil, blockSummary{}, inputError(b.input, id, wrapf("block %d: %w", b.block, err))
 	}
 
 	return d, s, nil
@@ -255,12 +254,12 @@ func (p *mergePlan) checkRecords(i int, d *decodedBlock, s *blockSummary) error 
 		rec := storedRecord(&h, d.payload(k))
 		if unobserved && rec.Quality.HasAny(QualityUnobserved) {
 			if err := thinned.checkUnobserved(&rec); err != nil {
-				return fmt.Errorf("seq %d: %w", rec.Seq, err)
+				return wrapf("seq %d: %w", rec.Seq, err)
 			}
 		}
 		if marked {
 			if err := r.redaction.mergeDefect(&rec); err != nil {
-				return fmt.Errorf("seq %d: %w", rec.Seq, err)
+				return wrapf("seq %d: %w", rec.Seq, err)
 			}
 		}
 	}

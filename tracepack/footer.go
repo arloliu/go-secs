@@ -131,7 +131,7 @@ func buildFooter(blocks []blockSummary, maxF3ListLen, maxLen uint64) ([]byte, *p
 	f3Offset := uint64(format.FooterPrologueLen) + uint64(len(blocks))*format.F2EntryLen
 	f5Offset := f3Offset + uint64(len(f3))
 	if n := f5Offset + uint64(len(f5)); maxLen != 0 && n > maxLen {
-		return nil, nil, fmt.Errorf("tracepack: footer of %d bytes exceeds the budget of %d: %w", n, maxLen, ErrMergeLimit)
+		return nil, nil, wrapf("tracepack: footer of %d bytes exceeds the budget of %d: %w", n, maxLen, ErrMergeLimit)
 	}
 
 	pro := format.FooterPrologue{

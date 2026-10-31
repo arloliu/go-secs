@@ -402,7 +402,7 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	}
 
 	if _, err := writeFull(w, head); err != nil {
-		return nil, fmt.Errorf("tracepack: write file header and pack metadata: %w", err)
+		return nil, wrapf("tracepack: write file header and pack metadata: %w", err)
 	}
 
 	threshold := opts.BlockThreshold
@@ -474,7 +474,7 @@ func checkOptions(opts *WriterOptions) error {
 		seqStart = opts.NextSeq
 	}
 	if seqStart > format.MaxU64 {
-		return fmt.Errorf("tracepack: seq_start %d above %d: %w", seqStart, format.MaxU64, ErrSeqOrder)
+		return wrapf("tracepack: seq_start %d above %d: %w", seqStart, format.MaxU64, ErrSeqOrder)
 	}
 
 	if err := checkClockOptions(opts); err != nil {
@@ -531,7 +531,7 @@ func checkFormat11(opts *WriterOptions) error {
 	m := opts.Meta
 	for _, t := range m.Thinning {
 		if t.Stream > streamMask || t.Function > math.MaxUint8 {
-			return &FieldError{Field: "thinning", Err: fmt.Errorf("stream %d, function %d: %w", t.Stream, t.Function, ErrFieldValue)}
+			return &FieldError{Field: "thinning", Err: wrapf("stream %d, function %d: %w", t.Stream, t.Function, ErrFieldValue)}
 		}
 	}
 
@@ -596,7 +596,7 @@ func checkPeriod(opts *WriterOptions) error {
 		return nil
 	}
 	if _, ok := periodHour(m.PeriodStart, m.PeriodEnd); !ok {
-		return fmt.Errorf("tracepack: period [%d, %d) of a %s pack is empty or not inside one UTC hour: %w",
+		return wrapf("tracepack: period [%d, %d) of a %s pack is empty or not inside one UTC hour: %w",
 			m.PeriodStart, m.PeriodEnd, m.PackRole, ErrScopeBreach)
 	}
 
@@ -692,7 +692,7 @@ func idOrNew(id UUID, now func() time.Time) (UUID, error) {
 
 	u, err := newUUIDv7(now)
 	if err != nil {
-		return UUID{}, fmt.Errorf("tracepack: generate UUIDv7: %w", err)
+		return UUID{}, wrapf("tracepack: generate UUIDv7: %w", err)
 	}
 
 	return UUID(u), nil
@@ -824,7 +824,7 @@ func decodeEvent(r *Record, check bool) (*TransportEvent, error) {
 
 // eventPayloadError returns the error with which a writer refuses a record of kind whose payload does not decode, err.
 func eventPayloadError(kind Kind, err error) error {
-	return fmt.Errorf("tracepack: %s record payload: %w: %w", kind, ErrInvalidRecord, err)
+	return wrapf("tracepack: %s record payload: %w: %w", kind, ErrInvalidRecord, err)
 }
 
 // checkPayload rejects r when no block can hold its payload,
@@ -832,11 +832,11 @@ func eventPayloadError(kind Kind, err error) error {
 // (the tracepack format specification §7.2).
 func checkPayload(r *Record) error {
 	if len(r.Payload) > maxPayloadLen {
-		return fmt.Errorf("tracepack: payload of %d bytes above %d: %w", len(r.Payload), maxPayloadLen, ErrPayloadTooLarge)
+		return wrapf("tracepack: payload of %d bytes above %d: %w", len(r.Payload), maxPayloadLen, ErrPayloadTooLarge)
 	}
 	if r.hasHSMSFrame() {
 		if beyond := r.FieldValidity & fieldValidityMask &^ capturedFields(len(r.Payload)); beyond != 0 {
-			return fmt.Errorf("tracepack: field_validity marks %s, but the payload is %d bytes: %w", beyond, len(r.Payload), ErrFieldValidity)
+			return wrapf("tracepack: field_validity marks %s, but the payload is %d bytes: %w", beyond, len(r.Payload), ErrFieldValidity)
 		}
 	}
 
@@ -920,7 +920,7 @@ func (w *Writer) addRecord(r *Record, checkEvent bool) error {
 		}
 	}
 	if w.scoped && hourOf(r.TSUTCNs) != w.hour {
-		return fmt.Errorf("tracepack: record at %d ns in UTC hour %d, the pack's period in hour %d: %w",
+		return wrapf("tracepack: record at %d ns in UTC hour %d, the pack's period in hour %d: %w",
 			r.TSUTCNs, hourOf(r.TSUTCNs), w.hour, ErrScopeBreach)
 	}
 
@@ -931,7 +931,7 @@ func (w *Writer) addRecord(r *Record, checkEvent bool) error {
 
 	if drift, step := w.clockStep(r, ev); step {
 		if seq >= format.MaxU64 {
-			return fmt.Errorf("tracepack: seq %d leaves no seq for the clock-step record before it: %w", seq, ErrSeqOrder)
+			return wrapf("tracepack: seq %d leaves no seq for the clock-step record before it: %w", seq, ErrSeqOrder)
 		}
 		if err := w.writeClockStep(r, seq, drift); err != nil {
 			return err
@@ -1088,7 +1088,7 @@ func (w *Writer) anchor() clockAnchor {
 // usable reports why w cannot take a call, if it cannot.
 func (w *Writer) usable() error {
 	if w.failure != nil {
-		return fmt.Errorf("%w: %w", ErrWriterFailed, w.failure)
+		return wrapf("%w: %w", ErrWriterFailed, w.failure)
 	}
 	if w.closed {
 		return ErrClosed
@@ -1116,11 +1116,11 @@ func (w *Writer) seqFor(r *Record) (uint64, error) {
 func (w *Writer) checkSeq(seq uint64) error {
 	switch {
 	case seq > format.MaxU64:
-		return fmt.Errorf("tracepack: seq %d above %d: %w", seq, format.MaxU64, ErrSeqOrder)
+		return wrapf("tracepack: seq %d above %d: %w", seq, format.MaxU64, ErrSeqOrder)
 	case len(w.blocks) == 0 && w.block.empty() && seq != w.seqStart:
-		return fmt.Errorf("tracepack: first seq %d, seq_start is %d: %w", seq, w.seqStart, ErrSeqOrder)
+		return wrapf("tracepack: first seq %d, seq_start is %d: %w", seq, w.seqStart, ErrSeqOrder)
 	case seq < w.nextSeq:
-		return fmt.Errorf("tracepack: seq %d after seq %d: %w", seq, w.nextSeq-1, ErrSeqOrder)
+		return wrapf("tracepack: seq %d after seq %d: %w", seq, w.nextSeq-1, ErrSeqOrder)
 	}
 
 	return nil
@@ -1151,7 +1151,7 @@ func (w *Writer) writeClockStep(r *Record, seq uint64, drift int64) error {
 	ev := &TransportEvent{Event: EventClockStep, ClockStepNs: &drift}
 	payload, err := ev.MarshalBinary()
 	if err != nil {
-		return fmt.Errorf("tracepack: encode clock-step event: %w", err)
+		return wrapf("tracepack: encode clock-step event: %w", err)
 	}
 
 	step := Record{
@@ -1201,7 +1201,7 @@ func (w *Writer) writeBlock() error {
 
 	enc, c, err := encodeBlock(w.codec, w.level, w.encBuf, w.bodyBuf)
 	if err != nil {
-		return fmt.Errorf("tracepack: encode block: %w", err)
+		return wrapf("tracepack: encode block: %w", err)
 	}
 	if c == CodecZstd {
 		w.encBuf = enc
@@ -1212,7 +1212,7 @@ func (w *Writer) writeBlock() error {
 
 	if w.validate {
 		if err := validateEncoded(c, &w.valBuf, enc, s, uncompressedLen); err != nil {
-			return fmt.Errorf("%w: block of seq %d-%d: %w", ErrValidation, s.firstSeq, s.lastSeq, err)
+			return wrapf("%w: block of seq %d-%d: %w", ErrValidation, s.firstSeq, s.lastSeq, err)
 		}
 	}
 
@@ -1242,7 +1242,7 @@ func (w *Writer) writeBlock() error {
 func (w *Writer) finishBlock(s blockSummary, env *format.BlockEnvelope) error {
 	if w.syncer != nil {
 		if err := syncOut(w.syncer); err != nil {
-			return fmt.Errorf("tracepack: sync block: %w", err)
+			return wrapf("tracepack: sync block: %w", err)
 		}
 	}
 
@@ -1331,7 +1331,7 @@ func (w *Writer) countFooter(s *blockSummary, f3 []byte) error {
 	// footerCounted never passes footerBudget, so the subtraction cannot wrap.
 	cost, left := footerCost(s, f3), w.footerBudget-w.footerCounted
 	if cost > left {
-		return fmt.Errorf("tracepack: block of seq %d-%d needs %d bytes of the footer budget of %d, %d are left: %w",
+		return wrapf("tracepack: block of seq %d-%d needs %d bytes of the footer budget of %d, %d are left: %w",
 			s.firstSeq, s.lastSeq, cost, w.footerBudget, left, ErrMergeLimit)
 	}
 	w.footerCounted += cost
@@ -1351,7 +1351,7 @@ func (w *Writer) checkAppendBlock(raw []byte, s *blockSummary) (format.BlockEnve
 	}
 	env, err := format.UnmarshalBlockEnvelope(raw)
 	if err != nil {
-		return format.BlockEnvelope{}, fmt.Errorf("tracepack: append a block: %w", err)
+		return format.BlockEnvelope{}, wrapf("tracepack: append a block: %w", err)
 	}
 	switch {
 	case uint64(len(raw)) != format.EnvelopeLen+uint64(env.BodyLen):
@@ -1365,7 +1365,7 @@ func (w *Writer) checkAppendBlock(raw []byte, s *blockSummary) (format.BlockEnve
 	}
 	switch {
 	case s.lastSeq > format.MaxU64:
-		return format.BlockEnvelope{}, fmt.Errorf("tracepack: seq %d above %d: %w", s.lastSeq, format.MaxU64, ErrSeqOrder)
+		return format.BlockEnvelope{}, wrapf("tracepack: seq %d above %d: %w", s.lastSeq, format.MaxU64, ErrSeqOrder)
 	case hourOf(s.tsMin) != hourOf(s.tsMax):
 		return format.BlockEnvelope{}, fmt.Errorf("tracepack: block of seq %d-%d has records in more than one UTC hour", s.firstSeq, s.lastSeq)
 	}
@@ -1402,12 +1402,12 @@ func (w *Writer) finalize() error {
 
 	enc, err := codec.EncodeLevel(uint8(w.codec), w.level.codecLevel(), nil, footer)
 	if err != nil {
-		return fmt.Errorf("tracepack: encode footer: %w", err)
+		return wrapf("tracepack: encode footer: %w", err)
 	}
 	// A reader's MaxFooterLen bounds the footer on disk as well as decoded,
 	// and zstd stores an incompressible footer a few bytes longer than it is.
 	if n := uint64(len(enc)); w.footerBudget != 0 && n > w.footerBudget {
-		return fmt.Errorf("tracepack: footer of %d bytes on disk exceeds the budget of %d: %w", n, w.footerBudget, ErrMergeLimit)
+		return wrapf("tracepack: footer of %d bytes on disk exceeds the budget of %d: %w", n, w.footerBudget, ErrMergeLimit)
 	}
 
 	tr := format.Trailer{
@@ -1429,7 +1429,7 @@ func (w *Writer) finalize() error {
 	}
 	if w.syncer != nil {
 		if err := syncOut(w.syncer); err != nil {
-			return fmt.Errorf("tracepack: sync trailer: %w", err)
+			return wrapf("tracepack: sync trailer: %w", err)
 		}
 	}
 
@@ -1442,7 +1442,7 @@ func (w *Writer) write(b []byte, what string) error {
 	n, err := writeFull(w.out, b)
 	w.offset += uint64(n)
 	if err != nil {
-		return fmt.Errorf("tracepack: write %s: %w", what, err)
+		return wrapf("tracepack: write %s: %w", what, err)
 	}
 
 	return nil
@@ -1489,11 +1489,11 @@ func (c *packCommitments) checkUnobserved(r *Record) error {
 		// r is unobserved by design; only its stream and function remain to check.
 	}
 	if why != "" {
-		return fmt.Errorf("tracepack: unobserved record with %s: %w", why, ErrInvalidRecord)
+		return wrapf("tracepack: unobserved record with %s: %w", why, ErrInvalidRecord)
 	}
 
 	if _, declared := c.thinned[SF{Stream: h.Stream, Function: h.Function}]; !declared {
-		return &FieldError{Field: "thinning", Err: fmt.Errorf("unobserved S%dF%d: %w", h.Stream, h.Function, ErrMetadataCommitment)}
+		return &FieldError{Field: "thinning", Err: wrapf("unobserved S%dF%d: %w", h.Stream, h.Function, ErrMetadataCommitment)}
 	}
 
 	return nil

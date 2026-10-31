@@ -2,7 +2,6 @@ package tracepack
 
 import (
 	"encoding/base64"
-	"fmt"
 	"io"
 	"strconv"
 )
@@ -377,7 +376,7 @@ func (jw *jsonlWriter) flush() {
 		err = io.ErrShortWrite
 	}
 	if err != nil {
-		jw.err = fmt.Errorf("tracepack: write the JSONL export: %w", err)
+		jw.err = wrapf("tracepack: write the JSONL export: %w", err)
 	}
 	jw.buf = jw.buf[:0]
 }

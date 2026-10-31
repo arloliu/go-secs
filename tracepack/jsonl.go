@@ -3,7 +3,6 @@ package tracepack
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"slices"
 
@@ -68,7 +67,7 @@ func ExportJSONL(ctx context.Context, r *Reader, w io.Writer) (Result, error) {
 		return res, err
 	}
 	if err := ctx.Err(); err != nil {
-		return res, fmt.Errorf("tracepack: export JSONL: %w", err)
+		return res, wrapf("tracepack: export JSONL: %w", err)
 	}
 
 	jw := newJSONLWriter(w)
@@ -157,7 +156,7 @@ func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, r
 	gaps := crashGaps{from: f.TimeFrom, to: f.TimeTo}
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {
-			return res, fmt.Errorf("tracepack: export JSONL: %w", err)
+			return res, wrapf("tracepack: export JSONL: %w", err)
 		}
 		if r.prunes(i, f) {
 			continue
@@ -168,7 +167,7 @@ func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, r
 			return res, err
 		}
 		if def != nil && def.Reason == IncompleteReasonLimit {
-			return res, fmt.Errorf("tracepack: export JSONL: %w", def.Err)
+			return res, wrapf("tracepack: export JSONL: %w", def.Err)
 		}
 		if def != nil {
 			res.Incomplete = append(res.Incomplete, *def)
@@ -195,10 +194,10 @@ func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, r
 // the footer, or its blocks' F-3 lists, over MaxFooterLen, or a forward walk that stopped at MaxWalkedBlocks.
 func (r *Reader) exportLimitErr() error {
 	if errors.Is(r.footerErr, ErrReadLimit) {
-		return fmt.Errorf("tracepack: export JSONL: %w", r.footerErr)
+		return wrapf("tracepack: export JSONL: %w", r.footerErr)
 	}
 	if r.walkStop != nil && r.walkStop.Reason == IncompleteReasonLimit {
-		return fmt.Errorf("tracepack: export JSONL: %w", r.walkStop.Err)
+		return wrapf("tracepack: export JSONL: %w", r.walkStop.Err)
 	}
 
 	return nil

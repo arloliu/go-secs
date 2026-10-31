@@ -2,7 +2,6 @@ package tracepack
 
 import (
 	"encoding"
-	"fmt"
 
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
@@ -123,7 +122,7 @@ var transportEventSetters = map[uint16]func(t *TransportEvent, e tlv.Entry) erro
 			return err
 		}
 		if len(b) != primarySystemBytesLen {
-			return &FieldError{Field: "primary_system_bytes", Err: fmt.Errorf("%w: %d bytes, not %d", ErrFieldLength, len(b), primarySystemBytesLen)}
+			return &FieldError{Field: "primary_system_bytes", Err: wrapf("%w: %d bytes, not %d", ErrFieldLength, len(b), primarySystemBytesLen)}
 		}
 		copy(t.PrimarySystemBytes[:], b)
 		t.PrimarySystemBytesPresent = true

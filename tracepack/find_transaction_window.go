@@ -315,7 +315,7 @@ func (l *txLookup) searchWindow(ctx context.Context) error {
 		rd, err := l.readScope(ctx, l.key.Hour+int64(i))
 		if rd != nil {
 			if cerr := l.commitRead(ctx, rd); cerr != nil && err == nil {
-				err = fmt.Errorf("tracepack: find transaction: %w", cerr)
+				err = wrapf("tracepack: find transaction: %w", cerr)
 			}
 		}
 		if err != nil {
@@ -326,7 +326,7 @@ func (l *txLookup) searchWindow(ctx context.Context) error {
 		}
 	}
 	if err := l.markConflicts(ctx); err != nil {
-		return fmt.Errorf("tracepack: find transaction: %w", err)
+		return wrapf("tracepack: find transaction: %w", err)
 	}
 
 	return l.evaluate(ctx)
@@ -561,7 +561,7 @@ func (l *txLookup) crossConflict(ctx context.Context, rd *txScopeRead, seq uint6
 	}
 	hour := earlier[at].hour
 	if err := l.reserveConflict(); err != nil {
-		return fmt.Errorf("the conflict at seq %d between hours %d and %d: %w", seq, hour, rd.hour, err)
+		return wrapf("the conflict at seq %d between hours %d and %d: %w", seq, hour, rd.hour, err)
 	}
 
 	gaps := []txPendingGap{{gap: TxGap{

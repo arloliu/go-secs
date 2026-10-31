@@ -107,7 +107,7 @@ func clonePtr[T any](v *T) *T {
 //     or the error fn returned, as is.
 func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Result, error) {
 	if fn == nil {
-		return Result{}, fmt.Errorf("%w: fn is nil", ErrInvalidQuery)
+		return Result{}, wrapf("%w: fn is nil", ErrInvalidQuery)
 	}
 	if err := q.validate(); err != nil {
 		return Result{}, err
@@ -124,7 +124,7 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 	defer pool.put(buf)
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {
-			return res, fmt.Errorf("tracepack: iterate: %w", err)
+			return res, wrapf("tracepack: iterate: %w", err)
 		}
 		if r.prunes(i, f) {
 			continue

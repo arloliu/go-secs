@@ -3,7 +3,6 @@ package tracepack
 import (
 	"context"
 	"errors"
-	"fmt"
 	"runtime"
 	"slices"
 	"sync"
@@ -230,7 +229,7 @@ type txCacheBudget struct {
 func (c *txCacheBudget) reserve(n int64) error {
 	// held ≤ limit, so limit - held cannot overflow.
 	if n > c.limit-c.held {
-		return fmt.Errorf("tracepack: find transactions: caching %d bytes more beside the %d held exceeds MaxCachedBytes %d: %w",
+		return wrapf("tracepack: find transactions: caching %d bytes more beside the %d held exceeds MaxCachedBytes %d: %w",
 			n, c.held, c.limit, ErrReadLimit)
 	}
 	c.held += n
@@ -246,25 +245,25 @@ func (c *txCacheBudget) release(n int64) {
 func newTxBatch(src PackSource, r TxRange, opts TxRangeOptions, fn func(*TxPairing) error) (*txBatch, error) {
 	switch {
 	case src == nil:
-		return nil, fmt.Errorf("%w: src is nil", ErrInvalidQuery)
+		return nil, wrapf("%w: src is nil", ErrInvalidQuery)
 	case fn == nil:
-		return nil, fmt.Errorf("%w: fn is nil", ErrInvalidQuery)
+		return nil, wrapf("%w: fn is nil", ErrInvalidQuery)
 	case r.CaptureID.IsZero():
-		return nil, fmt.Errorf("%w: the capture_id is zero", ErrInvalidQuery)
+		return nil, wrapf("%w: the capture_id is zero", ErrInvalidQuery)
 	case !representableNs(r.From) || !representableNs(r.To):
-		return nil, fmt.Errorf("%w: the range [%v, %v) is not representable as int64 nanoseconds", ErrInvalidQuery, r.From, r.To)
+		return nil, wrapf("%w: the range [%v, %v) is not representable as int64 nanoseconds", ErrInvalidQuery, r.From, r.To)
 	}
 	fromNs, toNs := r.From.UnixNano(), r.To.UnixNano()
 	if fromNs >= toNs {
-		return nil, fmt.Errorf("%w: the range [%v, %v) is empty", ErrInvalidQuery, r.From, r.To)
+		return nil, wrapf("%w: the range [%v, %v) is empty", ErrInvalidQuery, r.From, r.To)
 	}
 	first, last := hourOf(fromNs), hourOf(toNs-1)
 	if first < MinTxHour || last > MaxTxHour {
-		return nil, fmt.Errorf("%w: the hours [%d, %d] of the range are outside [%d, %d]", ErrInvalidQuery, first, last, MinTxHour, MaxTxHour)
+		return nil, wrapf("%w: the hours [%d, %d] of the range are outside [%d, %d]", ErrInvalidQuery, first, last, MinTxHour, MaxTxHour)
 	}
 
 	if msg := negativeOption("TxRangeOptions.Lookup", opts.Lookup.budgets()...); msg != "" {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidQuery, msg)
+		return nil, wrapf("%w: %s", ErrInvalidQuery, msg)
 	}
 	// checkFindTransaction applies the defaults and checks the scheduled tail of the last hour's primaries.
 	lookup, err := checkFindTransaction(src, TxKey{CaptureID: r.CaptureID, Hour: last}, opts.Lookup)
@@ -272,7 +271,7 @@ func newTxBatch(src PackSource, r TxRange, opts TxRangeOptions, fn func(*TxPairi
 		return nil, err
 	}
 	if msg := negativeOption("TxRangeOptions", optionField{"MaxCachedBytes", opts.MaxCachedBytes}); msg != "" {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidQuery, msg)
+		return nil, wrapf("%w: %s", ErrInvalidQuery, msg)
 	}
 	limit := opts.MaxCachedBytes
 	if limit <= 0 {
@@ -298,7 +297,7 @@ func (b *txBatch) run(ctx context.Context) error {
 	// newTxBatch checked that last + MaxHours - 1 does not pass MaxTxHour.
 	for h := b.first; h <= b.last+m-1; h++ {
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("tracepack: find transactions: %w", err)
+			return wrapf("tracepack: find transactions: %w", err)
 		}
 		if err := b.fill(ctx, h); err != nil {
 			return err
@@ -321,7 +320,7 @@ func (b *txBatch) run(ctx context.Context) error {
 		b.evict(h)
 	}
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("tracepack: find transactions: %w", err)
+		return wrapf("tracepack: find transactions: %w", err)
 	}
 
 	return nil
@@ -344,11 +343,11 @@ func (b *txBatch) tick(ctx context.Context) error {
 func (b *txBatch) fill(ctx context.Context, h int64) error {
 	readers, err := b.src.Readers(ctx, h)
 	if err != nil {
-		return fmt.Errorf("tracepack: find transactions: hour %d: readers: %w", h, err)
+		return wrapf("tracepack: find transactions: hour %d: readers: %w", h, err)
 	}
 	rec := &txHourRecord{hour: h}
 	if err := b.charge(rec, txCacheHourCharge+int64(len(readers))*txCacheReaderCharge); err != nil {
-		return fmt.Errorf("tracepack: find transactions: hour %d: %w", h, err)
+		return wrapf("tracepack: find transactions: hour %d: %w", h, err)
 	}
 	for i, r := range readers {
 		if r == nil {
@@ -378,13 +377,13 @@ func (b *txBatch) fill(ctx context.Context, h int64) error {
 		&flags, nil,
 		func(it *Item) error { return b.keep(ctx, rec, it, flags, enumerate) })
 	if err != nil {
-		return fmt.Errorf("tracepack: find transactions: hour %d: %w", h, err)
+		return wrapf("tracepack: find transactions: hour %d: %w", h, err)
 	}
 	if err := b.keepResult(ctx, rec, &res); err != nil {
-		return fmt.Errorf("tracepack: find transactions: hour %d: %w", h, err)
+		return wrapf("tracepack: find transactions: hour %d: %w", h, err)
 	}
 	if err := b.sortKeys(ctx, rec); err != nil {
-		return fmt.Errorf("tracepack: find transactions: hour %d: %w", h, err)
+		return wrapf("tracepack: find transactions: hour %d: %w", h, err)
 	}
 	if b.filled != nil {
 		b.filled(rec)
@@ -545,15 +544,15 @@ func (b *txBatch) pair(ctx context.Context, rec *txHourRecord) error {
 	hours := txReplay{b: b}
 	for _, seq := range rec.keys {
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("tracepack: find transactions: %w", err)
+			return wrapf("tracepack: find transactions: %w", err)
 		}
 		key := TxKey{CaptureID: b.r.CaptureID, Seq: seq, Hour: rec.hour}
 		res, err := lookupHours(ctx, hours, key, b.opts, b.lookupPrep)
 		if err != nil {
-			return fmt.Errorf("tracepack: find transactions: primary seq %d of hour %d: %w", seq, rec.hour, err)
+			return wrapf("tracepack: find transactions: primary seq %d of hour %d: %w", seq, rec.hour, err)
 		}
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("tracepack: find transactions: %w", err)
+			return wrapf("tracepack: find transactions: %w", err)
 		}
 		b.res.Primaries++
 		if err := b.fn(&TxPairing{Key: key, Result: res}); err != nil {
@@ -637,22 +636,22 @@ func (b *txBatch) pairParallel(ctx context.Context, rec *txHourRecord) error {
 
 	for i, seq := range rec.keys {
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("tracepack: find transactions: %w", err)
+			return wrapf("tracepack: find transactions: %w", err)
 		}
 		sl := &slots[i%w]
 		select {
 		case <-sl.ready:
 		case <-ctx.Done():
-			return fmt.Errorf("tracepack: find transactions: %w", ctx.Err())
+			return wrapf("tracepack: find transactions: %w", ctx.Err())
 		}
 		if sl.panicked {
 			panic(sl.panicVal)
 		}
 		if sl.err != nil {
-			return fmt.Errorf("tracepack: find transactions: primary seq %d of hour %d: %w", seq, rec.hour, sl.err)
+			return wrapf("tracepack: find transactions: primary seq %d of hour %d: %w", seq, rec.hour, sl.err)
 		}
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("tracepack: find transactions: %w", err)
+			return wrapf("tracepack: find transactions: %w", err)
 		}
 		b.res.Primaries++
 		if err := b.fn(&TxPairing{Key: TxKey{CaptureID: b.r.CaptureID, Seq: seq, Hour: rec.hour}, Result: sl.res}); err != nil {
@@ -681,7 +680,7 @@ func (h txReplay) readers(ctx context.Context, hour int64) ([]*Reader, error) {
 	}
 	rec, ok := h.b.hours[hour]
 	if !ok {
-		return nil, fmt.Errorf("%w: hour %d", errTxHourNotHeld, hour)
+		return nil, wrapf("%w: hour %d", errTxHourNotHeld, hour)
 	}
 
 	return slices.Clone(rec.readers), nil
@@ -695,7 +694,7 @@ func (h txReplay) read(_ context.Context, hour int64, _ []*Reader, _ int64,
 ) (Result, error) {
 	rec, ok := h.b.hours[hour]
 	if !ok {
-		return Result{}, fmt.Errorf("%w: hour %d", errTxHourNotHeld, hour)
+		return Result{}, wrapf("%w: hour %d", errTxHourNotHeld, hour)
 	}
 	k := 0
 	reserve := func(before int) error {

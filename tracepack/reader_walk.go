@@ -3,7 +3,6 @@ package tracepack
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"math/bits"
 
@@ -61,7 +60,7 @@ func (r *Reader) walk(ctx context.Context) error {
 		}
 
 		if len(r.blocks) >= r.opts.MaxWalkedBlocks {
-			stop = &Defect{Reason: IncompleteReasonLimit, Block: -1, Offset: int64(off), Err: fmt.Errorf(
+			stop = &Defect{Reason: IncompleteReasonLimit, Block: -1, Offset: int64(off), Err: wrapf(
 				"tracepack: forward walk: block at offset %d is past MaxWalkedBlocks %d: %w", off, r.opts.MaxWalkedBlocks, ErrReadLimit)}
 			break
 		}
@@ -79,7 +78,7 @@ func (r *Reader) walk(ctx context.Context) error {
 // readEnvelope checks ctx, then fills env with the block envelope at off, as fetch does.
 func (r *Reader) readEnvelope(ctx context.Context, env []byte, off uint64) error {
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("tracepack: open: %w", err)
+		return wrapf("tracepack: open: %w", err)
 	}
 
 	return r.fetch(env, int64(off))

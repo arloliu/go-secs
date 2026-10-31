@@ -866,9 +866,9 @@ func UnmarshalPackMetaMinor(b []byte, minor uint16) (*PackMeta, error) {
 	return m, nil
 }
 
-// Error implements the error interface.
+// Error returns Err's text prefixed with the field, naming the namespace "tracepack: " once.
 func (e *FieldError) Error() string {
-	return fmt.Sprintf("tracepack: %s: %v", e.Field, e.Err)
+	return dedupNamespace(fmt.Sprintf("tracepack: %s: %v", e.Field, e.Err))
 }
 
 // Unwrap returns the sentinel error.
@@ -884,7 +884,7 @@ func (e *FieldError) Unwrap() error {
 func ParseUUID(s string) (UUID, error) {
 	u, err := format.ParseUUID(s)
 	if err != nil {
-		return UUID{}, fmt.Errorf("%w: %w", ErrInvalidArgument, err)
+		return UUID{}, wrapf("%w: %w", ErrInvalidArgument, err)
 	}
 
 	return UUID(u), nil
@@ -1100,14 +1100,14 @@ func (m *PackMeta) appendRepeatableEntries(dst []tlv.Entry) ([]tlv.Entry, error)
 	for i, c := range m.Coverage {
 		e, err := c.entry()
 		if err != nil {
-			return nil, fmt.Errorf("tracepack: coverage entry %d: %w", i, err)
+			return nil, wrapf("tracepack: coverage entry %d: %w", i, err)
 		}
 		dst = append(dst, e)
 	}
 	for i, r := range m.Redaction {
 		e, err := r.entry()
 		if err != nil {
-			return nil, fmt.Errorf("tracepack: redaction entry %d: %w", i, err)
+			return nil, wrapf("tracepack: redaction entry %d: %w", i, err)
 		}
 		dst = append(dst, e)
 	}
@@ -1190,10 +1190,10 @@ func appendUnknownEntries(dst []tlv.Entry, unknown []RawEntry, reg tlv.Registry,
 		// Registry validation skips unknown tags, so the two rules the decoder applies to every entry
 		// (the tracepack format specification §5) are checked here before the entry is encoded.
 		if r.Tag == 0 {
-			return nil, &FieldError{Field: field, Err: fmt.Errorf("%w: %w", ErrFieldValue, tlv.ErrZeroTag)}
+			return nil, &FieldError{Field: field, Err: wrapf("%w: %w", ErrFieldValue, tlv.ErrZeroTag)}
 		}
 		if n, fixed := tlv.ValueType(r.Type).FixedLen(); fixed && len(r.Value) != n {
-			return nil, &FieldError{Field: field, Err: fmt.Errorf("%w: %w", ErrFieldLength, tlv.ErrLength)}
+			return nil, &FieldError{Field: field, Err: wrapf("%w: %w", ErrFieldLength, tlv.ErrLength)}
 		}
 		dst = append(dst, tlv.Entry{Tag: r.Tag, Type: tlv.ValueType(r.Type), Value: r.Value})
 	}
@@ -1206,7 +1206,7 @@ func appendUnknownEntries(dst []tlv.Entry, unknown []RawEntry, reg tlv.Registry,
 // It reports an entry the validation refuses as a *FieldError naming the entry's field (fieldErrorOf).
 func encodeEntries(entries []tlv.Entry, reg tlv.Registry, what string) ([]byte, error) {
 	if err := tlv.Validate(entries, reg); err != nil {
-		return nil, fmt.Errorf("tracepack: encode %s: %w", what, fieldErrorOf(err, reg))
+		return nil, wrapf("tracepack: encode %s: %w", what, fieldErrorOf(err, reg))
 	}
 
 	var buf []byte

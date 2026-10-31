@@ -117,7 +117,7 @@ func SegmentKey(prefix, tool string, capture UUID, seqFirst uint64, pack UUID) (
 		return "", err
 	}
 	if seqFirst > math.MaxInt64 {
-		return "", fmt.Errorf("%w: seq_first %d above 2^63-1", ErrInvalidKey, seqFirst)
+		return "", wrapf("%w: seq_first %d above 2^63-1", ErrInvalidKey, seqFirst)
 	}
 
 	return fmt.Sprintf("%s%0*d-%s%s", dir, seqFirstDigits, seqFirst, pack, keyPackSuffix), nil
@@ -276,12 +276,12 @@ func splitKey(prefix, area, key string, n int) ([]string, error) {
 
 // keyArgError wraps err, the reason a builder cannot build a key from its arguments, with ErrInvalidKey.
 func keyArgError(err error) error {
-	return fmt.Errorf("%w: %w", ErrInvalidKey, err)
+	return wrapf("%w: %w", ErrInvalidKey, err)
 }
 
 // keyError wraps err, the reason key does not parse, with ErrInvalidKey and the key.
 func keyError(key string, err error) error {
-	return fmt.Errorf("%w %q: %w", ErrInvalidKey, key, err)
+	return wrapf("%w %q: %w", ErrInvalidKey, key, err)
 }
 
 // unescapeToolID decodes a key's tool component, which EscapeToolID must have produced:

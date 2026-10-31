@@ -185,7 +185,7 @@ func parseDescriptor(b []byte) (*PackMeta, error) {
 func checkDescriptorTags(entries []tlv.Entry) error {
 	for _, e := range entries {
 		if _, known := descriptorRegistry[e.Tag]; !known {
-			return &FieldError{Field: descriptorTagName(e.Tag), Err: fmt.Errorf("%w: not a capture descriptor tag", ErrFieldValue)}
+			return &FieldError{Field: descriptorTagName(e.Tag), Err: wrapf("%w: not a capture descriptor tag", ErrFieldValue)}
 		}
 		var name string
 		var nestedRegistry tlv.Registry
@@ -204,7 +204,7 @@ func checkDescriptorTags(entries []tlv.Entry) error {
 		}
 		for _, n := range nested {
 			if _, known := nestedRegistry[n.Tag]; !known {
-				return &FieldError{Field: fmt.Sprintf("%s.0x%04X", name, n.Tag), Err: fmt.Errorf("%w: not a %s tag", ErrFieldValue, name)}
+				return &FieldError{Field: fmt.Sprintf("%s.0x%04X", name, n.Tag), Err: wrapf("%w: not a %s tag", ErrFieldValue, name)}
 			}
 		}
 	}
@@ -225,16 +225,16 @@ func descriptorTagName(tag uint16) string {
 // a capture method or time source it does not serve, or a thinning entry no SECS-II message can match.
 func checkDescriptorValues(m *PackMeta) error {
 	if m.CaptureMethod != CaptureMethodRawStream && m.CaptureMethod != CaptureMethodDecodedMessage {
-		return &FieldError{Field: "capture_method", Err: fmt.Errorf("%w: %s is not served by the bus", ErrFieldValue, m.CaptureMethod)}
+		return &FieldError{Field: "capture_method", Err: wrapf("%w: %s is not served by the bus", ErrFieldValue, m.CaptureMethod)}
 	}
 	if m.TimeSource != TimeSourceCaptureClock {
-		return &FieldError{Field: "time_source", Err: fmt.Errorf("%w: %s is not served by the bus", ErrFieldValue, m.TimeSource)}
+		return &FieldError{Field: "time_source", Err: wrapf("%w: %s is not served by the bus", ErrFieldValue, m.TimeSource)}
 	}
 	for i, th := range m.Thinning {
 		if th.Stream > maxThinningStream || th.Function > maxThinningFunction {
 			return &FieldError{
 				Field: "thinning",
-				Err:   fmt.Errorf("%w: entry %d names S%dF%d, outside S0-S127, F0-F255", ErrFieldValue, i, th.Stream, th.Function),
+				Err:   wrapf("%w: entry %d names S%dF%d, outside S0-S127, F0-F255", ErrFieldValue, i, th.Stream, th.Function),
 			}
 		}
 	}

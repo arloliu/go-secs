@@ -411,7 +411,7 @@ func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts Tx
 // FindTransaction's over its source, or FindTransactions's replay of the hours it read once.
 func lookupHours(ctx context.Context, hours txHourSource, key TxKey, opts TxOptions, prep func(l *txLookup)) (TxResult, error) {
 	if err := ctx.Err(); err != nil {
-		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", err)
+		return TxResult{}, wrapf("tracepack: find transaction: %w", err)
 	}
 
 	l := newTxLookup(key, opts, hours)
@@ -421,7 +421,7 @@ func lookupHours(ctx context.Context, hours txHourSource, key TxKey, opts TxOpti
 	err := l.run(ctx)
 	if err == nil {
 		if cerr := ctx.Err(); cerr != nil {
-			err = fmt.Errorf("tracepack: find transaction: %w", cerr)
+			err = wrapf("tracepack: find transaction: %w", cerr)
 		}
 	}
 	if err != nil {
@@ -443,26 +443,26 @@ func lookupHours(ctx context.Context, hours txHourSource, key TxKey, opts TxOpti
 //   - error: an error wrapping ErrInvalidQuery.
 func checkFindTransaction(src PackSource, key TxKey, opts TxOptions) (TxOptions, error) {
 	if src == nil {
-		return opts, fmt.Errorf("%w: src is nil", ErrInvalidQuery)
+		return opts, wrapf("%w: src is nil", ErrInvalidQuery)
 	}
 	if key.CaptureID == (UUID{}) {
-		return opts, fmt.Errorf("%w: the capture_id is zero", ErrInvalidQuery)
+		return opts, wrapf("%w: the capture_id is zero", ErrInvalidQuery)
 	}
 	if key.Seq > format.MaxU64 {
-		return opts, fmt.Errorf("%w: seq %d is above %d", ErrInvalidQuery, key.Seq, format.MaxU64)
+		return opts, wrapf("%w: seq %d is above %d", ErrInvalidQuery, key.Seq, format.MaxU64)
 	}
 	if key.Hour < MinTxHour || key.Hour > MaxTxHour {
-		return opts, fmt.Errorf("%w: hour %d is outside [%d, %d]", ErrInvalidQuery, key.Hour, MinTxHour, MaxTxHour)
+		return opts, wrapf("%w: hour %d is outside [%d, %d]", ErrInvalidQuery, key.Hour, MinTxHour, MaxTxHour)
 	}
 	if msg := negativeOption("TxOptions", opts.budgets()...); msg != "" {
-		return opts, fmt.Errorf("%w: %s", ErrInvalidQuery, msg)
+		return opts, wrapf("%w: %s", ErrInvalidQuery, msg)
 	}
 	if opts.MaxHours <= 0 {
 		opts.MaxHours = DefaultTxMaxHours
 	}
 	// key.Hour <= MaxTxHour, so MaxTxHour - key.Hour cannot overflow, and MaxHours - 1 >= 0 fits an int64.
 	if int64(opts.MaxHours-1) > MaxTxHour-key.Hour {
-		return opts, fmt.Errorf("%w: %d scopes from hour %d pass hour %d", ErrInvalidQuery, opts.MaxHours, key.Hour, MaxTxHour)
+		return opts, wrapf("%w: %d scopes from hour %d pass hour %d", ErrInvalidQuery, opts.MaxHours, key.Hour, MaxTxHour)
 	}
 	if opts.MaxHeldBytes <= 0 {
 		opts.MaxHeldBytes = DefaultMaxHeldBytes
@@ -580,9 +580,9 @@ func (r TxGapReason) String() string {
 	}
 }
 
-// Error returns Err's text, prefixed with the hour and pack_id.
+// Error returns Err's text, prefixed with the hour and pack_id, naming the namespace "tracepack: " once.
 func (e TxPackError) Error() string {
-	return fmt.Sprintf("tracepack: hour %d pack %s: %v", e.Hour, e.Pack, e.Err)
+	return dedupNamespace(fmt.Sprintf("tracepack: hour %d pack %s: %v", e.Hour, e.Pack, e.Err))
 }
 
 // Unwrap returns Err, so errors.Is and errors.As see the error about the pack.

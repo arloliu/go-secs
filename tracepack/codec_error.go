@@ -62,14 +62,14 @@ func fieldErrorOf(err error, reg tlv.Registry) error {
 			path = append(path, tagName(f, known, ee.Tag))
 		}
 
-		return &FieldError{Field: strings.Join(path, "."), Err: fmt.Errorf("%w: %w", sentinel, outer)}
+		return &FieldError{Field: strings.Join(path, "."), Err: wrapf("%w: %w", sentinel, outer)}
 	}
 }
 
 // corruptError returns err, an error of decoding a TLV body of what, also wrapping ErrCorrupt,
 // with its entry's fault reported by fieldErrorOf with reg.
 func corruptError(what string, err error, reg tlv.Registry) error {
-	return fmt.Errorf("tracepack: decode %s: %w: %w", what, ErrCorrupt, fieldErrorOf(err, reg))
+	return wrapf("tracepack: decode %s: %w: %w", what, ErrCorrupt, fieldErrorOf(err, reg))
 }
 
 // tagName returns the registry name of f, the field of tag, when known, or "0x%04X" for an unknown tag.
