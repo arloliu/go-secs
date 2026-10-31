@@ -219,6 +219,9 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
+- `Reader.Iterate` refuses a nil `fn` with an error wrapping `ErrInvalidQuery`, before anything is read, as `MergeIterate` does;
+  it used to panic at the first record selected, and to return without an error when the query selected none.
+  Neither tracekeep nor veq passes a nil `fn`.
 
 ### Removed
 
