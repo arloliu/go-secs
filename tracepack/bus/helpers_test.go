@@ -66,7 +66,7 @@ func descriptorMeta() *tracepack.PackMeta {
 		EquipmentEndpoint:    new("10.0.0.2:5000"),
 		EquipmentConnectMode: &role,
 		DeviceID:             new(uint64(7)),
-		HSMSTimers:           &tracepack.HSMSTimers{T3: new(uint64(45_000)), T5: new(uint64(10_000))},
+		HSMSTimers:           &tracepack.HSMSTimers{T3Ms: new(uint64(45_000)), T5Ms: new(uint64(10_000))},
 		ClockStepToleranceNs: new(uint64(0)),
 		Thinning: []tracepack.Thinning{
 			{Stream: 1, Function: 3, Source: "fdc interval poll"},

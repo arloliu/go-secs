@@ -844,7 +844,7 @@ func captureMeta(m *PackMeta) {
 	m.SiteID, m.EquipmentModel, m.EquipmentSWRev = new("fab"), new("model"), new("rev")
 	m.HostSoftware, m.HostEndpoint, m.EquipmentEndpoint = new("eap"), new("10.0.0.1:5000"), new("10.0.0.2:5000")
 	m.EquipmentConnectMode, m.DeviceID = new(SocketRolePassive), new(uint64(7))
-	m.HSMSTimers = &HSMSTimers{T1: new(uint64(1)), T3: new(uint64(45_000))}
+	m.HSMSTimers = &HSMSTimers{T1Ms: new(uint64(1)), T3Ms: new(uint64(45_000))}
 	m.SourceTZ, m.SourceDialect, m.SourceRefs = new("UTC"), new("dialect"), []string{"a.log", "b.log"}
 }
 
@@ -882,8 +882,8 @@ func TestMergeCaptureLevelTags(t *testing.T) {
 		{"equipment_endpoint", "", func(m *PackMeta) { m.EquipmentEndpoint = new("10.0.0.2:5001") }},
 		{"equipment_connect_mode", "", func(m *PackMeta) { m.EquipmentConnectMode = new(SocketRoleActive) }},
 		{"device_id", "", func(m *PackMeta) { *m.DeviceID++ }},
-		{"hsms_timers", "a timer changed", func(m *PackMeta) { *m.HSMSTimers.T3++ }},
-		{"hsms_timers", "a timer added", func(m *PackMeta) { m.HSMSTimers.T8 = new(uint64(8)) }},
+		{"hsms_timers", "a timer changed", func(m *PackMeta) { *m.HSMSTimers.T3Ms++ }},
+		{"hsms_timers", "a timer added", func(m *PackMeta) { m.HSMSTimers.T8Ms = new(uint64(8)) }},
 		{"hsms_timers", "absent", func(m *PackMeta) { m.HSMSTimers = nil }},
 		{"hsms_timers", "present without timers", func(m *PackMeta) { m.HSMSTimers = &HSMSTimers{} }},
 		{"source_tz", "", func(m *PackMeta) { m.SourceTZ = new("Asia/Taipei") }},
@@ -939,7 +939,7 @@ func TestMergeCarriesTheCaptureLevelTags(t *testing.T) {
 	// b's hsms_timers holds T1, T3 and an unknown nested entry, tag 9: its T8 retagged in place.
 	b := patchMeta(t, mergePack(t, seg1, func(m *PackMeta) {
 		captureMeta(m)
-		m.HSMSTimers.T8 = new(uint64(8))
+		m.HSMSTimers.T8Ms = new(uint64(8))
 	}, hourSteps(20, 23, 2)), func(meta []byte) {
 		list, err := tlv.Decode(meta)
 		require.NoError(t, err)
@@ -950,7 +950,7 @@ func TestMergeCarriesTheCaptureLevelTags(t *testing.T) {
 		binary.LittleEndian.PutUint16(timers.Value[nthEntry(t, nested, 8, 0).Offset:], 9)
 	})
 	bMeta := mustOpen(t, b, ReaderOptions{}).Header().Meta
-	require.Equal(t, &HSMSTimers{T1: new(uint64(1)), T3: new(uint64(45_000))}, bMeta.HSMSTimers, "the retagged timer is unknown")
+	require.Equal(t, &HSMSTimers{T1Ms: new(uint64(1)), T3Ms: new(uint64(45_000))}, bMeta.HSMSTimers, "the retagged timer is unknown")
 
 	p := mustPlanMerge(t, inputsOf(a, b), mergeOpts())
 	want := &PackMeta{}

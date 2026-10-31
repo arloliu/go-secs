@@ -45,8 +45,8 @@ func fullDescriptor() CaptureDescriptor {
 	d.EquipmentConnectMode = new(SocketRolePassive)
 	d.DeviceID = new(uint64(7))
 	d.HSMSTimers = &HSMSTimers{
-		T1: new(uint64(500)), T2: new(uint64(10000)), T3: new(uint64(45000)), T4: new(uint64(10000)),
-		T5: new(uint64(10000)), T6: new(uint64(5000)), T7: new(uint64(10000)), T8: new(uint64(5000)),
+		T1Ms: new(uint64(500)), T2Ms: new(uint64(10000)), T3Ms: new(uint64(45000)), T4Ms: new(uint64(10000)),
+		T5Ms: new(uint64(10000)), T6Ms: new(uint64(5000)), T7Ms: new(uint64(10000)), T8Ms: new(uint64(5000)),
 	}
 
 	return d
@@ -239,7 +239,7 @@ func TestCaptureDescriptorValidateEncoding(t *testing.T) {
 		{"host_endpoint", func(d *CaptureDescriptor) { d.HostEndpoint = new(invalid) }, "host_endpoint"},
 		{"equipment_endpoint", func(d *CaptureDescriptor) { d.EquipmentEndpoint = new(invalid) }, "equipment_endpoint"},
 		{"device_id", func(d *CaptureDescriptor) { d.DeviceID = new(tooLarge) }, "device_id"},
-		{"hsms_timers", func(d *CaptureDescriptor) { d.HSMSTimers = &HSMSTimers{T8: new(tooLarge)} }, "hsms_timers"},
+		{"hsms_timers", func(d *CaptureDescriptor) { d.HSMSTimers = &HSMSTimers{T8Ms: new(tooLarge)} }, "hsms_timers"},
 	}
 
 	for _, tt := range tests {
@@ -266,7 +266,7 @@ func TestCaptureDescriptorValidateEncoding(t *testing.T) {
 	t.Run("largest encodable values", func(t *testing.T) {
 		d := fullDescriptor()
 		d.DeviceID = new(tooLarge - 1)
-		d.HSMSTimers.T8 = new(tooLarge - 1)
+		d.HSMSTimers.T8Ms = new(tooLarge - 1)
 		require.NoError(t, d.Validate())
 	})
 }

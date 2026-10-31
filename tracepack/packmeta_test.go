@@ -359,7 +359,7 @@ func TestPackMetaNestedRepeatableRoundTrip(t *testing.T) {
 			Digest:       []byte{5, 6, 7, 8},
 		},
 	}
-	m.HSMSTimers = &tracepack.HSMSTimers{T1: new(uint64(5000)), T3: new(uint64(45000))}
+	m.HSMSTimers = &tracepack.HSMSTimers{T1Ms: new(uint64(5000)), T3Ms: new(uint64(45000))}
 
 	facts := tracepack.PackFacts{CoverageLoss: true, RedactionPolicyApplied: true, AnyRedacted: true}
 	require.NoError(t, m.Validate(facts))

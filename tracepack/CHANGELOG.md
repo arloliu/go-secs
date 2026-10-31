@@ -173,6 +173,18 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   | `tracepack.CheckBusStart` | `bus.CheckStart` |
   | `tracepack.DeriveBusRecord` | `bus.DeriveRecord` |
 
+- **Breaking:** the fields of `HSMSTimers` name their unit: `T1`..`T8` become `T1Ms`..`T8Ms` (G5-290),
+  each documented with its timer's HSMS or SECS-I meaning, in milliseconds as stored.
+  A `time.Duration` cast into a timer field used to compile and store nanoseconds as milliseconds;
+  convert one with its `Milliseconds` method.
+  The `hsms_timers` nested tags 1–8, the JSONL keys `"T1"`..`"T8"`, the corpus and every error text are unchanged.
+  `Filter` keeps its `int64` nanosecond bounds, and the package documentation states the unit rule:
+  fields that mirror stored values carry the stored units,
+  while inputs that state a caller's intent take `time.Time` and `time.Duration`.
+  Migration: rename the fields;
+  tracekeep writes `T3Ms:` in the two `HSMSTimers` literals of `producer/descriptor_test.go`;
+  veq uses none of them.
+
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 

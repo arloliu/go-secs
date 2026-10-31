@@ -299,15 +299,26 @@ type Thinning struct {
 //
 // See the tracepack format specification §5.
 // Every field is optional.
+// The fields hold milliseconds, as stored, and name their unit with Ms;
+// convert a time.Duration with its Milliseconds method, never by a cast.
+// TnMs is the entry's nested tag n, which ExportJSONL writes under the key "Tn".
 type HSMSTimers struct {
-	T1 *uint64
-	T2 *uint64
-	T3 *uint64
-	T4 *uint64
-	T5 *uint64
-	T6 *uint64
-	T7 *uint64
-	T8 *uint64
+	// T1Ms is the SECS-I T1 inter-character timeout, in milliseconds (nested tag 1).
+	T1Ms *uint64
+	// T2Ms is the SECS-I T2 protocol timeout, in milliseconds (nested tag 2).
+	T2Ms *uint64
+	// T3Ms is the T3 reply timeout of HSMS and SECS-I, in milliseconds (nested tag 3).
+	T3Ms *uint64
+	// T4Ms is the SECS-I T4 inter-block timeout, in milliseconds (nested tag 4).
+	T4Ms *uint64
+	// T5Ms is the HSMS T5 connect separation timeout, in milliseconds (nested tag 5).
+	T5Ms *uint64
+	// T6Ms is the HSMS T6 control transaction timeout, in milliseconds (nested tag 6).
+	T6Ms *uint64
+	// T7Ms is the HSMS T7 NOT SELECTED timeout, in milliseconds (nested tag 7).
+	T7Ms *uint64
+	// T8Ms is the HSMS T8 network intercharacter timeout, in milliseconds (nested tag 8).
+	T8Ms *uint64
 }
 
 // PackMeta is the pack metadata of a tracepack file:
@@ -974,8 +985,8 @@ func (t HSMSTimers) entry() tlv.Entry {
 		tag uint16
 		v   *uint64
 	}{
-		{1, t.T1}, {2, t.T2}, {3, t.T3}, {4, t.T4},
-		{5, t.T5}, {6, t.T6}, {7, t.T7}, {8, t.T8},
+		{1, t.T1Ms}, {2, t.T2Ms}, {3, t.T3Ms}, {4, t.T4Ms},
+		{5, t.T5Ms}, {6, t.T6Ms}, {7, t.T7Ms}, {8, t.T8Ms},
 	}
 
 	var sub []tlv.Entry
@@ -1266,7 +1277,7 @@ func setMaskedRanges(r *RedactionEntry, e tlv.Entry) error {
 // decodeHSMSTimers decodes the nested entries of a pack metadata `hsms_timers` entry.
 func decodeHSMSTimers(nested []tlv.Entry) (HSMSTimers, error) {
 	var t HSMSTimers
-	fields := [8]**uint64{&t.T1, &t.T2, &t.T3, &t.T4, &t.T5, &t.T6, &t.T7, &t.T8}
+	fields := [8]**uint64{&t.T1Ms, &t.T2Ms, &t.T3Ms, &t.T4Ms, &t.T5Ms, &t.T6Ms, &t.T7Ms, &t.T8Ms}
 	for _, e := range nested {
 		if e.Tag < 1 || e.Tag > 8 {
 			continue
