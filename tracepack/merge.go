@@ -526,6 +526,9 @@ type mergeCluster = seqCluster[mergeBlock]
 // a new block of the resolution that fails its check, ctx's error, or an error writing or syncing dst.
 // Only an error of the footer-and-trailer write, or of the sync after it, may leave bytes that form a finalized pack,
 // which is still a failure.
+// Once ctx is done, the error returned may be ctx's even when an open or a read also failed:
+// which one comes first depends on when ctx was cancelled.
+// Without cancellation the error does not depend on timing, as the opening order above states.
 //
 // Parameters:
 //   - ctx: cancels the merge while it opens the inputs, before it writes, before each block it reads,

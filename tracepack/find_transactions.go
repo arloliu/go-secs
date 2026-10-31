@@ -103,6 +103,8 @@ type TxRangeResult struct {
 // fn is called from the calling goroutine, one pairing at a time, in the order above;
 // without cancellation, the pairings, the error and the result are those of the lookups run one after another,
 // and a panic in a lookup is raised again on the calling goroutine.
+// Once ctx is done, the error returned may be ctx's even when a lookup or an hour's read also failed:
+// which one comes first depends on when ctx was cancelled.
 // Every goroutine FindTransactions starts has ended when it returns.
 //
 // Parameters:

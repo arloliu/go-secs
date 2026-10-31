@@ -269,12 +269,18 @@ type TxHour struct {
 }
 
 // TxPackError is a footer error of a pack a transaction lookup read, which does not make the lookup incomplete by itself.
+//
+// It appears only as an element of TxResult.FooterErrs, never as the error a call returns,
+// and is a value type: the errors.As target is a TxPackError, not a pointer
+// (var te tracepack.TxPackError; errors.As(err, &te)).
+// Error and Unwrap make it an error whose chain is Err's.
 type TxPackError struct {
 	// Hour is the hour whose read took the pack.
 	Hour int64
 	// Pack is the pack's pack_id.
 	Pack UUID
-	// Err is the pack's PackHeader.FooterErr.
+	// Err is the pack's PackHeader.FooterErr, wrapping the sentinels its Godoc lists:
+	// ErrNotFinalized, ErrChecksum, ErrCorrupt, ErrInvalidFooter or ErrReadLimit.
 	Err error
 }
 

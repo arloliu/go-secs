@@ -24,7 +24,11 @@ const (
 	// VerifyOutcomeFinalizedTruncated reports a finalized pack in which a block fails or the forward walk stops,
 	// with no validated block after it.
 	VerifyOutcomeFinalizedTruncated
-	// VerifyOutcomeUnfinalized reports a pack that is not finalized (I-5).
+	// VerifyOutcomeUnfinalized reports a pack that is not finalized (I-5):
+	// one without a valid trailer, and also one whose trailer is valid but whose footer CRC does not match (the tracepack format specification §13).
+	// FooterErr then wraps ErrNotFinalized for the first and ErrChecksum for the second,
+	// and a read's defect at the end of the forward walk wraps ErrNotFinalized for the first and ErrCorrupt for the second (see Defect.Err):
+	// only the first may still be written, so a caller deciding whether to retry later tests ErrNotFinalized, not this outcome.
 	VerifyOutcomeUnfinalized
 	// VerifyOutcomeCorruptMiddle reports a pack in which a failed block is followed by a validated one.
 	VerifyOutcomeCorruptMiddle

@@ -109,6 +109,15 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   an `ID`, `DigestKeyID` or `Encryption.KeyID` that is not valid UTF-8, or a `Version` above 2^63 − 1.
   `NewWriter` refused every such policy's pack metadata, at each flush; it now fails once, at configuration.
   For tracekeep and veq: handle `ErrInvalidPolicy` from `Compile` as before; such a policy never wrote a pack.
+- `Merge` reports an archive over a limit of the format that its blocks reach as it builds the footer,
+  a block's F-3 entry list longer than the footer's u32 `summary_len` or more blocks than the u32 `block_count`,
+  with an error wrapping `ErrMergeLimit` beside the one naming the limit, as it reports an archive over its footer budget (G5-296);
+  it matched no public sentinel.
+  For tracekeep: handle it as any `ErrMergeLimit`, an operator's decision, not a defective input.
+- `PackError` and `TxPackError` document that they appear only as `FooterErrs` elements, are found with `errors.As` into a value
+  (`var pe tracepack.PackError`, `var te tracepack.TxPackError`), not a pointer, and wrap the sentinels `PackHeader.FooterErr` lists;
+  `Merge`, `MergeIterate` and `FindTransactions` document that once `ctx` is done their error may be `ctx`'s even when a read or a lookup also failed,
+  and is otherwise independent of timing; `VerifyOutcomeUnfinalized` documents that it also covers a valid trailer whose footer CRC fails (G5-296).
 
 ### Fixed
 
@@ -120,10 +129,20 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   it skipped the syncs, leaving the published link's durability to a later commit.
 - A `SegmentWriter` marks every error of its `ctx` as the caller's, as it does a sink's, so a `ctx` whose `Err` wraps a refusal sentinel is never marked `ErrRefused` (G5-296).
 - A block's F-3 entry list too long for the footer's u32 `summary_len`, and a block count over the u32 `block_count`, which the records written determine,
-  do not wrap `ErrInvalidArgument`, from the writing calls, which still mark them `ErrRefused`, or from `Merge` (G5-296).
+  do not wrap `ErrInvalidArgument`, from the writing calls, which still mark them `ErrRefused`, or from `Merge`, which reports them with `ErrMergeLimit` (G5-296).
 - `bus.EncodeBody`'s documentation names its `bus.ErrMalformed` for an inline body that does not fit in memory on a 32-bit platform.
 - `Open` caps `ReaderOptions.MaxPackMetadataLen` at the largest pack metadata a 32-bit platform can address,
   so on such a platform a raised budget and a hostile `pack_metadata_len` of 2 GiB or more fail with `ErrReadLimit` instead of panicking.
+- A `ReadAt` that ends its goroutine instead of returning, through `runtime.Goexit` as a test's `t.FailNow` does,
+  on a goroutine the module started for it, fails the call with an error saying the `ReadAt` did not return (G5-296):
+  a concurrent read of `Open`'s rounds fails `Open`, an input's open fails `Merge` as a failed read of that input, never `ErrMergeInput`,
+  and a block `MergeIterate` read ahead fails the read when it reaches the block.
+  `Open` went on with the bytes not read, reporting a misleading `ErrNotTracepack` or `ErrChecksum` or none,
+  `Merge` panicked with a nil dereference, and `MergeIterate` reported a corrupt block.
+  On the caller's own goroutine such a `ReadAt` ends that goroutine, as before.
+- A `ReadAt` that panics while `MergeIterate`, `FindTransaction` or `FindTransactions` reads a block on the caller's goroutine,
+  in capture order over several captures or in a walked block's first read, gives the block's buffer back to its pool and releases its `MaxHeldBytes` reservation
+  before the panic leaves the call (G5-296); the block read ahead already did.
 
 ## [0.12.0] - 2026-10-31
 
