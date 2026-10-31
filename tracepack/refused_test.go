@@ -280,15 +280,6 @@ func TestErrRefusedArguments(t *testing.T) {
 		{"DetectClockSteps without capture-clock", func(*testing.T) error {
 			return newWriterErr(nil, func(o *WriterOptions) { o.DetectClockSteps, o.AssignSeq = true, true })
 		}, "requires time_source capture-clock"},
-		{"an F-3 list over summary_len at Close", func(t *testing.T) error {
-			w := refusalWriter(t, io.Discard, nil)
-			w.maxF3ListLen = 1
-			r := testDataRecord(0, blockTestHour+1, 1)
-			require.NoError(t, w.Append(&r))
-			_, err := w.Close()
-
-			return err
-		}, "exceeds the u32 summary_len"},
 		{"pack metadata whose string is not valid UTF-8", func(*testing.T) error {
 			return newWriterErr(func(m *PackMeta) { m.Recorder = "\xff" }, nil)
 		}, "tag 0x0006 at offset 0: tlv: utf8 value is not valid UTF-8"},
@@ -924,13 +915,33 @@ func TestErrRefusedSegmentWriterCalls(t *testing.T) {
 	})
 }
 
-// overflowArgumentSites names, in writer.go, the functions holding a check of a length against a u32 field
-// whose input cannot be built in a test, the pack metadata's length and the block count.
-var overflowArgumentSites = []string{"encodeHead", "Writer.finalize"}
+// TestErrRefusedRecordLimit requires a limit of the format that the records written reach,
+// an F-3 entry list longer than the footer's u32 summary_len, to be marked ErrRefused at Writer.Close
+// without being taken for an invalid argument, since the call has none.
+func TestErrRefusedRecordLimit(t *testing.T) {
+	t.Parallel()
 
-// TestErrRefusedOverflowArguments parses writer.go and requires each check of overflowArgumentSites
-// to return its error marked as an argument, as TestErrRefusedArguments requires of the checks a test can reach:
-// each function holds exactly one comparison with math.MaxUint32, whose body returns argument(...).
+	w := refusalWriter(t, io.Discard, nil)
+	w.maxF3ListLen = 1
+	r := testDataRecord(0, blockTestHour+1, 1)
+	require.NoError(t, w.Append(&r))
+	_, err := w.Close()
+	require.ErrorContains(t, err, "exceeds the u32 summary_len")
+	require.ErrorIs(t, err, ErrRefused)
+	require.NotErrorIs(t, err, ErrInvalidArgument)
+	_, err = w.Close()
+	require.ErrorIs(t, err, ErrWriterFailed, "the Writer failed")
+	requireNotRefused(t, err)
+}
+
+// overflowSites names, in writer.go, the functions holding a check of a length against a u32 field
+// whose input cannot be built in a test, with the marker its error takes:
+// the pack metadata's length is the call's argument, and the block count a limit the records written reach.
+var overflowSites = map[string]string{"encodeHead": "argument", "Writer.finalize": "recordLimit"}
+
+// TestErrRefusedOverflowArguments parses writer.go and requires each check of overflowSites
+// to return its error with its marker, as TestErrRefusedArguments and TestErrRefusedRecordLimit require of the checks a test can reach:
+// each function holds exactly one comparison with math.MaxUint32, whose body returns the marker's call.
 func TestErrRefusedOverflowArguments(t *testing.T) {
 	t.Parallel()
 
@@ -940,10 +951,14 @@ func TestErrRefusedOverflowArguments(t *testing.T) {
 	found := map[string]bool{}
 	for _, d := range f.Decls {
 		fn, ok := d.(*ast.FuncDecl)
-		if !ok || fn.Body == nil || !slices.Contains(overflowArgumentSites, funcName(fn)) {
+		if !ok || fn.Body == nil {
 			continue
 		}
 		name := funcName(fn)
+		marker, watched := overflowSites[name]
+		if !watched {
+			continue
+		}
 		found[name] = true
 		var checks []*ast.IfStmt
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
@@ -964,9 +979,9 @@ func TestErrRefusedOverflowArguments(t *testing.T) {
 		call, ok := ret.Results[len(ret.Results)-1].(*ast.CallExpr)
 		require.True(t, ok, "%s: %s returns a call", name, fset.Position(ret.Pos()))
 		id, ok := call.Fun.(*ast.Ident)
-		assert.True(t, ok && id.Name == "argument", "%s: %s returns its error marked by argument", name, fset.Position(ret.Pos()))
+		assert.True(t, ok && id.Name == marker, "%s: %s returns its error marked by %s", name, fset.Position(ret.Pos()), marker)
 	}
-	for _, name := range overflowArgumentSites {
+	for name := range overflowSites {
 		assert.True(t, found[name], "writer.go declares %s", name)
 	}
 }

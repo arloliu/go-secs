@@ -119,7 +119,8 @@ func buildFooter(blocks []blockSummary, maxF3ListLen, maxLen uint64) ([]byte, *p
 		n := uint64(len(f3) - start)
 		summaryLen, ok := summaryLen32(n, maxF3ListLen)
 		if !ok {
-			return nil, nil, argument(fmt.Errorf("tracepack: block %d: F-3 entry list of %d bytes exceeds the u32 summary_len", i, n))
+			// The block's records determine the list, so it is a limit they reach, not an argument of the call.
+			return nil, nil, recordLimit(fmt.Errorf("tracepack: block %d: F-3 entry list of %d bytes exceeds the u32 summary_len", i, n))
 		}
 		index[i] = f2EntryOf(&blocks[i], uint64(start), summaryLen)
 	}

@@ -106,10 +106,12 @@ var (
 	// They add it to an error wrapping ErrSeqOrder, ErrPayloadTooLarge, ErrFieldValidity, ErrMetadataCommitment,
 	// ErrValidation, ErrScopeBreach, ErrInvalidRecord, ErrRequiredTag, ErrFieldValue, ErrFieldLength,
 	// ErrAnnotationText or ErrReservedTag, and to an invalid argument or option, which wraps ErrInvalidArgument,
-	// such as a nil WriterOptions.Meta, or a value of the pack metadata or of an AppendEvent event that the encoding refuses.
+	// such as a nil WriterOptions.Meta, or a value of the pack metadata or of an AppendEvent event that the encoding refuses;
+	// and to an error for a format limit the records written reach, such as a block's F-3 entry list too long for the footer's u32 summary_len,
+	// which does not wrap ErrInvalidArgument, since the call has no argument that caused it.
 	//
-	// It is never added to an error of Merge, of ctx, or of the Writer's prior state (ErrWriterFailed, ErrClosed),
-	// nor to an error of the destination, a Syncer, a SegmentSink, a SegmentFile or the random source,
+	// It is never added to an error of Merge, of ctx, or of the writer's prior state (ErrWriterFailed, ErrClosed),
+	// nor to an error of the destination, a Syncer, a SegmentSink or a SegmentFile,
 	// nor to an error that holds one of those beside a refusal.
 	// An error from the caller's own io.Writer, Syncer, SegmentSink or SegmentFile is returned wrapped, its chain intact,
 	// with no marker added, so one that wraps ErrRefused itself still matches it.
@@ -1015,7 +1017,7 @@ func (c Continuation) Next() (seq uint64, ok bool) {
 //   - Continuation: where the capture continues in another pack: the seq after the pack's last record,
 //     or its seq_start when it holds no record; no continuation after the last seq, and the zero Continuation on error.
 //   - error: as for Flush, or the error of writing or syncing the footer and trailer, after which the Writer has failed;
-//     an error, before the footer is written, for a block summary too long for the footer's u32 summary_len;
+//     an error, before the footer is written, for a block summary too long for the footer's u32 summary_len, marked ErrRefused;
 //     a *FieldError wrapping ErrMetadataCommitment, also leaving the Writer failed and writing neither footer nor trailer,
 //     when the file header set redaction-present but no written record carries quality.redacted ("redaction-present"),
 //     or, in a pack masked at write, when a redaction entry names a seq no appended record carried ("redaction");
@@ -1369,7 +1371,8 @@ func (w *Writer) finalize() error {
 		}
 	}
 	if uint64(len(w.blocks)) > math.MaxUint32 {
-		return argument(fmt.Errorf("tracepack: %d blocks exceed the u32 block_count", len(w.blocks)))
+		// The records written determine the blocks, so it is a limit they reach, not an argument of the call.
+		return recordLimit(fmt.Errorf("tracepack: %d blocks exceed the u32 block_count", len(w.blocks)))
 	}
 
 	footer, stats, err := buildFooter(w.blocks, w.maxF3ListLen, w.footerBudget)

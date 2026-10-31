@@ -203,7 +203,8 @@ var _ dirFS = rootFS{}
 // and the segment is finished: a later Abort does nothing.
 // Should that removal fail, the error also wraps its cause, and the segment stays abortable, so Abort removes the file.
 // Both errors arise only from a link that did not happen, and ErrPublishUncertain only after a link that did,
-// so the three never overlap; an error removing the temporary file after the link wraps ErrPublishUncertain.
+// so the three never overlap; an error removing the temporary file after the link wraps ErrPublishUncertain,
+// the directory syncs still run and their error is joined after it, and the temporary file, a second link to the segment, stays under .partial/.
 // A link failing for another reason, as on a file system without hard links, fails Commit with its error, nothing published,
 // as does a key that is not a regular file, such as a symbolic link, which the sink refuses as it refuses one among its directories,
 // and a failure to compare the files; Abort then removes the temporary file.
@@ -478,7 +479,8 @@ func (f *dirSegment) Commit(ctx context.Context) error {
 }
 
 // commitLink publishes the segment by hard-linking its temporary file to its key, then removes the temporary file
-// and syncs dirs, the key's directories up to root, deepest first;
+// and syncs dirs, the key's directories up to root, deepest first, even when the removal failed,
+// returning both errors joined, the removal's first;
 // when the key holds a file, it compares the two and refuses the segment, as NewDirSink describes.
 func (f *dirSegment) commitLink(ctx context.Context, dirs []string) error {
 	fsys := f.sink.fsys
@@ -491,11 +493,14 @@ func (f *dirSegment) commitLink(ctx context.Context, dirs []string) error {
 	}
 
 	f.state = dirSegmentPublished
+	// The directory syncs make the published link durable whether or not the removal succeeded,
+	// so a failed removal, which leaves a second link to the segment under .partial/, does not skip them.
+	var removeErr error
 	if err := fsys.remove(f.temp); err != nil {
-		return fmt.Errorf("%w: segment %s: remove the temporary file: %w", ErrPublishUncertain, f.key, err)
+		removeErr = fmt.Errorf("%w: segment %s: remove the temporary file: %w", ErrPublishUncertain, f.key, err)
 	}
 
-	return f.syncDirs(ctx, dirs)
+	return errors.Join(removeErr, f.syncDirs(ctx, dirs))
 }
 
 // refuse compares the file at the segment's key, which the link found there, with the temporary file,

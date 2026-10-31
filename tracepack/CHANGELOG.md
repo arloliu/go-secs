@@ -87,6 +87,11 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - The forward walk of a pack whose trailer is valid but whose footer CRC fails ends with a defect wrapping `ErrCorrupt`, not `ErrNotFinalized` (G5-296):
   the pack was finished, so it is damaged, and a caller retrying `ErrNotFinalized` would have waited for it forever.
   Its `PackHeader.FooterErr` still wraps `ErrChecksum`.
+- `DirSink` with `NoReplace` syncs the key's directories even when removing the temporary file after the link failed,
+  and returns that error, still wrapping `ErrPublishUncertain`, joined with any sync error (G5-296);
+  it skipped the syncs, leaving the published link's durability to a later commit.
+- A block's F-3 entry list too long for the footer's u32 `summary_len`, and a block count over the u32 `block_count`, which the records written determine,
+  do not wrap `ErrInvalidArgument`, from the writing calls, which still mark them `ErrRefused`, or from `Merge` (G5-296).
 - `Open` caps `ReaderOptions.MaxPackMetadataLen` at the largest pack metadata a 32-bit platform can address,
   so on such a platform a raised budget and a hostile `pack_metadata_len` of 2 GiB or more fail with `ErrReadLimit` instead of panicking.
 

@@ -375,7 +375,8 @@ The query service, its catalog database and the live-tail interface are designed
   A listing of the key areas sees only committed segments, never an open or abandoned one;
   `Abort` removes the temporary file, ignoring one already gone, and a temporary file left by a crash stays under `.partial/`, which no listing reaches.
   `NewDirSink(root, prefix, DirSinkOptions{NoReplace: true})` never replaces a file at a key (G5-197, G5-283), as reproducible converter output requires ([STO §7] Reproducible output):
-  `Commit` publishes by hard-linking the temporary file to its key, which fails when the key exists, even for a file another writer published meanwhile, then removes the temporary file;
+  `Commit` publishes by hard-linking the temporary file to its key, which fails when the key exists, even for a file another writer published meanwhile, then removes the temporary file,
+  and syncs the key's directories even when that removal failed, returning the removal's error, wrapping `ErrPublishUncertain`, joined with any sync error, the temporary file staying under `.partial/` (G5-296);
   when the key exists, it compares that file's bytes with the segment's, after the link failed, never before,
   and returns an error wrapping `ErrSegmentExists` when they are identical or `ErrSegmentConflict` when they differ,
   the existing file untouched and the temporary file removed in both cases, the segment finished and a later `Abort` doing nothing;

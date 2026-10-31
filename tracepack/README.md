@@ -173,6 +173,9 @@ so a recording can be uploaded to a bucket as it is, its file paths for object k
   and when the key exists, `Commit` returns an error wrapping `ErrSegmentExists` for identical bytes
   or `ErrSegmentConflict` for others,
   the existing file kept.
+  Should removing the temporary file fail after the link, `Commit` still syncs the key's directories
+  and returns the removal's error, wrapping `ErrPublishUncertain`, joined with any sync error;
+  the temporary file, a second link to the segment, stays under `.partial/`.
   A file system without hard links fails such a `Commit`.
 - `prefix` is empty or a relative `/`-separated path, used as given.
   It may not hold an empty, `.` or `..` component, a `\` or a `:`, and its first component may not be `.partial`,
