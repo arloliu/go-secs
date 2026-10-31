@@ -41,7 +41,7 @@ type Rejection struct {
 //   - ErrNotTracepack: bad-magic with format.ErrBadMagic, else short-object for a size below the file header;
 //   - ErrUnsupportedFormat: unsupported-version;
 //   - ErrChecksum: header-crc with format.ErrCRC, which only the file header's check wraps, else metadata-crc;
-//   - io.ErrUnexpectedEOF alone: metadata-past-object, since a read of an in-memory pack is never short;
+//   - io.ErrUnexpectedEOF, beside tracepack.ErrCorrupt: metadata-past-object, since a read of an in-memory pack is never short;
 //   - a *FieldError wrapping ErrFieldValue for replacement_set_size or replacement_set_index: replacement-set;
 //   - a *tlv.EntryError that is itself the missing top-level tag: metadata-required-tag;
 //   - any other *tlv.EntryError, a nested missing tag included,

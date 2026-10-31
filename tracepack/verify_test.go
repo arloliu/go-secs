@@ -324,6 +324,7 @@ func requireInconsistent(t *testing.T, rep VerifyReport, i int, msg string) {
 	assert.Equal(t, IncompleteReasonIndexMismatch, rep.Disagreements[0].Reason)
 	assert.Equal(t, i, rep.Disagreements[0].Block)
 	require.ErrorContains(t, rep.Disagreements[0].Err, msg)
+	require.ErrorIs(t, rep.Disagreements[0].Err, ErrCorrupt)
 }
 
 func TestVerifyFooterSummaryDisagrees(t *testing.T) {
@@ -486,25 +487,27 @@ func TestVerifyRecordWriterDefects(t *testing.T) {
 		edit func(b *testBlock)
 		kind WriterDefectKind
 		seq  uint64
+		// want is the sentinel the defect's Err wraps.
+		want error
 	}{
 		{name: "System Bytes marked beyond a 10-byte payload", edit: func(b *testBlock) {
 			b.payloads[0] = b.payloads[0][:10]
 			b.headers[0].PayloadLen = 10
-		}, kind: WriterDefectFieldValidity, seq: 0},
+		}, kind: WriterDefectFieldValidity, seq: 0, want: ErrFieldValidity},
 		{name: "annotation with field_validity", edit: func(b *testBlock) {
 			b.headers[1].FieldValidity = uint8(FieldValiditySessionID)
-		}, kind: WriterDefectEventFieldValidity, seq: 1},
+		}, kind: WriterDefectEventFieldValidity, seq: 1, want: ErrInvalidRecord},
 		{name: "transport event with field_validity", edit: func(b *testBlock) {
 			b.headers[2].FieldValidity = uint8(FieldValiditySystemBytes)
-		}, kind: WriterDefectEventFieldValidity, seq: 2},
+		}, kind: WriterDefectEventFieldValidity, seq: 2, want: ErrInvalidRecord},
 		{name: "annotation payload not a TLV body", edit: func(b *testBlock) {
 			b.payloads[1] = []byte{0xFF}
 			b.headers[1].PayloadLen = 1
-		}, kind: WriterDefectEventPayload, seq: 1},
+		}, kind: WriterDefectEventPayload, seq: 1, want: ErrInvalidRecord},
 		{name: "transport event payload not a TLV body", edit: func(b *testBlock) {
 			b.payloads[2] = []byte{0xFF}
 			b.headers[2].PayloadLen = 1
-		}, kind: WriterDefectEventPayload, seq: 2},
+		}, kind: WriterDefectEventPayload, seq: 2, want: ErrInvalidRecord},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -513,6 +516,7 @@ func TestVerifyRecordWriterDefects(t *testing.T) {
 			rep := mustVerify(t, editBlock(t, p.file, 0, tt.edit))
 			assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "a writer defect never changes the outcome: %v", rep.Disagreements)
 			requireWriterDefect(t, rep.WriterDefects, tt.kind, 0, p.blocks[0].offset, tt.seq)
+			require.ErrorIs(t, rep.WriterDefects[0].Err, tt.want)
 			require.NotErrorIs(t, rep.WriterDefects[0].Err, ErrCorrupt, "a writer defect is not corrupt data")
 		})
 	}

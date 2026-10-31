@@ -228,6 +228,36 @@ A decode also wraps `ErrCorrupt`, the bytes not being a valid encoding, and byte
 an encode never wraps `ErrCorrupt`, and neither does a writing call refusing a record whose payload does not decode, which wraps `ErrInvalidRecord`.
 `EncodeDescriptor(nil)`, and `ParseUUID` of a string that is not a canonical UUID, wrap `ErrInvalidArgument`.
 
+The reading calls, `Open`, `Iterate`, `Verify`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `ExportJSONL`, and `Merge` beside `ErrMergeInput`,
+report each fault of a pack with the same sentinel on every path, the cause kept beside it:
+
+| Fault | Sentinel |
+|---|---|
+| a CRC mismatch: file header, pack metadata, footer, trailer, block envelope or block body | `ErrChecksum`, which matches `ErrCorrupt` |
+| pack metadata or a block that does not decode or validate; pack metadata past the end of the object, beside `io.ErrUnexpectedEOF`; records, summaries or a walk that disagree with the index or a valid trailer | `ErrCorrupt` |
+| no trailer: a pack still being written or cut short | `ErrNotFinalized` |
+| a trailer present but damaged | `ErrNotFinalized`, beside `ErrChecksum` or `ErrCorrupt` |
+| a footer that fails its checks | `ErrInvalidFooter`, which matches `ErrCorrupt` |
+| a structure over a reader budget | `ErrReadLimit` |
+| your `ReaderAt`'s error, `io.ErrUnexpectedEOF` of a short read included | returned as it is, never `ErrCorrupt` |
+
+Only a fault of the file header or the pack metadata fails `Open`.
+A trailer or footer that cannot be used is reported by `PackHeader.FooterErr`, and by the read's `FooterErrs`, as `PackError.Err` or `TxPackError.Err`;
+test `ErrNotFinalized` before `ErrCorrupt`, since a damaged trailer carries both and a pack not finalized may still be written to.
+A block or walk fault is a `Defect` in `Result.Incomplete` (a `TxGap` of a lookup), and its `Err` wraps, by `Defect.Reason`:
+
+| `Defect.Reason` | `Defect.Err` wraps |
+|---|---|
+| `IncompleteReasonCorruptBlock` | `ErrChecksum` for an envelope or body CRC mismatch, else `ErrCorrupt` |
+| `IncompleteReasonUnknownCodec`, `IncompleteReasonIndexMismatch` | `ErrCorrupt` |
+| `IncompleteReasonTruncated` | `ErrNotFinalized` at the end of a pack that is not finalized, or where a pack with no valid trailer ends inside a block; `ErrChecksum` or `ErrCorrupt` at a bad envelope, a block past a valid trailer's `footer_offset`, or a walk that disagrees with the trailer |
+| `IncompleteReasonLimit` | `ErrReadLimit` |
+| `IncompleteReasonCoverage`, `IncompleteReasonCrashGap` | no sentinel: `Reason`, with `Coverage` or `Boundary`, classifies it |
+
+`Verify`'s `WriterDefect.Err` wraps `ErrFieldValidity` for `WriterDefectFieldValidity`,
+and `ErrInvalidRecord`, the refusal a writer gives such a record, for `WriterDefectEventFieldValidity` and `WriterDefectEventPayload`;
+the other kinds are descriptive, `Kind` classifying them, and none is `ErrCorrupt`, since the block holding it passed every check.
+
 ## Publishing a capture over a durable bus
 
 For a producer, such as an equipment gateway, that publishes each record of a capture as one bus message (the storage specification §4):

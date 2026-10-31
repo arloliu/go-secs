@@ -671,18 +671,20 @@ func TestMergeRefusesDefectiveBlocks(t *testing.T) {
 		name string
 		file []byte
 		msg  string
+		// want is the sentinel the refusal wraps beside ErrMergeInput.
+		want error
 	}{
-		{name: "a corrupt body", file: flipByte(a, blocks[1].Offset+format.EnvelopeLen+1), msg: "body CRC"},
-		{name: "a block failing I-2", file: editBlock(t, a, 1, func(b *testBlock) { b.tail = []byte{0} }), msg: "uncompressed_len"},
+		{name: "a corrupt body", file: flipByte(a, blocks[1].Offset+format.EnvelopeLen+1), msg: "body CRC", want: ErrChecksum},
+		{name: "a block failing I-2", file: editBlock(t, a, 1, func(b *testBlock) { b.tail = []byte{0} }), msg: "uncompressed_len", want: ErrCorrupt},
 		{name: "records disagreeing with the F-2 entry", file: editBlock(t, a, 1, func(b *testBlock) { b.headers[1].TSUTCNs++ }),
-			msg: "records give ts_max"},
+			msg: "records give ts_max", want: ErrCorrupt},
 		{name: "records disagreeing with the F-3 summary", file: editBlock(t, a, 1, func(b *testBlock) {
 			b.headers[0].Dir = uint8(DirEquipmentToHost)
-		}), msg: "F-3 dir_counts"},
+		}), msg: "F-3 dir_counts", want: ErrCorrupt},
 		// The preflight checks commitments from F-3 and F-5; the record itself is only seen when its block is read.
 		{name: "a redacted record the F-3 summary hides", file: editBlock(t, a, 1, func(b *testBlock) {
 			b.headers[0].Quality |= uint16(QualityRedacted)
-		}), msg: "F-3 quality_union"},
+		}), msg: "F-3 quality_union", want: ErrCorrupt},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -694,6 +696,7 @@ func TestMergeRefusesDefectiveBlocks(t *testing.T) {
 
 			out, rep, err := mergeBytes(t.Context(), inputs, mergeOpts())
 			require.ErrorIs(t, err, ErrMergeInput)
+			require.ErrorIs(t, err, tt.want)
 			require.ErrorContains(t, err, "input 0, pack "+seg0.String()+": ")
 			require.ErrorContains(t, err, "block 1 at offset")
 			require.ErrorContains(t, err, tt.msg)
@@ -714,6 +717,7 @@ func TestMergeRefusesDefectiveBlocks(t *testing.T) {
 		require.ErrorIs(t, err, errInjected)
 		require.ErrorContains(t, err, "input 0, pack "+seg0.String()+", block 1")
 		assert.NotErrorIs(t, err, ErrMergeInput)
+		assert.NotErrorIs(t, err, ErrCorrupt, "a read error is never relabelled corrupt")
 		assert.Equal(t, MergeReport{}, rep)
 		requireNoTrailer(t, out, 0)
 	})
@@ -730,6 +734,7 @@ func TestMergeRefusesDefectiveBlocks(t *testing.T) {
 		// a read error, as verification returns it, not a defect of the pack.
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 		assert.NotErrorIs(t, err, ErrMergeInput)
+		assert.NotErrorIs(t, err, ErrCorrupt, "a read cut short is never relabelled corrupt")
 		require.ErrorContains(t, err, "input 0, pack "+seg0.String()+", block 1")
 		assert.Equal(t, MergeReport{}, rep)
 		requireNoTrailer(t, out, 0)

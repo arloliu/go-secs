@@ -21,23 +21,27 @@ func TestMergeRefusesUnknownVersions(t *testing.T) {
 		name string
 		file []byte
 		msg  string
+		// causes are the sentinels the refusal wraps beside ErrMergeInput.
+		causes []error
 	}{
 		{
-			name: "trailer_version 2",
-			file: patchTrailer(t, file, func(tr *format.Trailer) { tr.TrailerVersion = 2 }),
-			msg:  "the pack is not finalized",
+			name:   "trailer_version 2",
+			file:   patchTrailer(t, file, func(tr *format.Trailer) { tr.TrailerVersion = 2 }),
+			msg:    "the pack is not finalized",
+			causes: []error{ErrNotFinalized, ErrCorrupt},
 		},
 		{
-			name: "footer_layout_version 2",
-			file: refooter(t, file, patchPrologue(t, decoded, func(pro *format.FooterPrologue) { pro.FooterLayoutVersion = 2 })),
-			msg:  "the pack has no valid footer",
+			name:   "footer_layout_version 2",
+			file:   refooter(t, file, patchPrologue(t, decoded, func(pro *format.FooterPrologue) { pro.FooterLayoutVersion = 2 })),
+			msg:    "the pack has no valid footer",
+			causes: []error{ErrInvalidFooter},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			requireMergeRefused(t, inputsOf(good, tt.file), mergeOpts(), "input 1, pack "+seg1.String()+": "+tt.msg, ErrMergeInput)
+			requireMergeRefused(t, inputsOf(good, tt.file), mergeOpts(), "input 1, pack "+seg1.String()+": "+tt.msg, append(tt.causes, ErrMergeInput)...)
 		})
 	}
 }

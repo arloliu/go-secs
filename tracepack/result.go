@@ -55,7 +55,20 @@ type Defect struct {
 	// Boundary is the stop-unclean boundary whose gap meets the query, the caller's own copy;
 	// set for IncompleteReasonCrashGap only, whose Pack is the smallest index of a pack holding the boundary.
 	Boundary *Boundary
-	// Err describes the defect.
+	// Err describes the defect; by Reason, it wraps:
+	//   - IncompleteReasonCorruptBlock: ErrChecksum for a block envelope or body CRC mismatch, else ErrCorrupt;
+	//   - IncompleteReasonUnknownCodec and IncompleteReasonIndexMismatch: ErrCorrupt;
+	//   - IncompleteReasonTruncated: ErrNotFinalized at the end of the walk of a pack that is not finalized (I-5),
+	//     and for a walk stop at a block the object's end cuts short when the pack has no valid trailer;
+	//     ErrChecksum or ErrCorrupt, by its cause, for a walk stop at a bad block envelope;
+	//     ErrCorrupt for a walk stop at a block that crosses a valid trailer's footer_offset,
+	//     and for a walk that disagrees with the trailer's block_count or record_count;
+	//   - IncompleteReasonLimit: ErrReadLimit;
+	//   - IncompleteReasonCoverage and IncompleteReasonCrashGap: no sentinel, Err being descriptive,
+	//     and Reason with Coverage or Boundary the classifier.
+	//
+	// A ReadAt error is never a defect: it fails the read.
+	// ErrChecksum also matches ErrCorrupt, and ErrNotFinalized does not.
 	Err error
 }
 
@@ -71,7 +84,7 @@ type Result struct {
 	// It is always empty for Reader.Iterate, since a pack's seqs strictly increase.
 	Conflicts []Conflict
 	// FooterErrs holds one entry for each pack whose footer was not used, its PackHeader.FooterErr,
-	// in the order the readers were given;
+	// which wraps the sentinels PackHeader.FooterErr names, in the order the readers were given;
 	// nil when there is none.
 	// For Reader.Iterate it holds at most one entry, for pack 0.
 	// It is independent of Incomplete:

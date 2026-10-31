@@ -544,6 +544,8 @@ func TestOpenRejectsBeforeAnyBlockRead(t *testing.T) {
 		file    []byte
 		maxMeta int64
 		want    error
+		// also, when set, is a second sentinel the error wraps.
+		also error
 	}{
 		{name: "bad file magic", file: flipByte(p.file, 1), want: ErrNotTracepack},
 		{name: "bad header_crc", file: flipByte(p.file, 30), want: ErrChecksum},
@@ -555,18 +557,21 @@ func TestOpenRejectsBeforeAnyBlockRead(t *testing.T) {
 		{
 			name: "pack metadata entry with tag 0",
 			file: patchMeta(t, p.file, func(m []byte) { m[0], m[1] = 0, 0 }),
-			want: tlv.ErrZeroTag,
+			want: ErrCorrupt,
+			also: tlv.ErrZeroTag,
 		},
 		{
 			name: "pack metadata past the object",
 			file: patchHeader(t, p.file, func(h *format.FileHeader) { h.PackMetadataLen = uint32(l.size) }),
-			want: io.ErrUnexpectedEOF,
+			want: ErrCorrupt,
+			also: io.ErrUnexpectedEOF,
 		},
 		{name: "pack metadata over MaxPackMetadataLen", file: p.file, maxMeta: int64(pml) - 1, want: ErrReadLimit},
 		{name: "bad pack_metadata_crc", file: flipByte(p.file, format.FileHeaderLen+20), want: ErrChecksum},
 		{
 			name: "invalid pack metadata",
 			file: patchMeta(t, p.file, func(m []byte) { m[0], m[1] = 0, 0 }),
+			want: ErrCorrupt,
 		},
 	}
 	for _, tt := range tests {
@@ -582,6 +587,9 @@ func TestOpenRejectsBeforeAnyBlockRead(t *testing.T) {
 			assert.Nil(t, r)
 			if tt.want != nil {
 				require.ErrorIs(t, err, tt.want)
+			}
+			if tt.also != nil {
+				require.ErrorIs(t, err, tt.also)
 			}
 			assert.ElementsMatch(t, roundOne, g.allCalls(), "the pack is rejected after the first round, before any block read")
 		})
@@ -804,16 +812,19 @@ func TestOpenBrokenTrailer(t *testing.T) {
 	l := layoutOf(t, p.file)
 	trailerAt := uint64(l.size - format.TrailerLen)
 
+	// Every broken trailer leaves the pack not finalized; one that is present but damaged is also checksum or corrupt.
 	tests := []struct {
-		name string
-		file []byte
+		name  string
+		file  []byte
+		class error
 	}{
 		{name: "bad magic", file: flipByte(p.file, trailerAt+60)},
-		{name: "bad trailer_crc", file: flipByte(p.file, trailerAt+30)},
-		{name: "trailer_version 2", file: patchTrailer(t, p.file, func(tr *format.Trailer) { tr.TrailerVersion = 2 })},
+		{name: "bad trailer_crc", file: flipByte(p.file, trailerAt+30), class: ErrChecksum},
+		{name: "trailer_version 2", file: patchTrailer(t, p.file, func(tr *format.Trailer) { tr.TrailerVersion = 2 }), class: ErrCorrupt},
 		{
-			name: "footer does not end at the trailer",
-			file: patchTrailer(t, p.file, func(tr *format.Trailer) { tr.FooterLen-- }),
+			name:  "footer does not end at the trailer",
+			file:  patchTrailer(t, p.file, func(tr *format.Trailer) { tr.FooterLen-- }),
+			class: ErrCorrupt,
 		},
 		{
 			name: "footer inside the pack metadata",
@@ -821,6 +832,7 @@ func TestOpenBrokenTrailer(t *testing.T) {
 				tr.FooterOffset = l.blocksStart - 1
 				tr.FooterLen = trailerAt - tr.FooterOffset
 			}),
+			class: ErrCorrupt,
 		},
 	}
 	for _, tt := range tests {
@@ -831,7 +843,12 @@ func TestOpenBrokenTrailer(t *testing.T) {
 			h := r.Header()
 			assert.False(t, h.Finalized)
 			assert.Nil(t, h.Trailer)
-			require.Error(t, h.FooterErr, "the footer was not used")
+			require.ErrorIs(t, h.FooterErr, ErrNotFinalized, "the footer was not used")
+			if tt.class != nil {
+				require.ErrorIs(t, h.FooterErr, tt.class)
+			} else {
+				require.NotErrorIs(t, h.FooterErr, ErrCorrupt, "an absent trailer is not corrupt")
+			}
 			assert.Equal(t, walkedInfos(p.blocks), r.Blocks())
 			assert.Equal(t, []int64{int64(l.tr.FooterOffset)}, defectOffsets(t, r.openDefects),
 				"the walk to the end of the object stops at the footer")
@@ -908,6 +925,7 @@ func TestOpenWalkDisagreesWithTrailer(t *testing.T) {
 			require.ErrorIs(t, h.FooterErr, ErrInvalidFooter)
 			assert.Equal(t, walkedInfos(p.blocks), r.Blocks())
 			assert.Equal(t, []int64{-1}, defectOffsets(t, r.openDefects))
+			require.ErrorIs(t, r.openDefects[0].Err, ErrCorrupt, "a walk disagreeing with a valid trailer is corrupt")
 		})
 	}
 }
@@ -1125,6 +1143,7 @@ func TestOpenFooterOverBudget(t *testing.T) {
 
 		g := newGatedReader(patchMeta(t, p.file, func(m []byte) { m[0], m[1] = 0, 0 }), 2)
 		_, err := Open(t.Context(), g, l.size, opts)
+		require.ErrorIs(t, err, ErrCorrupt)
 		require.ErrorIs(t, err, tlv.ErrZeroTag)
 		assert.Empty(t, g.roundCalls(1), "no footer chunk is read for a pack whose metadata is rejected")
 	})

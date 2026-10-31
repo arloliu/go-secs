@@ -2,6 +2,7 @@ package tracepack
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"testing"
@@ -55,10 +56,12 @@ func TestOpenWalksUnfinalizedPack(t *testing.T) {
 			h := r.Header()
 			assert.False(t, h.Finalized)
 			assert.Nil(t, h.Trailer)
-			require.Error(t, h.FooterErr)
+			require.ErrorIs(t, h.FooterErr, ErrNotFinalized)
 			assert.Equal(t, walkedInfos(p.blocks), r.Blocks())
 			assert.Equal(t, []int64{int64(len(p.file))}, defectOffsets(t, r.openDefects),
 				"a clean walk of a pack that is not finalized ends where more records may follow")
+			requireStopClass(t, r.openDefects[0].Err, ErrNotFinalized)
+			assert.EqualError(t, r.openDefects[0].Err, "tracepack: pack not finalized: more records may follow")
 		})
 	}
 }
@@ -119,24 +122,30 @@ func TestOpenWalkStopsAtBadEnvelope(t *testing.T) {
 	require.Len(t, open.blocks, 3)
 	at := open.blocks[1].offset
 
+	// open and closed are the sentinels of the stop's defect in the pack that is not finalized and in the finalized one.
 	faults := []struct {
-		name  string
-		patch func(t testing.TB, file []byte) []byte
+		name         string
+		patch        func(t testing.TB, file []byte) []byte
+		open, closed error
 	}{
-		{name: "bad magic", patch: func(_ testing.TB, file []byte) []byte { return flipByte(file, at) }},
-		{name: "bad envelope_crc", patch: func(_ testing.TB, file []byte) []byte { return flipByte(file, at+8) }},
+		{name: "bad magic", patch: func(_ testing.TB, file []byte) []byte { return flipByte(file, at) }, open: ErrCorrupt, closed: ErrCorrupt},
+		{
+			name: "bad envelope_crc", patch: func(_ testing.TB, file []byte) []byte { return flipByte(file, at+8) },
+			open: ErrChecksum, closed: ErrChecksum,
+		},
 		{name: "record_count 0", patch: func(t testing.TB, file []byte) []byte {
 			return patchEnvelope(t, file, at, func(e *format.BlockEnvelope) { e.RecordCount = 0 })
-		}},
+		}, open: ErrCorrupt, closed: ErrCorrupt},
 		{name: "record_header_len below 44", patch: func(t testing.TB, file []byte) []byte {
 			return patchEnvelope(t, file, at, func(e *format.BlockEnvelope) { e.RecordHeaderLen = 43 })
-		}},
+		}, open: ErrCorrupt, closed: ErrCorrupt},
 		{name: "body_len over the format limit", patch: func(t testing.TB, file []byte) []byte {
 			return patchEnvelope(t, file, at, func(e *format.BlockEnvelope) { e.BodyLen = format.MaxLen32 + 1 })
-		}},
+		}, open: ErrCorrupt, closed: ErrCorrupt},
+		// Past the object's end a pack with no trailer may still be written; past a valid trailer's footer_offset the block is corrupt.
 		{name: "body past the end of the block region", patch: func(t testing.TB, file []byte) []byte {
 			return patchEnvelope(t, file, at, func(e *format.BlockEnvelope) { e.BodyLen = uint32(len(file)) })
-		}},
+		}, open: ErrNotFinalized, closed: ErrCorrupt},
 	}
 	for _, f := range faults {
 		t.Run(f.name+" unfinalized", func(t *testing.T) {
@@ -146,6 +155,7 @@ func TestOpenWalkStopsAtBadEnvelope(t *testing.T) {
 			assert.False(t, r.Header().Finalized)
 			assert.Equal(t, walkedInfos(open.blocks[:1]), r.Blocks())
 			assert.Equal(t, []int64{int64(at)}, defectOffsets(t, r.openDefects), "one defect, at the block the walk stops at")
+			requireStopClass(t, r.openDefects[0].Err, f.open)
 		})
 		t.Run(f.name+" finalized", func(t *testing.T) {
 			t.Parallel()
@@ -156,7 +166,21 @@ func TestOpenWalkStopsAtBadEnvelope(t *testing.T) {
 			require.ErrorIs(t, h.FooterErr, ErrInvalidFooter)
 			assert.Equal(t, walkedInfos(closed.blocks[:1]), r.Blocks())
 			assert.Equal(t, []int64{int64(at)}, defectOffsets(t, r.openDefects))
+			requireStopClass(t, r.openDefects[0].Err, f.closed)
 		})
+	}
+}
+
+// requireStopClass requires that err, a walk stop's defect, wraps class,
+// and that a stop wrapping ErrNotFinalized is not also corrupt, nor a corrupt one not finalized.
+func requireStopClass(t *testing.T, err, class error) {
+	t.Helper()
+
+	require.ErrorIs(t, err, class)
+	if errors.Is(class, ErrNotFinalized) {
+		require.NotErrorIs(t, err, ErrCorrupt)
+	} else {
+		require.NotErrorIs(t, err, ErrNotFinalized)
 	}
 }
 

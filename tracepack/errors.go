@@ -12,6 +12,14 @@ var (
 	// UnmarshalPackMeta, UnmarshalPackMetaMinor, UnmarshalTransportEvent, UnmarshalAnnotation and DecodeDescriptor
 	// wrap it for bytes they do not decode, Open for pack metadata whose checksum holds,
 	// beside a *FieldError naming the field at fault when an entry is.
+	// Open also wraps it, beside io.ErrUnexpectedEOF, for pack metadata that extends past the end of the object.
+	// The reads wrap it, beside the cause, in PackHeader.FooterErr for a damaged trailer (with ErrNotFinalized)
+	// and in Defect.Err for a block that fails a check or disagrees with the index, and for a forward walk that stops at one
+	// or disagrees with a valid trailer (Defect.Err lists them by reason);
+	// so do Verify's VerifyReport.Failed and VerifyReport.Disagreements,
+	// MergeIterate's and the transaction lookups' defects and FooterErrs, ExportJSONL's Result,
+	// and Merge's error for an unusable input, beside ErrMergeInput.
+	// A ReadAt error is never reported as ErrCorrupt, io.ErrUnexpectedEOF for a short read included.
 	// No encode wraps it, and no writing call: a record whose payload does not decode is refused as ErrInvalidRecord.
 	//
 	// It is not reported for an object that is not a pack (ErrNotTracepack),
@@ -22,6 +30,12 @@ var (
 	// ErrNotFinalized reports a pack with no valid trailer:
 	// one still being written, one cut short, or one whose trailer is damaged,
 	// so more records may follow the ones read, or were lost.
+	// PackHeader.FooterErr wraps it for every pack with no valid trailer:
+	// alone when the trailer is absent, and beside ErrChecksum or ErrCorrupt when a trailer is present but damaged,
+	// so a caller tests it before ErrCorrupt.
+	// Defect.Err wraps it at the end of the forward walk of a pack that is not finalized (IncompleteReasonTruncated),
+	// whose trailer is not valid or whose footer CRC fails (I-5),
+	// and Merge, beside ErrMergeInput, for an input with no valid trailer.
 	// It is not ErrCorrupt and has no parent.
 	ErrNotFinalized = errors.New("tracepack: pack not finalized")
 	// ErrInvalidArgument reports an argument or option the call cannot take:

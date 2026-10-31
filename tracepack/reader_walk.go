@@ -10,9 +10,6 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
-// errNotFinalized is the defect of a pack that is not finalized: more records may follow the walked blocks.
-var errNotFinalized = errors.New("tracepack: pack not finalized: more records may follow")
-
 // walk builds the block index by the forward walk of I-1 and records the defects every read of the pack carries.
 //
 // The walk starts at the end of the pack metadata and ends at footer_offset when the trailer is valid,
@@ -24,6 +21,9 @@ var errNotFinalized = errors.New("tracepack: pack not finalized: more records ma
 // An envelope that does not fit before the end, a bad envelope, or a body past the end stops the walk
 // with an IncompleteReasonTruncated defect at the envelope's offset;
 // recovery beyond such a block is deferred (§13).
+// A bad envelope's defect wraps ErrChecksum for its CRC, else ErrCorrupt;
+// a block cut by the end wraps ErrCorrupt when a valid trailer ends the walk, since the block crosses its footer_offset,
+// else ErrNotFinalized, since the object ends early.
 // A block past ReaderOptions.MaxWalkedBlocks stops the walk with an IncompleteReasonLimit defect, wrapping ErrReadLimit, at its offset.
 // Walked blocks are not indexed.
 func (r *Reader) walk(ctx context.Context) error {
@@ -40,7 +40,7 @@ func (r *Reader) walk(ctx context.Context) error {
 	off := r.blocksStart()
 	for off < end {
 		if end-off < format.EnvelopeLen {
-			stop = walkStop(off, fmt.Errorf("tracepack: forward walk: %d bytes at offset %d cannot hold a block envelope", end-off, off))
+			stop = walkStop(off, wrapf("tracepack: forward walk: %d bytes at offset %d cannot hold a block envelope: %w", end-off, off, r.cutFault()))
 			break
 		}
 		if err := r.readEnvelope(ctx, env[:], off); err != nil {
@@ -49,13 +49,14 @@ func (r *Reader) walk(ctx context.Context) error {
 
 		e, err := format.UnmarshalBlockEnvelope(env[:])
 		if err != nil {
-			stop = walkStop(off, fmt.Errorf("tracepack: forward walk: block at offset %d: %w", off, err))
+			stop = walkStop(off, wrapf("tracepack: forward walk: block at offset %d: %w: %w", off, envelopeFault(err), err))
 			break
 		}
 		// body_len is at most 2^31-1 and off below end, which is at most 2^63-1, so next cannot wrap.
 		next := off + format.EnvelopeLen + uint64(e.BodyLen)
 		if next > end {
-			stop = walkStop(off, fmt.Errorf("tracepack: forward walk: block at offset %d ends at %d, past the block region's end %d", off, next, end))
+			stop = walkStop(off, wrapf("tracepack: forward walk: block at offset %d ends at %d, past the block region's end %d: %w",
+				off, next, end, r.cutFault()))
 			break
 		}
 
@@ -88,6 +89,16 @@ func (r *Reader) readEnvelope(ctx context.Context, env []byte, off uint64) error
 // at a block envelope it cannot account for, or at the end of a pack that is not finalized.
 func walkStop(off uint64, err error) *Defect {
 	return &Defect{Reason: IncompleteReasonTruncated, Block: -1, Offset: int64(off), Err: err}
+}
+
+// envelopeFault returns the sentinel of err, an error of format.UnmarshalBlockEnvelope:
+// ErrChecksum for a CRC mismatch, else ErrCorrupt.
+func envelopeFault(err error) error {
+	if errors.Is(err, format.ErrCRC) {
+		return ErrChecksum
+	}
+
+	return ErrCorrupt
 }
 
 // walkedInfo returns the BlockInfo of the block whose envelope e the forward walk found at off.
@@ -124,12 +135,23 @@ func (r *Reader) walkDefects(stop *Defect, end, records uint64) []Defect {
 	case stop != nil:
 		return []Defect{*stop}
 	case !r.finalized:
-		return []Defect{*walkStop(end, errNotFinalized)}
+		return []Defect{*walkStop(end, wrapf("%w: more records may follow", ErrNotFinalized))}
 	case uint64(len(r.blocks)) != uint64(r.trailer.BlockCount) || records != r.trailer.RecordCount:
-		return []Defect{{Reason: IncompleteReasonTruncated, Block: -1, Offset: -1, Err: fmt.Errorf(
-			"tracepack: forward walk found %d blocks of %d records, the trailer claims %d blocks of %d records",
-			len(r.blocks), records, r.trailer.BlockCount, r.trailer.RecordCount)}}
+		return []Defect{{Reason: IncompleteReasonTruncated, Block: -1, Offset: -1, Err: wrapf(
+			"tracepack: forward walk found %d blocks of %d records, the trailer claims %d blocks of %d records: %w",
+			len(r.blocks), records, r.trailer.BlockCount, r.trailer.RecordCount, ErrCorrupt)}}
 	default:
 		return nil
 	}
+}
+
+// cutFault returns the sentinel of a forward walk cut by the end of the block region inside a block:
+// ErrCorrupt when a valid trailer ends the region at its footer_offset,
+// else ErrNotFinalized, since the object itself ends early.
+func (r *Reader) cutFault() error {
+	if r.trailer != nil {
+		return ErrCorrupt
+	}
+
+	return ErrNotFinalized
 }

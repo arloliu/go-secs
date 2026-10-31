@@ -106,7 +106,13 @@ type WriterDefect struct {
 	// Seq is the seq of the record concerned;
 	// for WriterDefectSeqOrder, WriterDefectHourSpan and WriterDefectSeqStart, the block's first seq.
 	Seq uint64
-	// Err describes the defect.
+	// Err describes the defect; by Kind, it wraps:
+	//   - WriterDefectFieldValidity: ErrFieldValidity;
+	//   - WriterDefectEventFieldValidity and WriterDefectEventPayload: ErrInvalidRecord,
+	//     the error a writer refuses such a record with, beside the payload's decode error for WriterDefectEventPayload;
+	//   - WriterDefectSeqOrder, WriterDefectHourSpan and WriterDefectSeqStart: no sentinel, Err being descriptive, and Kind the classifier.
+	//
+	// A writer defect lies in a block whose checks passed, so Err never wraps ErrCorrupt or ErrChecksum.
 	Err error
 }
 
@@ -125,7 +131,8 @@ type VerifyReport struct {
 	// the trailer places the footer at or after the end of the pack metadata and ending where the trailer starts,
 	// and the footer CRC matches.
 	Finalized bool
-	// FooterErr is PackHeader.FooterErr: non-nil when the footer was not used and the blocks came from the forward walk.
+	// FooterErr is PackHeader.FooterErr: non-nil when the footer was not used and the blocks came from the forward walk,
+	// wrapping the sentinels PackHeader.FooterErr names.
 	FooterErr error
 	// Blocks is the number of blocks located: the F-2 entries of a valid footer, else the envelopes the forward walk found.
 	Blocks int
@@ -138,11 +145,13 @@ type VerifyReport struct {
 	// else the end of the last block, or the end of the pack metadata for a pack without blocks.
 	PrefixEnd uint64
 	// Failed lists, in file order, every failed block (IncompleteReasonCorruptBlock or IncompleteReasonUnknownCodec)
-	// and the point where the forward walk stopped (IncompleteReasonTruncated, Block -1).
+	// and the point where the forward walk stopped (IncompleteReasonTruncated, Block -1),
+	// each Err wrapping the sentinel Defect.Err names for its reason.
 	Failed []Defect
 	// Disagreements lists, with IncompleteReasonIndexMismatch, every validated block whose records disagree with its F-2 entry or F-3 summary,
 	// once per block in file order, with its F-2 disagreement when it has both,
-	// and, with Block -1, walked blocks that disagree with the trailer's block_count or record_count.
+	// and, with Block -1, walked blocks that disagree with the trailer's block_count or record_count;
+	// each Err wraps ErrCorrupt.
 	Disagreements []Defect
 	// WriterDefects lists the writer defects of the validated blocks, in file order.
 	WriterDefects []WriterDefect
@@ -335,7 +344,8 @@ func (r *Reader) appendLost(dst []Coverage, i int) []Coverage {
 }
 
 // walkTotalsErr compares a finalized pack's walked blocks with its trailer's block_count and record_count,
-// the check a valid footer's validation makes otherwise (the tracepack format specification §10);
+// the check a valid footer's validation makes otherwise (the tracepack format specification §10),
+// and returns an error wrapping ErrCorrupt when they disagree;
 // nil when the footer is valid, the pack is not finalized, or the totals agree.
 func (r *Reader) walkTotalsErr() error {
 	if r.footer != nil || !r.finalized {
@@ -347,8 +357,8 @@ func (r *Reader) walkTotalsErr() error {
 		records = addSat(records, uint64(r.blocks[i].RecordCount))
 	}
 	if uint64(len(r.blocks)) != uint64(r.trailer.BlockCount) || records != r.trailer.RecordCount {
-		return fmt.Errorf("tracepack: forward walk found %d blocks of %d records, the trailer claims %d blocks of %d records",
-			len(r.blocks), records, r.trailer.BlockCount, r.trailer.RecordCount)
+		return wrapf("tracepack: forward walk found %d blocks of %d records, the trailer claims %d blocks of %d records: %w",
+			len(r.blocks), records, r.trailer.BlockCount, r.trailer.RecordCount, ErrCorrupt)
 	}
 
 	return nil
@@ -444,10 +454,10 @@ func appendWriterDefects(dst []WriterDefect, i int, info *BlockInfo, d *decodedB
 			}
 		} else if kind == KindTransportEvent || kind == KindAnnotation {
 			if fv != 0 {
-				add(WriterDefectEventFieldValidity, h.Seq, fmt.Errorf("tracepack: %s record seq %d: field_validity %s, not 0", kind, h.Seq, fv))
+				add(WriterDefectEventFieldValidity, h.Seq, wrapf("tracepack: %s record seq %d: %w: field_validity %s, not 0", kind, h.Seq, ErrInvalidRecord, fv))
 			}
 			if err := checkEventPayload(kind, payload); err != nil {
-				add(WriterDefectEventPayload, h.Seq, fmt.Errorf("tracepack: %s record seq %d: %w", kind, h.Seq, err))
+				add(WriterDefectEventPayload, h.Seq, wrapf("tracepack: %s record seq %d: %w: %w", kind, h.Seq, ErrInvalidRecord, err))
 			}
 		}
 	}

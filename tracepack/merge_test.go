@@ -620,8 +620,9 @@ func TestMergeInputChecks(t *testing.T) {
 	}
 	flipped := flipByte(good, 20)
 	tests := []vector{
-		sole("not finalized", withIDs(t, writeRepairPack(t, CodecZstd, nil, true, hourSteps(10, 13, 2)).file, seg0, viewCapture), "not finalized"),
-		sole("no valid footer", invalidFooterFile(t, good), "no valid footer"),
+		{name: "not finalized", files: [][]byte{withIDs(t, writeRepairPack(t, CodecZstd, nil, true, hourSteps(10, 13, 2)).file, seg0, viewCapture)},
+			cause: ErrNotFinalized, msg: "not finalized"},
+		{name: "no valid footer", files: [][]byte{invalidFooterFile(t, good)}, cause: ErrInvalidFooter, msg: "no valid footer"},
 		sole("an empty period", mergePack(t, seg0, period(h, h), nil), "is empty or not inside one UTC hour"),
 		sole("a period over two hours", mergePack(t, seg0, period(h+hourNs/2, h+3*hourNs/2), nil), "is empty or not inside one UTC hour"),
 		sole("a correctly indexed block in another hour", nextHour, "block 0 at offset"),
