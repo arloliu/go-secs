@@ -805,8 +805,9 @@ The object size is known before reading (file system stat, object listing, the s
 
   Validated blocks are also checked for **writer defects**, which are reported and never change the outcome:
   a set `field_validity` bit whose bytes the payload lacks (§7.2);
-  a transport-event or annotation record whose `field_validity` is not 0 or whose payload is not a valid TLV body (§8),
-  which a conforming writer refuses, so only a record another writer stored has it (G5-294);
+  a transport-event or annotation record whose `field_validity` is not 0 or whose payload is not a valid TLV body (§8);
+  a conforming writer refuses to append a record whose payload is not a valid TLV body (G5-294),
+  but a merge carries such a record of an input as it is;
   a block whose first seq is not above the last seq of the validated block before it (I-12);
   a block whose records lie in more than one UTC hour (I-13);
   and a first validated block whose first seq is not the pack's `seq_start` (§5),
