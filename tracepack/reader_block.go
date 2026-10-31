@@ -94,7 +94,7 @@ func storedRecord(h *format.RecordHeader, payload []byte) Record {
 // The checks the Writer shares with a read return their errors unclassified,
 // so only a read's defect, never a Writer's refusal, carries ErrCorrupt.
 func blockDefect(i int, info *BlockInfo, reason IncompleteReason, err error) *Defect {
-	e := fmt.Errorf("tracepack: block %d at offset %d: %w", i, info.Offset, err)
+	e := wrapf("tracepack: block %d at offset %d: %w", i, info.Offset, err)
 	if class := blockFault(reason, err); class != nil {
 		e = wrapf("tracepack: block %d at offset %d: %w: %w", i, info.Offset, class, err)
 	}
@@ -132,10 +132,10 @@ func checkEnvelope(raw []byte, info *BlockInfo) (format.BlockEnvelope, Incomplet
 	}
 	// The envelope agrees with info, so the body behind it is exactly body_len bytes.
 	if crc := format.CRC(raw[format.EnvelopeLen:]); crc != env.BodyCRC {
-		return env, IncompleteReasonCorruptBlock, fmt.Errorf("body CRC 0x%08X, body_crc 0x%08X: %w", crc, env.BodyCRC, format.ErrCRC)
+		return env, IncompleteReasonCorruptBlock, wrapf("body CRC 0x%08X, body_crc 0x%08X: %w", crc, env.BodyCRC, format.ErrCRC)
 	}
 	if !codec.Known(env.Codec) {
-		return env, IncompleteReasonUnknownCodec, fmt.Errorf("codec %d: %w", env.Codec, codec.ErrUnknownCodec)
+		return env, IncompleteReasonUnknownCodec, wrapf("codec %d: %w", env.Codec, codec.ErrUnknownCodec)
 	}
 
 	return env, 0, nil
@@ -240,7 +240,7 @@ func decodeBody(env *format.BlockEnvelope, buf *blockBuf) ([]byte, error) {
 		body = buf.decoded
 	}
 	if err != nil {
-		return nil, fmt.Errorf("decode body: %w", err)
+		return nil, wrapf("decode body: %w", err)
 	}
 
 	return body, nil
@@ -270,7 +270,7 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 		if h.Seq > format.MaxU64 || h.PayloadLen > format.MaxLen32 {
 			_, err := format.UnmarshalRecordHeader(section[i*rhl:], format.RecordHeaderLen)
 
-			return offs, span, fmt.Errorf("record %d: %w", i, err)
+			return offs, span, wrapf("record %d: %w", i, err)
 		}
 		if err := checkBlockSeq(i, h.Seq, span.lastSeq, env.FirstSeq); err != nil {
 			return offs, span, err
@@ -388,10 +388,10 @@ func (r *Reader) checkBlockBudget(info *BlockInfo) error {
 	limit := min(r.opts.MaxBlockLen, int64(math.MaxInt-format.EnvelopeLen))
 
 	if bodyLen := int64(info.OnDiskLen) - format.EnvelopeLen; bodyLen > limit {
-		return fmt.Errorf("body_len %d exceeds MaxBlockLen %d: %w", bodyLen, r.opts.MaxBlockLen, ErrReadLimit)
+		return wrapf("body_len %d exceeds MaxBlockLen %d: %w", bodyLen, r.opts.MaxBlockLen, ErrReadLimit)
 	}
 	if n := int64(info.UncompressedLen); n > limit {
-		return fmt.Errorf("uncompressed_len %d exceeds MaxBlockLen %d: %w", n, r.opts.MaxBlockLen, ErrReadLimit)
+		return wrapf("uncompressed_len %d exceeds MaxBlockLen %d: %w", n, r.opts.MaxBlockLen, ErrReadLimit)
 	}
 
 	return nil

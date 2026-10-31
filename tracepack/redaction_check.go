@@ -140,7 +140,7 @@ func markingRecord(rec *Record) marking.Record {
 
 // redactionDefectError returns err, a failed Marking check, as the Err of a RedactionDefect.
 func redactionDefectError(err error) error {
-	return fmt.Errorf("%w: %w", ErrRedactionDefect, err)
+	return wrapf("%w: %w", ErrRedactionDefect, err)
 }
 
 // cloneRedactionEntry returns a copy of e that shares no memory with it.
@@ -195,7 +195,7 @@ func newAppendMarking(policy *RedactionPolicy, entries []RedactionEntry, redacti
 			field = "redaction-present"
 		}
 
-		return nil, &FieldError{Field: field, Err: fmt.Errorf("%w: %w", ErrMetadataCommitment, d.Err)}
+		return nil, &FieldError{Field: field, Err: wrapf("%w: %w", ErrMetadataCommitment, d.Err)}
 	}
 
 	am := &appendMarking{x: &x}
@@ -232,7 +232,7 @@ func (am *appendMarking) check(rec *Record) error {
 		return nil
 	}
 
-	return &FieldError{Field: "redaction", Err: fmt.Errorf("%w: seq %d: %w", ErrMetadataCommitment, rec.Seq, redactionDefectError(defects[0].Err))}
+	return &FieldError{Field: "redaction", Err: wrapf("%w: seq %d: %w", ErrMetadataCommitment, rec.Seq, redactionDefectError(defects[0].Err))}
 }
 
 // carry records that an appended record carried seq.
@@ -263,16 +263,16 @@ func (am *appendMarking) checkCarried() error {
 		return nil
 	}
 
-	err := fmt.Errorf("an entry names seq %d, which no appended record carries: %w", am.seqs[i], marking.ErrRedactedBit)
+	err := wrapf("an entry names seq %d, which no appended record carries: %w", am.seqs[i], marking.ErrRedactedBit)
 
-	return &FieldError{Field: "redaction", Err: fmt.Errorf("%w: %w", ErrMetadataCommitment, redactionDefectError(err))}
+	return &FieldError{Field: "redaction", Err: wrapf("%w: %w", ErrMetadataCommitment, redactionDefectError(err))}
 }
 
 // addEntryDefect keeps err, a failed bootstrap check, with entry i.
 func (x *redactionIndex) addEntryDefect(i int, err error) {
 	x.entryDefects[i] = append(x.entryDefects[i], RedactionDefect{
 		Seq: x.meta.Redaction[i].Seq, Entry: i,
-		Err: redactionDefectError(fmt.Errorf("entry %d: %w", i, err)),
+		Err: redactionDefectError(wrapf("entry %d: %w", i, err)),
 	})
 }
 
@@ -448,7 +448,7 @@ func (p *mergePlan) planEntries(onConflict func(Conflict)) error {
 			for k := start; k < end; k++ {
 				e, err := es[k].entry()
 				if err != nil {
-					return inputError(i, p.inputID(i), fmt.Errorf("redaction entry %d: %w", k, err))
+					return inputError(i, p.inputID(i), wrapf("redaction entry %d: %w", k, err))
 				}
 				key = tlv.AppendEntry(key, e)
 			}
@@ -519,7 +519,7 @@ func (x *redactionIndex) mergeDefect(rec *Record) error {
 
 // Error describes the conflicts.
 func (e *entryConflictError) Error() string {
-	return fmt.Sprintf("tracepack: merge: %d conflicts of redaction entries: %v", e.n, ErrMergeConflict)
+	return dedupNamespace(fmt.Sprintf("tracepack: merge: %d conflicts of redaction entries: %v", e.n, ErrMergeConflict))
 }
 
 // Unwrap returns ErrMergeConflict.

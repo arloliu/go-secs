@@ -332,7 +332,7 @@ func Open(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOptions) (
 // Only a merge copies those lists; every other Reader keeps no F-3 bytes.
 func openReader(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOptions, keepF3 bool) (*Reader, error) {
 	if size < format.FileHeaderLen {
-		return nil, fmt.Errorf("tracepack: object of %d bytes is shorter than the %d-byte file header: %w: %w",
+		return nil, wrapf("tracepack: object of %d bytes is shorter than the %d-byte file header: %w: %w",
 			size, format.FileHeaderLen, ErrNotTracepack, io.ErrUnexpectedEOF)
 	}
 	if msg := negativeOption("ReaderOptions", opts.budgets()...); msg != "" {
@@ -428,7 +428,7 @@ func readAt(ra io.ReaderAt, buf []byte, off int64) error {
 		err = io.ErrUnexpectedEOF
 	}
 
-	return fmt.Errorf("tracepack: read %d bytes at offset %d: %w", len(buf), off, err)
+	return wrapf("tracepack: read %d bytes at offset %d: %w", len(buf), off, err)
 }
 
 // noReturnError returns the error of a ReadAt call of n bytes at offset off, made on a goroutine of this package,
@@ -447,7 +447,7 @@ func noReturnError(n int, off int64) error {
 // A round of one request is read on the caller's goroutine, where such a call ends the caller's goroutine.
 func readRound(ctx context.Context, ra io.ReaderAt, reqs []readReq) error {
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("tracepack: open: %w", err)
+		return wrapf("tracepack: open: %w", err)
 	}
 	if len(reqs) == 1 {
 		return readAt(ra, reqs[0].buf, reqs[0].off)
@@ -714,10 +714,10 @@ func (r *Reader) parseFileHeader(head []byte) error {
 	hdr, err := format.UnmarshalFileHeader(head)
 	if err != nil {
 		if class := fileHeaderClass(err); class != nil {
-			return fmt.Errorf("tracepack: %w: %w", class, err)
+			return wrapf("tracepack: %w: %w", class, err)
 		}
 
-		return fmt.Errorf("tracepack: %w", err)
+		return wrapf("tracepack: %w", err)
 	}
 	r.hdr = hdr
 
@@ -727,7 +727,7 @@ func (r *Reader) parseFileHeader(head []byte) error {
 	}
 	// A limit within the int range keeps the pack metadata addressable where int is 32 bits.
 	if limit := min(r.opts.MaxPackMetadataLen, int64(math.MaxInt-format.FileHeaderLen)); int64(hdr.PackMetadataLen) > limit {
-		return fmt.Errorf("tracepack: pack metadata at offset %d: %d bytes exceed MaxPackMetadataLen %d: %w",
+		return wrapf("tracepack: pack metadata at offset %d: %d bytes exceed MaxPackMetadataLen %d: %w",
 			format.FileHeaderLen, hdr.PackMetadataLen, r.opts.MaxPackMetadataLen, ErrReadLimit)
 	}
 
@@ -795,7 +795,7 @@ func (r *Reader) roundTwo(ctx context.Context, b *bootstrap) error {
 // with the index of its redaction entries, whose bootstrap checks report recoverable defects only.
 func (r *Reader) decodeMeta(raw []byte) error {
 	if crc := format.CRC(raw); crc != r.hdr.PackMetadataCRC {
-		return fmt.Errorf("tracepack: pack metadata CRC 0x%08X, pack_metadata_crc 0x%08X: %w", crc, r.hdr.PackMetadataCRC, ErrChecksum)
+		return wrapf("tracepack: pack metadata CRC 0x%08X, pack_metadata_crc 0x%08X: %w", crc, r.hdr.PackMetadataCRC, ErrChecksum)
 	}
 
 	meta, err := UnmarshalPackMetaMinor(raw, r.hdr.FormatMinor)
@@ -837,7 +837,7 @@ func (r *Reader) settleFooter(ctx context.Context, b *bootstrap) error {
 		}
 	}
 	if crc != tr.FooterCRC {
-		r.footerErr = fmt.Errorf("tracepack: footer at offset %d: CRC 0x%08X, footer_crc 0x%08X: %w",
+		r.footerErr = wrapf("tracepack: footer at offset %d: CRC 0x%08X, footer_crc 0x%08X: %w",
 			tr.FooterOffset, crc, tr.FooterCRC, ErrChecksum)
 
 		return nil
@@ -846,7 +846,7 @@ func (r *Reader) settleFooter(ctx context.Context, b *bootstrap) error {
 	r.finalized = true
 
 	if b.footer == nil {
-		r.footerErr = fmt.Errorf("tracepack: footer at offset %d: footer_len %d exceeds MaxFooterLen %d: %w",
+		r.footerErr = wrapf("tracepack: footer at offset %d: footer_len %d exceeds MaxFooterLen %d: %w",
 			tr.FooterOffset, tr.FooterLen, r.opts.MaxFooterLen, ErrReadLimit)
 
 		return nil
@@ -884,13 +884,13 @@ func (r *Reader) streamFooterCRC(ctx context.Context, tr *format.Trailer) (uint3
 //     ErrInvalidFooter for an unknown footer_codec, a decode failure or a failed validation.
 func (r *Reader) decodeFooter(onDisk []byte, tr *format.Trailer) (*footerIndex, error) {
 	if limit := min(uint64(r.opts.MaxFooterLen), math.MaxInt); tr.FooterUncompressedLen > limit {
-		return nil, fmt.Errorf("tracepack: footer at offset %d: footer_uncompressed_len %d exceeds MaxFooterLen %d: %w",
+		return nil, wrapf("tracepack: footer at offset %d: footer_uncompressed_len %d exceeds MaxFooterLen %d: %w",
 			tr.FooterOffset, tr.FooterUncompressedLen, r.opts.MaxFooterLen, ErrReadLimit)
 	}
 
 	decoded, err := codec.Decode(tr.FooterCodec, nil, onDisk, int(tr.FooterUncompressedLen))
 	if err != nil {
-		return nil, fmt.Errorf("%w: footer_codec %d: %w", ErrInvalidFooter, tr.FooterCodec, err)
+		return nil, wrapf("%w: footer_codec %d: %w", ErrInvalidFooter, tr.FooterCodec, err)
 	}
 
 	return parseFooter(decoded, tr, r.blocksStart(), uint64(r.opts.MaxFooterLen), r.keepF3)

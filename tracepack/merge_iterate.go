@@ -254,9 +254,10 @@ func (o Order) String() string {
 	}
 }
 
-// Error returns a text naming the pack index and Err; as with every error, the text may change.
+// Error returns a text naming the pack index and Err, and the namespace "tracepack: " once;
+// as with every error, the text may change.
 func (e PackError) Error() string {
-	return fmt.Sprintf("tracepack: pack %d: %v", e.Pack, e.Err)
+	return dedupNamespace(fmt.Sprintf("tracepack: pack %d: %v", e.Pack, e.Err))
 }
 
 // Unwrap returns Err, so errors.Is and errors.As see the error about the pack.

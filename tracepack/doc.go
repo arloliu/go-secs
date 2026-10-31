@@ -157,7 +157,10 @@
 //   - the flags and exit codes of the tracepack command, its split of output between stdout and stderr, and the bytes of its dump --jsonl.
 //
 // These are not guaranteed, and may change in any release:
-//   - the text of error messages;
+//   - the text of error messages,
+//     which follows one rule only: each line of the text of an error this module builds names the namespace "tracepack: " at most once.
+//     A later "tracepack: " on a line, one in the text of a wrapped error included, is left out of the text;
+//     the wrapped error itself is kept, and errors.Is and errors.As see it unchanged;
 //   - how often a call checks ctx, how far a read reads ahead, how many goroutines a call runs and how many ReadAt calls it issues,
 //     the size of the pieces a write is made of, and how much larger than needed a reused buffer may be;
 //     where this documentation gives such a number, it says what the implementation currently does;

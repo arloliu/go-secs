@@ -2,7 +2,6 @@ package tracepack
 
 import (
 	"context"
-	"fmt"
 	"unsafe"
 )
 
@@ -77,7 +76,7 @@ type txBudget struct {
 //   - error: an error wrapping ErrReadLimit, charging nothing, when the charge would pass max.
 func (b *txBudget) reserve(n int64) error {
 	if n > b.max-b.used {
-		return fmt.Errorf("the lookup's state of %d bytes and %d more exceeds MaxStateBytes %d: %w", b.used, n, b.max, ErrReadLimit)
+		return wrapf("the lookup's state of %d bytes and %d more exceeds MaxStateBytes %d: %w", b.used, n, b.max, ErrReadLimit)
 	}
 	b.used += n
 

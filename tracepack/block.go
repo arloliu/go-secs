@@ -232,12 +232,12 @@ func encodeBlock(c Codec, level CompressionLevel, dst, body []byte) ([]byte, Cod
 func encodeRawBlock(e *encodeBuf, c Codec, level CompressionLevel, headerLen int, rows, payloads [][]byte) ([]byte, blockSummary, error) {
 	uncompressedLen, firstSeq, err := checkRawRecords(headerLen, rows, payloads)
 	if err != nil {
-		return nil, blockSummary{}, fmt.Errorf("tracepack: encode a block: %w", err)
+		return nil, blockSummary{}, wrapf("tracepack: encode a block: %w", err)
 	}
 
 	raw, used, err := e.build(c, level, headerLen, uncompressedLen, rows, payloads)
 	if err != nil {
-		return nil, blockSummary{}, fmt.Errorf("tracepack: encode a block: %w", err)
+		return nil, blockSummary{}, wrapf("tracepack: encode a block: %w", err)
 	}
 	if e.hook != nil {
 		raw = append(raw[:format.EnvelopeLen], e.hook(raw[format.EnvelopeLen:])...)
@@ -263,7 +263,7 @@ func encodeRawBlock(e *encodeBuf, c Codec, level CompressionLevel, headerLen int
 
 	s, err := checkRawBlock(&e.check, raw, rows, payloads)
 	if err != nil {
-		return nil, blockSummary{}, fmt.Errorf("tracepack: the new block of seq %d fails its check: %w", firstSeq, err)
+		return nil, blockSummary{}, wrapf("tracepack: the new block of seq %d fails its check: %w", firstSeq, err)
 	}
 
 	return raw, s, nil
@@ -341,7 +341,7 @@ func rawRecordHeader(i int, row []byte, headerLen int) (format.RecordHeader, err
 	}
 	h, err := format.UnmarshalRecordHeader(row, format.RecordHeaderLen)
 	if err != nil {
-		return format.RecordHeader{}, fmt.Errorf("record %d: %w", i, err)
+		return format.RecordHeader{}, wrapf("record %d: %w", i, err)
 	}
 
 	return h, nil
@@ -406,7 +406,7 @@ func validateEncoded(c Codec, buf *validateBuf, enc []byte, s *blockSummary, unc
 	var err error
 	buf.decoded, err = codec.Decode(uint8(c), buf.decoded, enc, uncompressedLen)
 	if err != nil {
-		return fmt.Errorf("decode the encoded body: %w", err)
+		return wrapf("decode the encoded body: %w", err)
 	}
 
 	return validateBody(buf.decoded, s.recordCount, s.firstSeq, buf)

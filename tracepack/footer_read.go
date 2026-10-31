@@ -101,7 +101,7 @@ func parseFooter(decoded []byte, tr *format.Trailer, blocksStart, maxF3 uint64, 
 	for i := range entries {
 		e := &entries[i]
 		if listsLen += uint64(e.SummaryLen); listsLen > maxF3 {
-			return nil, fmt.Errorf("tracepack: footer at offset %d: the F-3 lists of blocks 0 to %d total %d bytes and exceed MaxFooterLen %d: %w",
+			return nil, wrapf("tracepack: footer at offset %d: the F-3 lists of blocks 0 to %d total %d bytes and exceed MaxFooterLen %d: %w",
 				tr.FooterOffset, i, listsLen, maxF3, ErrReadLimit)
 		}
 		list := sec.f3[e.SummaryOffset : e.SummaryOffset+uint64(e.SummaryLen)]
@@ -576,7 +576,7 @@ func seqRangeOf(e tlv.Entry) (seqRange, error) {
 // footerErrorf returns an error wrapping ErrInvalidFooter whose message describes the failed check;
 // msg may wrap a further error with %w.
 func footerErrorf(msg string, args ...any) error {
-	return fmt.Errorf("%w: %w", ErrInvalidFooter, fmt.Errorf(msg, args...))
+	return wrapf("%w: %w", ErrInvalidFooter, wrapf(msg, args...))
 }
 
 // retainF3 makes the index keep a copy of f3, the validated F-3 section,
@@ -650,7 +650,7 @@ func (s *blockSummary) checkSummary() error {
 	}
 	for _, c := range counts {
 		if err := checkCountSum(c.counts, s.recordCount); err != nil {
-			return fmt.Errorf("%s %w", c.name, err)
+			return wrapf("%s %w", c.name, err)
 		}
 	}
 

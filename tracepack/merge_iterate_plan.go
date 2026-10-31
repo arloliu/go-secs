@@ -3,7 +3,6 @@ package tracepack
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"slices"
 )
 
@@ -82,23 +81,23 @@ type mergeIteratePlan struct {
 //     ctx's error, wrapped.
 func checkMergeIterate(ctx context.Context, readers []*Reader, q *Query, opts MergeIterateOptions, fn func(*Item) error) (MergeIterateOptions, error) {
 	if fn == nil {
-		return opts, fmt.Errorf("%w: fn is nil", ErrInvalidQuery)
+		return opts, wrapf("%w: fn is nil", ErrInvalidQuery)
 	}
 	if opts.Order != OrderCapture && opts.Order != OrderTime {
-		return opts, fmt.Errorf("%w: order %v", ErrInvalidQuery, opts.Order)
+		return opts, wrapf("%w: order %v", ErrInvalidQuery, opts.Order)
 	}
 	if err := q.validate(); err != nil {
 		return opts, err
 	}
 	for i, r := range readers {
 		if r == nil {
-			return opts, fmt.Errorf("%w: reader %d is nil", ErrInvalidQuery, i)
+			return opts, wrapf("%w: reader %d is nil", ErrInvalidQuery, i)
 		}
 	}
 	seen := make(map[*Reader]int, len(readers))
 	for i, r := range readers {
 		if k, ok := seen[r]; ok {
-			return opts, fmt.Errorf("%w: readers %d and %d are the same Reader", ErrInvalidQuery, k, i)
+			return opts, wrapf("%w: readers %d and %d are the same Reader", ErrInvalidQuery, k, i)
 		}
 		seen[r] = i
 	}
@@ -106,16 +105,16 @@ func checkMergeIterate(ctx context.Context, readers []*Reader, q *Query, opts Me
 	for i, r := range readers {
 		id := UUID(r.hdr.PackID)
 		if k, ok := ids[id]; ok {
-			return opts, fmt.Errorf("%w: readers %d and %d hold the same pack_id %s", ErrInvalidQuery, k, i, id)
+			return opts, wrapf("%w: readers %d and %d hold the same pack_id %s", ErrInvalidQuery, k, i, id)
 		}
 		ids[id] = i
 	}
 	if msg := negativeOption("MergeIterateOptions",
 		optionField{"MaxHeldBytes", opts.MaxHeldBytes}, optionField{"MaxConflicts", int64(opts.MaxConflicts)}); msg != "" {
-		return opts, fmt.Errorf("%w: %s", ErrInvalidQuery, msg)
+		return opts, wrapf("%w: %s", ErrInvalidQuery, msg)
 	}
 	if err := ctx.Err(); err != nil {
-		return opts, fmt.Errorf("tracepack: merge iterate: %w", err)
+		return opts, wrapf("tracepack: merge iterate: %w", err)
 	}
 
 	if opts.MaxHeldBytes <= 0 {
@@ -243,7 +242,7 @@ func readCaptures(readers []*Reader) []UUID {
 //   - error: ctx's error, wrapped; the error of the block's read (loadHeld).
 func (p *mergeIteratePlan) preRead(ctx context.Context, r *Reader, pack, i int) (planBlock, bool, error) {
 	if err := ctx.Err(); err != nil {
-		return planBlock{}, false, fmt.Errorf("tracepack: merge iterate: %w", err)
+		return planBlock{}, false, wrapf("tracepack: merge iterate: %w", err)
 	}
 
 	h, err := p.loadHeld(r, pack, i)

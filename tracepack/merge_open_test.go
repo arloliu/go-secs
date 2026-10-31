@@ -512,7 +512,7 @@ func TestMergeOpenGoexit(t *testing.T) {
 		opts.MaxParallelOpens = 1
 		_, _, err := mergeBytes(t.Context(), in, opts)
 		require.EqualError(t, err,
-			fmt.Sprintf("tracepack: merge: input 0: tracepack: read %d bytes at offset %d: ReadAt did not return", format.TrailerLen, tail))
+			fmt.Sprintf("tracepack: merge: input 0: read %d bytes at offset %d: ReadAt did not return", format.TrailerLen, tail))
 		require.NotErrorIs(t, err, ErrMergeInput)
 	})
 }

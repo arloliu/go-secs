@@ -1044,7 +1044,7 @@ func TestMergeIteratePrefetchGoexit(t *testing.T) {
 				read.run(t.Context())
 				require.NotNil(t, read.p.loader.pf, "the block was read ahead")
 				got := read.finish(t)
-				require.EqualError(t, got.err, fmt.Sprintf("tracepack: pack 0, block 3: tracepack: read %d bytes at offset %d: ReadAt did not return",
+				require.EqualError(t, got.err, fmt.Sprintf("tracepack: pack 0, block 3: read %d bytes at offset %d: ReadAt did not return",
 					info.OnDiskLen, info.Offset))
 				require.NotErrorIs(t, got.err, ErrCorrupt)
 				assert.Empty(t, got.res.Incomplete, "no defect")

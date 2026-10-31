@@ -3,7 +3,6 @@ package tracepack
 import (
 	"bytes"
 	"context"
-	"fmt"
 )
 
 // resolveCtxRecords is the number of records the record-by-record resolution resolves between two checks of ctx.
@@ -110,7 +109,7 @@ func (m *mergeRun) countResolved(ctx context.Context) error {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("tracepack: merge: %w", err)
+		return wrapf("tracepack: merge: %w", err)
 	}
 
 	return nil
@@ -217,7 +216,7 @@ func (r *resolution) load(ctx context.Context, pos int, open []*openBlock) (*ope
 		}
 	}
 	if len(open) >= m.p.maxOpenBlocks {
-		return nil, fmt.Errorf("tracepack: merge: the blocks of seqs %d to %d overlap %d deep at seq %d, above MaxOpenBlocks %d: %w",
+		return nil, wrapf("tracepack: merge: the blocks of seqs %d to %d overlap %d deep at seq %d, above MaxOpenBlocks %d: %w",
 			r.c.first, r.c.last, len(open)+1, b.first, m.p.maxOpenBlocks, ErrMergeLimit)
 	}
 

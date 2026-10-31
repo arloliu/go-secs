@@ -275,7 +275,7 @@ func TestDumpOutputFileExportFails(t *testing.T) {
 	require.NoError(t, os.WriteFile(out, []byte("old"), 0o600))
 	code, _, stderr := runArgs(t, cfg, "dump", "--jsonl", "-o", out, path)
 	assert.Equal(t, exitFailed, code)
-	assert.Contains(t, stderr, tracepack.ErrReadLimit.Error())
+	assert.Contains(t, stderr, "structure exceeds a reader budget")
 	got, err := os.ReadFile(out)
 	require.NoError(t, err)
 	assert.Equal(t, "old", string(got))

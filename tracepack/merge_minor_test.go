@@ -284,7 +284,7 @@ func TestMergeUnobservedCommitment(t *testing.T) {
 				tt.edit(&b.headers[1], &b.payloads[1])
 			}))
 			requireConsistent(t, defective)
-			msg := "block 0: seq 11: tracepack: " + tt.msg
+			msg := "block 0: seq 11: " + tt.msg
 			requireMergeUnfinalized(t, inputsOf(defective), noCoalesce, msg, ErrMergeInput, tt.want)
 			requireMergeUnfinalized(t, inputsOf(overlapping, defective), noCoalesce, msg, ErrMergeInput, tt.want)
 		})

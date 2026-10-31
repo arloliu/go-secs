@@ -148,14 +148,14 @@ func (l *txLookup) run(ctx context.Context) error {
 		// what the read classified above it was classified against no key, and is dropped, its charge with the lookup,
 		// and only the crash gaps that meet the primary's hour are reported.
 		if err := l.crashGapGaps(ctx, l.key.Hour*hourNs, (l.key.Hour+1)*hourNs); err != nil {
-			return fmt.Errorf("tracepack: find transaction: %w", err)
+			return wrapf("tracepack: find transaction: %w", err)
 		}
 		l.res.Outcome = TxNotFound
 
 		return nil
 	}
 	if err := l.commitRead(ctx, rd); err != nil {
-		return fmt.Errorf("tracepack: find transaction: %w", err)
+		return wrapf("tracepack: find transaction: %w", err)
 	}
 
 	return l.searchWindow(ctx)
@@ -176,17 +176,17 @@ func (l *txLookup) run(ctx context.Context) error {
 //     an error wrapping ErrReadLimit when a charge passes MaxStateBytes.
 func (l *txLookup) readScope(ctx context.Context, hour int64) (*txScopeRead, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("tracepack: find transaction: %w", err)
+		return nil, wrapf("tracepack: find transaction: %w", err)
 	}
 	readers, err := l.hours.readers(ctx, hour)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: find transaction: hour %d: readers: %w", hour, err)
+		return nil, wrapf("tracepack: find transaction: hour %d: readers: %w", hour, err)
 	}
 
 	// The hour is charged before its pack_ids are allocated; a failure after the charge releases it.
 	cost := scopeCost(len(readers))
 	if err := l.state.reserve(cost); err != nil {
-		return nil, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
+		return nil, wrapf("tracepack: find transaction: hour %d: %w", hour, err)
 	}
 	start, end := txHourBounds(hour)
 	rd := &txScopeRead{hour: hour, start: start, end: end, readers: readers, runs: &txRuns{hour: hour}}
@@ -196,7 +196,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64) (*txScopeRead, err
 			if err := l.tick(ctx); err != nil {
 				l.state.release(cost)
 
-				return nil, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
+				return nil, wrapf("tracepack: find transaction: hour %d: %w", hour, err)
 			}
 			if r == nil {
 				l.state.release(cost)
@@ -225,7 +225,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64) (*txScopeRead, err
 		rd.group = txGroup{}
 	}
 	if err != nil {
-		return rd, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
+		return rd, wrapf("tracepack: find transaction: hour %d: %w", hour, err)
 	}
 
 	return rd, nil
@@ -242,7 +242,7 @@ func captureOf(rd *txScopeRead, it *Item) UUID {
 //   - error: an error wrapping ErrReadLimit, reserving nothing, when MaxConflicts conflicts are reserved already.
 func (l *txLookup) reserveConflict() error {
 	if l.conflicts >= l.opts.MaxConflicts {
-		return fmt.Errorf("the lookup's conflicts exceed MaxConflicts %d: %w", l.opts.MaxConflicts, ErrReadLimit)
+		return wrapf("the lookup's conflicts exceed MaxConflicts %d: %w", l.opts.MaxConflicts, ErrReadLimit)
 	}
 	l.conflicts++
 
@@ -497,7 +497,7 @@ func keepVersion(rd *txScopeRead, it *Item, class TxClass) TxRecord {
 func (l *txLookup) settlePrimary(ctx context.Context, rd *txScopeRead) (bool, error) {
 	keyed, err := l.settle(ctx, rd)
 	if err != nil && !errors.Is(err, ErrNotPrimary) {
-		err = fmt.Errorf("tracepack: find transaction: hour %d: %w", l.key.Hour, err)
+		err = wrapf("tracepack: find transaction: hour %d: %w", l.key.Hour, err)
 	}
 
 	return keyed, err
@@ -516,7 +516,7 @@ func (l *txLookup) settle(ctx context.Context, rd *txScopeRead) (bool, error) {
 			return false, err
 		}
 		if at < 0 && !gap && !rd.defect && !rd.breach {
-			return false, fmt.Errorf("%w: hour %d holds no seq %d of capture %s", ErrNotPrimary, l.key.Hour, p, l.key.CaptureID)
+			return false, wrapf("%w: hour %d holds no seq %d of capture %s", ErrNotPrimary, l.key.Hour, p, l.key.CaptureID)
 		}
 		g := l.keyGap(TxGapNoKey, "the primary is missing where a gap explains it")
 		if at >= 0 {
@@ -549,7 +549,7 @@ func (l *txLookup) settle(ctx context.Context, rd *txScopeRead) (bool, error) {
 	first := &l.primary[0].Record
 	h := first.HSMSHeader()
 	if first.Kind != KindData || h.Available&FieldValidityFunction == 0 || h.Function%2 == 0 {
-		return false, fmt.Errorf("%w: seq %d of capture %s in hour %d is a %v record with function %d, available %t",
+		return false, wrapf("%w: seq %d of capture %s in hour %d is a %v record with function %d, available %t",
 			ErrNotPrimary, p, l.key.CaptureID, l.key.Hour, first.Kind, h.Function, h.Available&FieldValidityFunction != 0)
 	}
 	l.deriveKey(first)
@@ -576,7 +576,7 @@ func (l *txLookup) settle(ctx context.Context, rd *txScopeRead) (bool, error) {
 func (l *txLookup) settleConflict(ctx context.Context, listed bool) error {
 	if !listed {
 		if err := l.reserveConflict(); err != nil {
-			return fmt.Errorf("the conflict at seq %d: %w", l.key.Seq, err)
+			return wrapf("the conflict at seq %d: %w", l.key.Seq, err)
 		}
 	}
 	l.deriveKey(&l.primary[0].Record)

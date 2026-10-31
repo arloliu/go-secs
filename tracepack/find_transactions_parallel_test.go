@@ -235,7 +235,7 @@ func TestFindTransactionsParallelErrorOrder(t *testing.T) {
 			return txParMark(i), nil
 		}, nil)
 		require.ErrorIs(t, out.err, ErrReadLimit)
-		assert.Equal(t, fmt.Sprintf("tracepack: find transactions: primary seq 13 of hour %d: %v", memTestHour, ErrReadLimit), out.err.Error())
+		assert.Equal(t, fmt.Sprintf("tracepack: find transactions: primary seq 13 of hour %d: structure exceeds a reader budget", memTestHour), out.err.Error())
 		requireParEnd(t, out, 3)
 	})
 }
@@ -266,7 +266,7 @@ func TestFindTransactionsParallelCancel(t *testing.T) {
 	// The batch's own check sees the cancellation, or the head key's lookup, ready at the same time, reports it first.
 	assert.Contains(t, []string{
 		"tracepack: find transactions: context canceled",
-		fmt.Sprintf("tracepack: find transactions: primary seq 10 of hour %d: tracepack: find transaction: context canceled", memTestHour),
+		fmt.Sprintf("tracepack: find transactions: primary seq 10 of hour %d: find transaction: context canceled", memTestHour),
 	}, out.err.Error())
 	requireParEnd(t, out, 0)
 }

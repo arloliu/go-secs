@@ -774,7 +774,7 @@ func TestIterateFooterErrs(t *testing.T) {
 	assert.Len(t, run.items, len(recs), "the walk accounts for every record")
 	assert.Equal(t, []PackError{{Pack: 0, Err: r.Header().FooterErr}}, run.res.FooterErrs)
 	require.ErrorIs(t, run.res.FooterErrs[0], ErrInvalidFooter, "a PackError unwraps to the error about its pack")
-	assert.Equal(t, "tracepack: pack 0: "+r.Header().FooterErr.Error(), run.res.FooterErrs[0].Error())
+	assert.Equal(t, "tracepack: pack 0: invalid footer: F-5 lacks record_count", run.res.FooterErrs[0].Error())
 	assert.Empty(t, run.res.Incomplete)
 	assert.True(t, run.res.Complete(), "a finalized pack whose walk accounts for every block is complete without its footer")
 	assert.Empty(t, run.res.Conflicts)

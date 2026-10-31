@@ -3,7 +3,6 @@ package tracepack
 import (
 	"bytes"
 	"context"
-	"fmt"
 )
 
 // Checks of ctx in a read over several packs.
@@ -209,7 +208,7 @@ func (cr *clusterResolver) addConflict(seq uint64, at []*openBlock) error {
 			return refusedConflict(cr.capture, seq, err)
 		}
 	} else if len(p.res.Conflicts) >= p.opts.MaxConflicts {
-		return fmt.Errorf("tracepack: merge iterate: the conflict at seq %d of capture %s exceeds MaxConflicts %d: %w",
+		return wrapf("tracepack: merge iterate: the conflict at seq %d of capture %s exceeds MaxConflicts %d: %w",
 			seq, cr.capture, p.opts.MaxConflicts, ErrReadLimit)
 	}
 	p.res.Conflicts = append(p.res.Conflicts, conflictOf(cr.capture, seq, at, &cr.versions, cr.run.packID))
@@ -273,7 +272,7 @@ func (cr *clusterResolver) firstSeq(pos int) uint64 {
 //     or a ReadAt error, wrapped with the pack and block index.
 func (cr *clusterResolver) load(ctx context.Context, pos int, open []*openBlock) (*openBlock, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("tracepack: merge iterate: %w", err)
+		return nil, wrapf("tracepack: merge iterate: %w", err)
 	}
 
 	p, b := cr.run.p, &cr.c.blocks[pos]
@@ -322,7 +321,7 @@ func (r *mergeIterateRun) countCopies(ctx context.Context, n int) error {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("tracepack: merge iterate: %w", err)
+		return wrapf("tracepack: merge iterate: %w", err)
 	}
 
 	return nil
@@ -346,7 +345,7 @@ func (r *mergeIterateRun) packID(i int) UUID {
 func (r *mergeIterateRun) yield(ctx context.Context, c *candidate, it *Item, fn func(*Item) error) error {
 	if r.yields.add(1) {
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("tracepack: merge iterate: %w", err)
+			return wrapf("tracepack: merge iterate: %w", err)
 		}
 	}
 	flags := c.item(r.q, it)
@@ -368,7 +367,7 @@ func (r *mergeIterateRun) yield(ctx context.Context, c *candidate, it *Item, fn 
 //   - error: ctx's error, wrapped.
 func (r *mergeIterateRun) finish(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("tracepack: merge iterate: %w", err)
+		return wrapf("tracepack: merge iterate: %w", err)
 	}
 
 	return nil
@@ -391,5 +390,5 @@ func (k *ctxCounter) add(n int) bool {
 // refusedConflict wraps err, the error a reserveConflict refused the conflict at seq of capture with,
 // as a read returns it; a replay of a read wraps a refusal the same way.
 func refusedConflict(capture UUID, seq uint64, err error) error {
-	return fmt.Errorf("tracepack: merge iterate: the conflict at seq %d of capture %s: %w", seq, capture, err)
+	return wrapf("tracepack: merge iterate: the conflict at seq %d of capture %s: %w", seq, capture, err)
 }

@@ -42,13 +42,15 @@ func readFaultPack(t testing.TB) ([]byte, *Reader) {
 	return file, r
 }
 
-// requireSentinels requires that every error of errs matches each sentinel of want and, of faultSentinels, no other.
+// requireSentinels requires that every error of errs matches each sentinel of want and, of faultSentinels, no other,
+// and that each line of its text names the namespace once.
 func requireSentinels(t *testing.T, errs []pathErr, want ...error) {
 	t.Helper()
 
 	require.NotEmpty(t, errs, "the fault reaches at least one path")
 	for _, e := range errs {
 		require.Error(t, e.err, e.path)
+		requireNamespaceOnce(t, e.err)
 		for _, s := range faultSentinels {
 			wanted := false
 			for _, w := range want {

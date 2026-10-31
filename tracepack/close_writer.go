@@ -127,7 +127,7 @@ func closeRecord(opts *CloseOptions) (*Record, *PackMeta, error) {
 	triggerNs := opts.Trigger.UnixNano()
 	// The Writer refuses a record of another hour than the period's only after it wrote the file header.
 	if hourOf(triggerNs) != hourOf(meta.PeriodStart) {
-		return nil, nil, argument(fmt.Errorf("tracepack: close trigger at %d ns in UTC hour %d, the period in hour %d: %w",
+		return nil, nil, argument(wrapf("tracepack: close trigger at %d ns in UTC hour %d, the period in hour %d: %w",
 			triggerNs, hourOf(triggerNs), hourOf(meta.PeriodStart), ErrScopeBreach))
 	}
 
@@ -141,7 +141,7 @@ func closeRecord(opts *CloseOptions) (*Record, *PackMeta, error) {
 	}
 	payload, err := ev.MarshalBinary()
 	if err != nil {
-		return nil, nil, fmt.Errorf("tracepack: encode close event: %w", err)
+		return nil, nil, wrapf("tracepack: encode close event: %w", err)
 	}
 
 	rec := &Record{

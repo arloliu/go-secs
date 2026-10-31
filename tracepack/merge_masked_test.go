@@ -357,8 +357,8 @@ func TestMergeMaskedRefusals(t *testing.T) {
 
 		const overlap = "the ranges of the record's encrypted entries overlap"
 		clearBit := func(seq uint64) string {
-			return fmt.Sprintf("seq %d: %v: seq %d, redacted false, 1 entries: %v",
-				seq, tracepack.ErrRedactionDefect, seq, "marking: quality.redacted is not set exactly when an entry names the record")
+			return fmt.Sprintf("seq %d: redaction defect: seq %d, redacted false, 1 entries: %v",
+				seq, seq, "marking: quality.redacted is not set exactly when an entry names the record")
 		}
 		// The copied cases are merged without coalescing, so the block of seqs 0 and 1 is copied verbatim.
 		tests := []struct {
@@ -369,8 +369,8 @@ func TestMergeMaskedRefusals(t *testing.T) {
 		}{
 			{"an entry naming a record whose bit is clear, copied", [][]byte{edit(a, clearBitEntry(0)), b}, "block 0: " + clearBit(0), true},
 			{"an entry naming a record whose bit is clear, resolved", [][]byte{edit(a, clearBitEntry(2)), b}, "block 1: " + clearBit(2), false},
-			{"overlapping encrypted entries, copied", [][]byte{edit(a, overlapping(1)), b}, "block 0: seq 1: tracepack: redaction defect: seq 1: marking: " + overlap, true},
-			{"overlapping encrypted entries, resolved", [][]byte{edit(a, overlapping(3)), edit(b, overlapping(3))}, "seq 3: tracepack: redaction defect: seq 3: marking: " + overlap, false},
+			{"overlapping encrypted entries, copied", [][]byte{edit(a, overlapping(1)), b}, "block 0: seq 1: redaction defect: seq 1: marking: " + overlap, true},
+			{"overlapping encrypted entries, resolved", [][]byte{edit(a, overlapping(3)), edit(b, overlapping(3))}, "seq 3: redaction defect: seq 3: marking: " + overlap, false},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -404,7 +404,7 @@ func TestMergeMaskedRefusals(t *testing.T) {
 		require.NotEmpty(t, h.RedactionDefects)
 
 		requireRefusedUntouched(t, tracepack.ErrMergeInput, "names seq 9, which the pack holds no record of", orphan, b)
-		requireRefusedUntouched(t, tracepack.ErrMergeInput, tracepack.ErrRedactionDefect.Error(), unordered, b)
+		requireRefusedUntouched(t, tracepack.ErrMergeInput, "redaction defect: entry 0", unordered, b)
 		requireRefusedUntouched(t, tracepack.ErrMergeInput, "redaction entries without redaction_policy", policyless)
 	})
 

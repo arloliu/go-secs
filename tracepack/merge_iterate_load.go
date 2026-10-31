@@ -29,7 +29,7 @@ type heldBudget struct {
 func (b *heldBudget) reserve(n int64) error {
 	// held ≤ limit, so limit - held cannot overflow, while held + n could.
 	if !b.fits(n) {
-		return fmt.Errorf("tracepack: holding %d bytes more beside the %d held exceeds MaxHeldBytes %d: %w",
+		return wrapf("tracepack: holding %d bytes more beside the %d held exceeds MaxHeldBytes %d: %w",
 			n, b.held, b.limit, ErrReadLimit)
 	}
 	b.held += n
@@ -184,7 +184,7 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 	}
 	if queued == nil {
 		if err := l.budget.reserve(s.total); err != nil {
-			return nil, nil, fmt.Errorf("tracepack: pack %d, block %d: %w", pack, i, err)
+			return nil, nil, wrapf("tracepack: pack %d, block %d: %w", pack, i, err)
 		}
 	}
 
@@ -238,7 +238,7 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 	case err != nil:
 		l.drop(h)
 
-		return nil, nil, fmt.Errorf("tracepack: pack %d, block %d: %w", pack, i, err)
+		return nil, nil, wrapf("tracepack: pack %d, block %d: %w", pack, i, err)
 	case d == nil:
 		l.drop(h)
 		l.pf.fill()

@@ -642,7 +642,7 @@ func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions, hoo
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("tracepack: merge: %w", err)
+		return nil, wrapf("tracepack: merge: %w", err)
 	}
 
 	return p, nil
@@ -661,7 +661,7 @@ func checkMergeOptions(inputs []MergeInput, opts *MergeOptions) error {
 	case opts.WriterTag == "":
 		return errors.New("tracepack: MergeOptions.WriterTag is empty")
 	case !utf8.ValidString(opts.WriterTag):
-		return fmt.Errorf("tracepack: MergeOptions.WriterTag: %w",
+		return wrapf("tracepack: MergeOptions.WriterTag: %w",
 			fieldErrorOf(tlv.UTF8Entry(tagWriter, opts.WriterTag).CheckValue(tlv.TypeUTF8), tlv.PackMetadata))
 	case opts.OnConflict == nil:
 		return errors.New("tracepack: MergeOptions.OnConflict is nil, so a conflict could not be reported")
@@ -750,7 +750,7 @@ func chainClusters[T any](blocks []T, seqs func(*T) (first, last uint64)) []seqC
 
 // inputError returns an error wrapping ErrMergeInput for input i, the pack id, and its cause.
 func inputError(i int, id UUID, cause error) error {
-	return fmt.Errorf("%w: input %d, pack %s: %w", ErrMergeInput, i, id, cause)
+	return wrapf("%w: input %d, pack %s: %w", ErrMergeInput, i, id, cause)
 }
 
 // openInput opens input i, keeping its footer's F-3 lists.
@@ -766,17 +766,17 @@ func openInput(ctx context.Context, i int, in MergeInput, opts ReaderOptions) (*
 	switch {
 	case err == nil:
 	case ctx.Err() != nil && errors.Is(err, ctx.Err()):
-		return nil, fmt.Errorf("tracepack: merge: %w", err)
+		return nil, wrapf("tracepack: merge: %w", err)
 	case errors.As(err, &readErr), errors.Is(err, errNoReturn), errors.Is(err, ErrReadLimit):
-		return nil, fmt.Errorf("tracepack: merge: input %d: %w", i, err)
+		return nil, wrapf("tracepack: merge: input %d: %w", i, err)
 	default:
-		return nil, fmt.Errorf("%w: input %d: %w", ErrMergeInput, i, err)
+		return nil, wrapf("%w: input %d: %w", ErrMergeInput, i, err)
 	}
 
 	// A footer, or its blocks' F-3 lists, over MaxFooterLen leaves the pack finalized without a footer index;
 	// the budget decides, not the pack.
 	if r.finalized && r.footer == nil && errors.Is(r.footerErr, ErrReadLimit) {
-		return nil, fmt.Errorf("tracepack: merge: input %d, pack %s: %w", i, UUID(r.hdr.PackID), r.footerErr)
+		return nil, wrapf("tracepack: merge: input %d, pack %s: %w", i, UUID(r.hdr.PackID), r.footerErr)
 	}
 
 	return r, nil
@@ -806,10 +806,10 @@ func checkInputGeneration(m *PackMeta) error {
 // It returns the facts of its records that the archive's pack metadata is validated against.
 func checkInputFooter(r *Reader, hour int64) (PackFacts, error) {
 	if !r.finalized {
-		return PackFacts{}, fmt.Errorf("the pack is not finalized: %w", r.footerErr)
+		return PackFacts{}, wrapf("the pack is not finalized: %w", r.footerErr)
 	}
 	if r.footer == nil {
-		return PackFacts{}, fmt.Errorf("the pack has no valid footer: %w", r.footerErr)
+		return PackFacts{}, wrapf("the pack has no valid footer: %w", r.footerErr)
 	}
 
 	blocks := r.footer.blocks
@@ -1185,7 +1185,7 @@ func (p *mergePlan) planMeta(opts *MergeOptions, setID UUID) error {
 	}
 	// A reader configured as the inputs' readers, the next merge's included, then opens the archive.
 	if budget := opts.Reader.withDefaults().MaxPackMetadataLen; int64(len(raw)) > budget {
-		return fmt.Errorf("tracepack: merge: the archive's pack metadata of %d bytes exceeds MaxPackMetadataLen %d: %w",
+		return wrapf("tracepack: merge: the archive's pack metadata of %d bytes exceeds MaxPackMetadataLen %d: %w",
 			len(raw), budget, ErrMergeLimit)
 	}
 	p.meta = m
@@ -1278,7 +1278,7 @@ func (p *mergePlan) coverage() ([]Coverage, error) {
 			c := &r.meta.Coverage[k]
 			e, err := c.entry()
 			if err != nil {
-				return nil, inputError(i, p.inputID(i), fmt.Errorf("coverage entry %d: %w", k, err))
+				return nil, inputError(i, p.inputID(i), wrapf("coverage entry %d: %w", k, err))
 			}
 			key := string(tlv.AppendEntry(nil, e))
 			if _, dup := seen[key]; dup {

@@ -204,7 +204,7 @@ func TestFindIncompleteReads(t *testing.T) {
 		reasons := reportLines(stdout, "incomplete")
 		require.NotEmpty(t, reasons)
 		assert.Regexp(t, `^read[ :]`, reasons[0], "a read gap")
-		assert.Contains(t, reasons[0], tracepack.ErrReadLimit.Error())
+		assert.Contains(t, reasons[0], "structure exceeds a reader budget")
 	})
 	t.Run("at instead of hour", func(t *testing.T) {
 		t.Parallel()

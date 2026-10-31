@@ -248,7 +248,7 @@ func (r *Reader) analyze(ctx context.Context) (VerifyReport, error) {
 	defer pool.put(buf)
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {
-			return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", err)
+			return VerifyReport{}, wrapf("tracepack: verify: %w", err)
 		}
 
 		info := &r.blocks[i]
@@ -257,7 +257,7 @@ func (r *Reader) analyze(ctx context.Context) (VerifyReport, error) {
 			return VerifyReport{}, err
 		}
 		if def != nil && def.Reason == IncompleteReasonLimit {
-			return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", def.Err)
+			return VerifyReport{}, wrapf("tracepack: verify: %w", def.Err)
 		}
 		if d == nil {
 			failed[i] = true
@@ -305,10 +305,10 @@ func (r *Reader) analyze(ctx context.Context) (VerifyReport, error) {
 // the footer of a finalized pack, or its blocks' F-3 lists, over MaxFooterLen, or a forward walk that reached MaxWalkedBlocks.
 func (r *Reader) bootstrapLimitErr() error {
 	if r.finalized && errors.Is(r.footerErr, ErrReadLimit) {
-		return fmt.Errorf("tracepack: verify: %w", r.footerErr)
+		return wrapf("tracepack: verify: %w", r.footerErr)
 	}
 	if r.walkStop != nil && r.walkStop.Reason == IncompleteReasonLimit {
-		return fmt.Errorf("tracepack: verify: %w", r.walkStop.Err)
+		return wrapf("tracepack: verify: %w", r.walkStop.Err)
 	}
 
 	return nil
@@ -454,7 +454,7 @@ func appendWriterDefects(dst []WriterDefect, i int, info *BlockInfo, d *decodedB
 		// A record of another kind, unclassified or outside the registry, has no rule to check.
 		if kind := Kind(h.Kind); kind == KindData || kind == KindControl {
 			if beyond := fv &^ capturedFields(len(payload)); beyond != 0 {
-				add(WriterDefectFieldValidity, h.Seq, fmt.Errorf("tracepack: record seq %d: field_validity marks %s, but the payload is %d bytes: %w",
+				add(WriterDefectFieldValidity, h.Seq, wrapf("tracepack: record seq %d: field_validity marks %s, but the payload is %d bytes: %w",
 					h.Seq, beyond, len(payload), ErrFieldValidity))
 			}
 		} else if kind == KindTransportEvent || kind == KindAnnotation {

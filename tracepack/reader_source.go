@@ -2,7 +2,6 @@ package tracepack
 
 import (
 	"context"
-	"fmt"
 	"slices"
 )
 
@@ -43,29 +42,29 @@ func NewReaderSource(readers []*Reader) (PackSource, error) {
 	tool := ""
 	for i, r := range readers {
 		if r == nil {
-			return nil, fmt.Errorf("%w: new reader source: reader %d is nil", ErrInvalidQuery, i)
+			return nil, wrapf("%w: new reader source: reader %d is nil", ErrInvalidQuery, i)
 		}
 		if k, ok := given[r]; ok {
-			return nil, fmt.Errorf("%w: new reader source: readers %d and %d are the same Reader", ErrInvalidQuery, k, i)
+			return nil, wrapf("%w: new reader source: readers %d and %d are the same Reader", ErrInvalidQuery, k, i)
 		}
 		given[r] = i
 		id := UUID(r.hdr.PackID)
 		if k, ok := ids[id]; ok {
-			return nil, fmt.Errorf("%w: new reader source: readers %d and %d hold the same pack_id %s", ErrInvalidQuery, k, i, id)
+			return nil, wrapf("%w: new reader source: readers %d and %d hold the same pack_id %s", ErrInvalidQuery, k, i, id)
 		}
 		ids[id] = i
 		m := r.meta
 		if i == 0 {
 			tool = m.ToolID
 		} else if m.ToolID != tool {
-			return nil, fmt.Errorf("%w: new reader source: reader 0 holds tool_id %q, reader %d tool_id %q", ErrInvalidQuery, tool, i, m.ToolID)
+			return nil, wrapf("%w: new reader source: reader 0 holds tool_id %q, reader %d tool_id %q", ErrInvalidQuery, tool, i, m.ToolID)
 		}
 		if m.PackRole == PackRoleExtract {
-			return nil, fmt.Errorf("%w: new reader source: reader %d is an extract, which has no scope", ErrInvalidQuery, i)
+			return nil, wrapf("%w: new reader source: reader %d is an extract, which has no scope", ErrInvalidQuery, i)
 		}
 		hour, ok := periodHour(m.PeriodStart, m.PeriodEnd)
 		if !ok {
-			return nil, fmt.Errorf("%w: new reader source: reader %d has the period [%d, %d), empty or not inside one UTC hour",
+			return nil, wrapf("%w: new reader source: reader %d has the period [%d, %d), empty or not inside one UTC hour",
 				ErrInvalidQuery, i, m.PeriodStart, m.PeriodEnd)
 		}
 		s.hours[hour] = append(s.hours[hour], r)
@@ -77,7 +76,7 @@ func NewReaderSource(readers []*Reader) (PackSource, error) {
 // Readers returns the readers of hour, in a fresh slice, in the order they were given; nil for an hour without readers.
 func (s *readerSource) Readers(ctx context.Context, hour int64) ([]*Reader, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("tracepack: reader source: %w", err)
+		return nil, wrapf("tracepack: reader source: %w", err)
 	}
 
 	return slices.Clone(s.hours[hour]), nil

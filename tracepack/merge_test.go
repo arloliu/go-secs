@@ -250,7 +250,7 @@ func TestMergeOptionErrors(t *testing.T) {
 		{name: "negative parallel opens", edit: func(o *MergeOptions) { o.MaxParallelOpens = -1 }, msg: "MaxParallelOpens"},
 		// Refused before any input is read, so the unreadable inputs report nothing.
 		{name: "a writer tag that is not valid UTF-8", edit: func(o *MergeOptions) { o.WriterTag = "\xff" }, inputs: notPacks,
-			msg: "MergeOptions.WriterTag: tracepack: writer: "},
+			msg: "MergeOptions.WriterTag: writer: "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -243,7 +243,7 @@ func NewDirSink(root, prefix string, opts DirSinkOptions) (*DirSink, error) {
 	}
 	r, err := os.OpenRoot(root)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: DirSink root: %w", err)
+		return nil, wrapf("tracepack: DirSink root: %w", err)
 	}
 	s, err := newDirSinkFS(prefix, rootFS{root: r}, opts)
 	if err != nil {
@@ -260,16 +260,16 @@ func newDirSinkFS(prefix string, fsys dirFS, opts DirSinkOptions) (*DirSink, err
 		return nil, err
 	}
 	if err := fsys.mkdirAll(partialDir); err != nil {
-		return nil, fmt.Errorf("tracepack: DirSink: create %s: %w", partialDir, err)
+		return nil, wrapf("tracepack: DirSink: create %s: %w", partialDir, err)
 	}
 	if err := checkNoLink(fsys, partialDir); err != nil {
-		return nil, fmt.Errorf("tracepack: DirSink: %w", err)
+		return nil, wrapf("tracepack: DirSink: %w", err)
 	}
 	if err := checkPartialAlias(prefix, fsys); err != nil {
 		return nil, err
 	}
 	if err := fsys.syncDir("."); err != nil {
-		return nil, fmt.Errorf("tracepack: DirSink: sync root: %w", err)
+		return nil, wrapf("tracepack: DirSink: sync root: %w", err)
 	}
 
 	s := &DirSink{fsys: fsys, prefix: prefix, noReplace: opts.NoReplace}
@@ -289,11 +289,11 @@ func checkPartialAlias(prefix string, fsys dirFS) error {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("tracepack: DirSink prefix %q: %w", prefix, err)
+		return wrapf("tracepack: DirSink prefix %q: %w", prefix, err)
 	}
 	pi, err := fsys.stat(partialDir)
 	if err != nil {
-		return fmt.Errorf("tracepack: DirSink: %s: %w", partialDir, err)
+		return wrapf("tracepack: DirSink: %s: %w", partialDir, err)
 	}
 	if os.SameFile(fi, pi) {
 		return fmt.Errorf("tracepack: DirSink prefix %q starts with %q, which names %s, the directory of the temporary files",
@@ -355,20 +355,20 @@ func (s *DirSink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, er
 		return nil, err
 	}
 	if s.closed {
-		return nil, fmt.Errorf("tracepack: DirSink: Create after Close: %w", fs.ErrClosed)
+		return nil, wrapf("tracepack: DirSink: Create after Close: %w", fs.ErrClosed)
 	}
 	key, err := SegmentKey(s.prefix, info.ToolID, info.CaptureID, info.SeqFirst, info.PackID)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: DirSink: %w", err)
+		return nil, wrapf("tracepack: DirSink: %w", err)
 	}
 
 	if err := checkNoLink(s.fsys, partialDir); err != nil {
-		return nil, fmt.Errorf("tracepack: DirSink: %w", err)
+		return nil, wrapf("tracepack: DirSink: %w", err)
 	}
 	temp := partialDir + "/" + info.PackID.String() + keyPackSuffix
 	file, err := s.fsys.create(temp)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: DirSink: create segment %s: %w", key, err)
+		return nil, wrapf("tracepack: DirSink: create segment %s: %w", key, err)
 	}
 
 	return &dirSegment{sink: s, file: file, key: key, temp: temp, dir: path.Dir(key)}, nil
@@ -395,7 +395,7 @@ func (s *DirSink) Close() error {
 	}
 	s.closed = true
 	if err := s.fsys.closeRoot(); err != nil {
-		return fmt.Errorf("tracepack: DirSink: close root: %w", err)
+		return wrapf("tracepack: DirSink: close root: %w", err)
 	}
 
 	return nil
@@ -444,23 +444,23 @@ func (f *dirSegment) Commit(ctx context.Context) error {
 		return err
 	}
 	if f.sink.closed {
-		return fmt.Errorf("tracepack: DirSink: Commit of segment %s after Close: %w", f.key, fs.ErrClosed)
+		return wrapf("tracepack: DirSink: Commit of segment %s after Close: %w", f.key, fs.ErrClosed)
 	}
 	if err := f.file.Sync(); err != nil {
-		return fmt.Errorf("tracepack: DirSink: sync segment %s: %w", f.key, err)
+		return wrapf("tracepack: DirSink: sync segment %s: %w", f.key, err)
 	}
 	f.closed = true
 	if err := f.file.Close(); err != nil {
-		return fmt.Errorf("tracepack: DirSink: close segment %s: %w", f.key, err)
+		return wrapf("tracepack: DirSink: close segment %s: %w", f.key, err)
 	}
 	fsys := f.sink.fsys
 	if err := fsys.mkdirAll(f.dir); err != nil {
-		return fmt.Errorf("tracepack: DirSink: create the directory of segment %s: %w", f.key, err)
+		return wrapf("tracepack: DirSink: create the directory of segment %s: %w", f.key, err)
 	}
 	dirs := keyDirs(f.key)
 	for _, dir := range slices.Backward(dirs[:len(dirs)-1]) { // shallowest first, root, the last, left out
 		if err := checkNoLink(fsys, dir); err != nil {
-			return fmt.Errorf("tracepack: DirSink: segment %s: %w", f.key, err)
+			return wrapf("tracepack: DirSink: segment %s: %w", f.key, err)
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -470,7 +470,7 @@ func (f *dirSegment) Commit(ctx context.Context) error {
 		return f.commitLink(ctx, dirs)
 	}
 	if err := fsys.rename(f.temp, f.key); err != nil {
-		return fmt.Errorf("tracepack: DirSink: rename segment %s: %w", f.key, err)
+		return wrapf("tracepack: DirSink: rename segment %s: %w", f.key, err)
 	}
 
 	f.state = dirSegmentPublished
@@ -489,7 +489,7 @@ func (f *dirSegment) commitLink(ctx context.Context, dirs []string) error {
 		return f.refuse()
 	}
 	if err != nil {
-		return fmt.Errorf("tracepack: DirSink: link segment %s: %w", f.key, err)
+		return wrapf("tracepack: DirSink: link segment %s: %w", f.key, err)
 	}
 
 	f.state = dirSegmentPublished
@@ -497,10 +497,10 @@ func (f *dirSegment) commitLink(ctx context.Context, dirs []string) error {
 	// so a failed removal, which leaves a second link to the segment under .partial/, does not skip them.
 	var removeErr error
 	if err := fsys.remove(f.temp); err != nil {
-		removeErr = fmt.Errorf("%w: segment %s: remove the temporary file: %w", ErrPublishUncertain, f.key, err)
+		removeErr = wrapf("%w: segment %s: remove the temporary file: %w", ErrPublishUncertain, f.key, err)
 	}
 
-	return errors.Join(removeErr, f.syncDirs(ctx, dirs))
+	return joinErrors(removeErr, f.syncDirs(ctx, dirs))
 }
 
 // refuse compares the file at the segment's key, which the link found there, with the temporary file,
@@ -512,7 +512,7 @@ func (f *dirSegment) commitLink(ctx context.Context, dirs []string) error {
 func (f *dirSegment) refuse() error {
 	fi, err := f.sink.fsys.lstat(f.key)
 	if err != nil {
-		return fmt.Errorf("tracepack: DirSink: segment %s exists, examine it: %w", f.key, err)
+		return wrapf("tracepack: DirSink: segment %s exists, examine it: %w", f.key, err)
 	}
 	if !fi.Mode().IsRegular() {
 		return fmt.Errorf("tracepack: DirSink: segment %s exists as a %s, not a regular file, which the sink refuses at a key",
@@ -520,7 +520,7 @@ func (f *dirSegment) refuse() error {
 	}
 	same, err := f.sameBytes()
 	if err != nil {
-		return fmt.Errorf("tracepack: DirSink: segment %s exists, compare it: %w", f.key, err)
+		return wrapf("tracepack: DirSink: segment %s exists, compare it: %w", f.key, err)
 	}
 	sentinel := ErrSegmentConflict
 	if same {
@@ -528,11 +528,11 @@ func (f *dirSegment) refuse() error {
 	}
 
 	if err := f.sink.fsys.remove(f.temp); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("%w: %s: remove the temporary file: %w", sentinel, f.key, err)
+		return wrapf("%w: %s: remove the temporary file: %w", sentinel, f.key, err)
 	}
 	f.state = dirSegmentRefused
 
-	return fmt.Errorf("%w: %s", sentinel, f.key)
+	return wrapf("%w: %s", sentinel, f.key)
 }
 
 // fileKind names the kind of a file that is not a regular file, as its mode gives it.
@@ -590,10 +590,10 @@ func sameContent(a, b io.Reader) (bool, error) {
 func (f *dirSegment) syncDirs(ctx context.Context, dirs []string) error {
 	for _, dir := range dirs {
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("%w: segment %s: %w", ErrPublishUncertain, f.key, err)
+			return wrapf("%w: segment %s: %w", ErrPublishUncertain, f.key, err)
 		}
 		if err := f.sink.fsys.syncDir(dir); err != nil {
-			return fmt.Errorf("%w: segment %s: sync directory %s: %w", ErrPublishUncertain, f.key, dir, err)
+			return wrapf("%w: segment %s: sync directory %s: %w", ErrPublishUncertain, f.key, dir, err)
 		}
 	}
 
@@ -615,16 +615,16 @@ func (f *dirSegment) Abort() error {
 	if !f.closed {
 		f.closed = true
 		if err := f.file.Close(); err != nil {
-			closeErr = fmt.Errorf("tracepack: DirSink: close segment %s: %w", f.key, err)
+			closeErr = wrapf("tracepack: DirSink: close segment %s: %w", f.key, err)
 		}
 	}
 	if f.sink.closed {
-		removeErr = fmt.Errorf("tracepack: DirSink: remove segment %s: the sink is closed, so its temporary file %s stays: %w", f.key, f.temp, fs.ErrClosed)
+		removeErr = wrapf("tracepack: DirSink: remove segment %s: the sink is closed, so its temporary file %s stays: %w", f.key, f.temp, fs.ErrClosed)
 	} else if err := f.sink.fsys.remove(f.temp); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		removeErr = fmt.Errorf("tracepack: DirSink: remove segment %s: %w", f.key, err)
+		removeErr = wrapf("tracepack: DirSink: remove segment %s: %w", f.key, err)
 	}
 
-	return errors.Join(closeErr, removeErr)
+	return joinErrors(closeErr, removeErr)
 }
 
 // misuse returns the error of a call the SegmentFile contract forbids in the segment's state.

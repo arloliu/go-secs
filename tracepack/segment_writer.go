@@ -489,7 +489,7 @@ func (w *SegmentWriter) addFrame(ctx context.Context, at time.Time, dir Dir, epo
 
 	fidelity, ok := frameFidelity(w.desc.CaptureMethod)
 	if !ok {
-		return fmt.Errorf("tracepack: AppendFrame for capture method %s: %w", w.desc.CaptureMethod, ErrInvalidRecord)
+		return wrapf("tracepack: AppendFrame for capture method %s: %w", w.desc.CaptureMethod, ErrInvalidRecord)
 	}
 
 	ts, err := w.recordTime(at)
@@ -511,7 +511,7 @@ func (w *SegmentWriter) addFrame(ctx context.Context, at time.Time, dir Dir, epo
 		r.DecodeStatus = status
 		if status == DecodeStatusOK || status == DecodeStatusOKWithTrailing {
 			if trailing < 0 || uint64(trailing) > math.MaxUint32 {
-				return fmt.Errorf("tracepack: classifier trailing_bytes %d outside 0 to %d: %w", trailing, uint32(math.MaxUint32), ErrInvalidRecord)
+				return wrapf("tracepack: classifier trailing_bytes %d outside 0 to %d: %w", trailing, uint32(math.MaxUint32), ErrInvalidRecord)
 			}
 			r.TrailingBytes = uint32(trailing)
 		}
@@ -542,7 +542,7 @@ func (w *SegmentWriter) addEvent(ctx context.Context, at time.Time, epoch uint32
 		return err
 	}
 	if ev == nil {
-		return fmt.Errorf("tracepack: nil transport event: %w", ErrInvalidRecord)
+		return wrapf("tracepack: nil transport event: %w", ErrInvalidRecord)
 	}
 
 	ts, err := w.recordTime(at)
@@ -552,7 +552,7 @@ func (w *SegmentWriter) addEvent(ctx context.Context, at time.Time, epoch uint32
 	payload, err := ev.MarshalBinary()
 	if err != nil {
 		// ev is the caller's, so an encoding refusal of it is the caller's argument (refuse).
-		return fmt.Errorf("tracepack: encode transport event: %w", argument(err))
+		return wrapf("tracepack: encode transport event: %w", argument(err))
 	}
 
 	r := Record{
@@ -585,7 +585,7 @@ func (w *SegmentWriter) addRecord(ctx context.Context, r *Record) error {
 		return err
 	}
 	if r == nil {
-		return fmt.Errorf("tracepack: nil record: %w", ErrInvalidRecord)
+		return wrapf("tracepack: nil record: %w", ErrInvalidRecord)
 	}
 
 	c := *r
@@ -678,7 +678,7 @@ func (w *SegmentWriter) closeCapture(ctx context.Context) error {
 	now := w.now()
 	ts, ok := w.representable(now)
 	if !ok {
-		return w.fail(fmt.Errorf("tracepack: Now() at Close, %v, is not representable with a %v flush interval: %w",
+		return w.fail(wrapf("tracepack: Now() at Close, %v, is not representable with a %v flush interval: %w",
 			now, time.Duration(w.flush), ErrInvalidRecord))
 	}
 
@@ -709,7 +709,7 @@ func (w *SegmentWriter) closeCapture(ctx context.Context) error {
 func (w *SegmentWriter) closeWithout(ctx context.Context, cause error) error {
 	if w.seg != nil {
 		if err := w.finalize(ctx); err != nil {
-			return w.fail(errors.Join(cause, err))
+			return w.fail(joinErrors(cause, err))
 		}
 	}
 	w.failure = cause
@@ -720,7 +720,7 @@ func (w *SegmentWriter) closeWithout(ctx context.Context, cause error) error {
 // usable reports why w cannot take a call, if it cannot.
 func (w *SegmentWriter) usable() error {
 	if w.failure != nil {
-		return fmt.Errorf("%w: %w", ErrWriterFailed, w.failure)
+		return wrapf("%w: %w", ErrWriterFailed, w.failure)
 	}
 	if w.closed {
 		return ErrClosed
@@ -747,7 +747,7 @@ func (w *SegmentWriter) representable(t time.Time) (int64, bool) {
 func (w *SegmentWriter) recordTime(at time.Time) (int64, error) {
 	ts, ok := w.representable(at)
 	if !ok {
-		return 0, fmt.Errorf("tracepack: time %v is not representable with a %v flush interval: %w", at, time.Duration(w.flush), ErrInvalidRecord)
+		return 0, wrapf("tracepack: time %v is not representable with a %v flush interval: %w", at, time.Duration(w.flush), ErrInvalidRecord)
 	}
 
 	return ts, nil
@@ -768,7 +768,7 @@ func (w *SegmentWriter) boundaryRecord(kind BoundaryKind, at time.Time, ts int64
 	ev := TransportEvent{Event: EventCaptureBoundary, BoundaryKind: &kind}
 	payload, err := ev.MarshalBinary()
 	if err != nil {
-		return Record{}, fmt.Errorf("tracepack: encode %s boundary: %w", kind, err)
+		return Record{}, wrapf("tracepack: encode %s boundary: %w", kind, err)
 	}
 
 	r := Record{
@@ -823,7 +823,7 @@ func (w *SegmentWriter) appendToSegment(ctx context.Context, r *Record) error {
 // and the seqs left for it and for a clock-step record the Writer would insert before it.
 func (w *SegmentWriter) preflight(r *Record, caller bool) error {
 	if _, _, ok := periodOf(r.TSUTCNs, w.flush); !ok {
-		return fmt.Errorf("tracepack: ts_utc_ns %d is not representable with a %v flush interval: %w", r.TSUTCNs, time.Duration(w.flush), ErrInvalidRecord)
+		return wrapf("tracepack: ts_utc_ns %d is not representable with a %v flush interval: %w", r.TSUTCNs, time.Duration(w.flush), ErrInvalidRecord)
 	}
 	if err := checkPayload(r); err != nil {
 		return err
@@ -839,7 +839,7 @@ func (w *SegmentWriter) preflight(r *Record, caller bool) error {
 
 	ev := transportEventOf(r)
 	if caller && ownedBoundary(ev) {
-		return fmt.Errorf("tracepack: capture boundary %s is written by the segment writer: %w", *ev.BoundaryKind, ErrInvalidRecord)
+		return wrapf("tracepack: capture boundary %s is written by the segment writer: %w", *ev.BoundaryKind, ErrInvalidRecord)
 	}
 
 	var slots uint64 = 1
@@ -850,7 +850,7 @@ func (w *SegmentWriter) preflight(r *Record, caller bool) error {
 	}
 	// nextSeq is at most 2^63, one past the last seq, so neither side wraps.
 	if w.nextSeq > format.MaxU64+1-slots {
-		return fmt.Errorf("tracepack: next seq %d leaves no %d seqs up to %d: %w", w.nextSeq, slots, format.MaxU64, ErrSeqOrder)
+		return wrapf("tracepack: next seq %d leaves no %d seqs up to %d: %w", w.nextSeq, slots, format.MaxU64, ErrSeqOrder)
 	}
 
 	return nil
@@ -865,7 +865,7 @@ func checkEventRecord(r *Record) error {
 		return nil
 	}
 	if r.FieldValidity != 0 {
-		return fmt.Errorf("tracepack: %s record with field_validity %#02x, not 0: %w", r.Kind, uint8(r.FieldValidity), ErrInvalidRecord)
+		return wrapf("tracepack: %s record with field_validity %#02x, not 0: %w", r.Kind, uint8(r.FieldValidity), ErrInvalidRecord)
 	}
 	if err := checkEventPayload(r.Kind, r.Payload); err != nil {
 		return eventPayloadError(r.Kind, err)
@@ -969,7 +969,7 @@ func (w *SegmentWriter) open(ctx context.Context, ts int64) error {
 func (w *SegmentWriter) createSegment(ctx context.Context, info SegmentInfo) (SegmentFile, error) {
 	file, err := w.sink.Create(ctx, info)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: create segment: %w", external(err))
+		return nil, wrapf("tracepack: create segment: %w", external(err))
 	}
 	if file == nil {
 		return nil, external(errors.New("tracepack: SegmentSink.Create returned no file"))
@@ -992,7 +992,7 @@ func (w *SegmentWriter) finalize(ctx context.Context) error {
 		return err
 	}
 	if err := commitSegment(ctx, s.file); err != nil {
-		return fmt.Errorf("tracepack: commit segment: %w", err)
+		return wrapf("tracepack: commit segment: %w", err)
 	}
 
 	w.seg = nil
@@ -1016,7 +1016,7 @@ func (w *SegmentWriter) fail(cause error) error {
 	if s := w.seg; s != nil {
 		w.seg = nil
 		if aerr := abortSegment(s.file); aerr != nil {
-			err = errors.Join(cause, fmt.Errorf("tracepack: abort segment: %w", aerr))
+			err = joinErrors(cause, wrapf("tracepack: abort segment: %w", aerr))
 		}
 	}
 	w.failure = err
@@ -1060,7 +1060,7 @@ func (o *segmentOutput) attach(file SegmentFile) error {
 	head := o.head
 	o.head = nil
 	if _, err := writeFull(file, head); err != nil {
-		return fmt.Errorf("tracepack: write file header and pack metadata: %w", err)
+		return wrapf("tracepack: write file header and pack metadata: %w", err)
 	}
 
 	return nil
