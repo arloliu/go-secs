@@ -534,8 +534,9 @@ func (r *Reader) Header() *PackHeader {
 // (the tracepack semantics specification §2):
 // its stored quality carries bit 7, which is QualityUnobserved in a pack of format minor 1 or later
 // and a reserved bit, with no meaning, in a pack of minor 0 (the tracepack format specification §9 and §14).
-// Record.Quality keeps the stored bits either way;
-// a caller of MergeIterate asks the Reader of each Item's pack, or reads its PackHeader.FormatMinor.
+// Record.Quality keeps the stored bits either way.
+// Item.Unobserved and TxRecord.Unobserved hold its answer for the pack each record was read from,
+// so a caller of MergeIterate, FindTransaction or FindTransactions reads them instead of finding that pack's Reader.
 //
 // A filter selects an unobserved record like any record of its stream and function,
 // since the format defines no predicate on it.

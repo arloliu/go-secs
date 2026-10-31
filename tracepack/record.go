@@ -1,6 +1,9 @@
 package tracepack
 
-import "encoding/binary"
+import (
+	"bytes"
+	"encoding/binary"
+)
 
 // Positions of the HSMS header fields inside a data or control record payload:
 // the 4-byte length prefix, then the 10-byte HSMS message header (SEMI E37 §8.2).
@@ -123,6 +126,15 @@ func (r *Record) HSMSHeader() HSMSHeader {
 	}
 
 	p := r.Payload
+	if len(p) >= fieldSystemBytesEnd {
+		// The payload holds the whole header, as nearly every record's does: every field is read at once.
+		return HSMSHeader{
+			SessionID: binary.BigEndian.Uint16(p[fieldSessionIDOff:fieldSessionIDEnd]),
+			Stream:    p[fieldByte6Off] & streamMask, W: p[fieldByte6Off]&wBit != 0, Function: p[fieldFunctionOff],
+			PType: p[fieldPTypeOff], SType: p[fieldSTypeOff], SystemBytes: [4]byte(p[fieldSystemBytesOff:fieldSystemBytesEnd]),
+			Available: r.FieldValidity & fieldValidityMask,
+		}
+	}
 	if len(p) >= fieldSessionIDEnd {
 		h.SessionID = binary.BigEndian.Uint16(p[fieldSessionIDOff:fieldSessionIDEnd])
 	}
@@ -145,6 +157,14 @@ func (r *Record) HSMSHeader() HSMSHeader {
 	h.Available = r.FieldValidity & capturedFields(len(p))
 
 	return h
+}
+
+// Clone returns a copy of r whose Payload is its own; a nil Payload stays nil.
+func (r *Record) Clone() Record {
+	c := *r
+	c.Payload = bytes.Clone(r.Payload)
+
+	return c
 }
 
 // SetCapturedFieldValidity sets r.FieldValidity to exactly the HSMS header fields whose bytes r.Payload holds,

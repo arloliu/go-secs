@@ -217,7 +217,8 @@ func (r *Reader) prunes(i int, f *Filter) bool {
 }
 
 // yield calls fn with every record of block i, read as d, that q's filter selects, reusing item.
-// The HSMS header fields are read from the payload once per record, only when the filter tests one,
+// The HSMS header fields are read from the payload once per record whose record header the filter selects,
+// for the filter's field predicates and Item.HSMSHeader,
 // and the record's Marking is checked against its stored payload before a read without payloads drops it.
 func (r *Reader) yield(q *Query, i int, d *decodedBlock, item *Item, fn func(*Item) error) error {
 	f := &q.Filter
@@ -230,12 +231,12 @@ func (r *Reader) yield(q *Query, i int, d *decodedBlock, item *Item, fn func(*It
 
 		rec := &item.Record
 		*rec = storedRecord(&h, d.payload(j))
-		if fields {
-			if h := rec.HSMSHeader(); !f.matchFields(&h) {
-				continue
-			}
+		item.HSMSHeader = rec.HSMSHeader()
+		if fields && !f.matchFields(&item.HSMSHeader) {
+			continue
 		}
 		item.Redaction = r.redaction.record(rec)
+		item.Unobserved = r.Unobserved(rec)
 		if !q.Payloads {
 			rec.Payload = nil
 		}

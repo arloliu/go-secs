@@ -465,12 +465,9 @@ func (l *txLookup) cloneVersion(rd *txScopeRead, it *Item, class TxClass) (TxRec
 // keepVersion returns the version of item it, which the read rd yielded, with class,
 // its payload and header extension cloned.
 func keepVersion(rd *txScopeRead, it *Item, class TxClass) TxRecord {
-	rec := it.Record
-	rec.Payload = bytes.Clone(rec.Payload)
-
 	return TxRecord{
-		Record: rec, HeaderExtra: bytes.Clone(it.HeaderExtra), Hour: rd.hour, Pack: rd.packs[it.Input], Block: it.Block,
-		Conflict: it.Conflict, Class: class,
+		Record: it.Record.Clone(), HeaderExtra: bytes.Clone(it.HeaderExtra), Hour: rd.hour, Pack: rd.packs[it.Input], Block: it.Block,
+		Conflict: it.Conflict, Unobserved: it.Unobserved, Class: class,
 	}
 }
 

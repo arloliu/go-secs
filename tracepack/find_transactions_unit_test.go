@@ -246,9 +246,9 @@ func TestFindTransactionsCacheRecount(t *testing.T) {
 				b.filled = func(rec *txHourRecord) {
 					filled++
 					require.Equal(t, txCacheRecount(b, rec), rec.charge, "seed %d: hour %d recount", seed, rec.hour)
-					require.Len(t, rec.meta, len(rec.items), "seed %d: hour %d: the flags and header of each item", seed, rec.hour)
+					require.Len(t, rec.meta, len(rec.items), "seed %d: hour %d: the flags of each item", seed, rec.hour)
 					for i := range rec.items {
-						require.Equal(t, rec.items[i].Record.HSMSHeader(), rec.meta[i].header, "seed %d: hour %d: the header of item %d", seed, rec.hour, i)
+						require.Equal(t, rec.items[i].Record.HSMSHeader(), rec.items[i].HSMSHeader, "seed %d: hour %d: the header of item %d", seed, rec.hour, i)
 					}
 					require.Equal(t, held(), b.cache.held, "seed %d: held after filling hour %d", seed, rec.hour)
 					require.LessOrEqual(t, len(b.hours), max(g.maxScopes, 1), "seed %d: hours held", seed)

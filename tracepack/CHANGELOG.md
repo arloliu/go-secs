@@ -10,6 +10,17 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - `MergeOptions.MaxParallelOpens`, with `DefaultMaxParallelOpens` (16), bounds how many inputs `Merge` opens at once (G5-278);
   1 opens them one after another, as earlier versions did.
 - `DefaultMaxOpenBlocks` (64) names the `MergeOptions.MaxOpenBlocks` that zero selects (G5-283); the default is unchanged.
+- `Item.HSMSHeader` is `Record.HSMSHeader()` of the record as stored, set whatever `Query.Payloads` (G5-289):
+  a read without payloads, filtered on S/F, SessionID or System Bytes or not, now sees the fields it selected on.
+  `Item.Unobserved` and `TxRecord.Unobserved` are `Reader.Unobserved` of the pack the record or version was yielded from,
+  the representative's under `MergeIterate`, `FindTransaction` and `FindTransactions`.
+  `Item.Clone()` returns a copy sharing no mutable storage with the read: the payload, the header extension and the Marking with its entries and defects,
+  the defects' errors shared; `Record.Clone()` copies the payload.
+  An `Item` is 8 bytes larger on 64-bit platforms and 12 on 32-bit ones;
+  what `FindTransactions` charges `MaxCachedBytes` per cached record and `FindTransaction` charges `MaxStateBytes` per kept version is unchanged.
+  `Reader.Iterate` and `MergeIterate` take about 7 ns more per record yielded.
+  For tracekeep: the hand copy of an `Item` in `restore.go` becomes `it.Clone()`,
+  and `r.Unobserved(&it.Record)` can become `it.Unobserved`.
 - `Quality.HasAll`, `FieldValidity.HasAll` and `TxClass.HasAll` report whether every bit of the argument is set (G5-287);
   `HasAll(0)` is true, and `HasAny(0)` false.
 - `ErrRefused` marks an error that a writing call's own arguments, options or records determine (G5-286),

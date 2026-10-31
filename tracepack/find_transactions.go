@@ -1,7 +1,6 @@
 package tracepack
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -160,8 +159,9 @@ const (
 type txHourRecord struct {
 	hour    int64
 	readers []*Reader
-	// items are the read's items, in yield order, each the record's own copy;
-	// meta[i] holds item i's record_flags as stored and its record's HSMS header, decoded once for every lookup replaying it.
+	// items are the read's items, in yield order, each the record's own copy (Item.Clone),
+	// whose HSMSHeader every lookup replaying it reads instead of decoding the payload again;
+	// meta[i] holds item i's record_flags as stored.
 	items []Item
 	meta  []txItemMeta
 	// reservations holds, for the k-th conflict the read reserved, the number of items yielded before it;
@@ -174,11 +174,9 @@ type txHourRecord struct {
 	charge int64
 }
 
-// txItemMeta is what an hour record holds beside one of its items: the record_flags of its record header, as stored,
-// and its record's HSMS header, as Record.HSMSHeader returns it.
+// txItemMeta is what an hour record holds beside one of its items: the record_flags of its record header, as stored.
 type txItemMeta struct {
-	header HSMSHeader
-	flags  uint8
+	flags uint8
 }
 
 // txBatch is the state of one FindTransactions call.
@@ -392,7 +390,7 @@ func (b *txBatch) charge(rec *txHourRecord, n int64) error {
 	return nil
 }
 
-// keep keeps a copy of it, an item of rec's read whose stored record_flags are flags, with its record's HSMS header,
+// keep keeps a copy of it, an item of rec's read whose stored record_flags are flags,
 // and, when enumerate is set, the seq of its record when it is a primary the batch pairs.
 func (b *txBatch) keep(ctx context.Context, rec *txHourRecord, it *Item, flags uint8, enumerate bool) error {
 	if err := b.tick(ctx); err != nil {
@@ -409,12 +407,8 @@ func (b *txBatch) keep(ctx context.Context, rec *txHourRecord, it *Item, flags u
 		return err
 	}
 
-	c := *it
-	c.Record.Payload = bytes.Clone(it.Record.Payload)
-	c.HeaderExtra = bytes.Clone(it.HeaderExtra)
-	c.Redaction = cloneRecordRedaction(it.Redaction)
-	rec.items = append(rec.items, c)
-	rec.meta = append(rec.meta, txItemMeta{header: c.Record.HSMSHeader(), flags: flags})
+	rec.items = append(rec.items, it.Clone())
+	rec.meta = append(rec.meta, txItemMeta{flags: flags})
 	if key {
 		rec.keys = append(rec.keys, it.Record.Seq)
 	}
@@ -708,9 +702,8 @@ func (h txReplay) read(_ context.Context, hour int64, _ []*Reader, _ int64,
 				return Result{}, err
 			}
 		}
-		m := &rec.meta[i]
-		*flags = m.flags
-		*header = txCachedHeader{h: m.header, ok: true}
+		*flags = rec.meta[i].flags
+		*header = txCachedHeader{h: rec.items[i].HSMSHeader, ok: true}
 		if err := fn(&rec.items[i]); err != nil {
 			return Result{}, err
 		}

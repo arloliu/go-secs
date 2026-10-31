@@ -360,6 +360,7 @@ The query service, its catalog database and the live-tail interface are designed
   validated against the record when it is read ([SEM §8] Marking), the same with or without `Query.Payloads`;
   tracepack v0.4.0 rejected some of these defects at bootstrap and checked no range against its record ([FMT §14]).
   `Reader.Unobserved(*Record)` reports bit 7 as unobserved only in a pack of minor 1 or later, `Record.Quality` keeping the stored bits;
+  `Item.Unobserved` and `TxRecord.Unobserved` hold its answer for the pack the record or version was yielded from, the representative's over several packs (G5-289);
   `Filter` has no predicate for it,
   and `Unobserved`, `len(Record.Payload)` and `DecodeStatus` tell an unobserved record from an empty message text and from an abnormal reply.
   Every block read decodes the whole body and checks I-2 before any record is used ([FMT §6]);
@@ -370,6 +371,9 @@ The query service, its catalog database and the live-tail interface are designed
   The header section itself, stored column by column, is never such a view.
 - `Query` = `Filter` plus `Payloads`, which decides only whether payloads are returned ([SEM §7.4]);
   without payloads a read over several packs still reads and compares them.
+  An `Item` carries `HSMSHeader`, `Record.HSMSHeader()` of the record as stored, whatever `Payloads` (G5-289).
+  An `Item` is valid only during the callback that receives it;
+  `Item.Clone()` and `Record.Clone()` return copies that share no mutable storage with the read, the errors inside redaction defects excepted (G5-289).
   `Result` carries `Incomplete` and `Conflicts` side by side; neither hides the other.
   `Incomplete`'s defects (`Pack`) and every `Item` (`Input`) name the pack they come from, an index into the readers given (0 for `Iterate`, G5-287),
   and a read over several packs reports a `coverage` entry one pack holds for another capture it reads, located at the pack that holds it (G5-215);
@@ -409,7 +413,7 @@ The query service, its catalog database and the live-tail interface are designed
   A zero option field takes its default and a negative one is refused, with the function's argument error,
   an error wrapping `ErrInvalidQuery` before `src` is called, as `FindTransactions` refuses one of `TxRangeOptions` or its `Lookup` (G5-284).
   `TxResult` holds the outcome (`TxMatched`, `TxAmbiguous`, `TxNotFound`; zero only beside an error), the derived key with the W bit,
-  the window end, every kept version as a `TxRecord` with its roles as a `TxClass` bit set (primary, candidate, possible reply, same-key primary, possible same-key primary, closing record, outcome record), which `HasAny` and `HasAll` test (G5-287), and its candidate flags,
+  the window end, every kept version as a `TxRecord` with its roles as a `TxClass` bit set (primary, candidate, possible reply, same-key primary, possible same-key primary, closing record, outcome record), which `HasAny` and `HasAll` test (G5-287), its candidate flags and `Unobserved` (G5-289),
   `Incomplete` with every reason of [SEM §7.2], beside any outcome and none hiding another, the hours read (`Searched`, each a `TxHour`), the conflicts and the footer errors.
   `TxNotFound` states nothing about records outside the packs given;
   when it detects that a block it read disagrees with its F-2 entry or its F-3 summary, or that another footer value disagrees with the records it describes,

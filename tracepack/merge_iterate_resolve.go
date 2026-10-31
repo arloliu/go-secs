@@ -101,9 +101,9 @@ func newClusterResolver(run *mergeIterateRun, capture UUID, c *planCluster) *clu
 }
 
 // item sets it to the candidate's record as the read yields it, for q:
-// the record as stored in its representative, with its header extension, pack and block;
+// the record as stored in its representative, with its HSMS header, header extension, pack and block;
 // its payload only when q asks for payloads.
-// Its Marking is left to redaction, which needs the representative's Reader.
+// Its Marking and Unobserved are left to the caller, which holds the representative's Reader.
 // The Item aliases the representative's block, valid while the candidate is not released.
 //
 // Returns:
@@ -113,10 +113,14 @@ func (c *candidate) item(q *Query, it *Item) uint8 {
 	h := d.header(c.rec)
 	rec := &it.Record
 	*rec = storedRecord(&h, d.payload(c.rec))
+	// The filter read the fields too when it tests one; a candidate does not keep them,
+	// since the time order's heap moves candidates and a larger one costs more than reading them again.
+	it.HSMSHeader = rec.HSMSHeader()
 	if !q.Payloads {
 		rec.Payload = nil
 	}
 	it.HeaderExtra, it.Input, it.Block, it.Conflict, it.Redaction = h.Extra, c.h.pack, c.h.block, c.conflict, nil
+	it.Unobserved = false
 
 	return h.RecordFlags
 }
@@ -346,7 +350,9 @@ func (r *mergeIterateRun) yield(ctx context.Context, c *candidate, it *Item, fn 
 		}
 	}
 	flags := c.item(r.q, it)
-	it.Redaction = c.redaction(r.p.readers[c.h.pack], it.Record)
+	rd := r.p.readers[c.h.pack]
+	it.Redaction = c.redaction(rd, it.Record)
+	it.Unobserved = rd.Unobserved(&it.Record)
 	if r.p.storedFlags != nil {
 		*r.p.storedFlags = flags
 	}
