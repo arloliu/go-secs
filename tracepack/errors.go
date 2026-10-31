@@ -43,13 +43,23 @@ var (
 	// a caller's mistake, which the same call with the same arguments repeats.
 	// ErrInvalidQuery and ErrInvalidKey also match it.
 	//
-	// The writing calls (see ErrRefused) wrap it for an invalid argument or option that wraps no sentinel of its own,
-	// such as a nil WriterOptions.Meta, and for a value of WriterOptions.Meta, CloseOptions.Meta, a classifier's Name
-	// or an AppendEvent event that the encoding refuses, beside the *FieldError naming the field,
-	// and mark that error ErrRefused.
-	// A CaptureDescriptor value the encoding refuses is the *FieldError CaptureDescriptor.Validate returns, without it.
-	// EncodeDescriptor wraps it for a nil PackMeta, and ParseUUID for a string that is not a canonical UUID;
-	// neither is a writing call, so neither marks it.
+	// The sentinel beside it, such as ErrRequiredTag, ErrFieldValue, ErrMetadataCommitment or ErrScopeBreach, names the fault on every path,
+	// and the call that took the value as its argument or option adds ErrInvalidArgument:
+	// NewWriter, WriteClose and NewSegmentWriter wrap it for every error of checking or encoding their options,
+	// one with no sentinel of its own, such as a nil WriterOptions.Meta, included,
+	// a *FieldError of PackMeta.Validate or of CaptureDescriptor.Validate, a classifier's Name or pack metadata the encoding refuses,
+	// a period outside one UTC hour, and a seq_start above 2^63-1;
+	// SegmentWriter.AppendEvent wraps it for an event the encoding refuses.
+	// Being writing calls, they also mark the error ErrRefused (see ErrRefused).
+	// Merge wraps it, unmarked, for an option it cannot take, a WriterTag the pack metadata cannot hold beside the *FieldError naming writer,
+	// and an opts.ReplacementSetID or opts.PackID that an input already uses.
+	// Open and Verify wrap it for a negative field of ReaderOptions;
+	// NewDirSink for a prefix outside the form it states,
+	// and a DirSink segment for a Write, Sync or Commit after its Commit or Abort.
+	// A standalone codec, such as CaptureDescriptor.Validate, PackMeta.Validate, a MarshalBinary or an Unmarshal function,
+	// returns the field sentinel without it,
+	// except EncodeDescriptor for a nil PackMeta and ParseUUID for a string that is not a canonical UUID.
+	// A nil reader from a PackSource wraps ErrInvalidQuery, which matches it.
 	ErrInvalidArgument = errors.New("tracepack: invalid argument")
 )
 

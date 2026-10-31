@@ -2,6 +2,7 @@ package tracepack
 
 import (
 	"fmt"
+	"io/fs"
 	"slices"
 	"strings"
 	"sync"
@@ -61,7 +62,7 @@ func TestDirSinkClose(t *testing.T) {
 	require.NoError(t, onDisk.Close())
 }
 
-// TestDirSinkCreateAfterClose fails a Create after Close with a plain error, before any file-system call.
+// TestDirSinkCreateAfterClose fails a Create after Close with an error wrapping fs.ErrClosed, before any file-system call.
 func TestDirSinkCreateAfterClose(t *testing.T) {
 	t.Parallel()
 
@@ -70,7 +71,9 @@ func TestDirSinkCreateAfterClose(t *testing.T) {
 	require.NoError(t, s.Close())
 	n := len(fsys.calls)
 	f, err := s.Create(t.Context(), dirTestInfo(0, dirTestPackA))
-	require.EqualError(t, err, "tracepack: DirSink: Create after Close")
+	require.ErrorIs(t, err, fs.ErrClosed)
+	require.NotErrorIs(t, err, ErrInvalidArgument)
+	require.EqualError(t, err, "tracepack: DirSink: Create after Close: file already closed")
 	assert.Nil(t, f)
 	assert.Equal(t, fsys.calls[:n], fsys.calls, "no file-system call")
 	keys, partial := dirFiles(t, root)
@@ -79,8 +82,8 @@ func TestDirSinkCreateAfterClose(t *testing.T) {
 }
 
 // TestDirSinkCloseOpenSegment closes the sink of a segment written but not committed, in both publication modes.
-// Its Commit then fails with a plain error, publishing nothing and leaving the temporary file open,
-// and its Abort, after that Commit or alone, closes the temporary file and reports that it stays under .partial/.
+// Its Commit then fails with an error wrapping fs.ErrClosed, publishing nothing and leaving the temporary file open,
+// and its Abort, after that Commit or alone, closes the temporary file and reports, wrapping fs.ErrClosed, that it stays under .partial/.
 func TestDirSinkCloseOpenSegment(t *testing.T) {
 	t.Parallel()
 
@@ -98,13 +101,14 @@ func TestDirSinkCloseOpenSegment(t *testing.T) {
 				if commit {
 					n := len(fsys.calls)
 					err := f.Commit(t.Context())
-					require.EqualError(t, err, "tracepack: DirSink: Commit of segment "+dirTestKey(t, 0, dirTestPackA)+" after Close")
+					require.ErrorIs(t, err, fs.ErrClosed)
+					require.EqualError(t, err, "tracepack: DirSink: Commit of segment "+dirTestKey(t, 0, dirTestPackA)+" after Close: file already closed")
 					assert.NotErrorIs(t, err, ErrPublishUncertain)
 					assert.Equal(t, fsys.calls[:n], fsys.calls, "no file-system call")
 				}
 				n := len(fsys.calls)
 				err := f.Abort()
-				require.Error(t, err)
+				require.ErrorIs(t, err, fs.ErrClosed)
 				assert.Contains(t, err.Error(), "the sink is closed, so its temporary file "+temp+" stays")
 				assert.Equal(t, []string{"close " + temp}, fsys.calls[n:], "the temporary file closed, not removed")
 				require.NoError(t, f.Abort(), "a second Abort does nothing")

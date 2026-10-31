@@ -305,7 +305,7 @@ type optionField struct {
 //   - *Reader: the Reader; nil on error.
 //   - error: ctx's error; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read;
 //     ErrNotTracepack for a size below 80 or a bad file header magic;
-//     an error naming a negative field of opts, after the size check and before any read;
+//     an error wrapping ErrInvalidArgument naming a negative field of opts, after the size check and before any read;
 //     ErrCorrupt beside io.ErrUnexpectedEOF for a pack metadata past the end of the object;
 //     ErrUnsupportedFormat for a format_major other than 1;
 //     ErrChecksum for a bad file header or pack metadata CRC;
@@ -326,7 +326,7 @@ func openReader(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOpti
 			size, format.FileHeaderLen, ErrNotTracepack, io.ErrUnexpectedEOF)
 	}
 	if msg := negativeOption("ReaderOptions", opts.budgets()...); msg != "" {
-		return nil, errors.New("tracepack: " + msg)
+		return nil, argument(errors.New("tracepack: " + msg))
 	}
 
 	r := &Reader{ra: ra, size: size, opts: opts.withDefaults(), keepF3: keepF3}

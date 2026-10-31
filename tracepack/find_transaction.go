@@ -382,7 +382,7 @@ type TxResult struct {
 //     for a nil src, a zero key.CaptureID, a key.Seq above 2^63-1, a key.Hour outside [MinTxHour, MaxTxHour],
 //     a negative field of opts, or a last hour key.Hour + MaxHours - 1 above MaxTxHour;
 //     ErrNotPrimary;
-//     an error of src, wrapped with the hour; an error for a nil reader src gives;
+//     an error of src, wrapped with the hour; an error wrapping ErrInvalidQuery, wrapped with the hour, for a nil reader src gives;
 //     the error of an hour's MergeIterate, an error wrapping ErrInvalidQuery for a Reader or pack_id src gives twice among them;
 //     a ReadAt error; an error wrapping ErrReadLimit from MaxHeldBytes, MaxConflicts or MaxStateBytes;
 //     ctx's error, wrapped.

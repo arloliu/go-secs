@@ -110,6 +110,8 @@ unless an earlier row of the decision table matches.
   it aborts the open segment, every later call returns an error wrapping `ErrWriterFailed`, and `Close` returns the failure.
   `Close` also fails it when no seq is left for the `stop` boundary:
   it commits the open segment, if any, without `stop`, then returns an error wrapping `ErrSeqOrder`.
+  A `Now()` at `Close` that is not representable fails it as well, a refusal wrapping `ErrInvalidRecord`:
+  `Close` aborts the open segment and writes no `stop`.
 - **A failure does not mean nothing was published.**
   Segments committed before a failure stay published, even ones the failing call committed:
   an append or `Close` that rolls commits the open segment before it opens the next.
@@ -144,8 +146,9 @@ so a recording can be uploaded to a bucket as it is, its file paths for object k
   a symbolic link leading out of `root`, such as `root/staging` or `root/.partial`, fails the call that meets it.
   The sink keeps `root` open until its `Close`, which you call after the `SegmentWriter` using it is closed.
   `Close` waits for every `Create`, `Commit` and `Abort` in progress, so a `Commit` ends with its own result, `ErrPublishUncertain` included, before the root closes.
-  After `Close`, `Create` and the `Commit` of a segment not yet committed fail, nothing published,
-  and the `Abort` of such a segment closes its temporary file, which stays under `.partial/`; a second `Close` does nothing.
+  After `Close`, `Create` and the `Commit` of a segment not yet committed fail with an error wrapping `fs.ErrClosed`, nothing published,
+  and the `Abort` of such a segment closes its temporary file, which stays under `.partial/`, and says so wrapping `fs.ErrClosed`;
+  a second `Close` does nothing.
 - The sink refuses a symbolic link inside `root` where it manages directories,
   so no link, such as `root/staging` leading to `.partial`, makes the temporary files and a key area one directory:
   `.partial` itself fails `NewDirSink` or `Create`,
@@ -153,6 +156,10 @@ so a recording can be uploaded to a bucket as it is, its file paths for object k
   These checks guard against a misconfigured `root`,
   not against a process that writes to `root` while the sink runs, which can remove segments anyway.
 - `NewDirSink` fails on `js`, where `os.Root` cannot exclude a link replaced after its check.
+- A `prefix` that is not empty or a relative `/`-separated path of clean components, or that starts with `.partial`, is your mistake:
+  `NewDirSink` refuses it with an error wrapping `ErrInvalidArgument`, as a segment does a `Write`, `Sync` or `Commit` after its `Commit` or `Abort`.
+  A symbolic link the sink refuses, a key that is not a regular file, a first `prefix` component that the file system folds into `.partial`, and `js`
+  fail with plain errors: they report the environment, and retrying does not cure them.
 - Files are created with mode 0640 and directories with mode 0750, less the process umask.
   No other user reads a segment, which holds records in full;
   a group, such as one a setgid `root` gives every new file, can give an uploader read access.
@@ -205,7 +212,9 @@ and the `SegmentWriter`'s appends, `Tick`, `Rotate` and `Close`.
 `errors.Is(err, ErrRefused)` means the same call with the same arguments, options or records fails the same way,
 so a service retrying a flush parks that batch instead;
 the sentinel beside it, such as `ErrSeqOrder` or `ErrValidation`, says what was refused and whether the writer is still usable.
-An invalid argument or option with no sentinel of its own, such as a nil `WriterOptions.Meta`, wraps `ErrInvalidArgument`.
+An error of checking or encoding the options of `NewWriter`, `WriteClose` or `NewSegmentWriter`, or an `AppendEvent` event, wraps `ErrInvalidArgument`:
+beside its own sentinel, such as `ErrRequiredTag` or `ErrScopeBreach`, or alone for one with none, such as a nil `WriterOptions.Meta`.
+An error of a record never does.
 An error without the marker may be transient, and is the one to retry:
 never marked are your `io.Writer`'s, `Syncer`'s, `SegmentSink`'s or `SegmentFile`'s error,
 which is returned wrapped with its chain intact,
@@ -226,7 +235,8 @@ So do `MarshalBinary` and the `Unmarshal` functions of `PackMeta`, `TransportEve
 and the writing calls that encode pack metadata or an event, which also mark the error `ErrRefused`.
 A decode also wraps `ErrCorrupt`, the bytes not being a valid encoding, and bytes that end inside an entry name no field;
 an encode never wraps `ErrCorrupt`, and neither does a writing call refusing a record whose payload does not decode, which wraps `ErrInvalidRecord`.
-`EncodeDescriptor(nil)`, and `ParseUUID` of a string that is not a canonical UUID, wrap `ErrInvalidArgument`.
+`EncodeDescriptor(nil)`, and `ParseUUID` of a string that is not a canonical UUID, wrap `ErrInvalidArgument`;
+the codecs and `Validate` otherwise return the field's sentinel without it, since only the call that takes a value as its argument says so.
 
 The reading calls, `Open`, `Iterate`, `Verify`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `ExportJSONL`, and `Merge` beside `ErrMergeInput`,
 report each fault of a pack with the same sentinel on every path, the cause kept beside it:
@@ -313,7 +323,7 @@ For the log service, the consumer that writes a durable-bus capture's packs:
 - Such a pack, one that is not an extract and carries `redaction_policy`, is masked at write:
   its policy carries both encryption tags, its metadata exactly one `classifier` and at most one `max_frame_len`,
   each breach refused by `NewWriter` with a `*FieldError` wrapping `ErrMetadataCommitment`;
-  it is written with the seqs you give, and `NewWriter` refuses `AssignSeq` for it with a plain error.
+  it is written with the seqs you give, and `NewWriter` refuses `AssignSeq` for it with an error wrapping `ErrInvalidArgument`.
   `NewWriter` checks the entries, and `Append` and `Close` every record's Marking against them,
   each refusing a mismatch with a `*FieldError` wrapping both `ErrMetadataCommitment` and `ErrRedactionDefect`.
   A record refused by an earlier commitment check, such as a redacted record when the file header does not set `redaction-present`,
@@ -341,8 +351,8 @@ For readers and troubleshooters working on local files:
   It keeps at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`) bytes for its lifetime, 4 MiB with the defaults,
   outside the budgets of `MergeIterateOptions.MaxHeldBytes`, `TxOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`;
   lower `WholeReadThreshold` when many Readers stay open at once.
-- A zero option field takes its default, and a negative budget field is refused with the function's argument error:
-  a plain error from `Open`, `Verify` and `Merge`, an error wrapping `ErrInvalidQuery` from `MergeIterate`, `FindTransaction` and `FindTransactions`.
+- A zero option field takes its default, and a negative budget field is refused with an error wrapping `ErrInvalidArgument`:
+  from `MergeIterate`, `FindTransaction` and `FindTransactions` through `ErrInvalidQuery`, which matches it.
 - `MergeIterate` reads several packs as one read, in capture or time order.
   It compares the copies of each record across the packs, yields identical copies once, and reports copies that differ as conflicts.
   It reads blocks ahead of the one it resolves, currently up to 8, within `MaxHeldBytes`,
@@ -427,6 +437,8 @@ and opening them at once removes that wait on any number of CPUs.
   See `ExampleOpen_parallel`, which keeps the errors by position, so the one it reports does not depend on timing.
 - A `PackSource` of your own may open an hour's packs in parallel inside `Readers(ctx, hour)`;
   a lookup asks for its hours one at a time.
+  A nil reader it gives for an hour fails the lookup with an error wrapping `ErrInvalidQuery`, wrapped with the hour,
+  as a `Reader` or `pack_id` it gives twice for one hour does.
 - Such a source may close an hour's objects, such as its files, once the lookup moves on:
   `FindTransaction` and `FindTransactions` read the packs `Readers` returned for an hour only during that hour's read,
   so once a lookup enters its next `Readers` call, or once it returns, no `ReadAt` of them is issued or in flight,
@@ -457,6 +469,9 @@ For the storage service:
   with the `ScopeGeneration` and `PublisherEpoch` you set in `MergeOptions`, which it compares with no input's.
   Its `compacted_from` lists the inputs' own lineage and then every segment input, and its `supersedes` every archive input, in the order you give them.
   It refuses with `ErrMergeInput`, before writing anything, an input whose role is neither `segment` nor `archive`, and an input of another capture or hour.
+  An option it cannot take, a `WriterTag` that is not valid UTF-8 (beside a `*FieldError` naming `writer`) included,
+  and a `ReplacementSetID` or `PackID` an input already uses, fail it with an error wrapping `ErrInvalidArgument`, never `ErrRefused`.
+  An error of the archive's own blocks, such as a new block of the resolution that fails its check, reports a defect of this package.
   It opens up to `MaxParallelOpens` inputs at once, 16 by default, and checks them in your order,
   so, while ctx is not cancelled and each input's `ReaderAt` answers independently of the others',
   an error names the input opening them one after another would name; inputs after a failing one may have been read.

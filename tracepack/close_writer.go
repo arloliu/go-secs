@@ -72,7 +72,8 @@ type CloseOptions struct {
 //     an error wrapping ErrScopeBreach when Trigger lies outside the UTC hour of the period, writing nothing;
 //     an error of NewWriter for metadata it refuses, such as a *FieldError, writing nothing;
 //     or the error of writing or syncing the pack, as Writer.Append and Writer.Close return it.
-//     An error opts determines also wraps ErrRefused.
+//     An error of those options, of Trigger or of the metadata also wraps ErrInvalidArgument,
+//     and an error opts determines also wraps ErrRefused.
 func WriteClose(w io.Writer, opts CloseOptions) (UUID, error) {
 	rec, meta, err := closeRecord(&opts)
 	if err != nil {
@@ -126,8 +127,8 @@ func closeRecord(opts *CloseOptions) (*Record, *PackMeta, error) {
 	triggerNs := opts.Trigger.UnixNano()
 	// The Writer refuses a record of another hour than the period's only after it wrote the file header.
 	if hourOf(triggerNs) != hourOf(meta.PeriodStart) {
-		return nil, nil, fmt.Errorf("tracepack: close trigger at %d ns in UTC hour %d, the period in hour %d: %w",
-			triggerNs, hourOf(triggerNs), hourOf(meta.PeriodStart), ErrScopeBreach)
+		return nil, nil, argument(fmt.Errorf("tracepack: close trigger at %d ns in UTC hour %d, the period in hour %d: %w",
+			triggerNs, hourOf(triggerNs), hourOf(meta.PeriodStart), ErrScopeBreach))
 	}
 
 	ev := &TransportEvent{Event: EventCaptureBoundary, BoundaryKind: new(BoundaryKindStopUnclean)}

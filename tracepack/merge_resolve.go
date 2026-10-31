@@ -82,6 +82,8 @@ func (m *mergeRun) flushUnit() error {
 	raw, sum, err := encodeRawBlock(&m.enc, m.codec, m.level, u.headerLen, rows, payloads)
 	if err != nil {
 		// The error names the new block by its first seq, as the Writer's errors writeUnit returns name a block.
+		// The records come from input blocks that passed their checks, so a new block failing its own reports a defect of this package,
+		// not a corrupt input: the error wraps no input sentinel.
 		return err
 	}
 	m.rep.ResolvedEncodings++

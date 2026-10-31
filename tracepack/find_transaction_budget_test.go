@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/stretchr/testify/assert"
@@ -151,7 +153,7 @@ func (s *txReadersSource) Readers(_ context.Context, hour int64) ([]*Reader, err
 
 // TestFindTransactionScopeChargedFirst reads an hour with more packs than MaxStateBytes admits:
 // the hour's charge fails before any of its readers is looked at, so a nil reader among them is not reported,
-// and with room for the hour, a nil reader fails the read with the hour's charge released.
+// and with room for the hour, a nil reader fails the read with an error wrapping ErrInvalidQuery, the hour's charge released.
 func TestFindTransactionScopeChargedFirst(t *testing.T) {
 	t.Parallel()
 
@@ -165,7 +167,7 @@ func TestFindTransactionScopeChargedFirst(t *testing.T) {
 	}{
 		{name: "more packs than the state admits", readers: make([]*Reader, 10000), max: scopeCost(10000) - 1, err: ErrReadLimit,
 			text: "hour 497222: the lookup's state of 0 bytes and"},
-		{name: "a nil reader", readers: []*Reader{r, nil}, max: scopeCost(2), text: "hour 497222: readers: reader 1 is nil"},
+		{name: "a nil reader", readers: []*Reader{r, nil}, max: scopeCost(2), err: ErrInvalidQuery, text: "hour 497222: readers: reader 1 is nil"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -180,6 +182,27 @@ func TestFindTransactionScopeChargedFirst(t *testing.T) {
 			assert.Empty(t, res.Searched)
 		})
 	}
+}
+
+// TestFindTransactionsNilReader reads, over FindTransactions, an hour for which the source gives a nil reader:
+// the call fails with an error wrapping ErrInvalidQuery, and through it ErrInvalidArgument, wrapped with the hour,
+// before the hour is read, its charge against MaxCachedBytes released.
+func TestFindTransactionsNilReader(t *testing.T) {
+	t.Parallel()
+
+	r := mustOpen(t, txPack(t, seg0, nil, txBlock(txSeqs(12)...)), ReaderOptions{})
+	s := &txReadersSource{readers: []*Reader{r, nil}}
+	from := time.Unix(0, memTestHour*hourNs)
+	var b *txBatch
+	res, err := findTransactionsWith(t.Context(), s, TxRange{CaptureID: UUID(r.hdr.CaptureID), From: from, To: from.Add(time.Minute)},
+		TxRangeOptions{Lookup: TxOptions{MaxHours: 1}}, func(*TxPairing) error { return nil }, func(bt *txBatch) { b = bt })
+	require.ErrorIs(t, err, ErrInvalidQuery)
+	require.ErrorIs(t, err, ErrInvalidArgument)
+	require.ErrorContains(t, err, fmt.Sprintf("hour %d: readers: reader 1 is nil", memTestHour))
+	require.NotNil(t, b)
+	assert.Zero(t, b.cache.held, "the hour's charge released")
+	assert.Empty(t, b.hours, "the hour not kept")
+	assert.Zero(t, res.HoursRead)
 }
 
 // findTxState runs FindTransaction with opts over s for the primary at seq 12, keeping the lookup's state.

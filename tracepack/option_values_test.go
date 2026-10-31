@@ -3,7 +3,6 @@ package tracepack
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"sync/atomic"
 	"testing"
@@ -59,7 +58,7 @@ func optionTestPack(t *testing.T) []byte {
 	return writeReaderPack(t, readerPackConfig{codec: CodecZstd}, hourRecords(2, 3)).file
 }
 
-// Open refuses a negative ReaderOptions field with a plain error naming it, before any ReadAt;
+// Open refuses a negative ReaderOptions field with an error wrapping ErrInvalidArgument that names it, before any ReadAt;
 // a zero field takes its default, and a short object is refused first.
 func TestOpenNegativeOption(t *testing.T) {
 	t.Parallel()
@@ -73,8 +72,9 @@ func TestOpenNegativeOption(t *testing.T) {
 			tt.set(&opts)
 			ra := &sharedReadCounter{data: file}
 			r, err := Open(t.Context(), ra, int64(len(file)), opts)
+			require.ErrorIs(t, err, ErrInvalidArgument)
+			require.NotErrorIs(t, err, ErrInvalidQuery)
 			require.EqualError(t, err, "tracepack: ReaderOptions."+tt.field+" -1 is negative")
-			assert.NoError(t, errors.Unwrap(err), "a plain error")
 			assert.Nil(t, r)
 			assert.Zero(t, ra.calls.Load(), "no ReadAt")
 		})
@@ -113,8 +113,9 @@ func TestVerifyNegativeOption(t *testing.T) {
 			tt.set(&opts.Reader)
 			ra := &sharedReadCounter{data: file}
 			rep, err := Verify(t.Context(), ra, int64(len(file)), opts)
+			require.ErrorIs(t, err, ErrInvalidArgument)
+			require.NotErrorIs(t, err, ErrInvalidQuery)
 			require.EqualError(t, err, "tracepack: ReaderOptions."+tt.field+" -1 is negative")
-			assert.NoError(t, errors.Unwrap(err), "a plain error")
 			assert.Zero(t, rep.Outcome)
 			assert.Zero(t, ra.calls.Load(), "no ReadAt")
 		})
@@ -140,7 +141,8 @@ func TestVerifyNegativeOption(t *testing.T) {
 	})
 }
 
-// Merge refuses a negative field of MergeOptions.Reader with a plain error naming it, before any ReadAt or write;
+// Merge refuses a negative field of MergeOptions.Reader with an error wrapping ErrInvalidArgument, not ErrRefused, that names it,
+// before any ReadAt or write;
 // a zero field takes its default, and an input without a ReaderAt is refused first.
 func TestMergeNegativeOption(t *testing.T) {
 	t.Parallel()
@@ -155,8 +157,9 @@ func TestMergeNegativeOption(t *testing.T) {
 			ra := &sharedReadCounter{data: file}
 			var dst touchWriter
 			rep, err := Merge(t.Context(), &dst, []MergeInput{{ReaderAt: ra, Size: int64(len(file))}}, opts)
+			require.ErrorIs(t, err, ErrInvalidArgument)
+			require.NotErrorIs(t, err, ErrRefused)
 			require.EqualError(t, err, "tracepack: MergeOptions.Reader."+tt.field+" -1 is negative")
-			assert.NoError(t, errors.Unwrap(err), "a plain error")
 			assert.Equal(t, MergeReport{}, rep)
 			assert.Zero(t, ra.calls.Load(), "no ReadAt")
 			assert.Zero(t, dst.calls, "dst untouched")

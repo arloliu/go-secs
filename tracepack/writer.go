@@ -335,7 +335,7 @@ type Writer struct {
 //     such as a string that is not valid UTF-8, a u64 above 2^63-1 or a malformed Unknown entry,
 //     or the error of writing the header,
 //     which is io.ErrShortWrite when w takes fewer bytes than it was given without reporting an error.
-//     An error opts determines also wraps ErrRefused.
+//     An error opts determines, every error above but the header write's, also wraps ErrInvalidArgument and ErrRefused.
 func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	var err error
 	if opts.CaptureID, err = idOrNew(opts.CaptureID, opts.Now); err != nil {
@@ -352,9 +352,13 @@ func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 
 // startWriter does the work of NewWriter, but writes opts.CaptureID as given, the nil UUID included,
 // so a pack written from another pack keeps that pack's capture exactly.
+//
+// Every error of checking or encoding opts is marked as the caller's argument (argument), so it matches ErrInvalidArgument:
+// for NewWriter the options are its own, for WriteClose and NewSegmentWriter they derive from theirs,
+// and Merge validates the pack metadata it derives from its inputs before it calls startWriter.
 func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	if err := checkOptions(&opts); err != nil {
-		return nil, err
+		return nil, argument(err)
 	}
 
 	meta := *opts.Meta
@@ -372,7 +376,7 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	var am *appendMarking
 	if maskedAtWrite(&meta) {
 		if am, err = newAppendMarking(meta.RedactionPolicy, meta.Redaction, opts.Facts.AnyRedacted); err != nil {
-			return nil, err
+			return nil, argument(err)
 		}
 	}
 
@@ -437,16 +441,16 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	return wr, nil
 }
 
-// checkOptions rejects options NewWriter cannot honor.
+// checkOptions rejects options NewWriter cannot honor; startWriter marks its error as the caller's argument (argument).
 func checkOptions(opts *WriterOptions) error {
 	if opts.Meta == nil {
-		return argument(errors.New("tracepack: WriterOptions.Meta is nil"))
+		return errors.New("tracepack: WriterOptions.Meta is nil")
 	}
 	if err := checkCompressionLevel("WriterOptions", opts.CompressionLevel); err != nil {
-		return argument(err)
+		return err
 	}
 	if opts.BlockThreshold < 0 || int64(opts.BlockThreshold) > int64(format.MaxLen32) {
-		return argument(fmt.Errorf("tracepack: WriterOptions.BlockThreshold %d outside 0 to %d", opts.BlockThreshold, format.MaxLen32))
+		return fmt.Errorf("tracepack: WriterOptions.BlockThreshold %d outside 0 to %d", opts.BlockThreshold, format.MaxLen32)
 	}
 
 	seqStart := opts.Meta.SeqStart
@@ -544,8 +548,8 @@ func checkFormat11(opts *WriterOptions) error {
 	case len(m.MaxFrameLens) > 1:
 		field = "max_frame_len"
 	case opts.AssignSeq:
-		return argument(errors.New("tracepack: WriterOptions.AssignSeq and DetectClockSteps in a pack masked at write, " +
-			"whose redaction entries bind each record's seq before the Writer sees it"))
+		return errors.New("tracepack: WriterOptions.AssignSeq and DetectClockSteps in a pack masked at write, " +
+			"whose redaction entries bind each record's seq before the Writer sees it")
 	default:
 		return nil
 	}
@@ -590,10 +594,10 @@ func checkClockOptions(opts *WriterOptions) error {
 		return nil
 	}
 	if !opts.AssignSeq {
-		return argument(errors.New("tracepack: WriterOptions.DetectClockSteps requires AssignSeq, so a clock-step record can take the seq before its record"))
+		return errors.New("tracepack: WriterOptions.DetectClockSteps requires AssignSeq, so a clock-step record can take the seq before its record")
 	}
 	if opts.Meta.TimeSource != TimeSourceCaptureClock {
-		return argument(fmt.Errorf("tracepack: WriterOptions.DetectClockSteps requires time_source capture-clock, not %s", opts.Meta.TimeSource))
+		return fmt.Errorf("tracepack: WriterOptions.DetectClockSteps requires time_source capture-clock, not %s", opts.Meta.TimeSource)
 	}
 
 	return nil
@@ -624,7 +628,7 @@ func encodeHead(meta *PackMeta, opts *WriterOptions) ([]byte, error) {
 		// The flag is set only in an extract, and from format 1.1 in a pack masked at write
 		// (the tracepack format specification §4).
 		if meta.PackRole != PackRoleExtract && !maskedAtWrite(meta) {
-			return nil, &FieldError{Field: "redaction-present", Err: ErrMetadataCommitment}
+			return nil, argument(&FieldError{Field: "redaction-present", Err: ErrMetadataCommitment})
 		}
 		h.Flags |= fileHeaderRedactionPresent
 	}
@@ -1317,6 +1321,11 @@ func (w *Writer) countFooter(s *blockSummary, f3 []byte) error {
 }
 
 // checkAppendBlock returns raw's envelope once raw and s pass the checks of appendBlock.
+//
+// Only Merge appends blocks: input blocks of a valid footer it checked against the archive's scope,
+// and new blocks encodeRawBlock checked.
+// So an error here, ErrSeqOrder and the commitment checks included, reports a defect of this package,
+// not a fault of an input or an option, and Merge returns it as it is, adding neither ErrMergeInput nor ErrInvalidArgument.
 func (w *Writer) checkAppendBlock(raw []byte, s *blockSummary) (format.BlockEnvelope, error) {
 	if !w.block.empty() {
 		return format.BlockEnvelope{}, errors.New("tracepack: append a block while a block is open")

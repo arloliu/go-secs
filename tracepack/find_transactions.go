@@ -118,7 +118,9 @@ type TxRangeResult struct {
 // Returns:
 //   - TxRangeResult: the hours read and the pairings passed to fn, also beside an error.
 //   - error: an error wrapping ErrInvalidQuery, before src is called;
-//     the error of src or of an hour's read, wrapped with the hour; an error for a nil reader src gives, wrapped with the hour;
+//     the error of src or of an hour's read, wrapped with the hour;
+//     an error wrapping ErrInvalidQuery, wrapped with the hour, for a nil reader src gives,
+//     or for a Reader or pack_id src gives twice for one hour;
 //     an error wrapping ErrReadLimit from MaxCachedBytes or MaxHeldBytes, wrapped with the hour,
 //     or from a lookup's MaxConflicts or MaxStateBytes, wrapped with its key;
 //     ctx's error, wrapped;
@@ -346,12 +348,15 @@ func (b *txBatch) fill(ctx context.Context, h int64) error {
 	if err := b.charge(rec, txCacheHourCharge+int64(len(readers))*txCacheReaderCharge); err != nil {
 		return fmt.Errorf("tracepack: find transactions: hour %d: %w", h, err)
 	}
-	b.hours[h] = rec
 	for i, r := range readers {
 		if r == nil {
-			return fmt.Errorf("tracepack: find transactions: hour %d: readers: reader %d is nil", h, i)
+			// The hour is not kept, so its charge is released.
+			b.cache.release(rec.charge)
+
+			return wrapf("tracepack: find transactions: hour %d: readers: reader %d is nil: %w", h, i, ErrInvalidQuery)
 		}
 	}
+	b.hours[h] = rec
 	rec.readers = readers
 
 	enumerate := h >= b.first && h <= b.last
