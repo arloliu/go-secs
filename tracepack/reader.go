@@ -284,7 +284,9 @@ type optionField struct {
 //   - ctx: cancels Open between reads.
 //   - ra: the object; Open, and MergeIterate over the Reader, may issue several ReadAt calls in parallel.
 //     A ReadAt that panics makes Open panic with the same value on the caller's goroutine,
-//     once every call of its round has returned.
+//     once every call of its round has returned;
+//     MergeIterate, and FindTransaction and FindTransactions through it, panic likewise when the read reaches the block of that ReadAt,
+//     once every call in flight has returned (see MergeIterate).
 //   - size: the object's size, known before reading.
 //   - opts: see ReaderOptions.
 //

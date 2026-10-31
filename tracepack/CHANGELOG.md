@@ -232,6 +232,13 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - **Breaking:** `RecordFlags` and `RecordFlagsMonoPresent` are unexported, since no exported field or signature carries them (G5-282).
   Migration: read `Record.MonoPresent`.
 
+### Fixed
+
+- A `ReadAt` that panics in a block read `MergeIterate` issued ahead of its demand makes `MergeIterate` panic with that value on its caller,
+  when the read reaches the block and once its other calls in flight returned; it used to end the process from a goroutine of its own.
+  `FindTransaction` and `FindTransactions` read each hour through `MergeIterate`, so the same holds for them.
+  A block read ahead that the read never reaches is dropped with its panic, as with its error.
+
 ### Performance
 
 - `Merge` opens its inputs concurrently and checks them in input order, so its archive, report, conflicts and error are those of opening them one after another,

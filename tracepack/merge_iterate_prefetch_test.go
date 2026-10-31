@@ -13,6 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// readAtPanic is the value a ReadAt call a readGate selects panics with.
+const readAtPanic = "ReadAt panics"
+
 // gateKey names one ReadAt call of a prefetch test: the index of its reader and its offset.
 type gateKey struct {
 	reader int
@@ -29,6 +32,8 @@ type readGate struct {
 	hold func(k gateKey) bool
 	// fail selects the calls that fail with errInjected, after the gate releases them.
 	fail func(k gateKey) bool
+	// panics selects the calls that panic with readAtPanic, after the gate releases them.
+	panics func(k gateKey) bool
 	// release is closed to release the calls held.
 	release chan struct{}
 	// inflight is the calls started and not returned, held or not; peak is its high-water mark.
@@ -82,7 +87,11 @@ func (a *gatedAt) ReadAt(p []byte, off int64) (int, error) {
 	g.mu.Lock()
 	g.inflight--
 	failed := g.fail != nil && g.fail(k)
+	panicking := g.panics != nil && g.panics(k)
 	g.mu.Unlock()
+	if panicking {
+		panic(readAtPanic)
+	}
 	if failed {
 		return 0, errInjected
 	}
@@ -932,4 +941,127 @@ func comparePrefetch(t *testing.T, open func(*readGate) []*Reader, q Query, opts
 	require.LessOrEqual(t, extra, prefetchDepth)
 
 	return want
+}
+
+// TestMergeIteratePrefetchPanic makes the ReadAt of the fourth of ten one-block clusters panic, a call the prefetch issues ahead of the demand.
+// A read that reaches the block panics with the same value on the caller's goroutine, in each order, as the read without prefetch does,
+// having yielded the records of the first three clusters, with no ReadAt call in flight, nothing held and nothing queued;
+// synctest.Test returning shows that no goroutine of the read is left.
+// A read fn stops at its first record never reaches the block: it returns fn's error, the panic dropped with the block,
+// although the prefetch issued the call.
+func TestMergeIteratePrefetchPanic(t *testing.T) {
+	t.Parallel()
+
+	file := nonePack(t, seg0, captureLow, prefetchSteps(10))
+	panicking := gateKey{reader: 0, off: int64(mustOpen(t, file, uncachedWindows()).blocks[3].Offset)}
+	for _, order := range []Order{OrderTime, OrderCapture} {
+		t.Run(order.String(), func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				// The read without prefetch issues the call when it reaches the block, on the caller's goroutine.
+				g := passingGate()
+				g.panics = func(k gateKey) bool { return k == panicking }
+				want := planPrefetch(t, t.Context(), g, openBehindGate(t, g, uncachedWindows(), file), Query{},
+					MergeIterateOptions{Order: order}, true, nil)
+				assert.PanicsWithValue(t, readAtPanic, func() { want.run(t.Context()) })
+
+				g = passingGate()
+				g.panics = func(k gateKey) bool { return k == panicking }
+				read := planPrefetch(t, t.Context(), g, openBehindGate(t, g, uncachedWindows(), file), Query{},
+					MergeIterateOptions{Order: order}, false, nil)
+				assert.PanicsWithValue(t, readAtPanic, func() { read.run(t.Context()) })
+				got := read.finish(t)
+				assert.Equal(t, want.out.items, got.items, "the records of the first three clusters")
+				assert.Len(t, got.items, 6, "the records of the first three clusters")
+				assert.Zero(t, got.queued, "nothing queued")
+				assert.Zero(t, got.inflight, "no speculative read in flight")
+				inflight, _ := g.snapshot()
+				assert.Zero(t, inflight, "no ReadAt call in flight")
+				assert.Equal(t, 1, g.calls[panicking], "the panicking block was read once")
+
+				g = passingGate()
+				g.panics = func(k gateKey) bool { return k == panicking }
+				readers := openBehindGate(t, g, uncachedWindows(), file)
+				g.arm()
+				yielded := 0
+				assert.PanicsWithValue(t, readAtPanic, func() {
+					_, _ = MergeIterate(t.Context(), readers, Query{}, MergeIterateOptions{Order: order}, func(*Item) error {
+						yielded++
+						return nil
+					})
+				})
+				assert.Equal(t, 6, yielded, "the records of the first three clusters")
+
+				g = passingGate()
+				g.panics = func(k gateKey) bool { return k == panicking }
+				readers = openBehindGate(t, g, uncachedWindows(), file)
+				g.arm()
+				_, err := MergeIterate(t.Context(), readers, Query{}, MergeIterateOptions{Order: order}, func(*Item) error {
+					return errStopIterate
+				})
+				require.ErrorIs(t, err, errStopIterate)
+				assert.Equal(t, 1, g.calls[panicking], "the panicking block was read ahead")
+			})
+		})
+	}
+}
+
+// gatedSource gives, for memTestHour only, one fresh Reader of file through a gatedAt over g, opened with uncachedWindows,
+// so that each of its blocks is read with a ReadAt call of its own.
+type gatedSource struct {
+	file []byte
+	g    *readGate
+}
+
+var _ PackSource = gatedSource{}
+
+func (s gatedSource) Readers(ctx context.Context, hour int64) ([]*Reader, error) {
+	if hour != memTestHour {
+		return nil, nil
+	}
+	r, err := Open(ctx, &gatedAt{data: s.file, g: s.g}, int64(len(s.file)), uncachedWindows())
+	if err != nil {
+		return nil, err
+	}
+
+	return []*Reader{r}, nil
+}
+
+// TestFindTransactionPrefetchPanic makes the ReadAt of the fourth of ten blocks of an hour's one pack panic,
+// a call the prefetch of the hour's read issues ahead of the demand:
+// FindTransaction and FindTransactions, whose read of the hour reaches the block, panic with the same value on the caller's goroutine,
+// with no ReadAt call in flight; synctest.Test returning shows that no goroutine of the call is left.
+func TestFindTransactionPrefetchPanic(t *testing.T) {
+	t.Parallel()
+
+	steps := make([]footerTestStep, 0, 20)
+	for k := range uint64(10) {
+		steps = append(steps, txBlock(txSeqs(2*k+1, 2*k+2)...)...)
+	}
+	file := withIDs(t, writeRepairPack(t, CodecNone, func(m *PackMeta) { m.QualityEvaluated = true }, false, steps).file, seg0, captureLow)
+	panicking := gateKey{reader: 0, off: int64(mustOpen(t, file, uncachedWindows()).blocks[3].Offset)}
+	calls := map[string]func(ctx context.Context, src PackSource){
+		"FindTransaction": func(ctx context.Context, src PackSource) {
+			_, _ = FindTransaction(ctx, src, txKeyAt(1), TxOptions{})
+		},
+		"FindTransactions": func(ctx context.Context, src PackSource) {
+			_, _ = FindTransactions(ctx, src, txBatchHour(0), TxRangeOptions{}, func(*TxPairing) error { return nil })
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			synctest.Test(t, func(t *testing.T) {
+				g := passingGate()
+				g.panics = func(k gateKey) bool { return k == panicking }
+				g.arm()
+				assert.PanicsWithValue(t, readAtPanic, func() { call(t.Context(), gatedSource{file: file, g: g}) })
+				inflight, _ := g.snapshot()
+				assert.Zero(t, inflight, "no ReadAt call in flight")
+				assert.Equal(t, 1, g.calls[panicking], "the panicking block was read once")
+			})
+		})
+	}
 }

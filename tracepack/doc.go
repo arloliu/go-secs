@@ -87,6 +87,9 @@
 // in time order, and in capture order when at most one capture has a cluster to read,
 // so it may issue several ReadAt calls at once on a Reader's io.ReaderAt, as Open does,
 // and it waits for all of them before it returns.
+// A ReadAt that panics on one of their goroutines makes Open panic with the same value on the caller's goroutine,
+// and MergeIterate too when the read reaches the block of that ReadAt;
+// a block read ahead that the read never reaches is dropped with its panic.
 // Every read reports, as an IncompleteReasonCrashGap defect, each stop-unclean capture boundary whose gap meets the query's time range
 // (the tracepack semantics specification §7.4, Crash gaps).
 //

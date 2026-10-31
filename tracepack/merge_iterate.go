@@ -139,9 +139,11 @@ var _ error = PackError{}
 // each admitted only when its whole reservation fits beside those held,
 // and never at the expense of a block the read needs:
 // a read ends with ErrReadLimit exactly where it would without reading ahead.
-// A block read ahead is checked, and its defect or ReadAt error reported, only when the read reaches it;
-// those the read never reaches are dropped with their errors.
-// Whatever its outcome, MergeIterate waits for its ReadAt calls in flight before it returns,
+// A block read ahead is checked, and its defect, ReadAt error or ReadAt panic reported, only when the read reaches it;
+// those the read never reaches are dropped with their errors and their panics.
+// A ReadAt that panics, read ahead or not, makes MergeIterate panic with the same value on the caller's goroutine
+// when the read reaches its block.
+// Whatever its outcome, a panic included, MergeIterate waits for its ReadAt calls in flight before it returns,
 // so none touches a Reader's io.ReaderAt after it returned.
 // A block over its Reader's ReaderOptions.MaxBlockLen, or whose stated dimensions cannot be consistent, is a defect and is not read;
 // a block that fails a check of its read is a defect too.
