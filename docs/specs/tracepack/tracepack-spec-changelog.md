@@ -150,6 +150,11 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   `Matches` and `PrimaryVersions` return pointers into `Records` to the valid matches and the primary's versions, nil when none,
   and `Records` keeps every diagnostic version.
   No rule of [SEM §7.2] changed.
+- 2026-10-31: the §3 `NewDirSink` bullet returns `*DirSink`, which has `Close` (G5-292):
+  `Close` waits for the sink's `Create`, `Commit` and `Abort` in progress, then closes `root`;
+  afterwards `Create` and the `Commit` of a segment not yet committed fail, publishing nothing,
+  and the `Abort` of such a segment leaves its temporary file under `.partial/`.
+  No rule of [STO §3] changed.
 
 ## Changes vs v1 (summary)
 

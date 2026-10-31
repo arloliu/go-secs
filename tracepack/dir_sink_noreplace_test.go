@@ -20,9 +20,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newNoReplaceDirSink returns a dirSink over root and dirTestPrefix that never replaces a file at a key,
+// newNoReplaceDirSink returns a DirSink over root and dirTestPrefix that never replaces a file at a key,
 // whose file-system calls the returned recordFS records.
-func newNoReplaceDirSink(t testing.TB, root string) (*dirSink, *recordFS) {
+func newNoReplaceDirSink(t testing.TB, root string) (*DirSink, *recordFS) {
 	t.Helper()
 
 	fsys := newRecordFS(t, root)

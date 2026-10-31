@@ -33,6 +33,8 @@ func ExampleSegmentWriter() {
 		fmt.Println(err)
 		return
 	}
+	// The sink holds root open until its Close, which comes after the writer's: deferred, it runs after w.Close below.
+	defer func() { _ = sink.Close() }() // closing a directory handle reports nothing to act on
 
 	// What the recorder persists across restarts:
 	// its deployment's identity, generated once and never per capture,
@@ -485,6 +487,7 @@ func recordExampleCapture(ctx context.Context, root string) (tracepack.UUID, err
 	if err != nil {
 		return tracepack.UUID{}, err
 	}
+	defer func() { _ = sink.Close() }() // after w.Close below, as the sink requires; closing a directory handle reports nothing to act on
 	origin := time.Date(2026, 10, 6, 8, 59, 0, 0, time.UTC)
 	w, err := tracepack.NewSegmentWriter(ctx, tracepack.SegmentWriterOptions{
 		Capture: tracepack.CaptureDescriptor{

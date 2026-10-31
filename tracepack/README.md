@@ -134,14 +134,17 @@ a frame longer than its ceiling is recorded with decode status `oversized` and i
 
 ### Storing segments in a directory
 
-`NewDirSink(root, prefix, DirSinkOptions{})` stores each segment as the file `<root>/<SegmentKey(prefix, …)>`,
+`NewDirSink(root, prefix, DirSinkOptions{})` returns a `*DirSink` that stores each segment as the file `<root>/<SegmentKey(prefix, …)>`,
 so a recording can be uploaded to a bucket as it is, its file paths for object keys.
 
 - `root` must be an existing directory, and its own durability is yours.
 - The sink opens `root` as an `os.Root` and makes every file-system call through it,
   so nothing it writes lies outside `root`:
   a symbolic link leading out of `root`, such as `root/staging` or `root/.partial`, fails the call that meets it.
-  The sink keeps `root` open for as long as it is reachable; there is nothing to close.
+  The sink keeps `root` open until its `Close`, which you call after the `SegmentWriter` using it is closed.
+  `Close` waits for every `Create`, `Commit` and `Abort` in progress, so a `Commit` ends with its own result, `ErrPublishUncertain` included, before the root closes.
+  After `Close`, `Create` and the `Commit` of a segment not yet committed fail, nothing published,
+  and the `Abort` of such a segment closes its temporary file, which stays under `.partial/`; a second `Close` does nothing.
 - The sink refuses a symbolic link inside `root` where it manages directories,
   so no link, such as `root/staging` leading to `.partial`, makes the temporary files and a key area one directory:
   `.partial` itself fails `NewDirSink` or `Create`,

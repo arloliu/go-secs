@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newDirSeg returns a SegmentWriter of dirTestTool over a recorded dirSink in a new root, fsys.root,
+// newDirSeg returns a SegmentWriter of dirTestTool over a recorded DirSink in a new root, fsys.root,
 // its files counted by the returned countSink,
 // after appending a frame to its first segment.
 func newDirSeg(t testing.TB) (*SegmentWriter, *countSink, *recordFS) {

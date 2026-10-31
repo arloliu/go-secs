@@ -308,7 +308,7 @@ The query service, its catalog database and the live-tail interface are designed
   A `Commit` that fails after the segment became visible returns an error wrapping `ErrPublishUncertain`.
   `SegmentInfo` holds the `tool_id`, `capture_id`, `pack_id`, `seq_first` of the segment key ([STO §3], known at open), the hour and the period,
   so a sink derives the key from the segment it writes and never from a tool of its own.
-  `NewDirSink(root, prefix string, opts DirSinkOptions)` writes `<root>/<SegmentKey(prefix, info.ToolID, …)>`;
+  `NewDirSink(root, prefix string, opts DirSinkOptions) (*DirSink, error)` writes `<root>/<SegmentKey(prefix, info.ToolID, …)>`;
   it refuses, before creating any file, a prefix that is not empty or a relative `/`-separated path whose components are none empty, `.` or `..`,
   and one holding `\` or a `:`, so no platform reads it as another separator or a volume,
   and one whose first component is `.partial`, the directory of its temporary files, so no committed segment lies among them (G5-157),
@@ -343,6 +343,13 @@ The query service, its catalog database and the live-tail interface are designed
   Both errors arise only from a link that did not happen, and `ErrPublishUncertain` only after a link that did, so the three never overlap;
   the default, without the option, still renames over an existing file.
   A file system without hard links fails such a `Commit` with the link's error, nothing published.
+  `*DirSink` holds `root` open until `(*DirSink).Close() error`, which the caller calls after the `SegmentWriter` using the sink is closed (G5-292).
+  `Create`, `Commit` and `Abort` hold a shared lock for their whole operation, a `Commit` from its first root operation through its last directory sync,
+  and `Close` an exclusive one, so `Close` waits for every operation in progress, then closes `root`:
+  a `Commit` either completes before `Close`, with its own result, `ErrPublishUncertain` included, or starts after it.
+  After `Close`, `Create` fails with a plain error, and so does the `Commit` of a segment not yet committed, publishing nothing;
+  the `Abort` of such a segment closes its temporary file and returns an error saying it could not be removed, the file staying under `.partial/`.
+  `Commit` and `Abort` of a segment already published, refused or aborted behave as before `Close`, and a second `Close` returns nil.
 - `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a footer location the caller kept (e.g. from an earlier `Open` of the same object);
   the bytes it reads at bootstrap serve later block reads, so a pack up to the whole-read threshold (4 MiB by default) costs one request (G5-211).
   A zero option field takes its default and a negative one is refused, with the function's argument error:

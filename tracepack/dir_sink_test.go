@@ -37,7 +37,7 @@ type recordFS struct {
 	// root is the path of the root fsys works in.
 	root string
 	fsys dirFS
-	// calls lists each call in order, "<op> <name>", every name as the dirSink gives it, relative to root;
+	// calls lists each call in order, "<op> <name>", every name as the DirSink gives it, relative to root;
 	// a rename lists both of its names, and a file's calls name the file.
 	calls []string
 	// fail, when set, runs before each call with its entry in calls; a non-nil error fails the call without making it.
@@ -78,8 +78,8 @@ var (
 	_ SegmentSink = (*countSink)(nil)
 )
 
-// newRecordedDirSink returns a dirSink over root and dirTestPrefix whose file-system calls the returned recordFS records.
-func newRecordedDirSink(t testing.TB, root string) (*dirSink, *recordFS) {
+// newRecordedDirSink returns a DirSink over root and dirTestPrefix whose file-system calls the returned recordFS records.
+func newRecordedDirSink(t testing.TB, root string) (*DirSink, *recordFS) {
 	t.Helper()
 
 	fsys := newRecordFS(t, root)
@@ -936,6 +936,10 @@ func (s *recordFS) remove(name string) error {
 	return s.record("remove", func() error { return s.fsys.remove(name) }, name)
 }
 
+func (s *recordFS) closeRoot() error {
+	return s.record("closeRoot", s.fsys.closeRoot, ".")
+}
+
 func (f *recordFile) Write(p []byte) (int, error) {
 	var n int
 	err := f.fsys.record("write", func() (err error) {
@@ -988,4 +992,8 @@ func (f foldFS) syncDir(name string) error {
 
 func (f foldFS) remove(name string) error {
 	return f.fsys.remove(strings.ToLower(name))
+}
+
+func (f foldFS) closeRoot() error {
+	return f.fsys.closeRoot()
 }

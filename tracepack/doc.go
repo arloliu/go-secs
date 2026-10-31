@@ -34,7 +34,8 @@
 // A CaptureDescriptor holds the pack metadata the producer of a capture owns.
 // SegmentWriter writes one capture as segments through a SegmentSink,
 // owning the capture's start and stop boundaries, its seq counter and the segments' rolls;
-// NewDirSink stores the segments as files laid out as a bucket's keys.
+// NewDirSink stores the segments as files laid out as a bucket's keys,
+// in a DirSink closed after the SegmentWriter using it.
 // A Classifier, such as the one tracepack/classify returns, sets the decode_status of each frame AppendFrame takes.
 // The SegmentWriter Godoc states which errors refuse a record and leave the writer usable, and which fail it;
 // an error wrapping ErrPublishUncertain reports a segment that is published but may not survive a system crash.
