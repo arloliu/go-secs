@@ -17,6 +17,7 @@ const maxStream = 127
 
 var (
 	// ErrInvalidPolicy reports a policy that Compile rejects before use.
+	// It stands alone: it is not tracepack.ErrInvalidArgument, this package keeping its own sentinels.
 	ErrInvalidPolicy = errors.New("redact: invalid policy")
 	// ErrOverlappingRules reports, in a policy with encryption, two item rules of one stream and function
 	// whose path patterns can select overlapping items (the tracepack semantics specification §8 Policy).

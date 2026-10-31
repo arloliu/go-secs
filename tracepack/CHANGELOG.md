@@ -5,6 +5,68 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+This release gives the module a public error taxonomy (G5-295, G5-296, G5-297): spec v2.40, format 1.2.
+A caller decides to retry, stop, skip a damaged pack or fix its call from documented sentinels alone,
+by one decision table per family of calls, which the README's new Errors section gives.
+Packs, JSONL exports and the corpus are byte-identical to tracepack/v0.12.0's; errors are not,
+and every breaking change below carries its migration for tracekeep and veq.
+The sentinels they match keep their identity and text:
+`ErrRefused`, `ErrReadLimit`, `ErrMergeLimit`, `ErrMergeConflict`, `ErrNotPrimary`, `ErrInvalidQuery`, `ErrSegmentExists`, `ErrSegmentConflict`,
+`bus.ErrMalformed`, `bus.ErrNotAccepted`, `bus.ErrPayloadMismatch`,
+`redact.ErrCannotScreen`, `redact.ErrNotUnobserved`, `redact.ErrRedacted` and `redact.ErrKeySize`;
+where an error stops or starts matching one, a note below says so.
+
+### Upgrade notes
+
+- New parents: `ErrChecksum` and `ErrInvalidFooter` also match `ErrCorrupt`, and `ErrInvalidQuery` and `ErrInvalidKey` also match `ErrInvalidArgument`.
+  Migration: none; a test of the member matches as before, and a caller may test the parent for the whole family.
+- Codec errors: every encode and decode of a TLV body reports an entry's fault as a `*FieldError` with `ErrRequiredTag`, `ErrFieldLength` or `ErrFieldValue`,
+  and a decode also wraps `ErrCorrupt`; the internal causes and their text changed.
+  Migration (tracekeep, veq): test `errors.Is` against those sentinels, or `errors.As` into a `*tracepack.FieldError`, instead of matching text;
+  `ErrRefused` on the writing calls and the bus and redact sentinels match as before.
+- Read faults: every read path classifies a damaged pack with `ErrCorrupt`, `ErrChecksum` (now of every structure) and `ErrNotFinalized`, the cause beside it,
+  and `Defect.Err` wraps the sentinel of its `Reason`;
+  the end of the walk of a pack whose trailer is valid but whose footer CRC fails is `ErrCorrupt`, not `ErrNotFinalized`.
+  Migration (tracekeep, veq): test `ErrNotFinalized` (retry later) before `ErrCorrupt` (report and skip) instead of matching text;
+  tracekeep's orphan quarantine gains `ErrCorrupt` as positive evidence.
+- `ErrInvalidArgument` where plain errors were: a negative `ReaderOptions` field from `Open` and `Verify`;
+  every option `Merge` refuses, a `ReplacementSetID` or `PackID` an input uses, and a `WriterTag` that is not valid UTF-8, now refused before any input is read;
+  a `NewDirSink` prefix outside its form, and a `DirSink` segment's `Write`, `Sync` or `Commit` after its `Commit` or `Abort`;
+  `bus.CheckStart` with a `max_payload` below `bus.MinMaxPayload`, a negative length or a body shorter than 44 bytes, which wrapped `bus.ErrMalformed`;
+  and `bus.CheckPayload` on a record that is not claim-check.
+  None is marked `ErrRefused`.
+  Migration (tracekeep, veq): treat `errors.Is(err, tracepack.ErrInvalidArgument)` as a configuration or caller bug to fix, not to retry,
+  and no longer take such a `bus.CheckStart` error for a malformed message.
+- A nil reader a `PackSource` gives for an hour fails `FindTransaction` and `FindTransactions` with `ErrInvalidQuery`, wrapped with the hour; it was a plain error.
+  Migration (tracekeep): it now maps to a query's invalid argument, as the source's other faults do.
+- After `(*DirSink).Close`, `Create`, the `Commit` of a segment not yet committed and the `Abort` that leaves its temporary file wrap `fs.ErrClosed`.
+  Migration (veq): test `errors.Is(err, fs.ErrClosed)` instead of matching text.
+- `bus.CheckMessage` returns `bus.ErrUnsupportedLayout`, not `bus.ErrMalformed`, for a `Tpk-Layout` other than `"1"`.
+  Migration (tracekeep): its "nak with delay" for any other error already defers such a message; add the alert and keep the claim-check object it names.
+  Migration (veq): defer it with an alert, never drop it as a seq gap.
+- Layout 1 carries data, control, transport-event and annotation records only:
+  `bus.CheckMessage` refuses a record of another kind, kind 0 included, with `bus.ErrMalformed`, inline or by claim-check,
+  and `bus.EncodeBody` refuses to encode one with `bus.ErrMalformed`.
+  Migration (tracekeep, veq): such a message is a seq gap at the check, and no producer sends one;
+  a producer sets `Kind` on every record before encoding it, since a zero `tracepack.Record` has kind 0.
+- A later `SegmentWriter.Close` returns an error wrapping `ErrWriterFailed` and the failure on a writer that has failed, an earlier `Close` included,
+  and `ErrClosed` after a `Close` that completed without error, with no sink call; it returned the earlier result bare.
+  Migration (tracekeep, veq): a second `Close` that expected nil gets `ErrClosed`;
+  test `ErrClosed` and `ErrWriterFailed` before `ErrRefused` or a sink sentinel, and stop using the writer on either.
+- `SegmentWriter.Close` with a `Now()` that is not representable wraps `ErrInvalidRecord` and is marked `ErrRefused`; it was a plain error.
+  Migration (tracekeep): a flush that receives it parks the capture instead of retrying it.
+- A `SegmentWriter` returns `ctx`'s error wrapped at every site, marked as the caller's.
+  Migration (tracekeep, veq): test it with `errors.Is(err, context.Canceled)`, never `err == ctx.Err()`.
+- `Merge` reports an archive over a limit of the format, a block's F-3 entry list longer than the u32 `summary_len` or more blocks than the u32 `block_count`,
+  with `ErrMergeLimit`; it matched no public sentinel.
+  Migration (tracekeep): handle it as any `ErrMergeLimit`, an operator's decision, not a defective input.
+- `redact.Compile` refuses, with `redact.ErrInvalidPolicy`, a policy whose `PackPolicy` the pack metadata cannot hold:
+  an `ID`, `DigestKeyID` or `Encryption.KeyID` that is not valid UTF-8, or a `Version` above 2^63 − 1.
+  Migration (tracekeep, veq): handle `ErrInvalidPolicy` from `Compile` as before; such a policy never wrote a pack, since `NewWriter` refused it.
+- Error text: each line of an error's text names the `tracepack: ` or `redact: ` namespace once, and many texts changed with the new wrapping.
+  Text is not part of the contract.
+  Migration (tracekeep, veq): none, unless a test or a log filter matches error text.
+
 ### Added
 
 - `ErrCorrupt`, bytes that are not a valid tracepack encoding, `ErrNotFinalized`, a pack with no valid trailer,
@@ -15,15 +77,15 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - `bus.ErrUnsupportedLayout`, a bus message of a `Tpk-Layout` this module does not know, the message of a newer producer (G5-295):
   the consumer neither writes it nor counts its seq as a seq gap, but raises an alert and defers it until a consumer that knows the layout takes it.
   Deploy consumers that know a layout before any producer emits it.
+- The README's Errors section gives the decision table of each family of calls, the first match deciding (G5-296):
+  the writing calls, the reading calls, `Merge`, the bus codec, the package `redact` and the codecs,
+  with the families of sentinels, the chains that carry two classes by design, and the errors that match no sentinel;
+  the package documentation's Errors section gives their order.
+  Every exported sentinel's Godoc states its family and the calls that return it.
 
 ### Changed
 
-- The writing calls' error for an invalid argument or option with no sentinel of its own, such as a nil `WriterOptions.Meta`,
-  now also matches `ErrInvalidArgument` (G5-296); it is still marked `ErrRefused`, and its text is unchanged.
-  An error of a supplied implementation stays unmarked, even when it wraps `ErrInvalidQuery` or `ErrInvalidKey`.
-  For tracekeep and veq: nothing to change, since a test of `ErrRefused` matches as before;
-  `ErrInvalidArgument` now tells a wrong call or option apart from a refused record.
-- **Breaking:** for code matching codec error text or internal causes, every encode and decode of a TLV body reports a fault of one entry
+- **Breaking:** every encode and decode of a TLV body reports a fault of one entry
   as a `*FieldError` naming the field, dotted for a nested tag such as `redaction.seq` or `hsms_timers.T3`,
   whose `Err` wraps `ErrRequiredTag` for a missing tag, `ErrFieldLength` for a value of the wrong length, or `ErrFieldValue` for any other refused value,
   with the TLV encoding's own reason kept beside it (G5-296).
@@ -36,10 +98,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   naming a nested one `thinning.0x0004` or `hsms_timers.0x0009` rather than `thinning 0x0004`;
   `CaptureDescriptor.Validate` names a nested value the same way, `hsms_timers.T8` rather than `hsms_timers`.
   `EncodeDescriptor(nil)` and `ParseUUID` of a string that is not a canonical UUID now wrap `ErrInvalidArgument`.
-  Error text changed with the new wrapping; text is not part of the contract.
-  For tracekeep and veq: test `errors.Is` against `ErrCorrupt`, `ErrRequiredTag`, `ErrFieldValue` or `ErrFieldLength`, or `errors.As` into a `*tracepack.FieldError`,
-  instead of matching text; `ErrRefused` on the writing calls, `bus.ErrMalformed`, `bus.ErrNotAccepted` and `redact.ErrCannotScreen` match as before.
-- **Breaking:** for code matching read error text or internal causes, the reading calls classify a damaged pack with public sentinels,
+- **Breaking:** the reading calls classify a damaged pack with public sentinels,
   each fault the same on every path (`Open`, `Iterate`'s `Defect.Err`, `Verify`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `ExportJSONL`,
   and `Merge` beside `ErrMergeInput`), the cause kept beside it (G5-296).
   A CRC mismatch of any structure wraps `ErrChecksum`: the trailer's, a block envelope's and a block body's now too.
@@ -51,112 +110,80 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   coverage and crash-gap defects stay descriptive.
   `Verify`'s `WriterDefect.Err` wraps `ErrInvalidRecord` for `WriterDefectEventFieldValidity` and `WriterDefectEventPayload`.
   A caller's `ReadAt` error is still returned as it is, never as corrupt.
-  Error text changed with the new wrapping; text is not part of the contract.
-  For tracekeep and veq: test `ErrNotFinalized` (possibly still being written: retry later) before `ErrCorrupt` (report and skip),
-  instead of matching text or reading `Defect.Err`'s text; `Defect.Reason` classifies as before,
-  and tracekeep's orphan quarantine now has `ErrCorrupt` as positive evidence.
-- **Breaking:** for code matching plain errors, a wrong call or option now wraps `ErrInvalidArgument` wherever it was a plain error (G5-296):
+- **Breaking:** a wrong call or option now wraps `ErrInvalidArgument` wherever it was a plain error (G5-296):
   a negative `ReaderOptions` field from `Open` and `Verify`;
   every option `Merge` refuses, a `ReplacementSetID` or `PackID` an input already uses, and a `WriterTag` that is not valid UTF-8,
   which `Merge` now refuses before it reads any input, beside the `*FieldError` naming `writer` that encoding the archive's metadata returned after reading them;
   a `NewDirSink` prefix outside the form it states, and a `DirSink` segment's `Write`, `Sync` or `Commit` after its `Commit` or `Abort`.
-  None of these is marked `ErrRefused`.
+  None of these is marked `ErrRefused`, and their text is unchanged.
   On `NewWriter`, `WriteClose` and `NewSegmentWriter`, every error of checking or encoding their options now also wraps `ErrInvalidArgument`
   beside its own sentinel, such as `ErrRequiredTag`, `ErrFieldValue`, `ErrMetadataCommitment`, `ErrScopeBreach` or `ErrSeqOrder`,
   `CaptureDescriptor.Validate`'s `*FieldError` and a classifier's empty `Name` included, still marked `ErrRefused` as before;
-  `CaptureDescriptor.Validate` and the codecs called alone return the field's sentinel without it.
-  Error text is unchanged.
-  For tracekeep and veq: treat `errors.Is(err, tracepack.ErrInvalidArgument)` from `Open`, `Verify`, `Merge` and a `DirSink` as a configuration fault to fix, not to retry;
-  the writing calls' `ErrRefused` matches as before.
-- **Breaking:** a nil reader a `PackSource` gives for an hour fails `FindTransaction` and `FindTransactions` with an error wrapping `ErrInvalidQuery`, wrapped with the hour, as a `Reader` or `pack_id` given twice does (G5-296);
-  it was a plain error.
-  For tracekeep: such an error now maps to a query's invalid argument, as the other faults of a source do.
+  so does one with no sentinel of its own, such as a nil `WriterOptions.Meta`.
+  `CaptureDescriptor.Validate` and the codecs called alone return the field's sentinel without it,
+  and an error of a supplied implementation stays unmarked, even when it wraps `ErrInvalidQuery` or `ErrInvalidKey`.
+- **Breaking:** a nil reader a `PackSource` gives for an hour fails `FindTransaction` and `FindTransactions` with an error wrapping `ErrInvalidQuery`, wrapped with the hour,
+  as a `Reader` or `pack_id` given twice does (G5-296); it was a plain error.
 - **Breaking:** after `(*DirSink).Close`, `Create` and the `Commit` of a segment not yet committed fail with an error wrapping `fs.ErrClosed`,
   and the `Abort` of such a segment reports, wrapping `fs.ErrClosed`, that its temporary file stays (G5-296);
   their text gains `: file already closed`.
   A `DirSink` error reaches a `SegmentWriter`'s caller as the sink's, never marked `ErrRefused`.
-  The `DirSink` faults of the environment, a symbolic link where it manages directories, a key that is not a regular file, a prefix the file system folds into `.partial`, and `js`, stay plain errors, documented as not cured by retrying.
-  For veq: test `errors.Is(err, fs.ErrClosed)` instead of matching the text.
-- **Breaking:** `SegmentWriter.Close` with a `Now()` that is not representable wraps `ErrInvalidRecord` and is marked `ErrRefused`, as the same fault of an append is (G5-296);
-  it was a plain error. The `SegmentWriter` still fails and aborts its open segment.
-  For tracekeep: a flush that receives it parks the capture instead of retrying it.
+  The `DirSink` faults of the environment, a symbolic link where it manages directories, a key that is not a regular file, a prefix the file system folds into `.partial`, and `js`,
+  stay plain errors, documented as not cured by retrying.
 - **Breaking:** a later `SegmentWriter.Close` reports the writer's state, as every other later call does (G5-297):
   on a `SegmentWriter` that has failed, an earlier `Close` included, it returns an error wrapping `ErrWriterFailed` and the failure, never marked `ErrRefused`;
   after a `Close` that completed without error, it returns `ErrClosed`; neither makes a sink call.
   It returned the earlier result bare: nil after a successful `Close`, and the failure unmarked, which a caller retrying unmarked errors retried without end.
   A `Close` refused because `ctx` was done before any sink call still leaves the writer usable.
-  For tracekeep and veq: a caller that closed twice and expected nil the second time gets `ErrClosed`;
-  test `ErrClosed` and `ErrWriterFailed` before `ErrRefused` or any sink sentinel, and stop using the writer on either.
+- **Breaking:** `SegmentWriter.Close` with a `Now()` that is not representable wraps `ErrInvalidRecord` and is marked `ErrRefused`, as the same fault of an append is (G5-296);
+  it was a plain error.
+  The `SegmentWriter` still fails and aborts its open segment.
 - **Breaking:** `bus.CheckMessage` returns an error wrapping `bus.ErrUnsupportedLayout` for a `Tpk-Layout` other than `"1"`;
   it wrapped `bus.ErrMalformed`, so a consumer terminated the message and lost its seq as a gap,
   which in a rolling upgrade would lose every record of a newer producer (G5-295).
   `bus.CheckPayload`, which has no layout to check, never returns it.
-  For tracekeep: its "any other error: nak with delay" already defers such a message; add the alert, and keep the claim-check object it names.
-  For veq: defer it with an alert, never drop it as a seq gap.
 - **Breaking:** `bus.CheckMessage` refuses with `bus.ErrMalformed` a layout-1 record whose `kind` is not data, control, transport-event or annotation, kind 0 included,
   inline or by claim-check, before the claim-check object is fetched (G5-295);
   it accepted any kind, and `bus.DeriveRecord` then refused it with `ErrInvalidRecord`, which a record `CheckMessage` accepted now never reaches.
   A tag or enum value the module does not know inside a valid transport-event or annotation payload is still preserved, not refused.
-  For tracekeep and veq: such a message is now terminated as a seq gap at the check; no producer sends one.
 - **Breaking:** `bus.EncodeBody` refuses with `bus.ErrMalformed` a record whose `kind` layout 1 does not carry, kind 0 included (G5-295);
   it encoded the record, and every consumer then refused the message as malformed.
-  For veq and other producers: set `Kind` on every record before encoding it; a zero `tracepack.Record` has kind 0.
 - **Breaking:** `bus.CheckStart` reports the caller's mistakes, a `maxPayload` below `bus.MinMaxPayload`, a negative length or a body shorter than the 44-byte record header,
   with an error wrapping `tracepack.ErrInvalidArgument`, no longer `bus.ErrMalformed`;
   a header block or a message over its bound still wraps `bus.ErrMalformed` (G5-296).
   `bus.CheckPayload` on a record that is not claim-check, a plain error, now wraps `tracepack.ErrInvalidArgument` too.
-  Error text changed with the new wrapping; text is not part of the contract.
-  For tracekeep and veq: treat `errors.Is(err, tracepack.ErrInvalidArgument)` from either as a configuration or caller bug to fix, not a malformed message;
-  test each bus sentinel before any cause it wraps, since a `bus.ErrMalformed` or `bus.ErrNotAccepted` error may also wrap a decoder's `ErrCorrupt` or `*FieldError`.
+  Each bus sentinel is tested before any cause it wraps, since a `bus.ErrMalformed` or `bus.ErrNotAccepted` error may also wrap a decoder's `ErrCorrupt` or `*FieldError`.
 - **Breaking:** `redact.Compile` refuses, with `redact.ErrInvalidPolicy`, a policy whose `PackPolicy` the pack metadata cannot hold:
-  an `ID`, `DigestKeyID` or `Encryption.KeyID` that is not valid UTF-8, or a `Version` above 2^63 − 1.
+  an `ID`, `DigestKeyID` or `Encryption.KeyID` that is not valid UTF-8, or a `Version` above 2^63 − 1 (G5-296).
   `NewWriter` refused every such policy's pack metadata, at each flush; it now fails once, at configuration.
-  For tracekeep and veq: handle `ErrInvalidPolicy` from `Compile` as before; such a policy never wrote a pack.
 - `Merge` reports an archive over a limit of the format that its blocks reach as it builds the footer,
   a block's F-3 entry list longer than the footer's u32 `summary_len` or more blocks than the u32 `block_count`,
   with an error wrapping `ErrMergeLimit` beside the one naming the limit, as it reports an archive over its footer budget (G5-296);
   it matched no public sentinel.
-  For tracekeep: handle it as any `ErrMergeLimit`, an operator's decision, not a defective input.
-- `PackError` and `TxPackError` document that they appear only as `FooterErrs` elements, are found with `errors.As` into a value
-  (`var pe tracepack.PackError`, `var te tracepack.TxPackError`), not a pointer, and wrap the sentinels `PackHeader.FooterErr` lists;
-  `Merge`, `MergeIterate` and `FindTransactions` document that once `ctx` is done their error may be `ctx`'s even when a read or a lookup also failed,
-  and is otherwise independent of timing; `VerifyOutcomeUnfinalized` documents that it also covers a valid trailer whose footer CRC fails (G5-296).
 - The text of an error the module builds over another error, in the root package and in `bus`,
   names the `tracepack: ` namespace once on each line instead of repeating it at every wrap (G5-296):
   `tracepack: writer failed: write block: …` rather than `tracepack: writer failed: tracepack: write block: …`,
   and `FieldError`, `PackError` and `TxPackError` read `tracepack: <field>: …`, `tracepack: pack <i>: …` and `tracepack: hour <h> pack <uuid>: …`.
   A later `tracepack: ` on a line, a wrapped caller's error's included, is left out of the text only;
   the wrapped errors are unchanged, so `errors.Is` and `errors.As` match as before.
-  Error text was never part of the contract.
-  For tracekeep and veq: nothing to change, unless a test or a log filter matches the doubled text.
 - The package `redact` renders its errors by the same rule for its `redact: ` namespace (G5-296):
   `redact: invalid policy: item rule 0: a domain is not 1 to 65535 bytes of UTF-8: 0 bytes` rather than repeating `redact: `,
   and `Mask` names the record's seq after the namespace, `redact: seq 3: the record already carries quality.redacted`
   rather than `seq 3: redact: …`.
-  `Restore`'s error for a Marking that lists defects reads `seq <n>: its Marking lists <k> defects` and joins every listed defect's error,
+  `Restore`'s error for a Marking that lists defects reads `seq <n>: its Marking lists <k> defects`, `1 defect` for one, and joins every listed defect's error,
   where it named the record wholly masked and kept the first defect only;
   for a nil record or Marking it reads `no record or no Marking`.
-  `Mask` documents that an error of the caller's `Keys`, returned wrapped, may be transient, and that its other errors are deterministic;
-  the README scopes its "an unmarked error may be transient" rule to the writing calls and gives the actions for `Mask`'s and `Restore`'s errors.
-  For tracekeep and veq: nothing to change; the sentinels match as before.
+  `Mask` documents that an error of the caller's `Keys`, returned wrapped, may be transient, and that its other errors are deterministic.
+- `PackError` and `TxPackError` document that they appear only as `FooterErrs` elements, are found with `errors.As` into a value
+  (`var pe tracepack.PackError`, `var te tracepack.TxPackError`), not a pointer, and wrap the sentinels `PackHeader.FooterErr` lists;
+  `Merge`, `MergeIterate` and `FindTransactions` document that once `ctx` is done their error may be `ctx`'s even when a read or a lookup also failed,
+  and is otherwise independent of timing; `VerifyOutcomeUnfinalized` documents that it also covers a valid trailer whose footer CRC fails (G5-296).
 
 ### Fixed
 
 - The forward walk of a pack whose trailer is valid but whose footer CRC fails ends with a defect wrapping `ErrCorrupt`, not `ErrNotFinalized` (G5-296):
   the pack was finished, so it is damaged, and a caller retrying `ErrNotFinalized` would have waited for it forever.
   Its `PackHeader.FooterErr` still wraps `ErrChecksum`.
-- `DirSink` with `NoReplace` syncs the key's directories even when removing the temporary file after the link failed,
-  and returns that error, still wrapping `ErrPublishUncertain`, joined with any sync error (G5-296);
-  it skipped the syncs, leaving the published link's durability to a later commit.
-- A `SegmentWriter` marks every error of its `ctx` as the caller's, as it does a sink's, so a `ctx` whose `Err` wraps a refusal sentinel is never marked `ErrRefused` (G5-296).
-- A block's F-3 entry list too long for the footer's u32 `summary_len`, and a block count over the u32 `block_count`, which the records written determine,
-  do not wrap `ErrInvalidArgument`, from the writing calls, which still mark them `ErrRefused`, or from `Merge`, which reports them with `ErrMergeLimit` (G5-296).
-- `tracepack dump -o` syncs the temporary file before renaming it over `<file>`, and `<file>`'s directory after the rename on a Unix system,
-  so a published export survives a crash (G5-296).
-  An error that leaves the temporary file to be removed now joins the error of closing or removing it, which names the file,
-  where it dropped them, so a temporary file left behind is reported.
-  The command documents that exit 2 after `-o` may come with `<file>` published, when only writing the diagnostics or syncing its directory failed.
-- `bus.EncodeBody`'s documentation names its `bus.ErrMalformed` for an inline body that does not fit in memory on a 32-bit platform.
 - `Open` caps `ReaderOptions.MaxPackMetadataLen` at the largest pack metadata a 32-bit platform can address,
   so on such a platform a raised budget and a hostile `pack_metadata_len` of 2 GiB or more fail with `ErrReadLimit` instead of panicking.
 - A `ReadAt` that ends its goroutine instead of returning, through `runtime.Goexit` as a test's `t.FailNow` does,
@@ -169,6 +196,21 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - A `ReadAt` that panics while `MergeIterate`, `FindTransaction` or `FindTransactions` reads a block on the caller's goroutine,
   in capture order over several captures or in a walked block's first read, gives the block's buffer back to its pool and releases its `MaxHeldBytes` reservation
   before the panic leaves the call (G5-296); the block read ahead already did.
+- A `SegmentWriter` marks every error of its `ctx` as the caller's, as it does a sink's, so a `ctx` whose `Err` wraps a refusal sentinel is never marked `ErrRefused` (G5-296).
+- A block's F-3 entry list too long for the footer's u32 `summary_len`, and a block count over the u32 `block_count`, which the records written determine,
+  do not wrap `ErrInvalidArgument`, from the writing calls, which still mark them `ErrRefused`, or from `Merge`, which reports them with `ErrMergeLimit` (G5-296).
+- `DirSink` with `NoReplace` syncs the key's directories even when removing the temporary file after the link failed,
+  and returns that error, still wrapping `ErrPublishUncertain`, joined with any sync error (G5-296);
+  it skipped the syncs, leaving the published link's durability to a later commit.
+- `tracepack dump -o` syncs the temporary file before renaming it over `<file>`, and `<file>`'s directory after the rename on a Unix system,
+  so a published export survives a crash (G5-296).
+  An error that leaves the temporary file to be removed now joins the error of closing or removing it, which names the file,
+  where it dropped them, so a temporary file left behind is reported.
+  The command documents that exit 2 after `-o` may come with `<file>` published, when only writing the diagnostics or syncing its directory failed.
+- `bus.EncodeBody`'s documentation names its `bus.ErrMalformed` for an inline body that does not fit in memory on a 32-bit platform.
+- Godoc that no longer held is corrected (G5-296):
+  `ErrInvalidRecord` said the writer stays usable, which a `SegmentWriter.Close` refusing its `Now()` does not,
+  and several sentinels did not name every call that returns them.
 
 ## [0.12.0] - 2026-10-31
 

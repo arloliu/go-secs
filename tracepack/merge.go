@@ -70,6 +70,10 @@ var (
 	// A block read cut short after the input was opened, its ReaderAt reporting io.EOF before the block ends,
 	// is such a read error too, wrapping io.ErrUnexpectedEOF:
 	// the object changed after Merge opened it, or its ReaderAt is inconsistent, as verification also reports it.
+	//
+	// It stands alone, and the cause beside it keeps its own sentinels, such as ErrNotFinalized, ErrChecksum, ErrCorrupt,
+	// ErrNotTracepack, ErrUnsupportedFormat, ErrRedactionDefect, ErrMetadataCommitment or ErrInvalidRecord:
+	// a caller tests ErrMergeInput before them, and reads the cause for why the input is unusable.
 	ErrMergeInput = errors.New("tracepack: merge input rejected")
 	// ErrMergeConflict reports conflicts, which fail the merge (the tracepack storage specification §4 Merge),
 	// of one of two kinds; a merge returns conflicts of one kind only.

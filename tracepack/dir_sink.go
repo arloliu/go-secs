@@ -34,11 +34,13 @@ const (
 // the segment is stored, though not by this Commit.
 // Commit returns an error wrapping it that names the key,
 // so a caller tells a segment it published from one that was there already.
+// It stands alone, and a SegmentWriter returns it as its sink's error, never marked ErrRefused.
 var ErrSegmentExists = errors.New("tracepack: segment exists with the same bytes")
 
 // ErrSegmentConflict reports a segment that a DirSink created with DirSinkOptions.NoReplace did not publish
 // because a file with other bytes already lies at its key, which the sink left untouched.
 // Commit returns an error wrapping it that names the key.
+// It stands alone, and a SegmentWriter returns it as its sink's error, never marked ErrRefused.
 var ErrSegmentConflict = errors.New("tracepack: segment exists with other bytes")
 
 // DirSinkOptions are the options of NewDirSink.

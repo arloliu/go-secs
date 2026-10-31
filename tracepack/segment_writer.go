@@ -40,8 +40,14 @@ const tracepackModulePath = "github.com/arloliu/go-secs/tracepack"
 // so Verify finds no writer defect in a record the SegmentWriter appended,
 // a classifier's trailing_bytes outside 0 to 2^32-1,
 // or a nil record or event.
+// From an append, of a Writer or a SegmentWriter, the record was not added and the writer is still usable;
+// from SegmentWriter.Close, for a Now() that is not representable as the stop boundary's time, the SegmentWriter has failed.
+// A writing call marks it ErrRefused.
 //
-// The record was not added and the writer is still usable.
+// Verify's WriterDefect.Err wraps it for a record a writer should have refused this way,
+// Merge wraps it beside ErrMergeInput for an input record carrying quality.unobserved that is not unobserved by design,
+// and bus.DeriveRecord returns it for a kind layout 1 does not carry or a classifier's trailing_bytes the record cannot hold.
+// It stands alone.
 var ErrInvalidRecord = errors.New("tracepack: record refused by the writer")
 
 // writerTag is the writer tag of every segment a SegmentWriter writes.

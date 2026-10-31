@@ -13,6 +13,11 @@ import (
 // ErrRedactionDefect is wrapped by the Err of every RedactionDefect:
 // a recoverable defect of a pack's redaction entries or of a record they mask
 // (the tracepack semantics specification §8).
+// In a pack masked at write, NewWriter, Writer.Append and Writer.Close wrap it beside ErrMetadataCommitment
+// for entries or a record's Marking that fail those checks;
+// Merge wraps it beside ErrMergeInput for an input whose entries a reader reports at bootstrap or whose record fails a Marking check,
+// and redact.Restore for a Marking that lists a defect, is wholly masked or fails a check.
+// It stands alone: it is not ErrCorrupt, since a reader recovers from it.
 var ErrRedactionDefect = errors.New("tracepack: redaction defect")
 
 // RedactionDefect is one recoverable defect of the Marking of a pack (the tracepack semantics specification §8):

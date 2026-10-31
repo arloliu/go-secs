@@ -102,6 +102,8 @@ var (
 	//
 	// NewWriter returns it for a pack that is not an extract whose period is empty or not inside one UTC hour;
 	// it writes nothing and returns no Writer.
+	// WriteClose returns it for a Trigger outside the UTC hour of the period, writing nothing.
+	// From NewWriter and WriteClose it also wraps ErrInvalidArgument, the period or the trigger being an option.
 	//
 	// Append returns it for a record whose ts_utc_ns lies in another UTC hour than the period of a pack that is not an extract;
 	// a record of the period's hour outside the period is accepted, since a clock step within the hour puts it there

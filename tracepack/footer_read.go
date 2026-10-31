@@ -19,6 +19,8 @@ const maxQualityUnion = math.MaxUint16
 
 // ErrInvalidFooter reports a footer that fails the footer validation of the tracepack format specification §10.
 // A reader that meets it falls back to the forward walk of I-1 and never trusts the footer's index.
+// PackHeader.FooterErr wraps it, and so does a FooterErrs element of a read through PackError.Err or TxPackError.Err;
+// Merge wraps it beside ErrMergeInput, since it refuses an input whose footer is not valid.
 // It also matches ErrCorrupt.
 var ErrInvalidFooter = newChildSentinel("tracepack: invalid footer", ErrCorrupt)
 

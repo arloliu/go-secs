@@ -35,7 +35,9 @@ const (
 
 // ErrInvalidKey reports a key, or a key component, outside the forms of the tracepack storage specification §3:
 // the key builders return an error wrapping it for arguments no key can hold,
-// and CaptureDescriptor.Validate for a ToolID no key can hold.
+// a DirSink's Create for a segment no key can name,
+// and CaptureDescriptor.Validate for a ToolID no key can hold,
+// which NewSegmentWriter returns also wrapping ErrInvalidArgument and marked ErrRefused.
 // A retry does not cure it.
 // It also matches ErrInvalidArgument.
 var ErrInvalidKey = newChildSentinel("tracepack: invalid object key", ErrInvalidArgument)

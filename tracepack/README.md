@@ -109,8 +109,7 @@ unless an earlier row of the decision table matches.
   Any other error fails the writer, a `ctx` done during the call's sink calls included:
   it aborts the open segment, and every later call, `Close` included, returns an error wrapping `ErrWriterFailed` and the failure, with no sink call.
   After a `Close` that completed without error, every later call, `Close` included, returns `ErrClosed`.
-  Neither is marked `ErrRefused`, and `ErrWriterFailed` keeps the failure's sentinels in its chain,
-  so test `ErrClosed` and `ErrWriterFailed` first, before the sentinels of a record or of the sink.
+  Act on an error by the writing calls' table under [Errors](#writing-calls).
   `Close` also fails it when no seq is left for the `stop` boundary:
   it commits the open segment, if any, without `stop`, then returns an error wrapping `ErrSeqOrder`.
   A `Now()` at `Close` that is not representable fails it as well, a refusal wrapping `ErrInvalidRecord`:
@@ -212,78 +211,7 @@ else 1 when it holds a feature of format 1.1, and 0 otherwise.
 `next, ok := cont.Next()` gives the seq the capture's next pack starts at,
 and `ok` is false after a pack whose last record has seq 2^63 − 1, the last seq of a capture, since no pack follows it.
 
-The writing calls mark an error their own input determines with `ErrRefused`:
-`NewWriter`, the `Writer`'s `Append`, `Flush` and `Close`, `WriteClose`, `NewSegmentWriter`,
-and the `SegmentWriter`'s appends, `Tick`, `Rotate` and `Close`.
-`errors.Is(err, ErrRefused)` means the same sequence of calls with the same arguments, options and records fails the same way,
-so a service retrying a flush parks that batch instead;
-an error such as `ErrValidation` comes from every record of the block, not only the call's own.
-The sentinel beside it, such as `ErrSeqOrder` or `ErrValidation`, says what was refused and whether the writer is still usable.
-An error of checking or encoding the options of `NewWriter`, `WriteClose` or `NewSegmentWriter`, or an `AppendEvent` event, wraps `ErrInvalidArgument`:
-beside its own sentinel, such as `ErrRequiredTag` or `ErrScopeBreach`, or alone for one with none, such as a nil `WriterOptions.Meta`.
-An error of a record never does, nor one for a format limit the records reach, such as a block's F-3 list too long for the footer.
-Never marked are your `io.Writer`'s, `Syncer`'s, `SegmentSink`'s or `SegmentFile`'s error,
-which is returned wrapped with its chain intact,
-`ctx`'s, `Merge`'s, and the `ErrWriterFailed` or `ErrClosed` of a later call on a failed or closed writer.
-So test `ErrClosed` and `ErrWriterFailed` first, which say to stop using the writer;
-an error of a writing call without the marker otherwise may be transient, and is the one to retry.
-This retry rule is the writing calls' alone:
-the reading calls classify a fault by the tables below,
-and a bus consumer and the package `redact` act by their own tables, under [Writing the packs of a bus capture](#writing-the-packs-of-a-bus-capture).
-The marker leaves the error's text unchanged.
-
-Some sentinels belong to a family, and also match its parent under `errors.Is`:
-`ErrChecksum` and `ErrInvalidFooter` match `ErrCorrupt`, bytes that are not a valid tracepack encoding,
-and `ErrInvalidQuery` and `ErrInvalidKey` match `ErrInvalidArgument`, an argument or option the call cannot take.
-`ErrNotFinalized`, a pack with no valid trailer, has no parent.
-Each member keeps its identity and text, so a test of the member matches as before,
-and a caller that handles the whole family tests the parent.
-
-The codecs report a fault of one TLV entry as a `*FieldError`, found with `var fe *tracepack.FieldError` and `errors.As(err, &fe)`:
-`fe.Field` names the field, dotted for a nested tag such as `redaction.seq`,
-and `fe.Err` wraps `ErrRequiredTag`, `ErrFieldLength` or `ErrFieldValue`, beside the encoding's own reason.
-So do `MarshalBinary` and the `Unmarshal` functions of `PackMeta`, `TransportEvent` and `Annotation`, `EncodeDescriptor` and `DecodeDescriptor`,
-and the writing calls that encode pack metadata or an event, which also mark the error `ErrRefused`.
-A decode also wraps `ErrCorrupt`, the bytes not being a valid encoding, and bytes that end inside an entry name no field;
-an encode never wraps `ErrCorrupt`, and neither does a writing call refusing a record whose payload does not decode, which wraps `ErrInvalidRecord`.
-`EncodeDescriptor(nil)`, and `ParseUUID` of a string that is not a canonical UUID, wrap `ErrInvalidArgument`;
-the codecs and `Validate` otherwise return the field's sentinel without it, since only the call that takes a value as its argument says so.
-
-The reading calls, `Open`, `Iterate`, `Verify`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `ExportJSONL`, and `Merge` beside `ErrMergeInput`,
-report each fault of a pack with the same sentinel on every path, the cause kept beside it:
-
-| Fault | Sentinel |
-|---|---|
-| a CRC mismatch: file header, pack metadata, footer, trailer, block envelope or block body | `ErrChecksum`, which matches `ErrCorrupt` |
-| pack metadata or a block that does not decode or validate; pack metadata past the end of the object, beside `io.ErrUnexpectedEOF`; records, summaries or a walk that disagree with the index or a valid trailer | `ErrCorrupt` |
-| no trailer: a pack still being written or cut short | `ErrNotFinalized` |
-| a trailer present but damaged | `ErrNotFinalized`, beside `ErrChecksum` or `ErrCorrupt` |
-| a footer that fails its checks | `ErrInvalidFooter`, which matches `ErrCorrupt` |
-| a structure over a reader budget | `ErrReadLimit` |
-| your `ReaderAt`'s error, `io.ErrUnexpectedEOF` of a short read included | returned as it is, never `ErrCorrupt` |
-
-A `ReadAt` the module calls on a goroutine of its own that ends the goroutine instead of returning, through `runtime.Goexit` as `t.FailNow` does,
-fails the call with an error saying the `ReadAt` did not return, never read as the pack's bytes;
-under `Merge` it is a failed read of that input, not `ErrMergeInput`.
-It matches no sentinel of the module: treat it as an error of your `ReaderAt`.
-
-Only a fault of the file header or the pack metadata fails `Open`.
-A trailer or footer that cannot be used is reported by `PackHeader.FooterErr`, and by the read's `FooterErrs`, as `PackError.Err` or `TxPackError.Err`;
-`PackError` and `TxPackError` appear only there and are values, so `errors.As` takes `var pe tracepack.PackError` or `var te tracepack.TxPackError`, not a pointer;
-test `ErrNotFinalized` before `ErrCorrupt`, since a damaged trailer carries both and a pack not finalized may still be written to.
-A block or walk fault is a `Defect` in `Result.Incomplete` (a `TxGap` of a lookup), and its `Err` wraps, by `Defect.Reason`:
-
-| `Defect.Reason` | `Defect.Err` wraps |
-|---|---|
-| `IncompleteReasonCorruptBlock` | `ErrChecksum` for an envelope or body CRC mismatch, else `ErrCorrupt` |
-| `IncompleteReasonUnknownCodec`, `IncompleteReasonIndexMismatch` | `ErrCorrupt` |
-| `IncompleteReasonTruncated` | `ErrNotFinalized` at the end of a pack with no valid trailer, or where such a pack ends inside a block; `ErrChecksum` or `ErrCorrupt` at a bad envelope, a block past a valid trailer's `footer_offset`, or a walk that disagrees with the trailer; `ErrCorrupt` at the end of a pack whose trailer is valid but whose footer CRC fails, which was finished, so it is damaged rather than still being written |
-| `IncompleteReasonLimit` | `ErrReadLimit` |
-| `IncompleteReasonCoverage`, `IncompleteReasonCrashGap` | no sentinel: `Reason`, with `Coverage` or `Boundary`, classifies it |
-
-`Verify`'s `WriterDefect.Err` wraps `ErrFieldValidity` for `WriterDefectFieldValidity`,
-and `ErrInvalidRecord`, the refusal a writer gives such a record, for `WriterDefectEventFieldValidity` and `WriterDefectEventPayload`;
-the other kinds are descriptive, `Kind` classifying them, and none is `ErrCorrupt`, since the block holding it passed every check.
+Its errors, and those of every writing call, are classified under [Errors](#writing-calls).
 
 ## Publishing a capture over a durable bus
 
@@ -324,19 +252,7 @@ For the log service, the consumer that writes a durable-bus capture's packs:
 - `bus.CheckMessage(env, body)` checks one message and returns its `bus.Record`, normalized.
   For a claim-check record, fetch the object and check it with `bus.CheckPayload`.
   `DecodeDescriptor` gives the producer's values from a `start`, to which you add the values you own.
-  Act on the first sentinel an error matches, before any cause it wraps,
-  since a `bus.ErrMalformed` or `bus.ErrNotAccepted` error may also wrap a decoder's `ErrCorrupt` or `*FieldError`:
-
-  | Error | Meaning | Action |
-  |---|---|---|
-  | `bus.ErrMalformed` | never written, a layout-1 record of a kind layout 1 does not carry (kind 0 included) and a transport-event or annotation payload that does not decode included | the seq is a seq gap: terminate the message, alert |
-  | `bus.ErrUnsupportedLayout` | a `Tpk-Layout` this module does not know, from a newer producer | defer the message and alert, keeping a claim-check object it names, until a consumer that knows the layout takes it; never a seq gap |
-  | `bus.ErrNotAccepted` | a `start` whose descriptor cannot be accepted | alert, and defer the capture's later records until an operator acts |
-  | `bus.ErrPayloadMismatch` | a claim-check object whose length or digest differs | defer the message, or fetch the object again |
-  | `tracepack.ErrInvalidArgument` | your mistake, such as `bus.CheckPayload` on an inline record | fix the caller |
-  | anything else | | may be transient: retry |
-
-  Deploy consumers that know a layout before any producer emits it, so `bus.ErrUnsupportedLayout` defers messages and never drops them.
+  Act on its errors by the table under [Errors](#bus-messages).
 - `bus.DeriveRecord(&br.Record, cls)` sets the values you derive by kind:
   `field_validity`, and `decode_status` and `trailing_bytes` from the capture's classifier, or `not-attempted` for an unobserved record.
   Its `ErrInvalidRecord` for a kind outside the four is never reached by a record `bus.CheckMessage` accepted;
@@ -350,17 +266,7 @@ For the log service, the consumer that writes a durable-bus capture's packs:
   Your `redact.Keys` hands out the digest and encryption keys, whose custody stays yours;
   `Mask` checks `ctx` before each key request and passes it to `Keys`, so a key service can bound its call.
   A record that cannot be screened, `redact.ErrCannotScreen`, is deferred, never written unscreened.
-  Act on the first sentinel an error of `Compile`, `Mask` or `redact.Digest` matches, before any cause it wraps,
-  since a `redact.ErrCannotScreen` error may also wrap a decoder's `ErrCorrupt` or `*FieldError`:
-
-  | Error | Meaning | Action |
-  |---|---|---|
-  | `redact.ErrCannotScreen`, `redact.ErrRedacted`, `redact.ErrNotUnobserved` | a record `Mask` cannot screen, one already redacted, or one called unobserved that does not carry bit 7 | defer the record, never write it unscreened |
-  | `redact.ErrKeySize`, `redact.ErrInvalidPolicy`, `redact.ErrDomain` | an encryption key that is not 64 bytes, a policy `Compile` refuses, a domain `Digest` refuses | fix the configuration |
-  | `ctx`'s error | | stop |
-  | anything else: an error of your `Keys`, returned wrapped | | may be transient: retry |
-
-  Every error but ctx's and your `Keys`' is deterministic: the same record under the same policy and keys fails the same way.
+  Act on an error of `Compile`, `Mask` or `redact.Digest` by the table under [Errors](#redaction).
   Collect the entries into `PackMeta.Redaction`, ordered by seq, then by first masked offset,
   set `RedactionPolicy` to `(*Compiled).PackPolicy()`, and only then call `NewWriter`, which writes the pack metadata first.
   See the `redact` package's example.
@@ -378,14 +284,7 @@ For the log service, the consumer that writes a durable-bus capture's packs:
   one `stop-unclean` record at seq 2^63 − 1, alone in a segment, from the `CloseOptions` you give.
   A retry with the same `PackID` and `Now` writes the same bytes, and the pack id is returned with an error once the options are valid.
 - `redact.Restore` gives the holder of a capture's encryption key the original payload of a masked data record, all or nothing.
-  Its errors are deterministic, so none is retried:
-
-  | Error | Meaning |
-  |---|---|
-  | `redact.ErrNoEncryption`, `redact.ErrUnsupportedAlgorithm`, `redact.ErrNotRestorable` | the record cannot be restored under this policy, or holds no original |
-  | `redact.ErrKeySize` | wrong key material |
-  | `redact.ErrAuthentication` | a wrong key, or masked bytes or a siv that changed |
-  | `tracepack.ErrRedactionDefect` | the stored entries are defective: the error joins every listed defect, or every failed Marking check |
+  Its errors are deterministic, so none is retried; the table under [Errors](#redaction) says what each means.
 
 ## Reading packs
 
@@ -569,6 +468,211 @@ and 2 when the command could not run.
 The flags, the exit codes, the split between stdout and stderr and the bytes of `dump --jsonl` are contract;
 the text of the `verify` and `find` reports is not, and may change in any release.
 The command's Godoc states the rest.
+
+## Errors
+
+Match an error with `errors.Is` and `errors.As`, never by its text, which [Compatibility](#compatibility) leaves out of the contract.
+Each family of calls below has a decision table:
+act on the first row whose sentinel the error matches, before any cause it wraps,
+since one error may carry the sentinels of several rows.
+
+Some sentinels belong to a family, and also match its parent under `errors.Is`:
+
+| Parent | Members | Meaning |
+|---|---|---|
+| `ErrCorrupt` | `ErrChecksum`, `ErrInvalidFooter` | bytes that are not a valid tracepack encoding |
+| `ErrInvalidArgument` | `ErrInvalidQuery`, `ErrInvalidKey` | an argument or option the call cannot take: a caller's mistake |
+
+Each member keeps its identity and text, so a test of the member matches as before,
+and a caller that handles the whole family tests the parent.
+Every other sentinel stands alone: `ErrNotFinalized`, a pack with no valid trailer, is not `ErrCorrupt`,
+and the sentinels of `bus` and `redact` belong to no root family, `redact.ErrInvalidPolicy` included.
+
+Some errors carry the sentinels of two classes by design, and the tables decide between them:
+a damaged trailer is `ErrNotFinalized` beside `ErrChecksum` or `ErrCorrupt`;
+`ErrMergeInput` wraps the cause that made the input unusable, and `ErrWriterFailed` the failure that made the writer unusable;
+`bus.ErrMalformed`, `bus.ErrNotAccepted` and `redact.ErrCannotScreen` may wrap a decoder's `ErrCorrupt` or `*FieldError`;
+a redaction mismatch is `ErrMetadataCommitment` beside `ErrRedactionDefect`;
+and `ErrPublishUncertain` comes with the cause of the failed commit, `ctx`'s error included.
+
+### Writing calls
+
+`NewWriter`, the `Writer`'s `Append`, `Flush` and `Close`, `WriteClose`, `NewSegmentWriter`,
+and the `SegmentWriter`'s appends, `Tick`, `Rotate` and `Close`.
+The first two rows concern a later call on a writer that already reported its end; the rest, the call that fails:
+
+| Error | Meaning | Action |
+|---|---|---|
+| `ErrClosed` | a call after a `Close` that completed without error | stop using the writer; its output, a finalized pack or the committed segments, is complete and kept |
+| `ErrWriterFailed` | a call after a failure, which the error wraps | stop using the writer; the output's fate was decided by that failure |
+| `ErrPublishUncertain` | a segment visible under its key whose durability is unknown, beside the commit's cause, `ctx`'s error included | keep the segment: verify it, or commit the same bytes again later; never discard it |
+| `ErrSegmentExists` | the same bytes already lie at the key (`DirSinkOptions.NoReplace`) | treat the segment as committed |
+| `ErrSegmentConflict` | other bytes lie at the key | alert; do not retry |
+| `ctx`'s error | | stop |
+| `ErrRefused` | the call's arguments, options or records determine the error; the sentinel beside it says which | park or fix the input; do not retry it unchanged |
+| anything else | an error of your `io.Writer`, `Syncer`, `SegmentSink` or `SegmentFile`, returned wrapped with its chain intact | may be transient: retry, with a new writer once the old one failed |
+
+Whether the writer is still usable is the sentinel's to say, as the [Recorder checklist](#recorder-checklist) and each sentinel's Godoc state:
+a record an append refuses before it touches the output, and a `ctx` done before any sink call, leave it usable;
+any other error fails it.
+After a failure, a `Writer`'s output is not finalized, or not vouched for: discard it and start a new pack.
+A `SegmentWriter`'s committed segments stay valid, its open segment was aborted unless `ErrPublishUncertain` says it was published,
+and the records after the last committed segment are written again through a new `SegmentWriter`.
+
+`ErrRefused` marks an error the call's own input determines:
+`errors.Is(err, ErrRefused)` means the same sequence of calls with the same arguments, options and records fails the same way,
+so a service retrying a flush parks that batch instead.
+An error such as `ErrValidation` comes from every record of the block, not only the call's own.
+An error of checking or encoding the options of `NewWriter`, `WriteClose` or `NewSegmentWriter`, or an `AppendEvent` event, also wraps `ErrInvalidArgument`:
+beside its own sentinel, such as `ErrRequiredTag` or `ErrScopeBreach`, or alone for one with none, such as a nil `WriterOptions.Meta`.
+An error of a record never does, nor one for a format limit the records reach, such as a block's F-3 list too long for the footer.
+Never marked are your implementations' errors, `ctx`'s, `Merge`'s, and the `ErrWriterFailed` or `ErrClosed` of a later call;
+`ctx`'s error comes back wrapped, so test it with `errors.Is`, not `==`.
+The marker leaves the error's text unchanged.
+
+### Reading calls
+
+`Open`, `Reader.Iterate`, `Verify`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `NewReaderSource` and `ExportJSONL`.
+The table applies to the error a call returns, and to the errors of its diagnostics:
+`PackHeader.FooterErr`, a `FooterErrs` element's `Err`, `Defect.Err`, and a `TxGap`'s `Err`.
+
+| Error | Meaning | Action |
+|---|---|---|
+| `ctx`'s error | | stop |
+| `ErrInvalidArgument`, `ErrInvalidQuery` among it | an argument or option the call cannot take, such as a negative budget or a nil reader | fix the call |
+| `ErrNotPrimary` | `FindTransaction`'s key names no primary | look up the primary instead |
+| `ErrNotTracepack` | an object that is not a pack | skip it |
+| `ErrUnsupportedFormat` | a `format_major` this module does not read | skip it and alert: it needs a newer module |
+| `ErrReadLimit` | a structure, or a read, over a budget of the options | raise the budget, or skip |
+| `ErrNotFinalized` | a pack with no valid trailer: still being written, cut short, or its trailer damaged | retry later |
+| `ErrCorrupt`, `ErrChecksum` and `ErrInvalidFooter` among it | damaged bytes | report the pack and skip it |
+| anything else | your `ReaderAt`'s error, `io.ErrUnexpectedEOF` of a short read included, or the error of `ExportJSONL`'s `w` | may be transient |
+
+Every read path reports each fault of a pack with the same sentinel, the cause kept beside it,
+and `Merge` reports a fault of an input's bytes beside `ErrMergeInput`:
+
+| Fault | Sentinel |
+|---|---|
+| a CRC mismatch: file header, pack metadata, footer, trailer, block envelope or block body | `ErrChecksum`, which matches `ErrCorrupt` |
+| pack metadata or a block that does not decode or validate; pack metadata past the end of the object, beside `io.ErrUnexpectedEOF`; records, summaries or a walk that disagree with the index or a valid trailer | `ErrCorrupt` |
+| no trailer: a pack still being written or cut short | `ErrNotFinalized` |
+| a trailer present but damaged | `ErrNotFinalized`, beside `ErrChecksum` or `ErrCorrupt` |
+| a footer that fails its checks | `ErrInvalidFooter`, which matches `ErrCorrupt` |
+| a structure over a reader budget | `ErrReadLimit` |
+| your `ReaderAt`'s error, `io.ErrUnexpectedEOF` of a short read included | returned as it is, never `ErrCorrupt` |
+
+Only a fault of the file header or the pack metadata fails `Open`.
+A trailer or footer that cannot be used is reported by `PackHeader.FooterErr`, and by the read's `FooterErrs`, as `PackError.Err` or `TxPackError.Err`;
+`PackError` and `TxPackError` appear only there and are values, so `errors.As` takes `var pe tracepack.PackError` or `var te tracepack.TxPackError`, not a pointer.
+A block or walk fault is a `Defect` in `Result.Incomplete`, or the `TxGapRead` or `TxGapIndex` gap of a lookup, whose `Defect` field holds the reason;
+its `Err` wraps, by `Defect.Reason`:
+
+| `Defect.Reason` | `Defect.Err` wraps |
+|---|---|
+| `IncompleteReasonCorruptBlock` | `ErrChecksum` for an envelope or body CRC mismatch, else `ErrCorrupt` |
+| `IncompleteReasonUnknownCodec`, `IncompleteReasonIndexMismatch` | `ErrCorrupt` |
+| `IncompleteReasonTruncated` | `ErrNotFinalized` at the end of a pack with no valid trailer, or where such a pack ends inside a block; `ErrChecksum` or `ErrCorrupt` at a bad envelope, a block past a valid trailer's `footer_offset`, or a walk that disagrees with the trailer; `ErrCorrupt` at the end of a pack whose trailer is valid but whose footer CRC fails, which was finished, so it is damaged rather than still being written |
+| `IncompleteReasonLimit` | `ErrReadLimit` |
+| `IncompleteReasonCoverage`, `IncompleteReasonCrashGap` | no sentinel: `Reason`, with `Coverage` or `Boundary`, classifies it |
+
+Diagnostics that do not fail a call are read as a whole:
+read "not finalized" from `PackHeader.Finalized` and `FooterErr`, not from the presence of a truncated defect,
+since a forward walk that stops early, at a damaged envelope or at `MaxWalkedBlocks`, reports that stop and no separate defect for the end of the pack.
+`Verify`'s `WriterDefect.Err` wraps `ErrFieldValidity` for `WriterDefectFieldValidity`,
+and `ErrInvalidRecord`, the refusal a writer gives such a record, for `WriterDefectEventFieldValidity` and `WriterDefectEventPayload`;
+the other kinds are descriptive, `Kind` classifying them, and none is `ErrCorrupt`, since the block holding it passed every check.
+
+### Merge
+
+| Error | Meaning | Action |
+|---|---|---|
+| `ctx`'s error | | stop |
+| `ErrInvalidArgument` | an option `Merge` cannot take, a `WriterTag` that is not valid UTF-8 beside a `*FieldError` naming `writer`, or a `ReplacementSetID` or `PackID` an input already uses | fix the options |
+| `ErrMergeLimit`, `ErrReadLimit` | the archive over a budget of `MergeOptions` or a limit of the format, or an input over a budget of `MergeOptions.Reader` | raise the budget, or an operator decision (format limit) |
+| `ErrMergeConflict` | records, or redaction entries, that differ | as `OnConflict` decided |
+| `ErrMergeInput` | an input `Merge` refuses: the cause beside it, such as `ErrNotFinalized`, `ErrCorrupt`, `ErrNotTracepack`, `ErrUnsupportedFormat`, or the check it fails, says why | the input is unusable as it is: leave it out, or act on its cause by the reading calls' table |
+| anything else | a failed read of an input, whether `Merge` was opening it or reading a block, or an error writing or syncing `dst` | may be transient |
+
+A failed read is never `ErrMergeInput`, so a sound pack is not taken for a defective one;
+an object shorter than its `MergeInput.Size`, whose `ReaderAt` reports the end with `io.EOF`, is `ErrMergeInput`.
+After any error, discard what was written to `dst`.
+
+### Bus messages
+
+`bus.CheckMessage`, `bus.CheckPayload` and `bus.DeriveRecord` for the consumer;
+`bus.EncodeBody` and `bus.CheckStart` for the producer, which publishes no message they refuse:
+
+| Error | Meaning | Action |
+|---|---|---|
+| `bus.ErrMalformed` | never written, a layout-1 record of a kind layout 1 does not carry (kind 0 included) and a transport-event or annotation payload that does not decode included | the seq is a seq gap: terminate the message, alert |
+| `bus.ErrUnsupportedLayout` | a `Tpk-Layout` this module does not know, from a newer producer | defer the message and alert, keeping a claim-check object it names, until a consumer that knows the layout takes it; never a seq gap |
+| `bus.ErrNotAccepted` | a `start` whose descriptor cannot be accepted | alert, and defer the capture's later records until an operator acts |
+| `bus.ErrPayloadMismatch` | a claim-check object whose length or digest differs | defer the message, or fetch the object again |
+| `tracepack.ErrInvalidArgument` | your mistake, such as `bus.CheckPayload` on an inline record or `bus.CheckStart` with a `max_payload` below `bus.MinMaxPayload` | fix the caller |
+| `tracepack.ErrInvalidRecord` | from `bus.DeriveRecord`, a classifier's `trailing_bytes` the record cannot hold | fix the classifier |
+| anything else | | may be transient: retry |
+
+Deploy consumers that know a layout before any producer emits it, so `bus.ErrUnsupportedLayout` defers messages and never drops them.
+
+### Redaction
+
+`redact.Compile`, `(*redact.Compiled).Mask` and `redact.Digest`:
+
+| Error | Meaning | Action |
+|---|---|---|
+| `redact.ErrCannotScreen`, `redact.ErrRedacted`, `redact.ErrNotUnobserved` | a record `Mask` cannot screen, one already redacted, or one called unobserved that does not carry bit 7 | defer the record, never write it unscreened |
+| `redact.ErrKeySize`, `redact.ErrInvalidPolicy`, `redact.ErrDomain` | an encryption key that is not 64 bytes, a policy `Compile` refuses, a domain `Digest` refuses | fix the configuration |
+| `ctx`'s error | returned as it is | stop |
+| anything else: an error of your `Keys`, returned wrapped | | may be transient: retry |
+
+Every error but ctx's and your `Keys`' is deterministic: the same record under the same policy and keys fails the same way.
+
+`redact.Restore`'s errors are deterministic, so none is retried:
+
+| Error | Meaning |
+|---|---|
+| `redact.ErrNoEncryption`, `redact.ErrUnsupportedAlgorithm`, `redact.ErrNotRestorable` | the record cannot be restored under this policy, or holds no original |
+| `redact.ErrKeySize` | wrong key material |
+| `redact.ErrAuthentication` | a wrong key, or masked bytes or a siv that changed |
+| `tracepack.ErrRedactionDefect` | the stored entries are defective: the error joins every listed defect, or every failed Marking check |
+
+### Codecs and keys
+
+The codecs report a fault of one TLV entry as a `*FieldError`, found with `var fe *tracepack.FieldError` and `errors.As(err, &fe)`:
+`fe.Field` names the field, dotted for a nested tag such as `redaction.seq`,
+and `fe.Err` wraps `ErrRequiredTag`, `ErrFieldLength` or `ErrFieldValue`, beside the encoding's own reason.
+So do `MarshalBinary` and the `Unmarshal` functions of `PackMeta`, `TransportEvent` and `Annotation`, `EncodeDescriptor` and `DecodeDescriptor`,
+and the writing calls that encode pack metadata or an event, which also mark the error `ErrInvalidArgument` and `ErrRefused`.
+A decode also wraps `ErrCorrupt`, the bytes not being a valid encoding, and bytes that end inside an entry name no field;
+an encode never wraps `ErrCorrupt`, and neither does a writing call refusing a record whose payload does not decode, which wraps `ErrInvalidRecord`.
+`EncodeDescriptor(nil)`, and `ParseUUID` of a string that is not a canonical UUID, wrap `ErrInvalidArgument`;
+the codecs and `Validate` otherwise return the field's sentinel without it, since only the call that takes a value as its argument says so.
+`SegmentKey`, `ArchiveKey`, a `DirSink`'s `Create` and `CaptureDescriptor.Validate` refuse a key component no key can hold with `ErrInvalidKey`, which matches `ErrInvalidArgument`.
+
+| Error | Meaning | Action |
+|---|---|---|
+| `ErrInvalidArgument`, `ErrInvalidKey` among it | an argument the call cannot take | fix the call |
+| `ErrCorrupt` | bytes a decoder does not decode | report them |
+| a `*FieldError` with `ErrRequiredTag`, `ErrFieldLength` or `ErrFieldValue` | a value the encoding or `Validate` refuses | fix the value |
+
+### Errors that match no sentinel
+
+Some errors are descriptive: no sentinel classifies them, and the field or the source named here does.
+
+- A `Defect` of `IncompleteReasonCoverage` or `IncompleteReasonCrashGap`, and a `TxGap` of a reason other than `TxGapRead` and `TxGapIndex`:
+  the `Reason` classifies it, with the fields it sets, such as `Coverage` or `Boundary`.
+- A `WriterDefect` of a kind other than `WriterDefectFieldValidity`, `WriterDefectEventFieldValidity` and `WriterDefectEventPayload`:
+  its `Kind` classifies it.
+- An error of a block `Merge` builds itself, a new block of the resolution that fails its check or a block the archive's `Writer` refuses,
+  reports a defect of this package, never one of an input: report it.
+- The faults of a `DirSink`'s environment, under [Storing segments in a directory](#storing-segments-in-a-directory),
+  are plain errors: retrying does not cure them.
+- An error of your own implementation, an `io.Writer`, `Syncer`, `SegmentSink`, `SegmentFile`, `ReaderAt`, `PackSource` or `redact.Keys`,
+  is returned wrapped with its chain intact, its sentinels its own.
+- A `ReadAt` the module calls on a goroutine of its own that ends the goroutine instead of returning, through `runtime.Goexit` as `t.FailNow` does,
+  fails the call with an error saying the `ReadAt` did not return, never read as the pack's bytes;
+  under `Merge` it is a failed read of that input, not `ErrMergeInput`.
+  It matches no sentinel of the module: treat it as an error of your `ReaderAt`.
 
 ## Compatibility
 
