@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-31) — v2.39, tracepack format 1.2.
+Status: current (2026-10-31) — v2.40, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for mergers, recorders, log converters and the service that deletes packs.
 
@@ -135,6 +135,8 @@ Which packs to give is the caller's choice; tracepack defines no view.
     and `decode_status` and `trailing_bytes` from the capture's classifier configuration (*Masking*);
     for a data record carrying `unobserved`, `field_validity` from its captured header, `decode_status` `not-attempted` and `trailing_bytes` 0 ([SEM §2]);
     for a transport-event or annotation record, `field_validity` 0, `decode_status` `not-applicable` and `trailing_bytes` 0 ([FMT §7.2], [SEM §3]).
+    A layout fixes the record kinds its messages carry; layout 1 carries data, control, transport-event and annotation records,
+    and a producer that emits a record of another kind uses a new `Tpk-Layout` (G5-295).
     The message carries the header `Tpk-Layout: 1`;
     `Nats-Msg-Id: <capture_id>.<seq>`, `seq` in decimal without a leading zero, so the stream stores a retry once within its duplicate window;
     and, on the message of the capture's `start` record only, `Tpk-Capture-Descriptor`:
@@ -147,13 +149,17 @@ Which packs to give is the caller's choice; tracepack defines no view.
     and checks its header block against 4096 bytes and the whole message against `max_payload`;
     when the check fails it does not start the capture and reports the error, so no capture exists whose descriptor cannot be published.
     A consumer takes a record's `capture_id` from `Nats-Msg-Id` and checks that its seq equals the record header's `seq`.
-    A message is never written, and its seq is a seq gap, when its `Tpk-Layout` is unknown,
-    its body does not have the layout's length (44 + `payload_len` without `Tpk-Payload-Ref`, 44 with it),
+    A message is never written, and its seq is a seq gap, when its body does not have the layout's length (44 + `payload_len` without `Tpk-Payload-Ref`, 44 with it),
     its `Nats-Msg-Id` is not of the form above, names seq 2^63 − 1 (which no producer assigns) or disagrees with the header,
     its claim-check headers are malformed (*Large records*),
+    its record's `kind` is not one its layout carries, kind 0 included, inline or by claim-check (G5-295),
     or its record is a transport event or an annotation whose payload is not a valid TLV body ([FMT §8]), which the writer would refuse (G5-294);
     a claim-check record's payload is checked once its object is fetched and matches its message (*Large records*).
     Terminating such a message on the bus and raising an alert is informative.
+    A message whose `Tpk-Layout` the consumer does not know is never written and its seq is not a seq gap (G5-295):
+    the consumer raises an alert and defers the message (*Deferral*), a claim-check object it names kept by the lifetime invariant of *Large records*,
+    until a consumer that knows the layout takes it.
+    A deployment runs consumers that know a layout before any producer emits it, so a rolling upgrade defers such messages and never drops them.
     A `start` the consumer cannot accept — its descriptor does not decode, or names a `capture_method` other than `raw-stream` or `decoded-message` or a `time_source` other than `capture-clock` —
     is never written and raises an alert, and the capture's later records stay deferred on the bus until an operator acts (G5-251).
     A `start` whose message lacks `Tpk-Capture-Descriptor`, or whose header is not standard base64 with padding, is one whose descriptor does not decode;
@@ -199,7 +205,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
     A listing of `staging/` sees a record only once a segment holds it.
     A restart of the bus server loses the records the producer could not buffer meanwhile,
     and, with the server's default disk sync interval, acknowledged records not yet synced; both read as seq gaps (informative).
-  - *Deferral* (G5-251, G5-267).
+  - *Deferral* (G5-251, G5-267, G5-295).
     A consumer **defers** a message by leaving it unacknowledged on the bus, so the bus delivers it again later:
     by a negative acknowledgement with a delay, or by moving it to a **parking stream**.
     A negatively acknowledged message stays in the consumer's pending set, so many deferred at once can reach `max_ack_pending` and stop delivery for every capture;
@@ -539,8 +545,10 @@ The following cases are tests of the Go module, not vectors of the corpus of [FM
   each stored with the `fidelity`, `field_validity`, `decode_status` and `trailing_bytes` its kind gives; a `decoded-message` capture holding a frame kept as `wire-exact`;
   a tool token that needs escaping, `.` included, round-tripping; a descriptor round-tripping a nonzero `capture_origin_mono_ns` and a zero `clock_step_tolerance_ns`;
   a `start` whose header block exceeds 4096 bytes, and a `max_payload` below 4140: no capture started;
-  each malformed message — an unknown `Tpk-Layout`, a body of the wrong length, a `Nats-Msg-Id` of another form, naming seq 2^63 − 1 or disagreeing with the header,
-  missing or malformed claim-check headers, a transport-event or annotation payload that is not a valid TLV body, inline or by claim-check — never written; a claim-check object whose length or digest does not match, an equal-length corrupted one included: deferred;
+  each malformed message — a body of the wrong length, a `Nats-Msg-Id` of another form, naming seq 2^63 − 1 or disagreeing with the header,
+  missing or malformed claim-check headers, a layout-1 record of kind 0 or of a kind layout 1 does not carry, a transport-event or annotation payload that is not a valid TLV body, inline or by claim-check — never written;
+  a message of an unknown `Tpk-Layout`, inline or by claim-check: never written, not a seq gap, deferred with an alert;
+  a claim-check object whose length or digest does not match, an equal-length corrupted one included: deferred;
 - masked merges (§4): entries carried, deduplicated and ordered, and the originals restored from the archive, through copied, coalesced and resolved blocks;
   inputs differing in `redaction_policy`, `classifier` or `max_frame_len` (one with a limit, one without), a masked input beside an unmasked one,
   and an input holding a record that an entry names while its `redacted` bit is clear: the merge fails and publishes nothing;

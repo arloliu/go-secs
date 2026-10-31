@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-10-31)
-Implements tracepack v2.39 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.40 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -125,16 +125,26 @@ The query service, its catalog database and the live-tail interface are designed
   or nothing for a claim-check record, which keeps its `PayloadLen` with no payload in memory.
   It checks a message's size with `bus.Inline` and `bus.CheckStart`, computing the length of the NATS header block itself;
   the 4096-byte bound holds for every message.
+  `bus.CheckStart` reports a header block or message over its bound with `bus.ErrMalformed`,
+  and a `maxPayload` below `bus.MinMaxPayload` or a negative length, the caller's mistake, with an error wrapping `tracepack.ErrInvalidArgument` (G5-296).
   A consumer checks a message with `bus.CheckMessage(bus.Envelope, body) (bus.Record, error)`,
   which returns the record normalized, `decode_status`, `trailing_bytes` and `field_validity` zero whatever the producer wrote:
   `bus.ErrMalformed` marks a message never written, its seq a seq gap, a message with a non-empty `Tpk-Payload-Digest` and no or an empty `Tpk-Payload-Ref` included (G5-258),
-  as is a transport-event or annotation record whose payload is not a valid TLV body ([FMT §8], G5-294),
+  as is a transport-event or annotation record whose payload is not a valid TLV body ([FMT §8], G5-294)
+  and a layout-1 record whose `kind` is not data, control, transport-event or annotation, kind 0 included,
+  checked before the claim-check return so inline and claim-check messages are checked alike (G5-295),
+  while a tag or enum value the module does not know inside a valid payload TLV body is preserved, not refused;
+  `bus.ErrUnsupportedLayout` marks a message of a `Tpk-Layout` it does not know, which the consumer defers with an alert, never a seq gap (G5-295);
   and `bus.ErrNotAccepted` a `start` whose `Tpk-Capture-Descriptor` is missing, not padded standard base64 or does not decode,
   on which the consumer alerts and defers the capture's later records; the header on another record is ignored (G5-257).
   `bus.CheckPayload` checks a fetched claim-check object (`bus.ErrPayloadMismatch`, deferred),
   its payload as `bus.CheckMessage` checks an inline one (`bus.ErrMalformed`, G5-294)
-  and, when its record is a `start`, the message's descriptor header (`bus.ErrNotAccepted`),
-  and `bus.DeriveRecord(*tracepack.Record, tracepack.Classifier)` sets the values the consumer derives by kind, an unobserved data record's included.
+  and, when its record is a `start`, the message's descriptor header (`bus.ErrNotAccepted`);
+  it has no layout to check, so it never returns `bus.ErrUnsupportedLayout`,
+  and it refuses a record that is not claim-check with an error wrapping `tracepack.ErrInvalidArgument` (G5-296).
+  Each bus sentinel is tested before any cause it wraps, a decoder's `tracepack.ErrCorrupt` or `*tracepack.FieldError` included.
+  `bus.DeriveRecord(*tracepack.Record, tracepack.Classifier)` sets the values the consumer derives by kind, an unobserved data record's included;
+  its `ErrInvalidRecord` for another kind is never reached by a record `bus.CheckMessage` accepted.
   Both directions refuse a producer seq of 2^63 − 1, which only a consumer's close carries.
   `bus.EncodeBody` also refuses a record carrying `redacted`, which a producer never sets,
   while `bus.CheckMessage` accepts a well-framed body carrying it and keeps the bit, as it keeps every defined `quality` bit.
@@ -144,6 +154,7 @@ The query service, its catalog database and the live-tail interface are designed
   It refuses a top-level tag a descriptor does not carry, single or repeated (G5-259), a nested tag `thinning` or `hsms_timers` does not define (G5-252, G5-256),
   a `thinning` entry whose stream is above 127 or whose function is above 255 (G5-254), and a `capture_method` or `time_source` layout 1 does not serve,
   so the `start` carrying such a descriptor is not accepted.
+  `EncodeDescriptor(nil)` is an error wrapping `ErrInvalidArgument`, and an entry's fault is a `*FieldError` as for the other codecs (G5-296).
   `CaptureDescriptor` stays the recorder-facing type, which resolves its defaults before it encodes.
 - Masking preparation (G5-246), shaped by the metadata-first commit of [FMT §12], is the package `tracepack/redact`:
   it imports the root package for its types, and the root package never imports it, so readers and `Merge` need no key material.
@@ -196,10 +207,10 @@ The query service, its catalog database and the live-tail interface are designed
   mark with it every error the call's own arguments, options or records determine,
   so the same call with the same input fails the same way:
   an error wrapping `ErrSeqOrder`, `ErrPayloadTooLarge`, `ErrFieldValidity`, `ErrMetadataCommitment`, `ErrValidation`, `ErrScopeBreach`, `ErrInvalidRecord`,
-  `ErrRequiredTag`, `ErrFieldValue`, `ErrFieldLength`, `ErrAnnotationText` or `ErrReservedTag`, and an invalid argument or option.
+  `ErrRequiredTag`, `ErrFieldValue`, `ErrFieldLength`, `ErrAnnotationText` or `ErrReservedTag`, and an invalid argument or option, which wraps `ErrInvalidArgument` (G5-296).
   It says nothing about whether the writer is still usable; the sentinel beside it does.
   It is never added to an error of `Merge`, of `ctx` or of the writer's prior state (`ErrWriterFailed`, `ErrClosed`),
-  nor to an error of the destination, a `Syncer`, a sink, a segment file or the random source,
+  nor to an error of the destination, a `Syncer`, a sink or a segment file,
   nor to one holding such an error beside a refusal;
   the caller's own implementation's error is returned wrapped, its chain intact, with no marker added,
   so one that is `ErrRefused` still matches it.
@@ -207,6 +218,21 @@ The query service, its catalog database and the live-tail interface are designed
   and the external mark wins,
   so a destination returning an error that wraps a refusal sentinel is not taken for a refusal.
   The error text is unchanged.
+- Error taxonomy (G5-296): a caller decides from public sentinels alone, each documented on the functions that return it.
+  `ErrCorrupt` marks bytes that are not a valid tracepack encoding, and `ErrChecksum`, any CRC mismatch, and `ErrInvalidFooter` also match it;
+  `ErrNotFinalized` marks a pack with no valid trailer, beside `ErrChecksum` or `ErrCorrupt` when a trailer is present but damaged;
+  `ErrInvalidArgument` marks an argument or option the call cannot take, and `ErrInvalidQuery` and `ErrInvalidKey` also match it.
+  Each parent is reached through the sentinel's `Unwrap`, so the sentinels stay comparable values with their text unchanged.
+  Every read path (`Open`, `Iterate`'s `Defect.Err`, `Verify`, `MergeIterate`, the transaction lookups, `ExportJSONL`, `Merge` beside `ErrMergeInput`) gives a fault the same sentinel,
+  and returns a caller's `ReadAt` error as it is, never as corrupt.
+  A public encode or decode of a TLV body reports an entry's fault as a `*FieldError` naming the field, dotted for a nested tag, with `ErrRequiredTag`, `ErrFieldLength` or `ErrFieldValue`;
+  a decode also wraps `ErrCorrupt`, an encode never, and a writing call marks such an error `ErrRefused`.
+  The option errors of `Open`, `Verify` and `Merge`, `EncodeDescriptor(nil)` and `ParseUUID` wrap `ErrInvalidArgument`, and a nil reader from a `PackSource` `ErrInvalidQuery`.
+  Where `Err` stays descriptive, the field beside it classifies: `Defect.Reason` for coverage and crash gaps, `TxGap`'s fields, and `WriterDefect.Kind`;
+  `PackError` and `TxPackError` stay value types, found in `FooterErrs`.
+  The package documentation and the README give one decision table per call family, the first match deciding.
+  Each line of an error's text names `tracepack: ` at most once: the text is fmt's rendering of the wrap with every later occurrence on a line removed,
+  and the error value and its chain are unchanged.
 - Close writer (G5-223, G5-231, G5-240): `WriteClose(w io.Writer, opts CloseOptions) (UUID, error)` writes the close segment of [STO §4] *Closing a capture left open*,
   one `stop-unclean` record at seq 2^63 − 1 alone in a segment.
   `CloseOptions` holds `Meta`, the capture's descriptor and its consumer-owned values; `CaptureID`; `Trigger`, the close's time;
@@ -245,7 +271,7 @@ The query service, its catalog database and the live-tail interface are designed
   - Times: a time `t` is representable when `time.Unix(0, t.UnixNano()).Equal(t)` and its whole flush interval, start and exclusive end, fits in `int64` nanoseconds;
     nothing is clamped. A `CaptureOrigin` that is not representable fails `NewSegmentWriter`,
     an appended `at` that is not fails the append before any mutation (`ErrInvalidRecord`),
-    and a `Now()` at `Close` that is not fails `Close` terminally: it aborts the open segment and writes no `stop`.
+    and a `Now()` at `Close` that is not fails `Close` terminally with `ErrInvalidRecord`, a refusal (G5-296): it aborts the open segment and writes no `stop`.
   - Opening: a segment is opened by the first record that needs one; its period is the flush interval holding that record's `ts_utc_ns`,
     inside the record's UTC hour because the interval divides the hour; its `seq_start` is the capture's next seq and its `pack_id` a fresh UUIDv7.
   - Boundaries: `NewSegmentWriter` appends the capture's `start` boundary at `CaptureOrigin`, so the first segment opens with it,
@@ -307,7 +333,9 @@ The query service, its catalog database and the live-tail interface are designed
     The writer calls `Commit` at most once and `Abort` at most once on a segment, `Abort` exactly once after a failed `Commit`, uncertain or not;
     the error it returns joins the cause first and any `Abort` error after it.
     The seq counter is never rewound, so a loss is a seq gap, never a reused seq.
-    `Close` after a failure makes no further sink call and returns the stored failure.
+    A later `Close` makes no sink call (G5-297): on a writer that has failed, an earlier `Close` included, it returns an error wrapping `ErrWriterFailed` and the failure, unmarked;
+    after a `Close` that completed without error, `ErrClosed`.
+    The failure is checked first; a `Close` refused because `ctx` was done before any sink call leaves the writer usable.
   A `SegmentWriter` is not safe for concurrent use.
 - `SegmentSink` (G5-153): `Create(ctx, SegmentInfo) (SegmentFile, error)`;
   `SegmentFile` is an `io.Writer` with `Sync()` (called after every block and after the trailer), `Commit(ctx)` (after a successful `Close`) and `Abort()` (after any failure).
@@ -316,10 +344,10 @@ The query service, its catalog database and the live-tail interface are designed
   `SegmentInfo` holds the `tool_id`, `capture_id`, `pack_id`, `seq_first` of the segment key ([STO §3], known at open), the hour and the period,
   so a sink derives the key from the segment it writes and never from a tool of its own.
   `NewDirSink(root, prefix string, opts DirSinkOptions) (*DirSink, error)` writes `<root>/<SegmentKey(prefix, info.ToolID, …)>`;
-  it refuses, before creating any file, a prefix that is not empty or a relative `/`-separated path whose components are none empty, `.` or `..`,
+  it refuses with an error wrapping `ErrInvalidArgument` (G5-296), before creating any file, a prefix that is not empty or a relative `/`-separated path whose components are none empty, `.` or `..`,
   and one holding `\` or a `:`, so no platform reads it as another separator or a volume,
   and one whose first component is `.partial`, the directory of its temporary files, so no committed segment lies among them (G5-157),
-  or, once it has created `<root>/.partial/`, names that same directory (`os.SameFile`), as a case variant does on a case-folding file system,
+  or, once it has created `<root>/.partial/`, names that same directory (`os.SameFile`), as a case variant does on a case-folding file system, a plain error,
   and uses an accepted prefix as given, never cleaned, so the file path spells the object key;
   so a local recording is laid out as the bucket is ([STO §3]).
   `root` must exist, and its own durability is the caller's; `NewDirSink` creates `<root>/.partial/` and syncs `root`.
@@ -328,6 +356,7 @@ The query service, its catalog database and the live-tail interface are designed
   It also refuses a symbolic link inside `root` where it manages directories:
   `<root>/.partial` when it creates the sink and each segment, and every directory component of a key, checked after creating them and before the rename,
   so a link cannot alias the temporary directory and a key area; such a link fails `NewDirSink` or `Create`, or `Commit` with a plain error, nothing published (G5-161).
+  These plain errors, like those of a key that is not a regular file and of `NewDirSink` on `js` (below), report the environment, and retrying does not cure them (G5-296).
   These checks guard against a misconfigured root, not against a process that writes to `root` while the sink runs, which can remove segments anyway.
   `NewDirSink` fails on `js`, where `os.Root` cannot exclude a link replaced after its check.
   It creates files with mode 0640 and directories with mode 0750, so no other user reads a segment, which holds records in full ([STO §3]),
@@ -354,13 +383,14 @@ The query service, its catalog database and the live-tail interface are designed
   `Create`, `Commit` and `Abort` hold a shared lock for their whole operation, a `Commit` from its first root operation through its last directory sync,
   and `Close` an exclusive one, so `Close` waits for every operation in progress, then closes `root`:
   a `Commit` either completes before `Close`, with its own result, `ErrPublishUncertain` included, or starts after it.
-  After `Close`, `Create` fails with a plain error, and so does the `Commit` of a segment not yet committed, publishing nothing;
-  the `Abort` of such a segment closes its temporary file and returns an error saying it could not be removed, the file staying under `.partial/`.
+  After `Close`, `Create` fails with an error wrapping `fs.ErrClosed`, and so does the `Commit` of a segment not yet committed, publishing nothing;
+  the `Abort` of such a segment closes its temporary file and returns an error wrapping `fs.ErrClosed` saying it could not be removed, the file staying under `.partial/` (G5-296).
+  A `Write`, `Sync` or `Commit` on a segment after its `Commit` or `Abort`, which the `SegmentFile` contract forbids, is an error wrapping `ErrInvalidArgument`.
   `Commit` and `Abort` of a segment already published, refused or aborted behave as before `Close`, and a second `Close` returns nil.
 - `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a footer location the caller kept (e.g. from an earlier `Open` of the same object);
   the bytes it reads at bootstrap serve later block reads, so a pack up to the whole-read threshold (4 MiB by default) costs one request (G5-211).
   A zero option field takes its default and a negative one is refused, with the function's argument error:
-  a plain error naming the `ReaderOptions` field from `Open` and `Verify`, and from `Merge` for `MergeOptions.Reader`, before any read (G5-284).
+  an error wrapping `ErrInvalidArgument` and naming the `ReaderOptions` field from `Open` and `Verify`, and from `Merge` for `MergeOptions.Reader`, before any read (G5-284, G5-296).
   The `Reader` keeps, for its lifetime, only the first round's buffers that hold blocks, the whole object or else the head and tail windows, never a footer-hint suffix:
   at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`) bytes, outside `MergeIterateOptions.MaxHeldBytes`, `TxOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`;
   it reads a block lying wholly inside them from them, a compressed block decoded in place into the read's own buffers and a None block copied first,
