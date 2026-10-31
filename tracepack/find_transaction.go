@@ -119,6 +119,7 @@ const (
 // ErrNotPrimary reports a TxKey that names no primary:
 // a record that is not a data record with an available odd function,
 // or no record where nothing in the read of its hour explains its absence (the tracepack semantics specification §7.2).
+// FindTransaction returns it; it stands alone.
 var ErrNotPrimary = errors.New("tracepack: not a primary")
 
 // TxKey names the primary record of a transaction lookup.

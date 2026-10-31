@@ -13,6 +13,7 @@ import (
 // A SegmentFile's Commit returns an error wrapping it beside the cause,
 // and a SegmentWriter keeps it in the error it returns,
 // so a recorder can tell a published segment from one that was never published.
+// It stands alone, and is never marked ErrRefused.
 var ErrPublishUncertain = errors.New("tracepack: segment published, durability uncertain")
 
 // SegmentSink stores the segments a SegmentWriter writes (the tracepack storage specification §3 and §4).

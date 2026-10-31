@@ -24,6 +24,7 @@ const DefaultMaxOpenBlocks = 64
 const DefaultMaxParallelOpens = 16
 
 // Sentinel errors returned by Merge.
+// Each stands alone, belonging to no family.
 var (
 	// ErrMergeInput reports a merge input that Merge refuses (the tracepack storage specification §4 Merge),
 	// wrapped with the cause and the input's position, and its pack_id once Open succeeded on it.

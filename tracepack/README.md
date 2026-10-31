@@ -471,7 +471,8 @@ The command's Godoc states the rest.
 
 ## Errors
 
-Match an error with `errors.Is` and `errors.As`, never by its text, which [Compatibility](#compatibility) leaves out of the contract.
+Match an error with `errors.Is` and `errors.As`, never by its text, which [Compatibility](#compatibility) leaves out of the contract:
+each line of an error's text names its namespace, `tracepack: ` or `redact: `, once, and nothing else about the text is promised.
 Each family of calls below has a decision table:
 act on the first row whose sentinel the error matches, before any cause it wraps,
 since one error may carry the sentinels of several rows.
