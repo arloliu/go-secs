@@ -39,15 +39,21 @@ const footerCRCChunk = 1 << 20
 var (
 	// ErrNotTracepack reports an object that is not a tracepack file:
 	// it is shorter than the file header, or its magic does not match (the tracepack format specification §4).
+	// Open and Verify return it, and Merge wraps it beside ErrMergeInput.
+	// It stands alone: such an object is not ErrCorrupt.
 	ErrNotTracepack = errors.New("tracepack: not a tracepack file")
 	// ErrUnsupportedFormat reports a file whose format_major this package does not read
 	// (the tracepack format specification §14).
+	// Open and Verify return it, and Merge wraps it beside ErrMergeInput;
+	// a newer format_minor is read, and refused by Merge as ErrMergeInput alone.
+	// It stands alone: such a file is not ErrCorrupt.
 	ErrUnsupportedFormat = errors.New("tracepack: unsupported format version")
 	// ErrChecksum reports a CRC that does not match the bytes it covers, of any structure:
 	// the bytes changed after they were written.
 	// Open returns it for the file header and the pack metadata;
 	// PackHeader.FooterErr wraps it for the footer, and for the trailer beside ErrNotFinalized;
-	// Defect.Err wraps it for a block envelope or a block body, whether a read or the forward walk found it.
+	// Defect.Err wraps it for a block envelope or a block body, whether a read or the forward walk found it;
+	// Verify reports it as these do, and Merge wraps it beside ErrMergeInput for an input's structure.
 	// It also matches ErrCorrupt.
 	ErrChecksum = newChildSentinel("tracepack: checksum mismatch", ErrCorrupt)
 )
@@ -58,6 +64,10 @@ var (
 // It is a resource limit of the reader, not a format defect:
 // a caller raises the budget to read a legitimately larger structure.
 // The error that wraps it names the structure and its offset, or the limit and what would exceed it.
+// Open, Verify and the reads return it, PackHeader.FooterErr wraps it for a footer over MaxFooterLen,
+// and Defect.Err for IncompleteReasonLimit;
+// Merge returns it naming the input, for an input over a budget of MergeOptions.Reader, never beside ErrMergeInput.
+// It stands alone.
 var ErrReadLimit = errors.New("tracepack: structure exceeds a reader budget")
 
 // errNoReturn is the cause of the error that reports a ReadAt call on a goroutine of this package

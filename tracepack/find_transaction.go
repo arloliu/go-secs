@@ -257,6 +257,8 @@ type TxGap struct {
 	// nil otherwise.
 	Boundary *Boundary
 	// Err describes the gap; nil when the other fields say all.
+	// For TxGapRead and TxGapIndex it is the read defect's Defect.Err, wrapping the sentinels Defect.Err lists for the reason in Defect;
+	// for every other reason it is descriptive, matching no sentinel, and Reason, with the fields it sets, classifies the gap.
 	Err error
 }
 

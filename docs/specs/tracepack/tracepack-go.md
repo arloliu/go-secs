@@ -239,7 +239,7 @@ The query service, its catalog database and the live-tail interface are designed
   `Merge`'s checks of its own blocks report a defect of this package and wrap no input or argument sentinel.
   Where `Err` stays descriptive, the field beside it classifies: `Defect.Reason` for coverage and crash gaps, `TxGap`'s fields, and `WriterDefect.Kind`;
   `PackError` and `TxPackError` stay value types, found only in `FooterErrs`, `errors.As` taking a value (`var pe tracepack.PackError`), their `Err` wrapping the sentinels `PackHeader.FooterErr` lists.
-  The package documentation and the README give one decision table per call family, the first match deciding.
+  The README gives one decision table per call family, and the package documentation their order, the first match deciding.
   Each line of an error's text names `tracepack: ` at most once: the text is fmt's rendering of the wrap with every later occurrence on a line removed,
   and the error value and its chain are unchanged.
 - Close writer (G5-223, G5-231, G5-240): `WriteClose(w io.Writer, opts CloseOptions) (UUID, error)` writes the close segment of [STO §4] *Closing a capture left open*,

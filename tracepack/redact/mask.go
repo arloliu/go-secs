@@ -29,6 +29,9 @@ const (
 	tagText, tagRaw uint16 = 0x0005, 0x0006
 )
 
+// Sentinel errors of Mask.
+// Each stands alone, belonging to no family of the tracepack package;
+// an error wrapping one may also wrap a decoder's cause, and the sentinel of this package decides.
 var (
 	// ErrCannotScreen reports a record Mask cannot finish screening:
 	// a data record whose message text nests lists deeper than the walker's limit of 64,
@@ -39,7 +42,8 @@ var (
 	ErrNotUnobserved = errors.New("redact: the record does not carry quality.unobserved")
 	// ErrRedacted reports a record that already carries quality.redacted, so it is not in full.
 	ErrRedacted = errors.New("redact: the record already carries quality.redacted")
-	// ErrKeySize reports an encryption key that is not KeySize bytes long.
+	// ErrKeySize reports an encryption key that is not KeySize bytes long:
+	// one Keys gave Mask, or one given to Restore.
 	ErrKeySize = errors.New("redact: encryption key is not 64 bytes")
 )
 

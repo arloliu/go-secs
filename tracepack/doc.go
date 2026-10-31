@@ -144,6 +144,31 @@
 // and publishes the archive only after Merge returns nil (the tracepack storage specification §4).
 // SegmentKey and ArchiveKey build the keys of the tracepack storage specification §3, and EscapeToolID spells a tool as a key does.
 //
+// # Errors
+//
+// A caller decides what to do with an error by the sentinels it matches under errors.Is, never by its text.
+// Some sentinels belong to a family and also match its parent:
+// ErrChecksum and ErrInvalidFooter match ErrCorrupt, bytes that are not a valid tracepack encoding,
+// and ErrInvalidQuery and ErrInvalidKey match ErrInvalidArgument, an argument or option the call cannot take.
+// Every other sentinel stands alone; ErrNotFinalized, a pack with no valid trailer, is not ErrCorrupt.
+// Each family of calls has a decision table, the first row an error matches deciding, before any cause it wraps:
+//   - writing calls: ErrClosed, ErrWriterFailed, ErrPublishUncertain, ErrSegmentExists, ErrSegmentConflict, ctx's error,
+//     ErrRefused for an error the call's input determines, then any other error, which may be transient;
+//   - reading calls: ctx's error, ErrInvalidArgument, ErrNotPrimary, ErrNotTracepack, ErrUnsupportedFormat, ErrReadLimit,
+//     ErrNotFinalized before ErrCorrupt, since a damaged trailer carries both, then any other error, such as a ReadAt error;
+//   - Merge: ctx's error, ErrInvalidArgument, ErrMergeLimit or ErrReadLimit, ErrMergeConflict,
+//     ErrMergeInput for an input it refuses, beside the cause, then any other error, a failed read of an input included;
+//   - the bus codec, the package redact, the codecs and the key builders, each by its own sentinels.
+//
+// The README of the module gives every table with the action of each row.
+// A few errors are descriptive, matching no sentinel, and a field beside them or their source classifies them:
+// a Defect of IncompleteReasonCoverage or IncompleteReasonCrashGap and most TxGap reasons, by Reason;
+// a WriterDefect whose Godoc names no sentinel for its Kind, by Kind;
+// an error of a block Merge builds itself, which reports a defect of this package;
+// a DirSink's fault of its environment, which retrying does not cure;
+// an error of a caller's implementation, returned wrapped with its chain intact;
+// and a ReadAt that ends its goroutine instead of returning, reported as an error of that ReadAt.
+//
 // # Compatibility
 //
 // From tracepack v1.0.0 on, every v1 release keeps what this documentation states as contract:

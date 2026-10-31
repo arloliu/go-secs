@@ -18,7 +18,9 @@ const DomainMessageText = "message-text"
 // maxDomainLen is the longest domain, in bytes.
 const maxDomainLen = 65535
 
-// ErrDomain reports a domain that is not 1 to 65535 bytes of UTF-8.
+// ErrDomain reports a domain that is not 1 to 65535 bytes of UTF-8:
+// Digest returns it, and Compile wraps it beside ErrInvalidPolicy for a rule's domain.
+// It stands alone.
 var ErrDomain = errors.New("redact: a domain is not 1 to 65535 bytes of UTF-8")
 
 // Digest computes the digest of an entry (the tracepack semantics specification §8 Digest):

@@ -9,6 +9,8 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/siv"
 )
 
+// Sentinel errors of Restore, each standing alone;
+// Restore also returns ErrKeySize, and tracepack.ErrRedactionDefect for defective stored entries.
 var (
 	// ErrNoEncryption reports a redaction_policy that does not carry both encryption tags,
 	// encryption_algorithm and encryption_key_id, so its masks keep no original to restore.

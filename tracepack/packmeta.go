@@ -114,6 +114,7 @@ const (
 
 // Sentinel errors returned by PackMeta, TransportEvent, Annotation, the capture descriptor codec and CaptureDescriptor.Validate,
 // most inside a *FieldError naming the field.
+// Each stands alone: a decode wraps ErrCorrupt beside it, and a writing call marks it ErrRefused (see FieldError).
 var (
 	// ErrRequiredTag reports that a "Required when" rule of the tracepack format specification §5 or §8 is not satisfied,
 	// a tag the registry always requires included.
