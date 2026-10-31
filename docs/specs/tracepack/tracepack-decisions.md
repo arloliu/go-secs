@@ -2053,7 +2053,7 @@ Source: the v1.0 API usability review (items 7–14), with tracekeep and veq con
   Spec: `tracepack-go.md` §3, v2.39.
 - G5-290 `HSMSTimers.T1..T8` become `T1Ms..T8Ms` (2026-10-31, Go mapping):
   the only integer time fields not in nanoseconds name their unit; `Filter` keeps `*int64` nanoseconds, which both consumers build from stored values or hour bounds.
-  The tags `t1`..`t8` and the JSONL keys `T1`..`T8` are unchanged.
+  The nested tags 1–8 and the JSONL keys `T1`..`T8` are unchanged.
   Rationale *(editorial)*: a `time.Duration` cast into a timer field compiled and stored nanoseconds as milliseconds.
   Spec: `tracepack-go.md` §3, v2.39.
 - G5-291 `TxResult.Complete`, `Matches` and `PrimaryVersions` (2026-10-31, Go mapping of [SEM §7]):
