@@ -98,6 +98,9 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   it accepted any kind, and `bus.DeriveRecord` then refused it with `ErrInvalidRecord`, which a record `CheckMessage` accepted now never reaches.
   A tag or enum value the module does not know inside a valid transport-event or annotation payload is still preserved, not refused.
   For tracekeep and veq: such a message is now terminated as a seq gap at the check; no producer sends one.
+- **Breaking:** `bus.EncodeBody` refuses with `bus.ErrMalformed` a record whose `kind` layout 1 does not carry, kind 0 included (G5-295);
+  it encoded the record, and every consumer then refused the message as malformed.
+  For veq and other producers: set `Kind` on every record before encoding it; a zero `tracepack.Record` has kind 0.
 - **Breaking:** `bus.CheckStart` reports the caller's mistakes, a `maxPayload` below `bus.MinMaxPayload`, a negative length or a body shorter than the 44-byte record header,
   with an error wrapping `tracepack.ErrInvalidArgument`, no longer `bus.ErrMalformed`;
   a header block or a message over its bound still wraps `bus.ErrMalformed` (G5-296).
