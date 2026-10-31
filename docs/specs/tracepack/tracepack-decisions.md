@@ -2020,3 +2020,22 @@ masking will not widen to high-rate fields ("只有敏感的 recipe 會需要").
   marking by origin keeps a destination's error from impersonating a refusal, and an unmarked error is the safe default for a consumer that retries.
   Rejected *(editorial)*: a list of sentinels in the consumer; marking `ErrMergeLimit` and `ErrReadLimit`, which no covered call returns; marking `Merge`, which has its own input contract.
   Spec: `tracepack-go.md` §3, v2.39.
+
+## 2026-10-31 the v1.0 usability renames (owner's choice)
+
+Source: the v1.0 API usability review (Claude and Codex), with the owner's ruling to change these before v1.0.
+
+- G5-287 Go names that misled a caller (2026-10-31, Go mapping):
+  `Item.Pack`, the index of the record's reader, becomes `Item.Input`, so it no longer shares a name with `TxRecord.Pack`, a pack_id;
+  `MergeOptions.Writer`, the archive's writer tag, becomes `MergeOptions.WriterTag`;
+  the `Has` methods of `Quality`, `FieldValidity` and `TxClass`, which report whether any bit of the argument is set, become `HasAny`, and `HasAll` is added;
+  the transaction lookup names its unit as the hour it is, so `TxOptions.MaxScopes`, `DefaultTxMaxScopes` and `TxScope` become `MaxHours`, `DefaultTxMaxHours` and `TxHour`,
+  and scope keeps its meaning of capture and UTC hour.
+  `String()` values, JSONL names, error text and spec terms are unchanged.
+  Rationale *(editorial)*: each name read as something else at a call site, and v1.0 freezes it.
+  Spec: `tracepack-go.md` §3, v2.39.
+- G5-288 The bus codec moves to the subpackage `tracepack/bus` (2026-10-31, Go mapping of [STO §4]):
+  its constants, sentinel errors, types and functions leave the root package, without their `Bus` prefix (`bus.Record`, `bus.Envelope`, `bus.CheckMessage`, `bus.Layout1`, …);
+  their behavior and error text are unchanged.
+  Rationale *(editorial)*: only a durable-bus producer or consumer uses them, and they were a seventh of the root package.
+  Spec: `tracepack-go.md` §3, v2.39.
