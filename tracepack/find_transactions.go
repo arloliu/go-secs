@@ -73,8 +73,14 @@ type TxRangeResult struct {
 // FindTransactions calls src.Readers once for each hour it reads, in ascending order,
 // from the hour of r.From to the last hour a primary's lookup schedules
 // (the hour of r.To − 1 ns plus MaxHours − 1);
-// the readers it gets for an hour, in that order, are the hour's observation for the whole call,
-// and they must stay valid until FindTransactions returns.
+// the readers it gets for an hour, in that order, are the hour's observation for the whole call.
+// It reads an hour's packs once, during that hour's read,
+// and afterwards uses only the Readers' decoded header and metadata and the records it kept of the read,
+// also while the lookups of earlier hours run on several goroutines.
+// So, as PackSource describes, once it enters its next src.Readers call, or once it returns,
+// it issues no read of the hour's packs and has none in flight,
+// and the caller may close the objects backing that hour's Readers,
+// while the Reader values stay valid until FindTransactions returns.
 // The result of every primary it reports equals FindTransaction's for its key over a PackSource that returns each hour's observation,
 // with the same TxOptions, field by field and in every order;
 // over a source whose Readers returns the same readers in the same order on every call, as NewReaderSource's does,

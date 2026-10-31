@@ -421,6 +421,16 @@ The query service, its catalog database and the live-tail interface are designed
   `PackSource` is `interface { Readers(ctx context.Context, hour int64) ([]*Reader, error) }`:
   the readers of every pack given for one UTC hour, of any capture, distinct `pack_id`s, in a fresh slice,
   such as `NewReaderSource` returns over packs the caller opened.
+  A lookup, `FindTransaction` or `FindTransactions`,
+  reads the packs `Readers` returned for an hour only during that hour's read (G5-293):
+  once it enters its next `Readers` call, or once the public call returns when there is no next call,
+  it issues no read of them and has no read in flight on them, on success, error and cancellation alike;
+  a cancelled ctx alone is not that point, since a `ReadAt` in flight takes no context and runs until the read joins it.
+  It then uses only each `Reader`'s decoded header and metadata, so the `Reader` values stay valid until the call returns
+  while the caller may close the objects backing that hour's readers;
+  the promise covers that hour's observation in that call only,
+  not an object the source also returns for another hour or shares with another lookup.
+  No API is added.
   It derives the key from the primary (G5-122) and fails with `ErrNotPrimary` when the record is not a `data` record whose function is available and odd, or is absent from a complete read (G5-125).
   `TxOptions`: `MaxHours` (the hours scheduled from `Hour`, default 2, G5-121, G5-287), `MaxHeldBytes` per read, `MaxConflicts` over the lookup and `MaxStateBytes` for the lookup's own state.
   A zero option field takes its default and a negative one is refused, with the function's argument error,

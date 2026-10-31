@@ -2,13 +2,28 @@ package tracepack
 
 import "context"
 
-// PackSource gives FindTransaction the packs of each hour it reads (the tracepack semantics specification §7.2):
+// PackSource gives FindTransaction and FindTransactions the packs of each hour they read
+// (the tracepack semantics specification §7.2):
 // the packs its caller gives for that hour, of any capture.
 // NewReaderSource returns one over packs the caller opened.
+//
+// A lookup reads the packs Readers returns for an hour only during that hour's read.
+// Once it enters its next Readers call, or once the public call returns when there is no next call,
+// it issues no read of them and has no read in flight on them,
+// on success, error and cancellation alike.
+// A cancelled ctx alone is not that point:
+// a ReadAt in flight takes no context and may still run until the read joins it.
+// After that point the lookup still uses each Reader's decoded header and metadata, which need no reads,
+// so the Reader values stay valid until the call returns,
+// while the caller may close the objects backing that hour's Readers, such as their files.
+// The promise covers that hour's observation in that call only:
+// an object the source also returns for another hour, or shares with another lookup,
+// must not be closed while those may read it.
 type PackSource interface {
 	// Readers returns a Reader for each pack given for the UTC hour hour, of any capture, distinct pack_ids,
 	// in a fresh slice, which FindTransaction never changes; empty for an hour without packs.
-	// The Readers stay valid while the lookup runs.
+	// The Readers stay valid until the lookup returns;
+	// the objects backing them may be closed sooner, as PackSource describes.
 	Readers(ctx context.Context, hour int64) ([]*Reader, error)
 }
 
