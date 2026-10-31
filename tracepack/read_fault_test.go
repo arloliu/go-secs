@@ -19,8 +19,12 @@ import (
 // three zstd blocks of seqs 0-3, 4-7 and 8-11, of one capture within one UTC hour, finalized with a valid footer.
 const readFaultCorpusPack = "testdata/corpus/basic-codec-zstd/pack.tpk"
 
-// faultSentinels are the public sentinels a read-fault test checks an error against, each expected or forbidden.
-var faultSentinels = []error{ErrCorrupt, ErrChecksum, ErrInvalidFooter, ErrNotFinalized, ErrNotTracepack, ErrReadLimit, io.ErrUnexpectedEOF}
+// faultSentinels are the public sentinels a read-fault test checks an error against, each expected or forbidden:
+// the read faults' own, and the classes a read fault must never match, a caller's mistake and a writing call's refusal.
+var faultSentinels = []error{
+	ErrCorrupt, ErrChecksum, ErrInvalidFooter, ErrNotFinalized, ErrNotTracepack, ErrUnsupportedFormat, ErrReadLimit, io.ErrUnexpectedEOF,
+	ErrInvalidArgument, ErrRefused,
+}
 
 // pathErr is one error a read path reported for a fault, named by the path.
 type pathErr struct {
@@ -213,6 +217,7 @@ func TestReadFaultSentinels(t *testing.T) {
 			file []byte
 			want []error
 		}{
+			{name: "file header CRC mismatch", file: flipByte(file, 40), want: []error{ErrChecksum}},
 			{name: "CRC mismatch", file: flipByte(file, format.FileHeaderLen+2), want: []error{ErrChecksum}},
 			{name: "TLV that does not decode, its CRC fixed", file: patchMeta(t, file, func(m []byte) { m[0], m[1] = 0, 0 }), want: []error{ErrCorrupt}},
 			{
@@ -483,12 +488,14 @@ func TestOpenCapsMetadataBudget(t *testing.T) {
 	requireNotCorrupt(t, err)
 }
 
-// requireNotCorrupt requires that err matches neither ErrCorrupt nor ErrChecksum.
+// requireNotCorrupt requires that err matches no class of a damaged, foreign or unfinished pack:
+// neither ErrCorrupt nor ErrChecksum, ErrNotTracepack or ErrNotFinalized.
 func requireNotCorrupt(t *testing.T, err error) {
 	t.Helper()
 
-	require.NotErrorIs(t, err, ErrCorrupt, "%v", err)
-	require.NotErrorIs(t, err, ErrChecksum, "%v", err)
+	for _, class := range []error{ErrCorrupt, ErrChecksum, ErrNotTracepack, ErrNotFinalized} {
+		require.NotErrorIs(t, err, class, "%v", err)
+	}
 }
 
 // sparseReaderAt is an io.ReaderAt over an object whose first bytes are head and whose other bytes are zero.
