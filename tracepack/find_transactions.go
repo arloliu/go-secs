@@ -118,7 +118,7 @@ type TxRangeResult struct {
 // Returns:
 //   - TxRangeResult: the hours read and the pairings passed to fn, also beside an error.
 //   - error: an error wrapping ErrInvalidQuery, before src is called;
-//     the error of src or of an hour's read, wrapped with the hour;
+//     the error of src or of an hour's read, wrapped with the hour; an error for a nil reader src gives, wrapped with the hour;
 //     an error wrapping ErrReadLimit from MaxCachedBytes or MaxHeldBytes, wrapped with the hour,
 //     or from a lookup's MaxConflicts or MaxStateBytes, wrapped with its key;
 //     ctx's error, wrapped;

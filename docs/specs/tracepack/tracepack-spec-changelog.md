@@ -170,6 +170,11 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   and §4 says `classify.New` names `go-secs/(devel)` in a Go workspace build, `go-secs/unknown` when the build info does not name go-secs,
   and the required version under a local `replace`.
   No rule changed.
+- 2026-10-31: the §3 `MergeIterate` bullet states that a `ReadAt` that panics makes the read panic on the caller's goroutine when it reaches that block,
+  and that a block read ahead and never reached is dropped with its panic, as the code now does;
+  the §3 `ExportJSONL` bullet says it fails wherever a reader budget keeps part of the pack from the read,
+  a footer over `MaxFooterLen` being reported by `Iterate` only in `FooterErrs`, not as an `IncompleteReasonLimit` defect.
+  No rule changed.
 
 ## Changes vs v1 (summary)
 

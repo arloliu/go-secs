@@ -5,7 +5,8 @@ import "fmt"
 // Reasons a read is incomplete, the "incomplete" status of the tracepack format specification §13.
 const (
 	// IncompleteReasonCorruptBlock reports a block that failed an integrity check:
-	// a CRC, its envelope against its F-2 entry, or I-2.
+	// a CRC, its envelope against its F-2 entry or the forward walk, a body that does not decode, or I-2;
+	// for MergeIterate also dimensions its BlockInfo states that cannot be consistent.
 	IncompleteReasonCorruptBlock IncompleteReason = iota + 1
 	// IncompleteReasonUnknownCodec reports a block whose codec is outside the registry of §2.
 	IncompleteReasonUnknownCodec

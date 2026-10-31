@@ -121,7 +121,8 @@ type VerifyOptions struct {
 type VerifyReport struct {
 	// Outcome is the pack's verification outcome.
 	Outcome VerifyOutcome
-	// Finalized reports I-5: the trailer magic and CRC match, the trailer places the footer after the pack metadata,
+	// Finalized reports I-5: the trailer magic and CRC match,
+	// the trailer places the footer at or after the end of the pack metadata and ending where the trailer starts,
 	// and the footer CRC matches.
 	Finalized bool
 	// FooterErr is PackHeader.FooterErr: non-nil when the footer was not used and the blocks came from the forward walk.
@@ -186,7 +187,7 @@ func classifyOutcome(finalized bool, failed []bool, walkStopped, inconsistent bo
 // It bootstraps the pack as Open does, then reads every located block in full:
 // the F-2 entries of a valid footer, which pass a block whose envelope fails,
 // else the envelopes the forward walk found, which stops at an envelope it cannot account for.
-// A block fails on its envelope, its body CRC, its codec, I-2, or its envelope's agreement with its F-2 entry;
+// A block fails on its envelope, its body CRC, its codec, a body that does not decode, I-2, or its envelope's agreement with its F-2 entry;
 // a block that does not fail is validated.
 // Verify reads blocks one at a time and keeps none of their records.
 //

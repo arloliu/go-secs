@@ -401,6 +401,8 @@ The query service, its catalog database and the live-tail interface are designed
   in time order, and in capture order only when at most one capture has a cluster to read, since with several the filter decides which capture advances next.
   Prefetched blocks count against `MaxHeldBytes`, each admitted only when its whole reservation fits, so a read fails with `ErrReadLimit` exactly where it would without prefetch.
   It may issue several `ReadAt` calls concurrently on a Reader's `io.ReaderAt`, as `Open` does, and waits for all of them before it returns, whatever its outcome.
+  A `ReadAt` that panics makes it panic with that value on the caller's goroutine when the read reaches the block of that `ReadAt`;
+  a block read ahead that the read never reaches is dropped with its panic, as with its error.
   Readers must be distinct packs (no repeated `pack_id`); the guarantees cover the readers given.
   Copies of a record are compared before the filter, identical ones yielded once, and every selected version of a `conflict` yielded with `Item.Conflict` set;
   `Result.Conflicts` lists every conflict of every compared cluster in discovery order, each with its versions in version order,
@@ -512,9 +514,10 @@ The query service, its catalog database and the live-tail interface are designed
   open defects, the `coverage` entries that intersect the query, the crash gaps ([SEM §7.4] Crash gaps), and every failed block and every block or footer value found disagreeing with its records ([SEM §7.4]) in `Incomplete`, whose records are exported;
   `FooterErrs` as `Iterate` sets it, a footer error alone not making the result incomplete.
   A record whose body is not valid ([JSONL §6]) is exported without `body` and adds nothing to `Result`.
-  Where `Iterate` lists a reader budget as an `IncompleteReasonLimit` defect, `ExportJSONL` fails instead (G5-171, [JSONL §7]):
-  with an error wrapping `ErrReadLimit`, before writing anything, when the footer was not used because it is over `MaxFooterLen` or the forward walk stopped at `MaxWalkedBlocks`,
-  and when it reaches a block over `MaxBlockLen`.
+  Wherever a reader budget keeps part of the pack from the read, `ExportJSONL` fails instead (G5-171, [JSONL §7]):
+  with an error wrapping `ErrReadLimit`, before writing anything, when the footer was not used because it is over `MaxFooterLen`, which `Iterate` reports only in `FooterErrs`,
+  or the forward walk stopped at `MaxWalkedBlocks`, which `Iterate` lists as an `IncompleteReasonLimit` defect;
+  and when it reaches a block over `MaxBlockLen`, also such a defect in `Iterate`.
   Other errors: `ctx`'s error, wrapped, checked before the header line and before each block; a `ReadAt` error, wrapped, as `Iterate` returns it;
   a write error of `w`, wrapped, `io.ErrShortWrite` for a short write. On an error the `Result` holds what was found so far, and the bytes written stay written for the caller to discard.
   It writes each line in pieces of at most 64 KiB, so a line may take several `Write` calls (G5-172);

@@ -215,9 +215,11 @@ type MergeOptions struct {
 	// MaxFooterLen bounds the archive's footer, decoded and on disk, and what Merge keeps to build it while it writes;
 	// over it the merge fails with ErrMergeLimit.
 	// Zero means DefaultMaxFooterLen, so a Reader with default options uses the archive's footer.
-	// The budget counts, for each block written, its F-2 entry, its F-3 list and the block descriptor Merge keeps,
-	// and a verbatim F-3 list copied from an input counts twice, as the footer's bytes and as Merge's copy of them,
-	// so a budget admits an archive footer of up to about half its size.
+	// The budget counts, for each block written, its F-2 entry and its F-3 list,
+	// a fixed estimate of the summary Merge keeps for it, 336 bytes and more per epoch, boundary, seq range and count entry,
+	// and a verbatim F-3 list copied from an input once more, as Merge's copy of it;
+	// so for ordinary blocks a budget admits an archive footer of only about a third of its size,
+	// a share that grows with the size of the blocks' F-3 lists.
 	MaxFooterLen int64
 	// OnConflict receives every conflict the merge finds, record conflicts or entry conflicts (see ErrMergeConflict),
 	// in ascending seq, at most once per capture_id and seq;
@@ -470,7 +472,7 @@ type mergeCluster = seqCluster[mergeBlock]
 // Any other cluster, and a duplicate candidate whose blocks differ, is resolved record by record, in ascending seq.
 // Its blocks are taken in ascending first seq, then in input order;
 // a block is read when the resolution reaches its first seq, and released once its last record is resolved,
-// so at most opts.MaxOpenBlocks blocks are held at once.
+// so at most opts.MaxOpenBlocks blocks are held at once, beside the one it is reading.
 // A block whose envelope and on-disk body equal those of a block held with the same first seq is dropped as a duplicate.
 // Records of one seq that are equal, header row and payload byte for byte, are written once;
 // records of one seq that differ are a conflict, which opts.OnConflict receives.
@@ -524,12 +526,13 @@ type mergeCluster = seqCluster[mergeBlock]
 //
 // Returns:
 //   - MergeReport: what the archive holds; on error, only the conflicts found (see MergeReport).
-//   - error: an empty opts.WriterTag, a nil opts.OnConflict, an opts.ScopeGeneration of 0,
+//   - error: an undefined opts.CompressionLevel, an empty opts.WriterTag, a nil opts.OnConflict, an opts.ScopeGeneration of 0,
 //     an opts.ScopeGeneration or opts.PublisherEpoch above 2^63-1,
 //     a negative or oversized opts.BlockThreshold, a negative opts.MaxOpenBlocks, opts.MaxParallelOpens or opts.MaxFooterLen,
 //     no inputs, an input without a ReaderAt, or a negative budget field of opts.Reader;
 //     an opts.ReplacementSetID equal to an archive input's replacement_set_id,
 //     or an opts.PackID that names an input or a pack of an input's compacted_from or supersedes;
+//     an error of the system's random source, wrapped, drawing a new UUIDv7 for an opts.ReplacementSetID or opts.PackID left zero;
 //     an error wrapping ErrMergeInput; an error wrapping an input's ReaderAt error, or ErrReadLimit, naming the input;
 //     a *FieldError validating the archive's pack metadata;
 //     an error wrapping ErrMergeLimit for archive pack metadata longer than opts.Reader.MaxPackMetadataLen,

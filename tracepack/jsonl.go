@@ -35,11 +35,11 @@ import (
 // a crash gap for every stop-unclean boundary of the pack, from its footer or from the records of its walked blocks,
 // and the defect of every block that failed or disagrees with its F-2 entry;
 // FooterErrs as Iterate sets it, a footer error alone not making the Result incomplete.
-// Where Iterate reports a reader budget as an IncompleteReasonLimit defect, ExportJSONL fails instead,
+// ExportJSONL fails, wrapping ErrReadLimit, wherever a reader budget keeps part of the pack from the read,
 // so that an export that succeeds never depends on ReaderOptions:
-// before writing anything when the footer was not used because it is over MaxFooterLen
-// or the forward walk stopped at MaxWalkedBlocks,
-// and when it reaches a block over MaxBlockLen, after the lines of the blocks before it.
+// before writing anything when the footer was not used because it is over MaxFooterLen, which Iterate reports only in FooterErrs,
+// or the forward walk stopped at MaxWalkedBlocks, which Iterate reports as an IncompleteReasonLimit defect;
+// and when it reaches a block over MaxBlockLen, also such a defect in Iterate, after the lines of the blocks before it.
 // No IncompleteReasonLimit defect is ever listed in the Result.
 //
 // ExportJSONL may write a line in several pieces, so a line may take several Write calls;

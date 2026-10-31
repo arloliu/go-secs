@@ -339,7 +339,8 @@ For readers and troubleshooters working on local files:
   a pack of minor 1 `tracepack-jsonl/2`, which names the additions of format 1.1,
   and any other pack `tracepack-jsonl/3`, which also names `recorder_instance_name`.
   A damaged pack exports the records of its validated blocks, and the returned `Result` reports what was lost exactly as `Iterate`'s does:
-  a failed block or a crash gap makes it incomplete, while a footer that is not used, with every block found by the forward walk, only adds an entry to `FooterErrs`.
+  a failed block, a block that disagrees with its F-2 entry, a crash gap, a coverage entry or an unfinalized pack makes it incomplete;
+  a footer not used in a finalized pack whose walk accounts for every block adds only an entry to `FooterErrs`.
   A reader budget that keeps part of the pack out fails the export with an error wrapping `ErrReadLimit` instead;
   after any error, discard what was written.
   A line may be written in several pieces, currently of at most 64 KiB each, so one line may take several `Write` calls.
@@ -388,7 +389,7 @@ and opening them at once removes that wait on any number of CPUs.
     and reports a crash gap once per read, so a gap held by the packs of two hours is reported by both;
   - copies of a seq are compared only among the packs of one read,
     so a seq held by the packs of two hours is not reported as a conflict;
-  - `OrderCapture` over several captures yields capture by capture, not in hour order;
+  - `OrderCapture` over several captures keeps seq order within each capture while the captures interleave, not in hour order;
   - `MaxHeldBytes` and `MaxConflicts` bound each read, so reads in parallel hold up to that many times `MaxHeldBytes`.
 
 ## Merging and storage
