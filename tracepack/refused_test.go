@@ -289,6 +289,20 @@ func TestErrRefusedArguments(t *testing.T) {
 
 			return err
 		}, "exceeds the u32 summary_len"},
+		{"pack metadata whose string is not valid UTF-8", func(*testing.T) error {
+			return newWriterErr(func(m *PackMeta) { m.Recorder = "\xff" }, nil)
+		}, "tag 0x0006 at offset 0: tlv: utf8 value is not valid UTF-8"},
+		{"pack metadata whose u64 is above 2^63-1", func(*testing.T) error {
+			return newWriterErr(func(m *PackMeta) { m.DeviceID = new(uint64(1 << 63)) }, nil)
+		}, "tag 0x0025 at offset 0: tlv: u64 value exceeds 2^63-1"},
+		{"an Unknown entry of tag zero", func(*testing.T) error {
+			return newWriterErr(func(m *PackMeta) { m.Unknown = []RawEntry{{Tag: 0, Type: uint8(tlv.TypeUTF8), Value: []byte("x")}} }, nil)
+		}, "tag 0x0000 is invalid"},
+		{"an Unknown entry whose length does not match its type", func(*testing.T) error {
+			return newWriterErr(func(m *PackMeta) { m.Unknown = []RawEntry{{Tag: 0x7F00, Type: uint8(tlv.TypeU64), Value: []byte("x")}} }, nil)
+		}, "value length does not match its type"},
+		{"a close of metadata whose string is not valid UTF-8", writeClose(func(o *CloseOptions) { o.Meta.Recorder = "\xff" }),
+			"utf8 value is not valid UTF-8"},
 		{"nil CloseOptions.Meta", writeClose(func(o *CloseOptions) { o.Meta = nil }), "CloseOptions.Meta is nil"},
 		{"nil CloseOptions.CaptureID", writeClose(func(o *CloseOptions) { o.CaptureID = UUID{} }), "CaptureID is the nil UUID"},
 		{"a close of another time source", writeClose(func(o *CloseOptions) { o.Meta.TimeSource = TimeSourceGenerator }), "not capture-clock"},
@@ -742,7 +756,8 @@ func exprString(e ast.Expr) string {
 	}
 }
 
-// TestErrRefusedSegmentWriterCalls requires the refusals of AppendEvent and Tick to be marked at their own boundary.
+// TestErrRefusedSegmentWriterCalls requires the refusals of AppendEvent and Tick to be marked at their own boundary,
+// and a refused AppendEvent to leave the SegmentWriter usable.
 // Tick refuses nothing of its own input, now deciding only whether the segment rolls:
 // it returns the refusal of the segment's Writer closing the open block.
 func TestErrRefusedSegmentWriterCalls(t *testing.T) {
@@ -753,6 +768,32 @@ func TestErrRefusedSegmentWriterCalls(t *testing.T) {
 
 		w, _ := newSeg(t, nil)
 		requireRefused(t, w.AppendEvent(t.Context(), segAt(time.Second), 0, nil), ErrInvalidRecord)
+	})
+	t.Run("AppendEvent of an event the encoding refuses", func(t *testing.T) {
+		t.Parallel()
+
+		bad := "\xff"
+		tests := []struct {
+			name string
+			ev   *TransportEvent
+			msg  string
+		}{
+			{"a string that is not valid UTF-8", &TransportEvent{Event: EventStateTransition, Detail: &bad}, "utf8 value is not valid UTF-8"},
+			{"an Unknown entry of tag zero",
+				&TransportEvent{Event: EventStateTransition, Unknown: []RawEntry{{Tag: 0, Type: uint8(tlv.TypeUTF8)}}}, "tag 0x0000 is invalid"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				w, _ := newSeg(t, nil)
+				err := w.AppendEvent(t.Context(), segAt(time.Second), 1, tt.ev)
+				requireRefused(t, err, errArgument)
+				require.ErrorContains(t, err, tt.msg)
+				require.NoError(t, w.AppendFrame(t.Context(), segAt(2*time.Second), DirHostToEquipment, 1, blockTestFrame, 0),
+					"a refusal leaves the SegmentWriter usable")
+			})
+		}
 	})
 	t.Run("Tick", func(t *testing.T) {
 		t.Parallel()

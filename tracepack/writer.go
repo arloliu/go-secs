@@ -104,7 +104,8 @@ var (
 	// NewSegmentWriter, and SegmentWriter's Append, AppendFrame, AppendEvent, Tick, Rotate and Close.
 	// They add it to an error wrapping ErrSeqOrder, ErrPayloadTooLarge, ErrFieldValidity, ErrMetadataCommitment,
 	// ErrValidation, ErrScopeBreach, ErrInvalidRecord, ErrRequiredTag, ErrFieldValue, ErrFieldLength,
-	// ErrAnnotationText or ErrReservedTag, and to an invalid argument or option, such as a nil WriterOptions.Meta.
+	// ErrAnnotationText or ErrReservedTag, and to an invalid argument or option, such as a nil WriterOptions.Meta,
+	// or a value of the pack metadata or of an AppendEvent event that the encoding refuses.
 	//
 	// It is never added to an error of Merge, of ctx, or of the Writer's prior state (ErrWriterFailed, ErrClosed),
 	// nor to an error of the destination, a Syncer, a SegmentSink, a SegmentFile or the random source,
@@ -328,6 +329,8 @@ type Writer struct {
 //     nor masked at write, or when the metadata breaks a writer rule of format 1.1 (see ErrMetadataCommitment),
 //     an error for AssignSeq in a pack masked at write,
 //     an error wrapping ErrScopeBreach when the pack is not an extract and its period is empty or not inside one UTC hour,
+//     an error naming the first value of opts.Meta the encoding refuses, such as a string that is not valid UTF-8,
+//     a u64 above 2^63-1 or a malformed Unknown entry,
 //     or the error of writing the header,
 //     which is io.ErrShortWrite when w takes fewer bytes than it was given without reporting an error.
 //     An error opts determines also wraps ErrRefused.
@@ -599,7 +602,8 @@ func checkClockOptions(opts *WriterOptions) error {
 func encodeHead(meta *PackMeta, opts *WriterOptions) ([]byte, error) {
 	metaBytes, err := meta.MarshalBinary()
 	if err != nil {
-		return nil, err
+		// The metadata is the caller's, so an encoding refusal of it is the caller's argument (refuse).
+		return nil, argument(err)
 	}
 	if uint64(len(metaBytes)) > math.MaxUint32 {
 		return nil, argument(fmt.Errorf("tracepack: pack metadata of %d bytes exceeds its u32 length field", len(metaBytes)))

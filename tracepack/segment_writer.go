@@ -509,7 +509,9 @@ func (w *SegmentWriter) addFrame(ctx context.Context, at time.Time, dir Dir, epo
 // Returns:
 //   - error: ErrInvalidRecord for a nil ev, an at that is not representable, a capture boundary of kind start, stop or stop-unclean,
 //     or an ev whose encoding does not decode;
-//     the error of encoding ev; or a refusal or failure as SegmentWriter describes.
+//     an error naming the first value of ev the encoding refuses, such as a string that is not valid UTF-8 or a malformed Unknown entry,
+//     after which the SegmentWriter is still usable;
+//     or a refusal or failure as SegmentWriter describes.
 func (w *SegmentWriter) AppendEvent(ctx context.Context, at time.Time, epoch uint32, ev *TransportEvent) error {
 	return refuse(w.addEvent(ctx, at, epoch, ev))
 }
@@ -529,7 +531,8 @@ func (w *SegmentWriter) addEvent(ctx context.Context, at time.Time, epoch uint32
 	}
 	payload, err := ev.MarshalBinary()
 	if err != nil {
-		return fmt.Errorf("tracepack: encode transport event: %w", err)
+		// ev is the caller's, so an encoding refusal of it is the caller's argument (refuse).
+		return fmt.Errorf("tracepack: encode transport event: %w", argument(err))
 	}
 
 	r := Record{
