@@ -10,16 +10,16 @@ import (
 )
 
 // ErrInvalidQuery reports a read that cannot run, before anything is read,
-// except a Reader or pack_id that a PackSource gives twice for one hour, found when that hour is read:
+// except a nil reader, or a Reader or pack_id given twice, that a PackSource gives for one hour, found when that hour is read:
 // for Reader.Iterate and MergeIterate, a nil fn or a Query whose TimeFrom is after its TimeTo;
 // for MergeIterate also an Order that is not one,
 // a nil reader, a Reader given twice, two readers holding the same pack_id, or a negative MaxHeldBytes or MaxConflicts;
 // for FindTransaction a nil PackSource, a zero TxKey.CaptureID, a TxKey.Seq above 2^63-1, a TxKey.Hour outside [MinTxHour, MaxTxHour],
 // a negative field of TxOptions, a last hour scheduled past MaxTxHour,
-// or a Reader or pack_id the PackSource gives twice for one hour;
+// or a nil reader, or a Reader or pack_id given twice, that the PackSource gives for one hour;
 // for FindTransactions a nil PackSource, a nil fn, a zero TxRange.CaptureID, a range not representable as int64 nanoseconds or empty,
 // hours of the range outside [MinTxHour, MaxTxHour], a negative field of TxRangeOptions or of its Lookup,
-// a last hour scheduled past MaxTxHour, or a Reader or pack_id the PackSource gives twice for one hour;
+// a last hour scheduled past MaxTxHour, or a nil reader, or a Reader or pack_id given twice, that the PackSource gives for one hour;
 // for NewReaderSource a nil reader, a Reader given twice, two readers of one pack_id, readers of several tool_ids,
 // an extract, or a reader whose period is empty or not inside one UTC hour.
 //

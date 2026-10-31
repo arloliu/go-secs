@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
@@ -482,7 +483,8 @@ type mergeCluster = seqCluster[mergeBlock]
 // a new block holds records of one record_header_len
 // while their decoded size, Σ record_header_len + payload_len, stays within opts.BlockThreshold,
 // so a record whose decoded size alone reaches it is written in a block of its own.
-// A new block of the resolution that fails its check fails the merge.
+// A new block of the resolution that fails its check fails the merge; its records passed their checks,
+// so such an error, like a block the archive's Writer refuses, reports a defect of this package.
 // Once a conflict is found nothing more is written, but every block is still read, checked and compared,
 // so opts.OnConflict receives every conflict, before Merge returns ErrMergeConflict.
 //
@@ -526,11 +528,12 @@ type mergeCluster = seqCluster[mergeBlock]
 //
 // Returns:
 //   - MergeReport: what the archive holds; on error, only the conflicts found (see MergeReport).
-//   - error: an undefined opts.CompressionLevel, an empty opts.WriterTag, a nil opts.OnConflict, an opts.ScopeGeneration of 0,
-//     an opts.ScopeGeneration or opts.PublisherEpoch above 2^63-1,
+//   - error: an error wrapping ErrInvalidArgument, before any input is read, for an undefined opts.CompressionLevel,
+//     an empty opts.WriterTag, or one that is not valid UTF-8, beside a *FieldError naming writer,
+//     a nil opts.OnConflict, an opts.ScopeGeneration of 0, an opts.ScopeGeneration or opts.PublisherEpoch above 2^63-1,
 //     a negative or oversized opts.BlockThreshold, a negative opts.MaxOpenBlocks, opts.MaxParallelOpens or opts.MaxFooterLen,
 //     no inputs, an input without a ReaderAt, or a negative budget field of opts.Reader;
-//     an opts.ReplacementSetID equal to an archive input's replacement_set_id,
+//     an error wrapping ErrInvalidArgument for an opts.ReplacementSetID equal to an archive input's replacement_set_id,
 //     or an opts.PackID that names an input or a pack of an input's compacted_from or supersedes;
 //     an error of the system's random source, wrapped, drawing a new UUIDv7 for an opts.ReplacementSetID or opts.PackID left zero;
 //     an error wrapping ErrMergeInput; an error wrapping an input's ReaderAt error, or ErrReadLimit, naming the input;
@@ -540,7 +543,7 @@ type mergeCluster = seqCluster[mergeBlock]
 //     or for a cluster whose resolution would hold more than opts.MaxOpenBlocks blocks;
 //     an error wrapping ErrMergeConflict once every block was compared,
 //     or, before any block is read, for redaction entries that differ;
-//     the error of a new block of the resolution that fails its check;
+//     the error of a new block of the resolution that fails its check, which reports a defect of this package;
 //     an error wrapping io.ErrUnexpectedEOF, naming the input and the block, for a block read cut short;
 //     the error of writing to dst, io.ErrShortWrite for a write that takes fewer bytes without an error,
 //     or of syncing it;
@@ -587,7 +590,7 @@ func planReport(err error) MergeReport {
 //   - error: the errors of Merge before the archive's header.
 func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions, hooks mergeHooks) (*mergePlan, error) {
 	if err := checkMergeOptions(inputs, opts); err != nil {
-		return nil, err
+		return nil, argument(err)
 	}
 	p := &mergePlan{
 		threshold:     cmp.Or(opts.BlockThreshold, DefaultBlockThreshold),
@@ -633,7 +636,10 @@ func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions, hoo
 }
 
 // checkMergeOptions rejects options Merge cannot honor, no inputs, an input without a ReaderAt,
-// and then a negative budget field of opts.Reader, so the errors before it win.
+// and then a negative budget field of opts.Reader, so the errors before it win;
+// planMerge marks its error as the caller's argument (argument).
+// A WriterTag the pack metadata cannot hold is refused here, before any input is read,
+// as the *FieldError naming writer that encoding the archive's metadata would return.
 func checkMergeOptions(inputs []MergeInput, opts *MergeOptions) error {
 	if err := checkCompressionLevel("MergeOptions", opts.CompressionLevel); err != nil {
 		return err
@@ -641,6 +647,9 @@ func checkMergeOptions(inputs []MergeInput, opts *MergeOptions) error {
 	switch {
 	case opts.WriterTag == "":
 		return errors.New("tracepack: MergeOptions.WriterTag is empty")
+	case !utf8.ValidString(opts.WriterTag):
+		return fmt.Errorf("tracepack: MergeOptions.WriterTag: %w",
+			fieldErrorOf(tlv.UTF8Entry(tagWriter, opts.WriterTag).CheckValue(tlv.TypeUTF8), tlv.PackMetadata))
 	case opts.OnConflict == nil:
 		return errors.New("tracepack: MergeOptions.OnConflict is nil, so a conflict could not be reported")
 	case opts.ScopeGeneration == 0:
@@ -1086,10 +1095,10 @@ func (p *mergePlan) identities(opts *MergeOptions) (UUID, error) {
 	for i, r := range p.inputs {
 		m := r.meta
 		if m.PackRole == PackRoleArchive && m.ReplacementSetID != nil && *m.ReplacementSetID == setID {
-			return UUID{}, fmt.Errorf("tracepack: MergeOptions.ReplacementSetID %s is the replacement_set_id of input %d", setID, i)
+			return UUID{}, argument(fmt.Errorf("tracepack: MergeOptions.ReplacementSetID %s is the replacement_set_id of input %d", setID, i))
 		}
 		if p.inputID(i) == packID || slices.Contains(m.CompactedFrom, packID) || slices.Contains(m.Supersedes, packID) {
-			return UUID{}, fmt.Errorf("tracepack: MergeOptions.PackID %s is the id of input %d or of a pack of its lineage", packID, i)
+			return UUID{}, argument(fmt.Errorf("tracepack: MergeOptions.PackID %s is the id of input %d or of a pack of its lineage", packID, i))
 		}
 	}
 	p.packID = packID

@@ -248,11 +248,13 @@ func TestSegmentWriterRepresentableNow(t *testing.T) {
 			segFrame(t, w, time.Second)
 			err := w.Close(t.Context())
 			if !v.ok {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrInvalidRecord)
 				assert.Equal(t, 1, sink.aborts(), "the open segment aborted")
 				assert.Empty(t, sink.keys, "nothing published")
 				calls := sink.calls
-				assert.Equal(t, err, w.Close(t.Context()), "a second Close returns the same failure")
+				again := w.Close(t.Context())
+				require.ErrorIs(t, again, ErrInvalidRecord)
+				assert.Equal(t, err.Error(), again.Error(), "a second Close returns the same failure")
 				assert.Equal(t, calls, sink.calls)
 				sink.noMisuse(t)
 

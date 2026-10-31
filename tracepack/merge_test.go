@@ -246,6 +246,11 @@ func TestMergeOptionErrors(t *testing.T) {
 		{name: "negative footer budget", edit: func(o *MergeOptions) { o.MaxFooterLen = -1 }, msg: "MaxFooterLen"},
 		{name: "no inputs", inputs: []MergeInput{}, msg: "no inputs"},
 		{name: "an input without a ReaderAt", inputs: []MergeInput{inputsOf(a)[0], {Size: 1}}, msg: "input 1 has no ReaderAt"},
+		{name: "an undefined compression level", edit: func(o *MergeOptions) { o.CompressionLevel = CompressionBest + 1 }, msg: "CompressionLevel"},
+		{name: "negative parallel opens", edit: func(o *MergeOptions) { o.MaxParallelOpens = -1 }, msg: "MaxParallelOpens"},
+		// Refused before any input is read, so the unreadable inputs report nothing.
+		{name: "a writer tag that is not valid UTF-8", edit: func(o *MergeOptions) { o.WriterTag = "\xff" }, inputs: notPacks,
+			msg: "MergeOptions.WriterTag: tracepack: writer: "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -259,9 +264,38 @@ func TestMergeOptionErrors(t *testing.T) {
 			if tt.inputs != nil {
 				inputs = tt.inputs
 			}
-			requireMergeRefused(t, inputs, opts, tt.msg)
+			requireMergeRefused(t, inputs, opts, tt.msg, ErrInvalidArgument)
+			_, err := Merge(t.Context(), io.Discard, inputs, opts)
+			require.NotErrorIs(t, err, ErrRefused)
+			require.NotErrorIs(t, err, ErrInvalidQuery)
 		})
 	}
+}
+
+// TestMergeWriterTagFieldError requires Merge to refuse a WriterTag the pack metadata cannot hold
+// as encoding the archive's metadata would: a *FieldError naming writer, wrapping ErrFieldValue and the encoding's reason,
+// with ErrInvalidArgument and without ErrRefused.
+func TestMergeWriterTagFieldError(t *testing.T) {
+	t.Parallel()
+
+	opts := mergeOpts()
+	opts.WriterTag = "\xff"
+	_, err := Merge(t.Context(), io.Discard, inputsOf(mergePack(t, seg0, nil, hourSteps(10, 13, 2))), opts)
+	require.ErrorIs(t, err, ErrInvalidArgument)
+	require.ErrorIs(t, err, ErrFieldValue)
+	require.ErrorIs(t, err, tlv.ErrUTF8)
+	require.NotErrorIs(t, err, ErrRefused)
+	require.NotErrorIs(t, err, ErrCorrupt)
+	var fe *FieldError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, "writer", fe.Field)
+
+	m := repairTestMeta()
+	m.Writer = opts.WriterTag
+	_, merr := m.MarshalBinary()
+	var mfe *FieldError
+	require.ErrorAs(t, merr, &mfe)
+	assert.Equal(t, mfe.Error(), fe.Error(), "the encoding's own FieldError")
 }
 
 func TestMergeIdentities(t *testing.T) {
@@ -552,7 +586,9 @@ func TestMergeInputSet(t *testing.T) {
 
 			opts := mergeOpts()
 			tt.edit(&opts)
-			requireMergeRefused(t, inputsOf(archive, b), opts, tt.msg)
+			requireMergeRefused(t, inputsOf(archive, b), opts, tt.msg, ErrInvalidArgument)
+			_, err := Merge(t.Context(), io.Discard, inputsOf(archive, b), opts)
+			require.NotErrorIs(t, err, ErrRefused)
 		})
 	}
 

@@ -201,7 +201,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64) (*txScopeRead, err
 			if r == nil {
 				l.state.release(cost)
 
-				return nil, fmt.Errorf("tracepack: find transaction: hour %d: readers: reader %d is nil", hour, i)
+				return nil, wrapf("tracepack: find transaction: hour %d: readers: reader %d is nil: %w", hour, i, ErrInvalidQuery)
 			}
 			rd.packs[i] = UUID(r.hdr.PackID)
 		}

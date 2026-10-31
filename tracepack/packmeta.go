@@ -517,7 +517,8 @@ var _ encoding.BinaryMarshaler = (*PackMeta)(nil)
 // MarshalBinary of PackMeta, TransportEvent and Annotation, UnmarshalPackMeta, UnmarshalPackMetaMinor,
 // UnmarshalTransportEvent, UnmarshalAnnotation, EncodeDescriptor and DecodeDescriptor,
 // and the writing calls that encode one (NewWriter, WriteClose, NewSegmentWriter and SegmentWriter.AppendEvent),
-// which also mark it ErrRefused.
+// which also mark it ErrInvalidArgument and ErrRefused;
+// Merge refuses a MergeOptions.WriterTag the pack metadata cannot hold with one naming writer, wrapping ErrInvalidArgument.
 // A decode also wraps ErrCorrupt beside it; an encode never does.
 // A decode of bytes that end inside an entry reports no *FieldError, since no field owns the fault.
 //

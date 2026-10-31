@@ -353,18 +353,90 @@ func TestErrRefusedToolID(t *testing.T) {
 	require.Equal(t, "tool_id", fe.Field)
 }
 
+// TestErrInvalidArgumentOptions requires every error of checking or encoding the options of NewWriter, WriteClose and NewSegmentWriter,
+// one wrapping a sentinel of its own included, to match ErrInvalidArgument beside that sentinel, marked ErrRefused once,
+// and a refusal of a record to match no ErrInvalidArgument.
+func TestErrInvalidArgumentOptions(t *testing.T) {
+	t.Parallel()
+
+	writeClose := func(edit func(*CloseOptions)) func(*testing.T) error {
+		return func(*testing.T) error {
+			opts := closeOptions(closeMeta(1000, false, false), nil)
+			edit(&opts)
+			_, err := WriteClose(io.Discard, opts)
+
+			return err
+		}
+	}
+	tests := []struct {
+		name    string
+		provoke func(t *testing.T) error
+		want    error
+	}{
+		{"a seq_start above 2^63-1", func(*testing.T) error {
+			return newWriterErr(func(m *PackMeta) { m.SeqStart = 1 << 63 }, nil)
+		}, ErrSeqOrder},
+		{"pack_role repair", func(*testing.T) error {
+			return newWriterErr(func(m *PackMeta) { m.PackRole = PackRoleRepair }, nil)
+		}, ErrFieldValue},
+		{"a missing scope_generation", func(*testing.T) error {
+			return newWriterErr(func(m *PackMeta) { m.ScopeGeneration = nil }, nil)
+		}, ErrRequiredTag},
+		{"a period across two UTC hours", func(*testing.T) error {
+			return newWriterErr(func(m *PackMeta) { m.PeriodEnd = m.PeriodStart + 2*hourNs }, nil)
+		}, ErrScopeBreach},
+		{"a thinning entry no record can match", func(*testing.T) error {
+			return newWriterErr(func(m *PackMeta) { m.Thinning = []Thinning{{Stream: 200, Function: 1, Source: "x"}} }, nil)
+		}, ErrFieldValue},
+		{"redaction-present without redaction entries", func(*testing.T) error {
+			return newWriterErr(nil, func(o *WriterOptions) { o.Facts.AnyRedacted = true })
+		}, ErrRequiredTag},
+		{"a close trigger in another hour than the period", writeClose(func(o *CloseOptions) { o.Trigger = o.Trigger.Add(time.Hour) }),
+			ErrScopeBreach},
+		{"a close of metadata without scope_generation", writeClose(func(o *CloseOptions) { o.Meta.ScopeGeneration = nil }), ErrRequiredTag},
+		{"a descriptor without recorder", func(t *testing.T) error {
+			return newSegErr(t, func(o *SegmentWriterOptions) { o.Capture.Recorder = "" })
+		}, ErrRequiredTag},
+		{"a classifier with an empty Name", func(t *testing.T) error {
+			return newSegErr(t, func(o *SegmentWriterOptions) { o.Classifier = &fakeClassifier{} })
+		}, ErrFieldValue},
+		{"a classifier MaxFrameLen above 2^63-1", func(t *testing.T) error {
+			return newSegErr(t, func(o *SegmentWriterOptions) { o.Classifier = &fakeClassifier{name: "c", max: 1 << 63} })
+		}, ErrFieldValue},
+		{"a classifier Name that is not valid UTF-8", func(t *testing.T) error {
+			return newSegErr(t, func(o *SegmentWriterOptions) { o.Classifier = &fakeClassifier{name: "\xff"} })
+		}, ErrFieldValue},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.provoke(t)
+			requireRefused(t, err, tt.want)
+			require.ErrorIs(t, err, ErrInvalidArgument)
+			require.NotErrorIs(t, err, ErrInvalidQuery)
+		})
+	}
+
+	t.Run("a refused record", func(t *testing.T) {
+		t.Parallel()
+
+		for name, provoke := range refusalProvocations {
+			err := provoke(t)
+			if errors.Is(err, ErrInvalidArgument) {
+				// The options of NewWriter provoke these sentinels, the cases above.
+				require.Contains(t, []string{"ErrRequiredTag", "ErrFieldValue", "ErrReservedTag"}, name)
+				continue
+			}
+			requireRefused(t, err, ErrRefused)
+		}
+	})
+}
+
 // TestErrRefusedExcluded requires the errors of writing calls that their input does not determine to be unmarked.
 func TestErrRefusedExcluded(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Now() at Close not representable", func(t *testing.T) {
-		t.Parallel()
-
-		w, _ := newSeg(t, func(o *SegmentWriterOptions) { o.Now = nowAt(time.Date(2300, 1, 1, 0, 0, 0, 0, time.UTC)) })
-		err := w.Close(t.Context())
-		requireNotRefused(t, err)
-		require.ErrorContains(t, err, "Now() at Close")
-	})
 	t.Run("a Create returning no file", func(t *testing.T) {
 		t.Parallel()
 
@@ -792,8 +864,8 @@ func exprString(e ast.Expr) string {
 	}
 }
 
-// TestErrRefusedSegmentWriterCalls requires the refusals of AppendEvent and Tick to be marked at their own boundary,
-// and a refused AppendEvent to leave the SegmentWriter usable.
+// TestErrRefusedSegmentWriterCalls requires the refusals of AppendEvent, Close and Tick to be marked at their own boundary,
+// a refused AppendEvent to leave the SegmentWriter usable, and a Close refusing its Now() to fail it.
 // Tick refuses nothing of its own input, now deciding only whether the segment rolls:
 // it returns the refusal of the segment's Writer closing the open block.
 func TestErrRefusedSegmentWriterCalls(t *testing.T) {
@@ -830,6 +902,17 @@ func TestErrRefusedSegmentWriterCalls(t *testing.T) {
 					"a refusal leaves the SegmentWriter usable")
 			})
 		}
+	})
+	t.Run("Close with a Now() that is not representable", func(t *testing.T) {
+		t.Parallel()
+
+		w, sink := newSeg(t, func(o *SegmentWriterOptions) { o.Now = nowAt(time.Date(2300, 1, 1, 0, 0, 0, 0, time.UTC)) })
+		err := w.Close(t.Context())
+		requireRefused(t, err, ErrInvalidRecord)
+		require.ErrorContains(t, err, "Now() at Close")
+		require.NotErrorIs(t, err, ErrInvalidArgument)
+		assert.Equal(t, 1, sink.aborts(), "the open segment aborted")
+		require.ErrorIs(t, w.Rotate(t.Context()), ErrWriterFailed, "the SegmentWriter failed")
 	})
 	t.Run("Tick", func(t *testing.T) {
 		t.Parallel()

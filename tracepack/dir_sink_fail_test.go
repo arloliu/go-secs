@@ -3,6 +3,7 @@ package tracepack
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,6 +130,31 @@ func TestDirSinkSegmentWriterFaults(t *testing.T) {
 			requireDirSegFailed(t, w, fsys, err)
 		})
 	}
+}
+
+// TestDirSinkClosedSegmentWriter closes the DirSink under a SegmentWriter:
+// the commit a frame of the next hour causes, and a new SegmentWriter's Create, fail with the sink's error wrapping fs.ErrClosed,
+// which reaches the caller as the sink's, never marked ErrRefused.
+func TestDirSinkClosedSegmentWriter(t *testing.T) {
+	t.Parallel()
+
+	w, sink, fsys := newDirSeg(t)
+	ds, ok := sink.SegmentSink.(*DirSink)
+	require.True(t, ok)
+	require.NoError(t, ds.Close())
+
+	err := w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0)
+	require.ErrorIs(t, err, fs.ErrClosed)
+	require.ErrorIs(t, err, errExternal)
+	requireNotRefused(t, err)
+	require.NotErrorIs(t, err, ErrInvalidArgument)
+	requireDirSegFailed(t, w, fsys, err)
+
+	opts := segOptions(ds)
+	opts.Capture.ToolID = dirTestTool
+	_, err = NewSegmentWriter(t.Context(), opts)
+	require.ErrorIs(t, err, fs.ErrClosed)
+	requireNotRefused(t, err)
 }
 
 // TestDirSinkSegmentWriterCancellation cancels the context of the commit a frame of the next hour causes:

@@ -157,16 +157,19 @@ var _ dirFS = rootFS{}
 // so no link makes .partial/ and a key area one directory:
 // .partial itself, checked when the sink is created and at each Create,
 // and every directory component of a key, prefix included, checked by Commit after it creates them and before the rename.
-// Such a link fails NewDirSink or Create, or Commit with a plain error, nothing published.
+// Such a link fails NewDirSink or Create, or Commit with a plain error, nothing published:
+// it reports the environment, and retrying does not cure it.
 // These checks guard against a misconfigured root,
 // not against a process that writes to root while the sink runs, which can remove segments anyway.
 // The sink keeps root open until Close, which the caller calls after the SegmentWriter using the sink is closed.
 // NewDirSink creates <root>/.partial/ and syncs root.
-// It fails on js, where os.Root cannot exclude a link replaced after its check.
+// It fails on js, where os.Root cannot exclude a link replaced after its check, with a plain error.
 // prefix is empty, or a relative '/'-separated path none of whose components is empty, "." or "..",
 // holding no '\' and no ':', so no platform reads it as another separator or as a volume,
 // and whose first component is not .partial, the directory of the temporary files, so no committed segment lies among them;
-// nor, when the sink is created, a name of that same directory, as a case variant is on a file system that folds case.
+// a prefix outside that form is the caller's mistake, an error wrapping ErrInvalidArgument.
+// Nor is it, when the sink is created, a name of that same directory, as a case variant is on a file system that folds case,
+// which the file system decides: a plain error, of the environment.
 // It is used as given, never cleaned, so the path of each file spells its key.
 // On a file system that folds case or rewrites names, as macOS and Windows can, two keys may share a path component;
 // nothing escapes root even then, and no file is overwritten, since every key holds its segment's unique pack_id.
@@ -204,14 +207,17 @@ var _ dirFS = rootFS{}
 // A link failing for another reason, as on a file system without hard links, fails Commit with its error, nothing published,
 // as does a key that is not a regular file, such as a symbolic link, which the sink refuses as it refuses one among its directories,
 // and a failure to compare the files; Abort then removes the temporary file.
+// A key that is not a regular file reports the environment, as a link does: retrying does not cure it.
 //
 // NewDirSink creates files with mode 0640 and directories with mode 0750, less the process umask:
 // no other user reads a segment, which holds records in full,
 // while a group, such as one a setgid root gives every new file, can grant an uploader read access.
 //
-// A second Commit, a Commit after Abort, and a Write or Sync after Commit or Abort return an error;
+// A second Commit, a Commit after Abort, and a Write or Sync after Commit or Abort, which the SegmentFile contract forbids,
+// return an error wrapping ErrInvalidArgument;
 // a second Abort does nothing.
-// After Close, Create and the Commit of a segment not yet committed fail, publishing nothing, as Close describes.
+// After Close, Create and the Commit of a segment not yet committed fail with an error wrapping fs.ErrClosed, publishing nothing,
+// as Close describes.
 // The sink is safe for concurrent use; each SegmentFile it creates is not.
 //
 // Parameters:
@@ -221,7 +227,8 @@ var _ dirFS = rootFS{}
 //
 // Returns:
 //   - *DirSink: the sink; nil on error.
-//   - error: non-nil, before any file is created, on js, for a prefix outside that form, or for a root that is not an existing directory;
+//   - error: non-nil, before any file is created, on js, for a prefix outside that form, wrapping ErrInvalidArgument,
+//     or for a root that is not an existing directory;
 //     the error of creating .partial/, which a .partial leading out of root fails;
 //     an error for a .partial that is a symbolic link;
 //     an error for a prefix whose first component names .partial/ or leads out of root;
@@ -317,14 +324,14 @@ func checkDirSinkPrefix(prefix string) error {
 		return nil
 	}
 	if strings.ContainsAny(prefix, `\:`) {
-		return fmt.Errorf(`tracepack: DirSink prefix %q holds '\' or ':'`, prefix)
+		return argument(fmt.Errorf(`tracepack: DirSink prefix %q holds '\' or ':'`, prefix))
 	}
 	if first, _, _ := strings.Cut(prefix, "/"); first == partialDir {
-		return fmt.Errorf("tracepack: DirSink prefix %q starts with %s, the directory of the temporary files", prefix, partialDir)
+		return argument(fmt.Errorf("tracepack: DirSink prefix %q starts with %s, the directory of the temporary files", prefix, partialDir))
 	}
 	for c := range strings.SplitSeq(prefix, "/") {
 		if c == "" || c == "." || c == ".." {
-			return fmt.Errorf("tracepack: DirSink prefix %q has the component %q", prefix, c)
+			return argument(fmt.Errorf("tracepack: DirSink prefix %q has the component %q", prefix, c))
 		}
 	}
 
@@ -337,7 +344,7 @@ func checkDirSinkPrefix(prefix string) error {
 //   - SegmentFile: the segment; nil on error.
 //   - error: ctx's error; the SegmentKey error, wrapping ErrInvalidKey, for a segment no key can name;
 //     an error for a .partial that is a symbolic link;
-//     an error after Close;
+//     an error wrapping fs.ErrClosed after Close;
 //     or the error of creating the temporary file.
 func (s *DirSink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, error) {
 	s.mu.RLock()
@@ -347,7 +354,7 @@ func (s *DirSink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, er
 		return nil, err
 	}
 	if s.closed {
-		return nil, errors.New("tracepack: DirSink: Create after Close")
+		return nil, fmt.Errorf("tracepack: DirSink: Create after Close: %w", fs.ErrClosed)
 	}
 	key, err := SegmentKey(s.prefix, info.ToolID, info.CaptureID, info.SeqFirst, info.PackID)
 	if err != nil {
@@ -370,8 +377,8 @@ func (s *DirSink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, er
 // close the sink after the SegmentWriter using it is closed.
 // A Commit thus either completes before Close, with the result it has without Close, ErrPublishUncertain included,
 // or starts after it.
-// After Close, Create fails, and the Commit of a segment not yet committed fails with a plain error, publishing nothing;
-// the Abort of such a segment closes its temporary file and returns an error saying the file could not be removed:
+// After Close, Create fails, and the Commit of a segment not yet committed fails, publishing nothing, each with an error wrapping fs.ErrClosed;
+// the Abort of such a segment closes its temporary file and returns an error wrapping fs.ErrClosed saying the file could not be removed:
 // it stays under .partial/, as a temporary file a crash left does.
 // A segment already published, refused or aborted is unaffected: Abort does nothing, and Commit returns its error as before.
 // A second Close does nothing.
@@ -436,7 +443,7 @@ func (f *dirSegment) Commit(ctx context.Context) error {
 		return err
 	}
 	if f.sink.closed {
-		return fmt.Errorf("tracepack: DirSink: Commit of segment %s after Close", f.key)
+		return fmt.Errorf("tracepack: DirSink: Commit of segment %s after Close: %w", f.key, fs.ErrClosed)
 	}
 	if err := f.file.Sync(); err != nil {
 		return fmt.Errorf("tracepack: DirSink: sync segment %s: %w", f.key, err)
@@ -607,7 +614,7 @@ func (f *dirSegment) Abort() error {
 		}
 	}
 	if f.sink.closed {
-		removeErr = fmt.Errorf("tracepack: DirSink: remove segment %s: the sink is closed, so its temporary file %s stays", f.key, f.temp)
+		removeErr = fmt.Errorf("tracepack: DirSink: remove segment %s: the sink is closed, so its temporary file %s stays: %w", f.key, f.temp, fs.ErrClosed)
 	} else if err := f.sink.fsys.remove(f.temp); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		removeErr = fmt.Errorf("tracepack: DirSink: remove segment %s: %w", f.key, err)
 	}
@@ -617,7 +624,7 @@ func (f *dirSegment) Abort() error {
 
 // misuse returns the error of a call the SegmentFile contract forbids in the segment's state.
 func (f *dirSegment) misuse(call string) error {
-	return fmt.Errorf("tracepack: DirSink: %s on segment %s after Commit or Abort", call, f.key)
+	return argument(fmt.Errorf("tracepack: DirSink: %s on segment %s after Commit or Abort", call, f.key))
 }
 
 func (f rootFS) stat(name string) (fs.FileInfo, error) {

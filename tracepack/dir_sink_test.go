@@ -219,7 +219,8 @@ func TestNewDirSinkRefusesPrefix(t *testing.T) {
 
 			root := t.TempDir()
 			s, err := NewDirSink(root, prefix, DirSinkOptions{})
-			require.Error(t, err)
+			require.ErrorIs(t, err, ErrInvalidArgument, "the caller's prefix")
+			require.NotErrorIs(t, err, ErrInvalidKey)
 			assert.Nil(t, s)
 			entries, err := os.ReadDir(root)
 			require.NoError(t, err)
@@ -227,7 +228,7 @@ func TestNewDirSinkRefusesPrefix(t *testing.T) {
 
 			fsys := newRecordFS(t, root)
 			_, err = newDirSinkFS(prefix, fsys, DirSinkOptions{})
-			require.Error(t, err)
+			require.ErrorIs(t, err, ErrInvalidArgument)
 			assert.Empty(t, fsys.calls, "refused before any file-system call")
 		})
 	}
@@ -372,6 +373,7 @@ func TestNewDirSinkRefusesPartialAlias(t *testing.T) {
 		for _, prefix := range []string{"ALIAS", "ALIAS/traces"} {
 			s, err := NewDirSink(root, prefix, DirSinkOptions{})
 			require.ErrorContains(t, err, "the directory of the temporary files", "prefix %q", prefix)
+			assert.NotErrorIs(t, err, ErrInvalidArgument, "prefix %q: the environment's fault", prefix)
 			assert.Nil(t, s)
 		}
 		assert.Equal(t, []string{partialDir, "ALIAS"}, dirNames(t, root))
@@ -402,6 +404,7 @@ func TestNewDirSinkRefusesPartialAlias(t *testing.T) {
 				continue
 			}
 			require.ErrorContains(t, err, "the directory of the temporary files", "prefix %q", tt.prefix)
+			assert.NotErrorIs(t, err, ErrInvalidArgument, "prefix %q: the file system's folding, not the caller's prefix", tt.prefix)
 			assert.Nil(t, s)
 			assert.False(t, hasCall(fsys.calls, "syncDir"), "prefix %q: refused before root is synced", tt.prefix)
 		}
@@ -684,7 +687,8 @@ func TestDirSinkCommitRetry(t *testing.T) {
 }
 
 // TestDirSinkSegmentFileMisuse calls a segment's methods out of the SegmentFile contract:
-// every call after a Commit or an Abort fails without a file-system call, but Abort, which does nothing.
+// every call after a Commit or an Abort fails, with an error wrapping ErrInvalidArgument, without a file-system call,
+// but Abort, which does nothing.
 func TestDirSinkSegmentFileMisuse(t *testing.T) {
 	t.Parallel()
 
@@ -695,10 +699,10 @@ func TestDirSinkSegmentFileMisuse(t *testing.T) {
 	f := writeSegment(t, s, dirTestInfo(0, dirTestPackA), "committed")
 	require.NoError(t, f.Commit(t.Context()))
 	n := len(fsys.calls)
-	require.Error(t, f.Commit(t.Context()))
+	require.ErrorIs(t, f.Commit(t.Context()), ErrInvalidArgument)
 	_, err := f.Write([]byte("x"))
-	require.Error(t, err)
-	require.Error(t, f.Sync())
+	require.ErrorIs(t, err, ErrInvalidArgument)
+	require.ErrorIs(t, f.Sync(), ErrInvalidArgument)
 	require.NoError(t, f.Abort())
 	require.NoError(t, f.Abort())
 	assert.Equal(t, fsys.calls[:n], fsys.calls, "no file-system call")
@@ -714,10 +718,10 @@ func TestDirSinkSegmentFileMisuse(t *testing.T) {
 	_, partial := dirFiles(t, root)
 	assert.Empty(t, partial)
 	n = len(fsys.calls)
-	require.Error(t, f.Commit(t.Context()))
+	require.ErrorIs(t, f.Commit(t.Context()), ErrInvalidArgument)
 	_, err = f.Write([]byte("x"))
-	require.Error(t, err)
-	require.Error(t, f.Sync())
+	require.ErrorIs(t, err, ErrInvalidArgument)
+	require.ErrorIs(t, f.Sync(), ErrInvalidArgument)
 	require.NoError(t, f.Abort())
 	assert.Equal(t, fsys.calls[:n], fsys.calls, "no file-system call")
 
@@ -738,7 +742,7 @@ func TestDirSinkSegmentFileMisuse(t *testing.T) {
 	}
 	require.ErrorIs(t, f.Commit(t.Context()), errInjected)
 	fsys.fail = nil
-	require.Error(t, f.Commit(t.Context()))
+	require.ErrorIs(t, f.Commit(t.Context()), ErrInvalidArgument)
 	require.NoError(t, f.Abort())
 	keys, partial = dirFiles(t, root)
 	assert.Equal(t, []string{dirTestKey(t, 0, dirTestPackA)}, keys)

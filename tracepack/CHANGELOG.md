@@ -52,6 +52,31 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   For tracekeep and veq: test `ErrNotFinalized` (possibly still being written: retry later) before `ErrCorrupt` (report and skip),
   instead of matching text or reading `Defect.Err`'s text; `Defect.Reason` classifies as before,
   and tracekeep's orphan quarantine now has `ErrCorrupt` as positive evidence.
+- **Breaking:** for code matching plain errors, a wrong call or option now wraps `ErrInvalidArgument` wherever it was a plain error (G5-296):
+  a negative `ReaderOptions` field from `Open` and `Verify`;
+  every option `Merge` refuses, a `ReplacementSetID` or `PackID` an input already uses, and a `WriterTag` that is not valid UTF-8,
+  which `Merge` now refuses before it reads any input, beside the `*FieldError` naming `writer` that encoding the archive's metadata returned after reading them;
+  a `NewDirSink` prefix outside the form it states, and a `DirSink` segment's `Write`, `Sync` or `Commit` after its `Commit` or `Abort`.
+  None of these is marked `ErrRefused`.
+  On `NewWriter`, `WriteClose` and `NewSegmentWriter`, every error of checking or encoding their options now also wraps `ErrInvalidArgument`
+  beside its own sentinel, such as `ErrRequiredTag`, `ErrFieldValue`, `ErrMetadataCommitment`, `ErrScopeBreach` or `ErrSeqOrder`,
+  `CaptureDescriptor.Validate`'s `*FieldError` and a classifier's empty `Name` included, still marked `ErrRefused` as before;
+  `CaptureDescriptor.Validate` and the codecs called alone return the field's sentinel without it.
+  Error text is unchanged.
+  For tracekeep and veq: treat `errors.Is(err, tracepack.ErrInvalidArgument)` from `Open`, `Verify`, `Merge` and a `DirSink` as a configuration fault to fix, not to retry;
+  the writing calls' `ErrRefused` matches as before.
+- **Breaking:** a nil reader a `PackSource` gives for an hour fails `FindTransaction` and `FindTransactions` with an error wrapping `ErrInvalidQuery`, wrapped with the hour, as a `Reader` or `pack_id` given twice does (G5-296);
+  it was a plain error.
+  For tracekeep: such an error now maps to a query's invalid argument, as the other faults of a source do.
+- **Breaking:** after `(*DirSink).Close`, `Create` and the `Commit` of a segment not yet committed fail with an error wrapping `fs.ErrClosed`,
+  and the `Abort` of such a segment reports, wrapping `fs.ErrClosed`, that its temporary file stays (G5-296);
+  their text gains `: file already closed`.
+  A `DirSink` error reaches a `SegmentWriter`'s caller as the sink's, never marked `ErrRefused`.
+  The `DirSink` faults of the environment, a symbolic link where it manages directories, a key that is not a regular file, a prefix the file system folds into `.partial`, and `js`, stay plain errors, documented as not cured by retrying.
+  For veq: test `errors.Is(err, fs.ErrClosed)` instead of matching the text.
+- **Breaking:** `SegmentWriter.Close` with a `Now()` that is not representable wraps `ErrInvalidRecord` and is marked `ErrRefused`, as the same fault of an append is (G5-296);
+  it was a plain error. The `SegmentWriter` still fails and aborts its open segment.
+  For tracekeep: a flush that receives it parks the capture instead of retrying it.
 - **Breaking:** `redact.Compile` refuses, with `redact.ErrInvalidPolicy`, a policy whose `PackPolicy` the pack metadata cannot hold:
   an `ID`, `DigestKeyID` or `Encryption.KeyID` that is not valid UTF-8, or a `Version` above 2^63 − 1.
   `NewWriter` refused every such policy's pack metadata, at each flush; it now fails once, at configuration.

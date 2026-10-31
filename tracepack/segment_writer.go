@@ -227,7 +227,7 @@ type segmentOutput struct {
 //     or a pack metadata value the encoding refuses, with a *FieldError naming its field,
 //     such as classifier for a classifier Name that is not valid UTF-8;
 //     ctx's error; or an error of the sink or of writing the start boundary, after its segment was aborted.
-//     An error opts determines also wraps ErrRefused.
+//     An error opts determines, of the descriptor, the options or a pack metadata value, also wraps ErrInvalidArgument and ErrRefused.
 func NewSegmentWriter(ctx context.Context, opts SegmentWriterOptions) (*SegmentWriter, error) {
 	w, err := startSegmentWriter(ctx, opts)
 	if err != nil {
@@ -239,8 +239,9 @@ func NewSegmentWriter(ctx context.Context, opts SegmentWriterOptions) (*SegmentW
 
 // startSegmentWriter does the work of NewSegmentWriter, without adding ErrRefused (refuse).
 func startSegmentWriter(ctx context.Context, opts SegmentWriterOptions) (*SegmentWriter, error) {
+	// The descriptor is the caller's, so its refusal is the caller's argument (refuse).
 	if err := opts.Capture.Validate(); err != nil {
-		return nil, err
+		return nil, argument(err)
 	}
 
 	w, err := prepareSegmentWriter(&opts)
@@ -293,10 +294,10 @@ func prepareSegmentWriter(opts *SegmentWriterOptions) (*SegmentWriter, error) {
 	if c := opts.Classifier; c != nil {
 		params.classifier, params.maxFrameLen = c.Name(), c.MaxFrameLen()
 		if params.classifier == "" {
-			return nil, &FieldError{Field: "classifier", Err: ErrFieldValue}
+			return nil, argument(&FieldError{Field: "classifier", Err: ErrFieldValue})
 		}
 		if params.maxFrameLen > format.MaxU64 {
-			return nil, &FieldError{Field: "max_frame_len", Err: ErrFieldValue}
+			return nil, argument(&FieldError{Field: "max_frame_len", Err: ErrFieldValue})
 		}
 	}
 
@@ -626,7 +627,8 @@ func (w *SegmentWriter) rollOpen(ctx context.Context) error {
 
 // Close appends the stop boundary at Now(), then finalizes and commits the last segment.
 //
-// A Now() that is not representable fails Close, which aborts the open segment and writes no stop.
+// A Now() that is not representable fails Close with ErrInvalidRecord, a refusal as the same fault of an append is,
+// and Close aborts the open segment and writes no stop.
 // When too few seqs are left for the stop boundary, Close finalizes and commits the open segment without it and fails.
 // Once a Close has run to its end, a later Close returns its result without a sink call,
 // as does a Close on a failed SegmentWriter, which returns the failure;
@@ -634,6 +636,7 @@ func (w *SegmentWriter) rollOpen(ctx context.Context) error {
 //
 // Returns:
 //   - error: ctx's error before any sink call, the SegmentWriter still usable;
+//     an error wrapping ErrInvalidRecord for a Now() that is not representable, the SegmentWriter failed;
 //     an error wrapping ErrSeqOrder when no seq is left for the stop boundary;
 //     or a failure as SegmentWriter describes.
 func (w *SegmentWriter) Close(ctx context.Context) error {
@@ -660,7 +663,8 @@ func (w *SegmentWriter) closeCapture(ctx context.Context) error {
 	now := w.now()
 	ts, ok := w.representable(now)
 	if !ok {
-		return w.fail(fmt.Errorf("tracepack: Now() at Close, %v, is not representable", now))
+		return w.fail(fmt.Errorf("tracepack: Now() at Close, %v, is not representable with a %v flush interval: %w",
+			now, time.Duration(w.flush), ErrInvalidRecord))
 	}
 
 	stop, err := w.boundaryRecord(BoundaryKindStop, now, ts)

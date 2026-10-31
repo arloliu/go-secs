@@ -229,6 +229,11 @@ The query service, its catalog database and the live-tail interface are designed
   A public encode or decode of a TLV body reports an entry's fault as a `*FieldError` naming the field, dotted for a nested tag, with `ErrRequiredTag`, `ErrFieldLength` or `ErrFieldValue`;
   a decode also wraps `ErrCorrupt`, an encode never, and a writing call marks such an error `ErrRefused`.
   The option errors of `Open`, `Verify` and `Merge`, `EncodeDescriptor(nil)` and `ParseUUID` wrap `ErrInvalidArgument`, and a nil reader from a `PackSource` `ErrInvalidQuery`.
+  The field's sentinel names the fault on every path, and the call that took the value as its argument or option adds `ErrInvalidArgument`:
+  `NewWriter`, `WriteClose` and `NewSegmentWriter` for every error of checking or encoding their options, and `SegmentWriter.AppendEvent` for an event the encoding refuses, each still marked `ErrRefused`;
+  `Merge`, unmarked, for its options, a `WriterTag` the pack metadata cannot hold (beside the `*FieldError` naming `writer`) and a `ReplacementSetID` or `PackID` an input already uses;
+  a standalone codec or `Validate` returns the field's sentinel without it.
+  `Merge`'s checks of its own blocks report a defect of this package and wrap no input or argument sentinel.
   Where `Err` stays descriptive, the field beside it classifies: `Defect.Reason` for coverage and crash gaps, `TxGap`'s fields, and `WriterDefect.Kind`;
   `PackError` and `TxPackError` stay value types, found in `FooterErrs`.
   The package documentation and the README give one decision table per call family, the first match deciding.
