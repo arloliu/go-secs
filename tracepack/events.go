@@ -123,7 +123,7 @@ var transportEventSetters = map[uint16]func(t *TransportEvent, e tlv.Entry) erro
 			return err
 		}
 		if len(b) != primarySystemBytesLen {
-			return fmt.Errorf("tracepack: primary_system_bytes holds %d bytes: %w", len(b), ErrFieldLength)
+			return &FieldError{Field: "primary_system_bytes", Err: fmt.Errorf("%w: %d bytes, not %d", ErrFieldLength, len(b), primarySystemBytesLen)}
 		}
 		copy(t.PrimarySystemBytes[:], b)
 		t.PrimarySystemBytesPresent = true
@@ -163,12 +163,14 @@ var annotationSetters = map[uint16]func(a *Annotation, e tlv.Entry) error{
 // Returns:
 //   - []byte: the encoded payload.
 //   - error: a *FieldError wrapping ErrReservedTag for an Unknown entry that names a tag this package already encodes,
-//     or an error naming the first value the decoder would reject.
+//     or an error wrapping a *FieldError for the first value the decoder would reject (see FieldError),
+//     its Err wrapping ErrFieldValue, or ErrFieldLength for an Unknown entry whose value does not fit its value type.
+//     It never wraps ErrCorrupt.
 func (t *TransportEvent) MarshalBinary() ([]byte, error) {
 	entries := []tlv.Entry{tlv.U8Entry(tagEvent, uint8(t.Event))}
 	entries = t.appendOptionalEntries(entries)
 
-	entries, err := appendUnknownEntries(entries, t.Unknown, tlv.TransportEvent)
+	entries, err := appendUnknownEntries(entries, t.Unknown, tlv.TransportEvent, "")
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +186,9 @@ func (t *TransportEvent) MarshalBinary() ([]byte, error) {
 //   - []byte: the encoded payload.
 //   - error: ErrAnnotationText if Text and Raw are not exactly one of the two,
 //     a *FieldError wrapping ErrReservedTag for an Unknown entry that names a tag this package already encodes,
-//     or an error naming the first value the decoder would reject.
+//     or an error wrapping a *FieldError for the first value the decoder would reject (see FieldError),
+//     its Err wrapping ErrFieldValue, or ErrFieldLength for an Unknown entry whose value does not fit its value type.
+//     It never wraps ErrCorrupt.
 func (a *Annotation) MarshalBinary() ([]byte, error) {
 	if err := a.validateTextRaw(); err != nil {
 		return nil, err
@@ -193,7 +197,7 @@ func (a *Annotation) MarshalBinary() ([]byte, error) {
 	entries := []tlv.Entry{tlv.U8Entry(tagAnnotationKind, uint8(a.AnnotationKind))}
 	entries = a.appendOptionalEntries(entries)
 
-	entries, err := appendUnknownEntries(entries, a.Unknown, tlv.Annotation)
+	entries, err := appendUnknownEntries(entries, a.Unknown, tlv.Annotation, "")
 	if err != nil {
 		return nil, err
 	}
@@ -209,14 +213,50 @@ func (a *Annotation) MarshalBinary() ([]byte, error) {
 //
 // Returns:
 //   - *TransportEvent: the decoded payload; nil on error.
-//   - error: non-nil if b is not valid TLV or fails the registry check.
+//   - error: an error wrapping ErrCorrupt if b is not valid TLV or fails the registry check,
+//     with a *FieldError naming the entry at fault (see FieldError), unless b ends inside an entry:
+//     its Err wraps ErrRequiredTag for a missing event, ErrFieldLength for a value of the wrong length,
+//     a primary_system_bytes not 4 bytes long included, or ErrFieldValue.
 func UnmarshalTransportEvent(b []byte) (*TransportEvent, error) {
+	t, err := parseTransportEvent(b)
+	if err != nil {
+		return nil, corruptError("transport-event", err, tlv.TransportEvent)
+	}
+
+	return t, nil
+}
+
+// UnmarshalAnnotation decodes an annotation record payload (the tracepack format specification §8) from b.
+//
+// It decodes b and checks it against the annotation tag registry,
+// which requires the annotation_kind tag and checks every value type,
+// then rejects a payload whose text and raw tags are not exactly one of the two.
+// An entry whose tag is not in the registry is preserved in the returned Annotation's Unknown field.
+//
+// Returns:
+//   - *Annotation: the decoded payload; nil on error.
+//   - error: an error wrapping ErrCorrupt if b is not valid TLV, fails the registry check, or violates the exactly-one-of rule,
+//     with ErrAnnotationText for the last,
+//     and for the others a *FieldError naming the entry at fault, as UnmarshalTransportEvent reports it.
+func UnmarshalAnnotation(b []byte) (*Annotation, error) {
+	a, err := parseAnnotation(b)
+	if err != nil {
+		return nil, corruptError("annotation", err, tlv.Annotation)
+	}
+
+	return a, nil
+}
+
+// parseTransportEvent is UnmarshalTransportEvent without its error translation:
+// it returns the error of the TLV decoder, its validator or a setter as it is,
+// for the writer's and Verify's checks of a record, which wrap their own sentinel over it.
+func parseTransportEvent(b []byte) (*TransportEvent, error) {
 	entries, err := tlv.Decode(b)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: decode transport-event: %w", err)
+		return nil, err
 	}
 	if err := tlv.Validate(entries, tlv.TransportEvent); err != nil {
-		return nil, fmt.Errorf("tracepack: validate transport-event: %w", err)
+		return nil, err
 	}
 
 	t := &TransportEvent{}
@@ -224,7 +264,7 @@ func UnmarshalTransportEvent(b []byte) (*TransportEvent, error) {
 		if e.Tag == tagEvent {
 			v, err := u8As[Event](e)
 			if err != nil {
-				return nil, fmt.Errorf("tracepack: event: %w", err)
+				return nil, err
 			}
 			t.Event = v
 
@@ -245,23 +285,14 @@ func UnmarshalTransportEvent(b []byte) (*TransportEvent, error) {
 	return t, nil
 }
 
-// UnmarshalAnnotation decodes an annotation record payload (the tracepack format specification §8) from b.
-//
-// It decodes b and checks it against the annotation tag registry,
-// which requires the annotation_kind tag and checks every value type,
-// then rejects a payload whose text and raw tags are not exactly one of the two.
-// An entry whose tag is not in the registry is preserved in the returned Annotation's Unknown field.
-//
-// Returns:
-//   - *Annotation: the decoded payload; nil on error.
-//   - error: non-nil if b is not valid TLV, fails the registry check, or violates the exactly-one-of rule.
-func UnmarshalAnnotation(b []byte) (*Annotation, error) {
+// parseAnnotation is UnmarshalAnnotation without its error translation, as parseTransportEvent is.
+func parseAnnotation(b []byte) (*Annotation, error) {
 	entries, err := tlv.Decode(b)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: decode annotation: %w", err)
+		return nil, err
 	}
 	if err := tlv.Validate(entries, tlv.Annotation); err != nil {
-		return nil, fmt.Errorf("tracepack: validate annotation: %w", err)
+		return nil, err
 	}
 
 	a := &Annotation{}
@@ -269,7 +300,7 @@ func UnmarshalAnnotation(b []byte) (*Annotation, error) {
 		if e.Tag == tagAnnotationKind {
 			v, err := u8As[AnnotationKind](e)
 			if err != nil {
-				return nil, fmt.Errorf("tracepack: annotation_kind: %w", err)
+				return nil, err
 			}
 			a.AnnotationKind = v
 

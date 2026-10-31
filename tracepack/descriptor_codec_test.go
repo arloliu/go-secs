@@ -204,13 +204,15 @@ func TestEncodeDescriptorRefuses(t *testing.T) {
 			m := descriptorMeta()
 			tt.mutate(m)
 			b, err := EncodeDescriptor(m)
-			require.Error(t, err)
+			var fe *FieldError
+			require.ErrorAs(t, err, &fe, "every refusal names its field")
+			require.NotErrorIs(t, err, ErrCorrupt)
 			assert.Nil(t, b)
 		})
 	}
 
 	_, err := EncodeDescriptor(nil)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidArgument)
 }
 
 func TestDescriptorScope(t *testing.T) {
@@ -309,7 +311,9 @@ func TestDescriptorScope(t *testing.T) {
 
 			b := encodeTLV(tt.entries(t))
 			m, err := DecodeDescriptor(b)
-			require.Error(t, err)
+			var fe *FieldError
+			require.ErrorAs(t, err, &fe, "every refusal names its field")
+			require.ErrorIs(t, err, ErrCorrupt)
 			assert.Nil(t, m)
 		})
 	}
@@ -320,10 +324,11 @@ func TestDescriptorScope(t *testing.T) {
 		b := descriptorBytes(t)
 		for _, cut := range [][]byte{b[:len(b)-1], b[:3], append(append([]byte{}, b...), 0x01)} {
 			_, err := DecodeDescriptor(cut)
-			require.Error(t, err)
+			require.ErrorIs(t, err, ErrCorrupt)
 		}
 		_, err := DecodeDescriptor(nil)
-		require.Error(t, err, "an empty descriptor misses every required tag")
+		require.ErrorIs(t, err, ErrRequiredTag, "an empty descriptor misses every required tag")
+		require.ErrorIs(t, err, ErrCorrupt)
 	})
 }
 

@@ -9,6 +9,10 @@ var (
 	// ErrCorrupt reports bytes that are not a valid tracepack encoding:
 	// a pack structure, a block, the pack metadata, a TLV body or a trailer.
 	// ErrChecksum and ErrInvalidFooter also match it.
+	// UnmarshalPackMeta, UnmarshalPackMetaMinor, UnmarshalTransportEvent, UnmarshalAnnotation and DecodeDescriptor
+	// wrap it for bytes they do not decode, Open for pack metadata whose checksum holds,
+	// beside a *FieldError naming the field at fault when an entry is.
+	// No encode wraps it, and no writing call: a record whose payload does not decode is refused as ErrInvalidRecord.
 	//
 	// It is not reported for an object that is not a pack (ErrNotTracepack),
 	// a format this package does not read (ErrUnsupportedFormat),
@@ -25,7 +29,10 @@ var (
 	// ErrInvalidQuery and ErrInvalidKey also match it.
 	//
 	// The writing calls (see ErrRefused) wrap it for an invalid argument or option that wraps no sentinel of its own,
-	// such as a nil WriterOptions.Meta, and mark that error ErrRefused.
+	// such as a nil WriterOptions.Meta, and for pack metadata or a transport event the encoding refuses,
+	// beside the *FieldError naming the field, and mark that error ErrRefused.
+	// EncodeDescriptor wraps it for a nil PackMeta, and ParseUUID for a string that is not a canonical UUID;
+	// neither is a writing call, so neither marks it.
 	ErrInvalidArgument = errors.New("tracepack: invalid argument")
 )
 

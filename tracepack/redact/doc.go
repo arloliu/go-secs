@@ -4,6 +4,7 @@
 // A Policy holds item rules, each a stream and function, an item path pattern and a digest domain,
 // and annotation rules, each an annotation kind and a digest domain.
 // Compile validates a policy before use: it rejects an invalid domain or path,
+// a value the pack metadata's redaction_policy cannot hold, so a Writer never refuses PackPolicy's result,
 // and, for a policy with encryption, two item rules of one stream and function that can select overlapping items.
 //
 // (*Compiled).Mask masks one record and returns its redaction entries:

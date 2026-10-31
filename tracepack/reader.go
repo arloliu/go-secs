@@ -514,7 +514,7 @@ func positiveOr[T int | int64](v, def T) T {
 // so a caller may modify the result without affecting the Reader or any other PackHeader.
 func (r *Reader) Header() *PackHeader {
 	// Open decoded the same bytes under the same minor without error, so decoding them again cannot fail.
-	meta, _ := UnmarshalPackMetaMinor(r.metaRaw, r.hdr.FormatMinor)
+	meta, _ := parsePackMeta(r.metaRaw, r.hdr.FormatMinor)
 
 	h := &PackHeader{
 		FormatMajor:      r.hdr.FormatMajor,

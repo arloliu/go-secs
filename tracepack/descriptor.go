@@ -2,12 +2,10 @@ package tracepack
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"time"
 
 	"github.com/arloliu/go-secs/tracepack/internal/keyesc"
-	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
 // DefaultClockStepTolerance is the clock-step tolerance a CaptureDescriptor with a zero ClockStepTolerance takes.
@@ -148,7 +146,8 @@ type CaptureDescriptor struct {
 //     a negative clock_step_tolerance_ns (ErrFieldValue).
 //     Then, for a value the encoding refuses (the tracepack format specification §2),
 //     such as a string that is not valid UTF-8 or a device_id or hsms_timers value above 2^63-1,
-//     a *FieldError naming the field, whose Err wraps ErrFieldValue and the encoding's reason.
+//     a *FieldError naming the field, dotted for a nested value such as "hsms_timers.T8",
+//     whose Err wraps ErrFieldValue and the encoding's reason, as MarshalBinary reports it.
 func (d *CaptureDescriptor) Validate() error {
 	if err := keyesc.CheckTool(d.ToolID); err != nil {
 		// A ToolID no key can hold is the caller's argument, so the writing calls that check it mark it (refuse).
@@ -183,45 +182,20 @@ func (d *CaptureDescriptor) Validate() error {
 	return d.checkEncoding()
 }
 
-// descriptorTagNames names the pack metadata tags of a CaptureDescriptor whose values the encoding can refuse.
-var descriptorTagNames = map[uint16]string{
-	tagToolID:               "tool_id",
-	tagRecorder:             "recorder",
-	tagSourceTZ:             "source_tz",
-	tagSourceDialect:        "source_dialect",
-	tagSourceRef:            "source_ref",
-	tagSiteID:               "site_id",
-	tagEquipmentModel:       "equipment_model",
-	tagEquipmentSWRev:       "equipment_sw_rev",
-	tagHostSoftware:         "host_software",
-	tagHostEndpoint:         "host_endpoint",
-	tagEquipmentEndpoint:    "equipment_endpoint",
-	tagDeviceID:             "device_id",
-	tagHSMSTimers:           "hsms_timers",
-	tagRecorderInstanceName: "recorder_instance_name",
-}
-
 // checkEncoding encodes the pack metadata of a segment of d, as a SegmentWriter will,
-// and reports a value the encoding refuses as a *FieldError naming its field.
+// and reports a value the encoding refuses as the *FieldError naming its field that the encoder reports.
 func (d *CaptureDescriptor) checkEncoding() error {
 	r := d.resolve(time.Unix(0, 0))
 	_, err := r.packMeta(segmentMetaParams{}).MarshalBinary()
-	if err == nil {
-		return nil
+
+	// The rules MarshalBinary reports by themselves hold for a descriptor that passed the checks above,
+	// so a *FieldError comes from the encoding; any other error is returned as it is.
+	var fe *FieldError
+	if errors.As(err, &fe) {
+		return fe
 	}
 
-	// The rules MarshalBinary reports as a *FieldError hold for a descriptor that passed the checks above,
-	// so the error comes from the encoding and names the tag; any other error is returned as it is.
-	var ee *tlv.EntryError
-	if !errors.As(err, &ee) {
-		return err
-	}
-	field, known := descriptorTagNames[ee.Tag]
-	if !known {
-		field = fmt.Sprintf("0x%04X", ee.Tag)
-	}
-
-	return &FieldError{Field: field, Err: fmt.Errorf("%w: %w", ErrFieldValue, ee.Err)}
+	return err
 }
 
 // clone returns a copy of d that shares no slice or pointer with it,

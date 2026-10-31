@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
+	"unicode/utf8"
 
 	"github.com/arloliu/go-secs/tracepack"
 	"github.com/arloliu/go-secs/tracepack/internal/secsitem"
@@ -106,11 +108,17 @@ type itemRule struct {
 // Returns:
 //   - *Compiled: the compiled policy; nil on error.
 //   - error: an error wrapping ErrInvalidPolicy
+//     for a value the pack metadata redaction_policy cannot hold (see PackPolicy),
+//     an ID, DigestKeyID or Encryption.KeyID that is not valid UTF-8 or a Version above 2^63-1;
 //     for a domain that is not 1 to 65535 bytes of UTF-8 (also wrapping ErrDomain), a path that is not an item path pattern, or a stream above 127;
 //     and, for a policy with encryption, for two item rules of one stream and function
 //     that can select overlapping items, also wrapping ErrOverlappingRules:
 //     identical patterns, a pattern that is a prefix of another, or patterns whose * and numbered steps can select one item.
 func Compile(p Policy) (*Compiled, error) {
+	if err := checkPackPolicy(&p); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidPolicy, err)
+	}
+
 	c := &Compiled{
 		policy:      clonePolicy(&p),
 		items:       make(map[sf][]itemRule),
@@ -167,6 +175,31 @@ func (c *Compiled) PackPolicy() tracepack.RedactionPolicy {
 	}
 
 	return rp
+}
+
+// checkPackPolicy reports a value of p that PackPolicy would put in the pack metadata
+// and the pack metadata encoding refuses (the tracepack format specification §2),
+// so a Writer never refuses the redaction_policy of a compiled policy.
+func checkPackPolicy(p *Policy) error {
+	strs := []struct {
+		name, s string
+	}{
+		{"ID", p.ID},
+		{"DigestKeyID", p.DigestKeyID},
+	}
+	if p.Encryption != nil {
+		strs = append(strs, struct{ name, s string }{"Encryption.KeyID", p.Encryption.KeyID})
+	}
+	for _, f := range strs {
+		if !utf8.ValidString(f.s) {
+			return fmt.Errorf("policy %s is not valid UTF-8", f.name)
+		}
+	}
+	if p.Version > math.MaxInt64 {
+		return fmt.Errorf("policy Version %d is above 2^63-1", p.Version)
+	}
+
+	return nil
 }
 
 // clonePolicy returns a copy of p that shares no memory with it.

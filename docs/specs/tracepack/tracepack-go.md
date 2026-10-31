@@ -159,7 +159,8 @@ The query service, its catalog database and the live-tail interface are designed
 - Masking preparation (G5-246), shaped by the metadata-first commit of [FMT §12], is the package `tracepack/redact`:
   it imports the root package for its types, and the root package never imports it, so readers and `Merge` need no key material.
   `redact.Policy{ID, Version, DigestKeyID, Encryption, ItemRules, AnnotationRules}` is compiled by `redact.Compile`,
-  which rejects an invalid domain or path, an item rule's stream above 127 (G5-262) and, under encryption, item rules of one stream and function that can select overlapping items, before use (G5-236).
+  which rejects an invalid domain or path, an item rule's stream above 127 (G5-262) and, under encryption, item rules of one stream and function that can select overlapping items, before use (G5-236),
+  and a value `PackPolicy` would put in `redaction_policy` that the encoding refuses, an id that is not valid UTF-8 or a version above 2^63 − 1, so a `Writer` never refuses a compiled policy.
   `(*Compiled).Mask(ctx, capture, r, unobserved, keys) (Record, []RedactionEntry, error)` masks one record and returns its `redaction` entries ([SEM §8]),
   refusing a record that already carries `redacted` and is not unobserved (`ErrRedacted`, the record deferred, G5-262),
   key access going through the `redact.Keys` interface, `DigestKey(ctx, keyID)` and `EncryptionKey(ctx, capture, keyID)`, so that custody stays with the caller.

@@ -77,7 +77,7 @@ func (c *crashGaps) addRecords(pack int, capture UUID, d *decodedBlock) {
 		if Kind(h.Kind) != KindTransportEvent {
 			continue
 		}
-		ev, err := UnmarshalTransportEvent(d.payload(j))
+		ev, err := parseTransportEvent(d.payload(j))
 		if err != nil || ev.Event != EventCaptureBoundary || ev.BoundaryKind == nil {
 			continue
 		}

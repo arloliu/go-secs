@@ -223,7 +223,9 @@ type segmentOutput struct {
 //   - error: a *FieldError from CaptureDescriptor.Validate;
 //     a *FieldError on max_frame_len wrapping ErrFieldValue for a classifier MaxFrameLen above 2^63-1,
 //     or on classifier for an empty classifier Name;
-//     an invalid option, a CaptureOrigin that is not representable or a pack metadata value the encoding refuses;
+//     an invalid option, a CaptureOrigin that is not representable,
+//     or a pack metadata value the encoding refuses, with a *FieldError naming its field,
+//     such as classifier for a classifier Name that is not valid UTF-8;
 //     ctx's error; or an error of the sink or of writing the start boundary, after its segment was aborted.
 //     An error opts determines also wraps ErrRefused.
 func NewSegmentWriter(ctx context.Context, opts SegmentWriterOptions) (*SegmentWriter, error) {
@@ -515,7 +517,8 @@ func (w *SegmentWriter) addFrame(ctx context.Context, at time.Time, dir Dir, epo
 // Returns:
 //   - error: ErrInvalidRecord for a nil ev, an at that is not representable, a capture boundary of kind start, stop or stop-unclean,
 //     or an ev whose encoding does not decode;
-//     an error naming the first value of ev the encoding refuses, such as a string that is not valid UTF-8 or a malformed Unknown entry,
+//     an error wrapping a *FieldError naming the first value of ev the encoding refuses (see FieldError),
+//     such as a string that is not valid UTF-8 or a malformed Unknown entry,
 //     after which the SegmentWriter is still usable;
 //     or a refusal or failure as SegmentWriter describes.
 func (w *SegmentWriter) AppendEvent(ctx context.Context, at time.Time, epoch uint32, ev *TransportEvent) error {
