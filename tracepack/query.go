@@ -3,7 +3,6 @@ package tracepack
 import (
 	"bytes"
 	"cmp"
-	"errors"
 	"fmt"
 	"slices"
 
@@ -23,7 +22,9 @@ import (
 // a last hour scheduled past MaxTxHour, or a Reader or pack_id the PackSource gives twice for one hour;
 // for NewReaderSource a nil reader, a Reader given twice, two readers of one pack_id, readers of several tool_ids,
 // an extract, or a reader whose period is empty or not inside one UTC hour.
-var ErrInvalidQuery = errors.New("tracepack: invalid query")
+//
+// It also matches ErrInvalidArgument.
+var ErrInvalidQuery = newChildSentinel("tracepack: invalid query", ErrInvalidArgument)
 
 // Query selects records of a pack for Reader.Iterate, or of several packs for MergeIterate.
 type Query struct {

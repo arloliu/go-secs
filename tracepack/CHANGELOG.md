@@ -5,6 +5,22 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+### Added
+
+- `ErrCorrupt`, bytes that are not a valid tracepack encoding, `ErrNotFinalized`, a pack with no valid trailer,
+  and `ErrInvalidArgument`, an argument or option the call cannot take: the root sentinels of the error taxonomy (G5-296).
+  `ErrChecksum` and `ErrInvalidFooter` now also match `ErrCorrupt`,
+  and `ErrInvalidQuery` and `ErrInvalidKey` now also match `ErrInvalidArgument`;
+  each keeps its identity and text, so `errors.Is` against it, and `==` against a bare return of it, match as before.
+
+### Changed
+
+- The writing calls' error for an invalid argument or option with no sentinel of its own, such as a nil `WriterOptions.Meta`,
+  now also matches `ErrInvalidArgument` (G5-296); it is still marked `ErrRefused`, and its text is unchanged.
+  An error of a supplied implementation stays unmarked, even when it wraps `ErrInvalidQuery` or `ErrInvalidKey`.
+  For tracekeep and veq: nothing to change, since a test of `ErrRefused` matches as before;
+  `ErrInvalidArgument` now tells a wrong call or option apart from a refused record.
+
 ## [0.12.0] - 2026-10-31
 
 This release freezes the API for v1.0: spec v2.39, format 1.2.

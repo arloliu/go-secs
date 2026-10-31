@@ -333,10 +333,24 @@ func TestErrRefusedArguments(t *testing.T) {
 			t.Parallel()
 
 			err := tt.provoke(t)
-			requireRefused(t, err, errArgument)
+			requireRefused(t, err, ErrInvalidArgument)
 			require.ErrorContains(t, err, tt.msg)
 		})
 	}
+}
+
+// TestErrRefusedToolID requires NewSegmentWriter's refusal of a ToolID no key can hold to be marked,
+// a *FieldError naming tool_id that matches ErrInvalidKey and, through it, ErrInvalidArgument.
+func TestErrRefusedToolID(t *testing.T) {
+	t.Parallel()
+
+	err := newSegErr(t, func(o *SegmentWriterOptions) { o.Capture.ToolID = ".." })
+	requireRefused(t, err, ErrInvalidKey)
+	require.ErrorIs(t, err, ErrInvalidArgument)
+	require.NotErrorIs(t, err, ErrInvalidQuery)
+	var fe *FieldError
+	require.ErrorAs(t, err, &fe)
+	require.Equal(t, "tool_id", fe.Field)
 }
 
 // TestErrRefusedExcluded requires the errors of writing calls that their input does not determine to be unmarked.
@@ -427,7 +441,25 @@ func TestMergeNeverRefuses(t *testing.T) {
 		require.ErrorIs(t, err, ErrRefused, "passed through")
 		require.Zero(t, refusedCount(err), "no marker")
 	})
+	for _, fault := range []error{fmt.Errorf("impersonation: %w", ErrInvalidQuery), fmt.Errorf("impersonation: %w", ErrInvalidKey)} {
+		t.Run("a ReadAt returning "+fault.Error(), func(t *testing.T) {
+			t.Parallel()
+
+			_, err := Merge(t.Context(), io.Discard, []MergeInput{{ReaderAt: errReaderAt{err: fault}, Size: 1 << 10}}, mergeOpts())
+			require.ErrorIs(t, err, fault)
+			require.ErrorIs(t, err, ErrInvalidArgument, "the caller's chain is intact")
+			requireNotRefused(t, err)
+		})
+	}
 }
+
+// errReaderAt is an io.ReaderAt whose every ReadAt fails with err.
+type errReaderAt struct {
+	err error
+}
+
+// ReadAt fails.
+func (r errReaderAt) ReadAt([]byte, int64) (int, error) { return 0, r.err }
 
 // errSyncer is a Syncer whose every Sync fails with err.
 type errSyncer struct {
@@ -438,7 +470,8 @@ type errSyncer struct {
 func (s *errSyncer) Sync() error { return s.err }
 
 // externalFaults are the errors a supplied implementation returns in the external-origin tests:
-// a plain error, one impersonating a refusal, and ErrRefused itself.
+// a plain error, one impersonating a refusal, ones wrapping a sentinel that matches ErrInvalidArgument,
+// and ErrRefused itself.
 func externalFaults() []struct {
 	name string
 	err  error
@@ -449,6 +482,9 @@ func externalFaults() []struct {
 	}{
 		{"a plain error", errInjected},
 		{"an error wrapping ErrSeqOrder", fmt.Errorf("impersonation: %w", ErrSeqOrder)},
+		{"an error wrapping ErrInvalidQuery", fmt.Errorf("impersonation: %w", ErrInvalidQuery)},
+		{"an error wrapping ErrInvalidKey", fmt.Errorf("impersonation: %w", ErrInvalidKey)},
+		{"an error wrapping ErrInvalidArgument", fmt.Errorf("impersonation: %w", ErrInvalidArgument)},
 		{"ErrRefused itself", ErrRefused},
 	}
 }
@@ -788,7 +824,7 @@ func TestErrRefusedSegmentWriterCalls(t *testing.T) {
 
 				w, _ := newSeg(t, nil)
 				err := w.AppendEvent(t.Context(), segAt(time.Second), 1, tt.ev)
-				requireRefused(t, err, errArgument)
+				requireRefused(t, err, ErrInvalidArgument)
 				require.ErrorContains(t, err, tt.msg)
 				require.NoError(t, w.AppendFrame(t.Context(), segAt(2*time.Second), DirHostToEquipment, 1, blockTestFrame, 0),
 					"a refusal leaves the SegmentWriter usable")
