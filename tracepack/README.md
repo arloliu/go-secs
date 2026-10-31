@@ -219,6 +219,15 @@ and `ErrInvalidQuery` and `ErrInvalidKey` match `ErrInvalidArgument`, an argumen
 Each member keeps its identity and text, so a test of the member matches as before,
 and a caller that handles the whole family tests the parent.
 
+The codecs report a fault of one TLV entry as a `*FieldError`, found with `var fe *tracepack.FieldError` and `errors.As(err, &fe)`:
+`fe.Field` names the field, dotted for a nested tag such as `redaction.seq`,
+and `fe.Err` wraps `ErrRequiredTag`, `ErrFieldLength` or `ErrFieldValue`, beside the encoding's own reason.
+So do `MarshalBinary` and the `Unmarshal` functions of `PackMeta`, `TransportEvent` and `Annotation`, `EncodeDescriptor` and `DecodeDescriptor`,
+and the writing calls that encode pack metadata or an event, which also mark the error `ErrRefused`.
+A decode also wraps `ErrCorrupt`, the bytes not being a valid encoding, and bytes that end inside an entry name no field;
+an encode never wraps `ErrCorrupt`, and neither does a writing call refusing a record whose payload does not decode, which wraps `ErrInvalidRecord`.
+`EncodeDescriptor(nil)`, and `ParseUUID` of a string that is not a canonical UUID, wrap `ErrInvalidArgument`.
+
 ## Publishing a capture over a durable bus
 
 For a producer, such as an equipment gateway, that publishes each record of a capture as one bus message (the storage specification §4):
@@ -262,6 +271,8 @@ For the log service, the consumer that writes a durable-bus capture's packs:
   Classify before masking, since the classification describes the payload as received.
   `classify.NewNamed(name, maxFrameLen)` gives the classifier the name of its configuration, which stays fixed for the capture.
 - Under a redaction policy, compile it once with `redact.Compile`, then mask every record of a flush batch with `(*Compiled).Mask(ctx, capture, r, unobserved, keys)`;
+  `Compile` refuses, with `redact.ErrInvalidPolicy`, a policy whose `PackPolicy` the pack metadata cannot hold,
+  an id that is not valid UTF-8 or a `Version` above 2^63 − 1, so `NewWriter` never refuses a compiled policy;
   `unobserved` is true for a record carrying bit 7, which is never masked.
   Your `redact.Keys` hands out the digest and encryption keys, whose custody stays yours;
   `Mask` checks `ctx` before each key request and passes it to `Keys`, so a key service can bound its call.

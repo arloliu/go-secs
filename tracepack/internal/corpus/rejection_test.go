@@ -46,6 +46,20 @@ func TestRejectionCodeFromConstructedErrors(t *testing.T) {
 		{"entry list", fmt.Errorf("x: %w", entryErr), RejectMetadataEntryList},
 		{"nested missing tag", fmt.Errorf("x: %w", nestedMissing), RejectMetadataEntryList},
 		{"top-level missing tag", fmt.Errorf("x: %w", &tlv.EntryError{Tag: tagToolID, Offset: -1, Err: tlv.ErrMissing}), RejectMetadataRequired},
+		{
+			"nested missing tag as a field error",
+			fmt.Errorf("x: %w: %w", tracepack.ErrCorrupt, &tracepack.FieldError{
+				Field: "redaction_policy.policy_id", Err: fmt.Errorf("%w: %w", tracepack.ErrRequiredTag, nestedMissing),
+			}),
+			RejectMetadataEntryList,
+		},
+		{
+			"top-level missing tag as a field error",
+			fmt.Errorf("x: %w: %w", tracepack.ErrCorrupt, &tracepack.FieldError{
+				Field: "tool_id", Err: fmt.Errorf("%w: %w", tracepack.ErrRequiredTag, &tlv.EntryError{Tag: tagToolID, Offset: -1, Err: tlv.ErrMissing}),
+			}),
+			RejectMetadataRequired,
+		},
 		{"conditional tag", &tracepack.FieldError{Field: "capture_origin_utc_ns", Err: tracepack.ErrRequiredTag}, RejectMetadataRequired},
 		{"replacement set size", &tracepack.FieldError{Field: "replacement_set_size", Err: tracepack.ErrFieldValue}, RejectReplacementSet},
 		{"replacement set index", &tracepack.FieldError{Field: "replacement_set_index", Err: tracepack.ErrFieldValue}, RejectReplacementSet},

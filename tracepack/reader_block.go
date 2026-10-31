@@ -411,7 +411,7 @@ func summaryOf(d *decodedBlock) blockSummary {
 		var ev *TransportEvent
 		if Kind(h.Kind) == KindTransportEvent {
 			// A payload that does not decode contributes nothing, as in the Writer's summary.
-			ev, _ = UnmarshalTransportEvent(d.payload(j))
+			ev, _ = parseTransportEvent(d.payload(j))
 		}
 		s.addRecord(&h, ev)
 	}

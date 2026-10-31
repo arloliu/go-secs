@@ -20,6 +20,26 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   An error of a supplied implementation stays unmarked, even when it wraps `ErrInvalidQuery` or `ErrInvalidKey`.
   For tracekeep and veq: nothing to change, since a test of `ErrRefused` matches as before;
   `ErrInvalidArgument` now tells a wrong call or option apart from a refused record.
+- **Breaking:** for code matching codec error text or internal causes, every encode and decode of a TLV body reports a fault of one entry
+  as a `*FieldError` naming the field, dotted for a nested tag such as `redaction.seq` or `hsms_timers.T3`,
+  whose `Err` wraps `ErrRequiredTag` for a missing tag, `ErrFieldLength` for a value of the wrong length, or `ErrFieldValue` for any other refused value,
+  with the TLV encoding's own reason kept beside it (G5-296).
+  This covers `MarshalBinary` of `PackMeta`, `TransportEvent` and `Annotation`, `UnmarshalPackMeta`, `UnmarshalPackMetaMinor`,
+  `UnmarshalTransportEvent`, `UnmarshalAnnotation`, `EncodeDescriptor` and `DecodeDescriptor`,
+  and the writing calls that encode pack metadata or an event (`NewWriter`, `WriteClose`, `NewSegmentWriter`, `SegmentWriter.AppendEvent`), still marked `ErrRefused`.
+  The decoders also wrap `ErrCorrupt`, and so does `Open` for pack metadata that does not decode; the encoders never do,
+  and neither does a writing call's or `Verify`'s report of an event or annotation payload that does not decode.
+  `DecodeDescriptor` refuses a tag a descriptor does not carry with `ErrFieldValue` (its unexported sentinel is gone),
+  naming a nested one `thinning.0x0004` or `hsms_timers.0x0009` rather than `thinning 0x0004`;
+  `CaptureDescriptor.Validate` names a nested value the same way, `hsms_timers.T8` rather than `hsms_timers`.
+  `EncodeDescriptor(nil)` and `ParseUUID` of a string that is not a canonical UUID now wrap `ErrInvalidArgument`.
+  Error text changed with the new wrapping; text is not part of the contract.
+  For tracekeep and veq: test `errors.Is` against `ErrCorrupt`, `ErrRequiredTag`, `ErrFieldValue` or `ErrFieldLength`, or `errors.As` into a `*tracepack.FieldError`,
+  instead of matching text; `ErrRefused` on the writing calls, `bus.ErrMalformed`, `bus.ErrNotAccepted` and `redact.ErrCannotScreen` match as before.
+- **Breaking:** `redact.Compile` refuses, with `redact.ErrInvalidPolicy`, a policy whose `PackPolicy` the pack metadata cannot hold:
+  an `ID`, `DigestKeyID` or `Encryption.KeyID` that is not valid UTF-8, or a `Version` above 2^63 − 1.
+  `NewWriter` refused every such policy's pack metadata, at each flush; it now fails once, at configuration.
+  For tracekeep and veq: handle `ErrInvalidPolicy` from `Compile` as before; such a policy never wrote a pack.
 
 ## [0.12.0] - 2026-10-31
 

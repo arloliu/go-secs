@@ -7,10 +7,6 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
-// errNotDescriptorTag reports a top-level tag a capture descriptor does not carry,
-// or a nested tag a thinning entry does not define.
-var errNotDescriptorTag = errors.New("tracepack: tag not in a capture descriptor")
-
 // Largest stream and function a SECS-II message carries, which bound a thinning entry.
 const (
 	maxThinningStream   = 127
@@ -66,14 +62,17 @@ var descriptorRegistry = func() tlv.Registry {
 //
 // Returns:
 //   - []byte: the descriptor; nil on error.
-//   - error: a *FieldError wrapping ErrFieldValue for a capture_method other than raw-stream or decoded-message,
+//   - error: an error wrapping ErrInvalidArgument for a nil m;
+//     a *FieldError wrapping ErrFieldValue for a capture_method other than raw-stream or decoded-message,
 //     a time_source other than capture-clock, which layout 1 of the bus does not serve,
 //     or a thinning entry whose stream is above 127 or whose function is above 255;
-//     an error reporting a missing required tag for a nil CaptureOriginUTCNs, CaptureOriginMonoNs or ClockStepToleranceNs;
-//     or an error naming the first value the decoder would reject, such as a string that is not valid UTF-8.
+//     an error wrapping a *FieldError wrapping ErrRequiredTag for a nil CaptureOriginUTCNs, CaptureOriginMonoNs or ClockStepToleranceNs;
+//     or an error wrapping a *FieldError wrapping ErrFieldValue for the first value the decoder would reject,
+//     such as a string that is not valid UTF-8 (see FieldError).
+//     It never wraps ErrCorrupt.
 func EncodeDescriptor(m *PackMeta) ([]byte, error) {
 	if m == nil {
-		return nil, errors.New("tracepack: encode capture descriptor: nil pack metadata")
+		return nil, argument(errors.New("tracepack: encode capture descriptor: nil pack metadata"))
 	}
 	if err := checkDescriptorValues(m); err != nil {
 		return nil, err
@@ -140,24 +139,38 @@ func EncodeDescriptor(m *PackMeta) ([]byte, error) {
 //
 // Returns:
 //   - *PackMeta: the producer-owned values; nil on error.
-//   - error: a *FieldError naming the tag or field the descriptor breaks,
-//     or an error reporting the first entry that the TLV encoding or the descriptor's tag registry refuses.
+//   - error: an error wrapping ErrCorrupt, as b is not a descriptor the consumer can accept,
+//     and beside it a *FieldError naming the tag or field the descriptor breaks (see FieldError),
+//     its Err wrapping ErrRequiredTag for a missing required value, ErrFieldLength for a value of the wrong length,
+//     or ErrFieldValue for any other refusal, a tag a descriptor does not carry included;
+//     no *FieldError for bytes that end inside an entry.
 func DecodeDescriptor(b []byte) (*PackMeta, error) {
+	m, err := parseDescriptor(b)
+	if err != nil {
+		return nil, corruptError("capture descriptor", err, descriptorRegistry)
+	}
+
+	return m, nil
+}
+
+// parseDescriptor is DecodeDescriptor without its error translation:
+// it returns the error of the TLV decoder, its validator, a setter or a descriptor check as it is.
+func parseDescriptor(b []byte) (*PackMeta, error) {
 	entries, err := tlv.Decode(b)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: decode capture descriptor: %w", err)
+		return nil, err
 	}
 	if err := checkDescriptorTags(entries); err != nil {
 		return nil, err
 	}
 	if err := tlv.Validate(entries, descriptorRegistry); err != nil {
-		return nil, fmt.Errorf("tracepack: validate capture descriptor: %w", err)
+		return nil, err
 	}
 
 	m := &PackMeta{}
 	for _, e := range entries {
 		if err := packMetaSetters[e.Tag](m, e); err != nil {
-			return nil, fmt.Errorf("tracepack: decode capture descriptor: %w", err)
+			return nil, err
 		}
 	}
 	if err := checkDescriptorValues(m); err != nil {
@@ -172,7 +185,7 @@ func DecodeDescriptor(b []byte) (*PackMeta, error) {
 func checkDescriptorTags(entries []tlv.Entry) error {
 	for _, e := range entries {
 		if _, known := descriptorRegistry[e.Tag]; !known {
-			return &FieldError{Field: descriptorTagName(e.Tag), Err: errNotDescriptorTag}
+			return &FieldError{Field: descriptorTagName(e.Tag), Err: fmt.Errorf("%w: not a capture descriptor tag", ErrFieldValue)}
 		}
 		var name string
 		var nestedRegistry tlv.Registry
@@ -191,7 +204,7 @@ func checkDescriptorTags(entries []tlv.Entry) error {
 		}
 		for _, n := range nested {
 			if _, known := nestedRegistry[n.Tag]; !known {
-				return &FieldError{Field: fmt.Sprintf("%s 0x%04X", name, n.Tag), Err: errNotDescriptorTag}
+				return &FieldError{Field: fmt.Sprintf("%s.0x%04X", name, n.Tag), Err: fmt.Errorf("%w: not a %s tag", ErrFieldValue, name)}
 			}
 		}
 	}

@@ -239,7 +239,7 @@ func TestCaptureDescriptorValidateEncoding(t *testing.T) {
 		{"host_endpoint", func(d *CaptureDescriptor) { d.HostEndpoint = new(invalid) }, "host_endpoint"},
 		{"equipment_endpoint", func(d *CaptureDescriptor) { d.EquipmentEndpoint = new(invalid) }, "equipment_endpoint"},
 		{"device_id", func(d *CaptureDescriptor) { d.DeviceID = new(tooLarge) }, "device_id"},
-		{"hsms_timers", func(d *CaptureDescriptor) { d.HSMSTimers = &HSMSTimers{T8Ms: new(tooLarge)} }, "hsms_timers"},
+		{"hsms_timers", func(d *CaptureDescriptor) { d.HSMSTimers = &HSMSTimers{T8Ms: new(tooLarge)} }, "hsms_timers.T8"},
 	}
 
 	for _, tt := range tests {

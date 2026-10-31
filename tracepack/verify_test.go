@@ -513,6 +513,7 @@ func TestVerifyRecordWriterDefects(t *testing.T) {
 			rep := mustVerify(t, editBlock(t, p.file, 0, tt.edit))
 			assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome, "a writer defect never changes the outcome: %v", rep.Disagreements)
 			requireWriterDefect(t, rep.WriterDefects, tt.kind, 0, p.blocks[0].offset, tt.seq)
+			require.NotErrorIs(t, rep.WriterDefects[0].Err, ErrCorrupt, "a writer defect is not corrupt data")
 		})
 	}
 

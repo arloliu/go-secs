@@ -112,9 +112,11 @@ const (
 	tagThinningSource   uint16 = 0x0003
 )
 
-// Sentinel errors returned by PackMeta, TransportEvent, Annotation and CaptureDescriptor.Validate.
+// Sentinel errors returned by PackMeta, TransportEvent, Annotation, the capture descriptor codec and CaptureDescriptor.Validate,
+// most inside a *FieldError naming the field.
 var (
-	// ErrRequiredTag reports that a "Required when" rule of the tracepack format specification §5 or §8 is not satisfied.
+	// ErrRequiredTag reports that a "Required when" rule of the tracepack format specification §5 or §8 is not satisfied,
+	// a tag the registry always requires included.
 	ErrRequiredTag = errors.New("tracepack: required tag is missing")
 	// ErrFieldValue reports a field holding a value the format does not allow (the tracepack format specification §5 and §9),
 	// such as a replacement_set_size other than 1 or a replacement_set_index other than 0, read or written,
@@ -123,12 +125,15 @@ var (
 	// a redaction entry holding both MaskedRanges and RawMaskedRanges,
 	// a classifier with an empty Name or a MaxFrameLen above 2^63-1,
 	// a CaptureDescriptor value outside the registry or its encoding, or its negative clock-step tolerance,
-	// or a capture_method or time_source the bus does not serve.
+	// a capture_method or time_source the bus does not serve, or a tag a capture descriptor does not carry;
+	// and any value the TLV encoding refuses (the tracepack format specification §2 and §5),
+	// such as a string that is not valid UTF-8, a u64 above 2^63-1, a bool other than 0 or 1,
+	// a value of another type than its tag's, a repeated tag that is not repeatable, or the tag 0.
 	ErrFieldValue = errors.New("tracepack: field value not allowed")
 	// ErrAnnotationText reports an annotation whose text and raw tags are not exactly one of the two
 	// (the tracepack format specification §8).
 	ErrAnnotationText = errors.New("tracepack: annotation must carry exactly one of text or raw")
-	// ErrFieldLength reports a field value whose length does not match what its tag requires.
+	// ErrFieldLength reports a field value whose length does not match what its tag or its value type requires.
 	ErrFieldLength = errors.New("tracepack: field value has the wrong length")
 	// ErrReservedTag reports an Unknown entry that names a tag this package already encodes as a typed field.
 	ErrReservedTag = errors.New("tracepack: unknown entry names a tag this package already encodes")
@@ -507,13 +512,34 @@ var _ encoding.BinaryMarshaler = (*PackMeta)(nil)
 
 // FieldError reports which field a PackMeta, TransportEvent, Annotation or CaptureDescriptor rule failed for,
 // or which commitment of the pack metadata or the file header a Writer call contradicts.
+//
+// Every encode and decode of a TLV body reports a fault of one entry as a *FieldError:
+// MarshalBinary of PackMeta, TransportEvent and Annotation, UnmarshalPackMeta, UnmarshalPackMetaMinor,
+// UnmarshalTransportEvent, UnmarshalAnnotation, EncodeDescriptor and DecodeDescriptor,
+// and the writing calls that encode one (NewWriter, WriteClose, NewSegmentWriter and SegmentWriter.AppendEvent),
+// which also mark it ErrRefused.
+// A decode also wraps ErrCorrupt beside it; an encode never does.
+// A decode of bytes that end inside an entry reports no *FieldError, since no field owns the fault.
+//
+// A caller finds it with errors.As:
+//
+//	var fe *tracepack.FieldError
+//	if errors.As(err, &fe) { ... fe.Field ... }
 type FieldError struct {
-	// Field is the failing tag's specification name, a nested tag's such as "masked_ranges" included,
-	// or a "0x%04X" tag for one PackMeta and Annotation do not name,
-	// or "thinning 0x%04X" or "hsms_timers 0x%04X" for a nested tag DecodeDescriptor does not know;
-	// for a Writer's commitment it may also be "redaction-present", the file header flag.
+	// Field is the failing tag's specification name,
+	// dotted through the enclosing entries for a fault the TLV encoding finds in a nested tag,
+	// such as "redaction_policy.policy_id", "redaction.seq" or "hsms_timers.T3",
+	// or the nested tag's own name for a rule this package checks of it, such as "masked_ranges";
+	// a "0x%04X" tag stands for a tag the registry does not name, dotted the same way when nested,
+	// such as "0x7F00", "coverage.0x0000" or "thinning.0x0004" for a nested tag DecodeDescriptor does not know.
+	// For a Writer's commitment it may also be "redaction-present", the file header flag.
 	Field string
-	// Err is the sentinel error describing the failure, or an error wrapping one.
+	// Err is the sentinel error describing the failure, or an error wrapping one:
+	// ErrRequiredTag, ErrFieldValue or ErrFieldLength for a rule of the format or its TLV encoding,
+	// ErrReservedTag for an Unknown entry naming a tag this package encodes,
+	// ErrMetadataCommitment for a record or option contradicting the pack metadata, with ErrRedactionDefect for a redaction entry,
+	// or ErrInvalidKey for a tool_id no key can hold (CaptureDescriptor.Validate).
+	// For a fault the TLV encoding finds, Err also wraps the encoding's own error, which names the tag and offset.
 	Err error
 }
 
@@ -760,7 +786,9 @@ func (m *PackMeta) Validate(facts PackFacts) error {
 //     a *FieldError wrapping ErrReservedTag for an Unknown entry of the metadata that names a tag this package already encodes,
 //     or an error wrapping such a *FieldError for an Unknown entry of a coverage entry,
 //     an error wrapping a *FieldError wrapping ErrFieldValue for a redaction entry holding both MaskedRanges and RawMaskedRanges,
-//     or an error naming the first value the decoder would reject.
+//     or an error wrapping a *FieldError for the first value the decoder would reject,
+//     its Err wrapping ErrFieldValue, or ErrFieldLength for an Unknown entry whose value does not fit its value type.
+//     It never wraps ErrCorrupt.
 func (m *PackMeta) MarshalBinary() ([]byte, error) {
 	if err := m.validateIntrinsic(); err != nil {
 		return nil, err
@@ -779,7 +807,7 @@ func (m *PackMeta) MarshalBinary() ([]byte, error) {
 	entries = m.appendNestedEntries(entries)
 
 	unknown := slices.DeleteFunc(slices.Clone(m.Unknown), func(r RawEntry) bool { return slices.Contains(retiredPackMetaTags[:], r.Tag) })
-	entries, err = appendUnknownEntries(entries, unknown, tlv.PackMetadata)
+	entries, err = appendUnknownEntries(entries, unknown, tlv.PackMetadata, "")
 	if err != nil {
 		return nil, err
 	}
@@ -803,7 +831,10 @@ func (m *PackMeta) MarshalBinary() ([]byte, error) {
 //
 // Returns:
 //   - *PackMeta: the decoded pack metadata; nil on error.
-//   - error: non-nil if b is not valid TLV or fails the registry check;
+//   - error: an error wrapping ErrCorrupt, as b is not valid pack metadata, and beside it:
+//     for an entry b's TLV encoding or the registry check refuses, a *FieldError naming the entry's field (see FieldError),
+//     its Err wrapping ErrRequiredTag for a missing tag, ErrFieldLength for a value of the wrong length, or ErrFieldValue;
+//     no *FieldError for bytes that end inside an entry;
 //     a *FieldError wrapping ErrRequiredTag for the first "Required when" rule the metadata itself violates,
 //     or ErrFieldValue for a replacement-set value other than size 1 and index 0.
 func UnmarshalPackMeta(b []byte) (*PackMeta, error) {
@@ -826,30 +857,9 @@ func UnmarshalPackMeta(b []byte) (*PackMeta, error) {
 //   - *PackMeta: the decoded pack metadata; nil on error.
 //   - error: as for UnmarshalPackMeta.
 func UnmarshalPackMetaMinor(b []byte, minor uint16) (*PackMeta, error) {
-	entries, err := tlv.Decode(b)
+	m, err := parsePackMeta(b, minor)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: decode pack metadata: %w", err)
-	}
-	if err := tlv.ValidateMinor(entries, tlv.PackMetadata, minor); err != nil {
-		return nil, fmt.Errorf("tracepack: validate pack metadata: %w", err)
-	}
-
-	setters := packMetaSettersByMinor[min(minor, formatMinorNewest)]
-	m := &PackMeta{}
-	for _, e := range entries {
-		if set, known := setters[e.Tag]; known {
-			if err := set(m, e); err != nil {
-				return nil, err
-			}
-
-			continue
-		}
-
-		m.Unknown = append(m.Unknown, newRawEntry(e))
-	}
-
-	if err := m.validateIntrinsic(); err != nil {
-		return nil, err
+		return nil, corruptError("pack metadata", err, tlv.PackMetadata)
 	}
 
 	return m, nil
@@ -869,11 +879,14 @@ func (e *FieldError) Unwrap() error {
 //
 // Returns:
 //   - UUID: the parsed value; the zero UUID on error.
-//   - error: non-nil if s is not a canonical UUID string.
+//   - error: an error wrapping ErrInvalidArgument if s is not a canonical UUID string.
 func ParseUUID(s string) (UUID, error) {
 	u, err := format.ParseUUID(s)
+	if err != nil {
+		return UUID{}, fmt.Errorf("%w: %w", ErrInvalidArgument, err)
+	}
 
-	return UUID(u), err
+	return UUID(u), nil
 }
 
 // String returns the canonical 8-4-4-4-12 lowercase hex form of u.
@@ -911,7 +924,7 @@ func (c Coverage) entry() (tlv.Entry, error) {
 		sub = append(sub, tlv.I64Entry(tagCoverageTimeEnd, *c.TimeEnd))
 	}
 
-	sub, err := appendUnknownEntries(sub, c.Unknown, tlv.Coverage)
+	sub, err := appendUnknownEntries(sub, c.Unknown, tlv.Coverage, "coverage.")
 	if err != nil {
 		return tlv.Entry{}, err
 	}
@@ -1116,6 +1129,39 @@ func (m *PackMeta) appendNestedEntries(dst []tlv.Entry) []tlv.Entry {
 	return dst
 }
 
+// parsePackMeta is UnmarshalPackMetaMinor without its error translation:
+// it returns the error of the TLV decoder, its validator, a setter or validateIntrinsic as it is,
+// for a caller that only tests whether b decodes.
+func parsePackMeta(b []byte, minor uint16) (*PackMeta, error) {
+	entries, err := tlv.Decode(b)
+	if err != nil {
+		return nil, err
+	}
+	if err := tlv.ValidateMinor(entries, tlv.PackMetadata, minor); err != nil {
+		return nil, err
+	}
+
+	setters := packMetaSettersByMinor[min(minor, formatMinorNewest)]
+	m := &PackMeta{}
+	for _, e := range entries {
+		if set, known := setters[e.Tag]; known {
+			if err := set(m, e); err != nil {
+				return nil, err
+			}
+
+			continue
+		}
+
+		m.Unknown = append(m.Unknown, newRawEntry(e))
+	}
+
+	if err := m.validateIntrinsic(); err != nil {
+		return nil, err
+	}
+
+	return m, nil
+}
+
 // newRawEntry copies e into a RawEntry, so the result outlives the buffer e.Value aliases.
 func newRawEntry(e tlv.Entry) RawEntry {
 	return RawEntry{Tag: e.Tag, Type: uint8(e.Type), Value: append([]byte(nil), e.Value...)}
@@ -1133,19 +1179,20 @@ func appendPresent(dst []tlv.Entry, opts []optionalEntry) []tlv.Entry {
 }
 
 // appendUnknownEntries appends the entries of unknown, rejecting one whose tag reg already assigns a field to.
-func appendUnknownEntries(dst []tlv.Entry, unknown []RawEntry, reg tlv.Registry) ([]tlv.Entry, error) {
+// A refused entry's *FieldError names it "0x%04X" after prefix, the dotted name of the entry holding the list, if any.
+func appendUnknownEntries(dst []tlv.Entry, unknown []RawEntry, reg tlv.Registry, prefix string) ([]tlv.Entry, error) {
 	for _, r := range unknown {
-		field := fmt.Sprintf("0x%04X", r.Tag)
+		field := fmt.Sprintf("%s0x%04X", prefix, r.Tag)
 		if _, known := reg[r.Tag]; known {
 			return nil, &FieldError{Field: field, Err: ErrReservedTag}
 		}
 		// Registry validation skips unknown tags, so the two rules the decoder applies to every entry
 		// (the tracepack format specification §5) are checked here before the entry is encoded.
 		if r.Tag == 0 {
-			return nil, &FieldError{Field: field, Err: tlv.ErrZeroTag}
+			return nil, &FieldError{Field: field, Err: fmt.Errorf("%w: %w", ErrFieldValue, tlv.ErrZeroTag)}
 		}
 		if n, fixed := tlv.ValueType(r.Type).FixedLen(); fixed && len(r.Value) != n {
-			return nil, &FieldError{Field: field, Err: tlv.ErrLength}
+			return nil, &FieldError{Field: field, Err: fmt.Errorf("%w: %w", ErrFieldLength, tlv.ErrLength)}
 		}
 		dst = append(dst, tlv.Entry{Tag: r.Tag, Type: tlv.ValueType(r.Type), Value: r.Value})
 	}
@@ -1155,9 +1202,10 @@ func appendUnknownEntries(dst []tlv.Entry, unknown []RawEntry, reg tlv.Registry)
 
 // encodeEntries checks entries against reg with the same registry validation the decoder of what applies,
 // then encodes them, so a marshaler never returns bytes its own decoder rejects.
+// It reports an entry the validation refuses as a *FieldError naming the entry's field (fieldErrorOf).
 func encodeEntries(entries []tlv.Entry, reg tlv.Registry, what string) ([]byte, error) {
 	if err := tlv.Validate(entries, reg); err != nil {
-		return nil, fmt.Errorf("tracepack: encode %s: %w", what, err)
+		return nil, fmt.Errorf("tracepack: encode %s: %w", what, fieldErrorOf(err, reg))
 	}
 
 	var buf []byte

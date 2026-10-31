@@ -331,8 +331,8 @@ type Writer struct {
 //     an error for AssignSeq in a pack masked at write,
 //     an error wrapping ErrScopeBreach when the pack is not an extract and its period is empty or not inside one UTC hour,
 //     an error wrapping ErrSeqOrder for a seq_start, or a NextSeq under AssignSeq, above 2^63-1,
-//     an error naming the first value of opts.Meta the encoding refuses, such as a string that is not valid UTF-8,
-//     a u64 above 2^63-1 or a malformed Unknown entry,
+//     an error wrapping a *FieldError naming the first value of opts.Meta the encoding refuses (see FieldError),
+//     such as a string that is not valid UTF-8, a u64 above 2^63-1 or a malformed Unknown entry,
 //     or the error of writing the header,
 //     which is io.ErrShortWrite when w takes fewer bytes than it was given without reporting an error.
 //     An error opts determines also wraps ErrRefused.
@@ -766,7 +766,7 @@ func transportEventOf(r *Record) *TransportEvent {
 		return nil
 	}
 
-	ev, err := UnmarshalTransportEvent(r.Payload)
+	ev, err := parseTransportEvent(r.Payload)
 	if err != nil {
 		return nil
 	}
@@ -776,7 +776,8 @@ func transportEventOf(r *Record) *TransportEvent {
 
 // decodeEvent returns transportEventOf(r), decoding r's payload once.
 // With check it also returns an error wrapping ErrInvalidRecord, as eventPayloadError gives it,
-// for a transport-event or annotation record whose payload does not decode (the tracepack format specification §8).
+// for a transport-event or annotation record whose payload does not decode (the tracepack format specification §8),
+// with the decoder's own error, never ErrCorrupt, as checkEventPayload does.
 func decodeEvent(r *Record, check bool) (*TransportEvent, error) {
 	var (
 		ev  *TransportEvent
@@ -786,9 +787,9 @@ func decodeEvent(r *Record, check bool) (*TransportEvent, error) {
 	case !check:
 		ev = transportEventOf(r)
 	case r.Kind == KindTransportEvent:
-		ev, err = UnmarshalTransportEvent(r.Payload)
+		ev, err = parseTransportEvent(r.Payload)
 	case r.Kind == KindAnnotation:
-		_, err = UnmarshalAnnotation(r.Payload)
+		_, err = parseAnnotation(r.Payload)
 	default:
 		// A record of another kind has no payload rule here.
 	}

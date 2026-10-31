@@ -203,7 +203,7 @@ func isStopRecord(rec *Record) bool {
 	if rec.Kind != KindTransportEvent {
 		return false
 	}
-	ev, err := UnmarshalTransportEvent(rec.Payload)
+	ev, err := parseTransportEvent(rec.Payload)
 
 	return err == nil && ev.Event == EventCaptureBoundary && ev.BoundaryKind != nil && *ev.BoundaryKind == BoundaryKindStop
 }

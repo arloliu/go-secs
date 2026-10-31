@@ -461,12 +461,14 @@ func appendWriterDefects(dst []WriterDefect, i int, info *BlockInfo, d *decodedB
 }
 
 // checkEventPayload decodes the TLV body of a transport-event or annotation record, kind, and returns its error (§8).
+// It uses the decoders without their error translation, so neither a writer defect nor a writer's refusal of a record wraps ErrCorrupt:
+// the record is not corrupt data, and its kind says what failed.
 func checkEventPayload(kind Kind, payload []byte) error {
 	var err error
 	if kind == KindTransportEvent {
-		_, err = UnmarshalTransportEvent(payload)
+		_, err = parseTransportEvent(payload)
 	} else {
-		_, err = UnmarshalAnnotation(payload)
+		_, err = parseAnnotation(payload)
 	}
 
 	return err

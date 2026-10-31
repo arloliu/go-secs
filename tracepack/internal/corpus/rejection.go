@@ -43,9 +43,11 @@ type Rejection struct {
 //   - ErrChecksum: header-crc with format.ErrCRC, which only the file header's check wraps, else metadata-crc;
 //   - io.ErrUnexpectedEOF alone: metadata-past-object, since a read of an in-memory pack is never short;
 //   - a *FieldError wrapping ErrFieldValue for replacement_set_size or replacement_set_index: replacement-set;
-//   - ErrRequiredTag, or a *tlv.EntryError that is itself the missing top-level tag: metadata-required-tag;
+//   - a *tlv.EntryError that is itself the missing top-level tag: metadata-required-tag;
 //   - any other *tlv.EntryError, a nested missing tag included,
-//     which the enclosing entry's error wraps: metadata-entry-list.
+//     which the enclosing entry's error wraps: metadata-entry-list,
+//     whatever field sentinel the *FieldError holding it wraps;
+//   - ErrRequiredTag without a *tlv.EntryError, a conditional "Required when" rule: metadata-required-tag.
 //
 // Returns:
 //   - string: the code.
@@ -74,17 +76,19 @@ func RejectionCode(err error) (string, error) {
 	case errors.As(err, &fe) && errors.Is(fe, tracepack.ErrFieldValue) &&
 		(fe.Field == "replacement_set_size" || fe.Field == "replacement_set_index"):
 		return RejectReplacementSet, nil
-	case errors.Is(err, tracepack.ErrRequiredTag):
-		return RejectMetadataRequired, nil
 	case errors.As(err, &ee):
 		// errors.As finds the outermost entry error.
 		// Only a missing tag's error has no offset, and a missing nested tag's is wrapped by its enclosing entry's,
 		// which has the entry's offset, so an outermost error without an offset is a missing top-level tag.
+		// This comes before the ErrRequiredTag case: the *FieldError of a missing nested tag also wraps ErrRequiredTag,
+		// and the entry structure, not that sentinel, tells it from a missing top-level tag.
 		if ee.Offset == -1 && errors.Is(ee, tlv.ErrMissing) {
 			return RejectMetadataRequired, nil
 		}
 
 		return RejectMetadataEntryList, nil
+	case errors.Is(err, tracepack.ErrRequiredTag):
+		return RejectMetadataRequired, nil
 	default:
 		return "", fmt.Errorf("%w: %w", ErrNotRejection, err)
 	}

@@ -126,7 +126,7 @@ func (k *txPrimaryKey) classify(rec *Record, cached *HSMSHeader) (TxClass, *Tran
 	case rec.Kind != KindTransportEvent:
 		return 0, nil
 	}
-	ev, err := UnmarshalTransportEvent(rec.Payload)
+	ev, err := parseTransportEvent(rec.Payload)
 	if err != nil {
 		return 0, nil
 	}
