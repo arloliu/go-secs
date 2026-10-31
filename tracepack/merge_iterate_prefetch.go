@@ -28,9 +28,11 @@ type prefetchEntry struct {
 	// nil for a block failing its preflight, and once the block is demanded.
 	buf  *blockBuf
 	pool blockBufPool
-	// done is closed once the speculative read returned, err holding its error; nil without a speculative read.
-	done chan struct{}
-	err  error
+	// done is closed once the speculative read returned, err holding its error,
+	// or once its ReadAt panicked, panicked holding the value; nil without a speculative read.
+	done     chan struct{}
+	err      error
+	panicked *caughtPanic
 }
 
 // prefetcher reads the blocks a run of a read over several packs will demand next ahead of the demand,
@@ -48,8 +50,10 @@ type prefetchEntry struct {
 //
 // A speculative read only fills the block's raw bytes:
 // the block is checked and decoded, and its defect or read error reported, when the run demands it.
+// A ReadAt that panics is recovered on the read's goroutine, and the run panics with the value only when it demands the block;
+// a block it never demands is dropped with its error or its panic, as the read without prefetch never reads it.
 // The prefetcher is used by the run's goroutine only; its speculative reads run on goroutines of their own,
-// each writing only its entry's raw and err before closing done.
+// each writing only its entry's raw, err and panicked before closing done.
 type prefetcher struct {
 	// ctx is the read's; no read is issued once it is done.
 	ctx     context.Context
@@ -166,6 +170,7 @@ func (pf *prefetcher) fill() {
 }
 
 // issue starts the speculative read of the n bytes at off of r into the raw of e's buffer, which fitBuf sized to hold them.
+// A ReadAt that panics does not end the process: the read's goroutine keeps the value in e and closes done as for any other return.
 func (pf *prefetcher) issue(r *Reader, e *prefetchEntry, off int64, n int) {
 	raw := e.buf.raw[:n]
 	e.buf.raw = raw
@@ -174,9 +179,14 @@ func (pf *prefetcher) issue(r *Reader, e *prefetchEntry, off int64, n int) {
 	pf.inflight.Add(1)
 	go func() {
 		defer pf.wg.Done()
+		defer func() {
+			if v := recover(); v != nil {
+				e.panicked = &caughtPanic{value: v}
+			}
+			pf.inflight.Add(-1)
+			close(e.done)
+		}()
 		e.err = readAt(r.ra, raw, off)
-		pf.inflight.Add(-1)
-		close(e.done)
 	}()
 }
 
@@ -207,7 +217,7 @@ func (pf *prefetcher) take(pack, i int) *prefetchEntry {
 }
 
 // close stops the prefetch: it admits nothing more, waits for every speculative read in flight,
-// then releases the reservation of every block still queued and gives its buffer back to its pool, discarding its bytes and its error.
+// then releases the reservation of every block still queued and gives its buffer back to its pool, discarding its bytes, its error and its panic.
 // No ReadAt of the prefetch is in flight once it returns.
 // A nil prefetcher, or one closed before, does nothing more.
 func (pf *prefetcher) close() {

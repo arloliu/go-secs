@@ -156,7 +156,8 @@ func (h *heldBlock) hold() {
 // borrows a buffer from its Reader's pool, keeping each pooled slice that fits the block and allocating any other at exactly its size,
 // decoded only once the decode needs it (fitBuf), and reads the block with readBlock.
 // When the prefetch queued the block, the block takes over the queued reservation and the queued buffer instead of reserving and borrowing again,
-// and a block read ahead is checked and decoded from the bytes read, after waiting for that read.
+// and a block read ahead is checked and decoded from the bytes read, after waiting for that read;
+// when that read's ReadAt panicked, load panics with the same value, nothing staying reserved for the block.
 // After a load that returns no error, the prefetch admits the next blocks it can.
 // The read never grows a buffer past its capacity:
 // readBlock fills the buffers only to the sizes of the block's envelope,
@@ -197,6 +198,11 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 		h.buf, h.pool = queued.buf, queued.pool
 		queued.buf, queued.pool = nil, nil
 		if fetched {
+			if p := queued.panicked; p != nil {
+				// Raised on the run's goroutine, as the read without prefetch would, once the block's buffer is back.
+				l.drop(h)
+				panic(p.value)
+			}
 			h.buf.view = h.buf.raw
 		}
 	} else {
