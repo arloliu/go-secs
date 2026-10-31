@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/arloliu/go-secs/tracepack"
+	"github.com/arloliu/go-secs/tracepack/bus"
 	"github.com/arloliu/go-secs/tracepack/classify"
 	"github.com/arloliu/go-secs/tracepack/redact"
 )
@@ -61,9 +62,9 @@ func writeSegment(t *testing.T, s segmentSpec) []byte {
 	recs := make([]tracepack.Record, 0, len(s.frames))
 	var entries []tracepack.RedactionEntry
 	for _, msg := range busBatch(t, s.first, s.frames...) {
-		br, err := tracepack.CheckBusMessage(msg.env, msg.body)
+		br, err := bus.CheckMessage(msg.env, msg.body)
 		require.NoError(t, err)
-		require.NoError(t, tracepack.DeriveBusRecord(&br.Record, cls))
+		require.NoError(t, bus.DeriveRecord(&br.Record, cls))
 		rec := br.Record
 		if s.policy != nil {
 			masked, es, err := s.policy.Mask(t.Context(), br.CaptureID, &br.Record, false, consumerKeys{})

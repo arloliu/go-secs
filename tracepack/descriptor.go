@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/arloliu/go-secs/tracepack/internal/keyesc"
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
@@ -148,7 +149,7 @@ type CaptureDescriptor struct {
 //     such as a string that is not valid UTF-8 or a device_id or hsms_timers value above 2^63-1,
 //     a *FieldError naming the field, whose Err wraps ErrFieldValue and the encoding's reason.
 func (d *CaptureDescriptor) Validate() error {
-	if err := checkKeyTool(d.ToolID); err != nil {
+	if err := keyesc.CheckTool(d.ToolID); err != nil {
 		// A ToolID no key can hold is the caller's argument, so the writing calls that check it mark it (refuse).
 		return &FieldError{Field: "tool_id", Err: argument(keyArgError(err))}
 	}

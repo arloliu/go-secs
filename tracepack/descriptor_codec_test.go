@@ -311,10 +311,6 @@ func TestDescriptorScope(t *testing.T) {
 			m, err := DecodeDescriptor(b)
 			require.Error(t, err)
 			assert.Nil(t, m)
-
-			_, err = CheckBusMessage(startEnvelope(t, base64.StdEncoding.EncodeToString(b)), startBody(t))
-			require.ErrorIs(t, err, ErrBusNotAccepted)
-			assert.NotErrorIs(t, err, ErrBusMalformed)
 		})
 	}
 
@@ -325,8 +321,6 @@ func TestDescriptorScope(t *testing.T) {
 		for _, cut := range [][]byte{b[:len(b)-1], b[:3], append(append([]byte{}, b...), 0x01)} {
 			_, err := DecodeDescriptor(cut)
 			require.Error(t, err)
-			_, err = CheckBusMessage(startEnvelope(t, base64.StdEncoding.EncodeToString(cut)), startBody(t))
-			require.ErrorIs(t, err, ErrBusNotAccepted)
 		}
 		_, err := DecodeDescriptor(nil)
 		require.Error(t, err, "an empty descriptor misses every required tag")

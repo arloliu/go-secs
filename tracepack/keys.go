@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/arloliu/go-secs/tracepack/internal/keyesc"
 )
 
 const (
@@ -29,9 +31,6 @@ const (
 	// maxKeyHour is the last hour a key can name, hourOf(math.MaxInt64), 2562047:
 	// the hour holding the largest nanosecond timestamp, which ends after it.
 	maxKeyHour int64 = math.MaxInt64 / hourNs
-
-	// upperHex holds the hex digits a key's escapes use.
-	upperHex = "0123456789ABCDEF"
 )
 
 // ErrInvalidKey reports a key, or a key component, outside the forms of the tracepack storage specification §3:
@@ -82,14 +81,14 @@ func EscapeToolID(tool string) string {
 
 	for i := range len(tool) {
 		c := tool[i]
-		if isUnreserved(c) {
+		if keyesc.IsUnreserved(c) {
 			b.WriteByte(c)
 
 			continue
 		}
 		b.WriteByte('%')
-		b.WriteByte(upperHex[c>>4])
-		b.WriteByte(upperHex[c&0x0F])
+		b.WriteByte(keyesc.UpperHex[c>>4])
+		b.WriteByte(keyesc.UpperHex[c&0x0F])
 	}
 
 	return b.String()
@@ -162,7 +161,7 @@ func keyArea(prefix, area string) string {
 // stagingKeyDir returns the listing prefix of the capture's segments, <prefix>/staging/<tool>/<capture>/,
 // or an error for a tool a key cannot hold.
 func stagingKeyDir(prefix, tool string, capture UUID) (string, error) {
-	if err := checkKeyTool(tool); err != nil {
+	if err := keyesc.CheckTool(tool); err != nil {
 		return "", keyArgError(err)
 	}
 
@@ -172,7 +171,7 @@ func stagingKeyDir(prefix, tool string, capture UUID) (string, error) {
 // archiveKeyDir returns the listing prefix of the tool's archive packs of hour, <prefix>/archive/<tool>/<YYYY>/<MM>/<DD>/<HH>/,
 // or an error for a tool a key cannot hold or an hour outside [minKeyHour, maxKeyHour].
 func archiveKeyDir(prefix, tool string, hour int64) (string, error) {
-	if err := checkKeyTool(tool); err != nil {
+	if err := keyesc.CheckTool(tool); err != nil {
 		return "", keyArgError(err)
 	}
 	if err := checkKeyHour(hour); err != nil {
@@ -181,17 +180,6 @@ func archiveKeyDir(prefix, tool string, hour int64) (string, error) {
 	t := keyHourTime(hour)
 
 	return fmt.Sprintf("%s%s/%04d/%02d/%02d/%02d/", keyArea(prefix, "archive"), EscapeToolID(tool), t.Year(), t.Month(), t.Day(), t.Hour()), nil
-}
-
-// checkKeyTool reports an error for a tool no key can hold: "", and "." and "..",
-// which would be path components of their own since '.' is not escaped.
-// The error states only the reason; its caller wraps it with ErrInvalidKey.
-func checkKeyTool(tool string) error {
-	if tool == "" || tool == "." || tool == ".." {
-		return fmt.Errorf("tool %q cannot be stored", tool)
-	}
-
-	return nil
 }
 
 // checkKeyHour reports an error for an hour outside [minKeyHour, maxKeyHour].
@@ -208,11 +196,6 @@ func checkKeyHour(hour int64) error {
 // It converts through seconds, since the first such hour does not start within the int64 nanosecond range.
 func keyHourTime(hour int64) time.Time {
 	return time.Unix(hour*secondsPerHour, 0).UTC()
-}
-
-// isUnreserved reports whether c is in the RFC 3986 unreserved set, which a key keeps unescaped.
-func isUnreserved(c byte) bool {
-	return 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~'
 }
 
 // parseSegmentKey parses key as the key of a staging segment under prefix, as SegmentKey builds it.
@@ -307,7 +290,7 @@ func unescapeToolID(s string) (string, error) {
 
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if isUnreserved(c) {
+		if keyesc.IsUnreserved(c) {
 			b.WriteByte(c)
 
 			continue
@@ -318,19 +301,19 @@ func unescapeToolID(s string) (string, error) {
 		if i+2 >= len(s) {
 			return "", fmt.Errorf("tool %q: escape at %d is cut short", s, i)
 		}
-		hi, lo := strings.IndexByte(upperHex, s[i+1]), strings.IndexByte(upperHex, s[i+2])
+		hi, lo := strings.IndexByte(keyesc.UpperHex, s[i+1]), strings.IndexByte(keyesc.UpperHex, s[i+2])
 		if hi < 0 || lo < 0 {
 			return "", fmt.Errorf("tool %q: escape at %d is not two uppercase hex digits", s, i)
 		}
 		v := byte(hi<<4 | lo) // two hex digits, below 256
-		if isUnreserved(v) {
+		if keyesc.IsUnreserved(v) {
 			return "", fmt.Errorf("tool %q: escape at %d encodes the unreserved byte %q", s, i, v)
 		}
 		b.WriteByte(v)
 		i += 2
 	}
 	tool := b.String()
-	if err := checkKeyTool(tool); err != nil {
+	if err := keyesc.CheckTool(tool); err != nil {
 		return "", err
 	}
 
@@ -339,15 +322,9 @@ func unescapeToolID(s string) (string, error) {
 
 // parseKeyUUID parses a UUID of a key, which only the canonical lowercase form spells.
 func parseKeyUUID(s string) (UUID, error) {
-	u, err := ParseUUID(s)
-	if err != nil {
-		return UUID{}, err
-	}
-	if u.String() != s {
-		return UUID{}, fmt.Errorf("UUID %q not in lowercase", s)
-	}
+	u, err := keyesc.ParseUUID(s)
 
-	return u, nil
+	return UUID(u), err
 }
 
 // parseKeyDigits parses s, decimal digits only, as a uint64.

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/arloliu/go-secs/tracepack"
+	"github.com/arloliu/go-secs/tracepack/bus"
 	"github.com/arloliu/go-secs/tracepack/classify"
 	"github.com/arloliu/go-secs/tracepack/redact"
 )
@@ -77,25 +78,25 @@ func ppbody(ppid string, body []byte, trailing ...byte) []byte {
 
 // busMessage returns the bus message of layout 1 a producer publishes for a data record of seq over frame,
 // its derived fields zero.
-func busMessage(t *testing.T, seq uint64, frame []byte) (tracepack.BusEnvelope, []byte) {
+func busMessage(t *testing.T, seq uint64, frame []byte) (bus.Envelope, []byte) {
 	t.Helper()
 
 	r := tracepack.Record{
 		Seq: seq, TSUTCNs: hourStart + int64(seq), Epoch: 1, Kind: tracepack.KindData,
 		Dir: tracepack.DirEquipmentToHost, Fidelity: tracepack.FidelityWireExact, Payload: frame,
 	}
-	br := tracepack.NewBusRecord(&r)
-	body, err := tracepack.EncodeBusBody(&br)
+	br := bus.NewRecord(&r)
+	body, err := bus.EncodeBody(&br)
 	require.NoError(t, err)
-	id, err := tracepack.BusMsgID(consumerCapture, seq)
+	id, err := bus.MsgID(consumerCapture, seq)
 	require.NoError(t, err)
 
-	return tracepack.BusEnvelope{Layout: "1", MsgID: id}, body
+	return bus.Envelope{Layout: "1", MsgID: id}, body
 }
 
 // busMsg is one bus message as a consumer receives it: its headers and its body.
 type busMsg struct {
-	env  tracepack.BusEnvelope
+	env  bus.Envelope
 	body []byte
 }
 
@@ -122,11 +123,11 @@ func consumeBatch(ctx context.Context, out io.Writer, msgs []busMsg, c *redact.C
 	recs := make([]tracepack.Record, 0, len(msgs))
 	var entries []tracepack.RedactionEntry
 	for _, msg := range msgs {
-		br, err := tracepack.CheckBusMessage(msg.env, msg.body)
+		br, err := bus.CheckMessage(msg.env, msg.body)
 		if err != nil {
 			return err
 		}
-		if err := tracepack.DeriveBusRecord(&br.Record, cls); err != nil {
+		if err := bus.DeriveRecord(&br.Record, cls); err != nil {
 			return err
 		}
 		masked, es, err := c.Mask(ctx, br.CaptureID, &br.Record, br.Record.Quality.HasAny(tracepack.QualityUnobserved), consumerKeys{})

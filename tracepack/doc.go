@@ -43,17 +43,14 @@
 // # Durable-bus capture
 //
 // A producer that publishes each record of a capture as one bus message (the tracepack storage specification §4)
-// encodes the capture's descriptor with EncodeDescriptor, for the start message's BusHeaderDescriptor header,
-// and each record with NewBusRecord and EncodeBusBody, inline or by claim-check as BusInline says;
-// BusSubject, BusMsgID and BusPayloadDigest give the subject and header values,
-// and CheckBusStart is its size preflight.
-// The package imports no NATS client.
+// encodes the capture's descriptor with EncodeDescriptor, for the start message's descriptor header,
+// and each record with the bus codec of the subpackage tracepack/bus,
+// which also spells the subject and header values and preflights a message's size.
+// The module imports no NATS client.
 //
-// The log service, the consumer that writes the capture's packs, checks each message with CheckBusMessage:
-// ErrBusMalformed marks a message never written, its seq a seq gap,
-// and ErrBusNotAccepted a start whose descriptor it cannot accept, on which it defers the capture.
-// CheckBusPayload checks a claim-check object, DecodeDescriptor gives the producer's values of a start,
-// and DeriveBusRecord sets the values the consumer derives from the payload as received,
+// The log service, the consumer that writes the capture's packs, checks each message with the same subpackage,
+// which gives the producer's values of a start through DecodeDescriptor
+// and derives the values the consumer sets from the payload as received,
 // classified by a Classifier such as classify.NewNamed returns, before any masking.
 // Under a redaction policy the package tracepack/redact masks the records of a flush batch and computes their entries;
 // the consumer collects them into PackMeta.Redaction and only then constructs the Writer,
