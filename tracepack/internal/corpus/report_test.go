@@ -364,6 +364,7 @@ func TestVerifyBlockDisagreeingWithF2AndF3(t *testing.T) {
   "lost": []
 }
 `, marshalJSON(t, &v))
-	// Both disagreements are reported, which the projection lists as one block.
-	require.Len(t, rep.Disagreements, 2)
+	// Verify lists the block once, with its F-2 disagreement (the tracepack format specification §13).
+	require.Len(t, rep.Disagreements, 1)
+	require.ErrorContains(t, rep.Disagreements[0].Err, "ts_max")
 }
