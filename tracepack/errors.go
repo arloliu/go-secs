@@ -15,7 +15,7 @@ var (
 	// Open also wraps it, beside io.ErrUnexpectedEOF, for pack metadata that extends past the end of the object.
 	// The reads wrap it, beside the cause, in PackHeader.FooterErr for a damaged trailer (with ErrNotFinalized)
 	// and in Defect.Err for a block that fails a check or disagrees with the index, and for a forward walk that stops at one
-	// or disagrees with a valid trailer (Defect.Err lists them by reason);
+	// or disagrees with a valid trailer, or ends at a valid trailer whose footer CRC fails (Defect.Err lists them by reason);
 	// so do Verify's VerifyReport.Failed and VerifyReport.Disagreements,
 	// MergeIterate's and the transaction lookups' defects and FooterErrs, ExportJSONL's Result,
 	// and Merge's error for an unusable input, beside ErrMergeInput.
@@ -33,9 +33,10 @@ var (
 	// PackHeader.FooterErr wraps it for every pack with no valid trailer:
 	// alone when the trailer is absent, and beside ErrChecksum or ErrCorrupt when a trailer is present but damaged,
 	// so a caller tests it before ErrCorrupt.
-	// Defect.Err wraps it at the end of the forward walk of a pack that is not finalized (IncompleteReasonTruncated),
-	// whose trailer is not valid or whose footer CRC fails (I-5),
-	// and Merge, beside ErrMergeInput, for an input with no valid trailer.
+	// Defect.Err wraps it at the end of the forward walk of a pack with no valid trailer (IncompleteReasonTruncated);
+	// a pack whose trailer is valid but whose footer CRC fails is not finalized either (I-5),
+	// but it was finished, so its PackHeader.FooterErr wraps ErrChecksum and the end of its walk ErrCorrupt, without ErrNotFinalized.
+	// Merge wraps it, beside ErrMergeInput, for an input with no valid trailer.
 	// It is not ErrCorrupt and has no parent.
 	ErrNotFinalized = errors.New("tracepack: pack not finalized")
 	// ErrInvalidArgument reports an argument or option the call cannot take:
