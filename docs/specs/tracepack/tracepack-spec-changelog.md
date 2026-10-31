@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-31) — spec v2.39.
+Status: current (2026-10-31) — spec v2.40.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -179,6 +179,23 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   the record not added and the `Writer` still usable, a tag or enum value it does not know preserved, and `Merge` copying such a record as it is;
   the bus codec bullet adds such a payload to what `bus.ErrMalformed` marks, inline in `bus.CheckMessage` and by claim-check in `bus.CheckPayload`.
   No API is added.
+- 2026-10-31: the §3 bus codec bullet follows [STO §4] of v2.40 (G5-295):
+  `bus.CheckMessage` marks a layout-1 record of another kind, kind 0 included, with `bus.ErrMalformed`, inline and by claim-check alike,
+  and a message of an unknown `Tpk-Layout` with the new `bus.ErrUnsupportedLayout`, deferred with an alert, in place of `bus.ErrMalformed`;
+  `bus.CheckPayload` never returns it, and `bus.DeriveRecord`'s refusal of another kind is unreachable after `bus.CheckMessage`.
+  The bullet also says `bus.CheckStart` and `bus.CheckPayload` report the caller's mistakes with `tracepack.ErrInvalidArgument` (G5-296).
+- 2026-10-31: §3 gains the error taxonomy bullet (G5-296):
+  `ErrCorrupt`, which `ErrChecksum` and `ErrInvalidFooter` also match, `ErrNotFinalized`, and `ErrInvalidArgument`, which `ErrInvalidQuery` and `ErrInvalidKey` also match,
+  one sentinel per fault on every read path, codec errors as `*FieldError`, and the rule that each line of an error's text names `tracepack: ` at most once.
+  The `ErrRefused` bullet names `ErrInvalidArgument` for an invalid argument or option and no longer lists the random source, which never fails;
+  the `Reader` bullet's option errors, `EncodeDescriptor(nil)`, the `NewDirSink` prefix and a `SegmentFile` call after `Commit` or `Abort` wrap `ErrInvalidArgument`,
+  `Create`, `Commit` and `Abort` after `(*DirSink).Close` wrap `fs.ErrClosed`,
+  and a `Now()` at `SegmentWriter.Close` that is not representable is `ErrInvalidRecord`, a refusal.
+  No format rule changed.
+- 2026-10-31: the §3 `SegmentWriter` bullet states what a later `Close` returns (G5-297):
+  an error wrapping `ErrWriterFailed` and the failure after a failure, an earlier `Close`'s included, and `ErrClosed` after a `Close` that succeeded, with no sink call;
+  a `Close` refused because `ctx` was done before any sink call still leaves the writer usable.
+  No format rule changed.
 
 ## Changes vs v1 (summary)
 
@@ -1816,3 +1833,31 @@ Review rounds:
 | plan review 6 | a caller's own `ErrRefused` passed through the external marker; joined causes had no rule | passthrough stated as the contract; a chain holding any external error stays unmarked |
 | plan review 7 | Merge's exclusion contradicted the passthrough | tracepack never adds the marker to a Merge error; a destination's own passes through |
 | plan review 8 | — | ready |
+
+## Changes v2.39 → v2.40: the error taxonomy (owner decisions G5-295..G5-297, 2026-10-31)
+
+Source: the tracepack maintainers' error-handling review (Claude and Codex), with the log service (tracekeep) and the Virtual Equipment project (veq) consulted.
+Format 1.2, the canonical export bytes and the corpus goldens are unchanged.
+Implemented by the tracepack release after v0.12.0.
+
+Summary:
+- [STO §4] *Bus message*: a layout fixes the record kinds its messages carry, and a layout-1 record of another kind, kind 0 included, is malformed, its seq a seq gap;
+  a producer that emits a new kind uses a new `Tpk-Layout`, and a consumer that finds a layout it does not know defers the message with an alert under *Deferral* instead of counting its seq as a gap;
+  consumers that know a layout are deployed before any producer emits it.
+  [STO §8] lists both cases (G5-295).
+- [GO] §3: `bus.ErrUnsupportedLayout` and the kind check of `bus.CheckMessage` (G5-295);
+  `bus.CheckStart` and `bus.CheckPayload` report the caller's mistakes with `tracepack.ErrInvalidArgument`, no longer `bus.ErrMalformed` (G5-296).
+- [GO] §3: the public error taxonomy: `ErrCorrupt`, which `ErrChecksum` and `ErrInvalidFooter` also match, `ErrNotFinalized`, and `ErrInvalidArgument`, which `ErrInvalidQuery` and `ErrInvalidKey` also match;
+  codec errors as `*FieldError`; option and argument errors of `Open`, `Verify`, `Merge`, the codecs and `DirSink`; `fs.ErrClosed` after `(*DirSink).Close`;
+  and the rule that each line of an error's text names `tracepack: ` at most once (G5-296).
+- [GO] §3: a later `SegmentWriter.Close` returns `ErrWriterFailed` after a failure and `ErrClosed` after a success (G5-297).
+- The overview's list of decisions reaches G5-297.
+
+Review rounds:
+
+| Round | Finding | Resolution |
+|---|---|---|
+| plan review 1 | the first-match action table omitted the writer's lifecycle errors; mapping a missing nested tag to `ErrRequiredTag` changed a corpus rejection code; static prefix rules could not meet their own acceptance test; deterministic faults at some boundaries were unclassified; the guard test asked more than the diagnostic contract | one table per call family, `ErrClosed` and `ErrWriterFailed` first; the corpus classifier inspects the TLV entry before the required-tag fallback, no vector changed; a rendering helper; every boundary inventoried; the guard asserts each declared classifier |
+| plan review 2 | the lifecycle table conflated an unusable object with disposable output; deterministic read and merge failures reached the transient fallback; the prefix helper contradicted keeping a caller's text; two plain `DirSink` errors were outside the inventory | usability and disposition decided apart; `ErrNotPrimary` and the writer tag's `ErrInvalidArgument` placed, Merge's failures inventoried; caller text relaxed in one respect, the error value unchanged; both documented as environment faults |
+| plan review 3 | the text-adapter recipe contradicted the helper's rendering contract | the text is fmt's rendering with the original operands, later namespaces removed per line |
+| plan review 4 | a whole-error count contradicted per-line joins; one sentinel-chain example prescribed an output its texts cannot give | the count is per line, joined fixtures assert their exact text; each example's output follows from unchanged sentinel texts; no redesign needed, ready |
