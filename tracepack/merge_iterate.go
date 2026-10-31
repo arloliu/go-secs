@@ -65,10 +65,16 @@ type mergeIterateOptions struct {
 }
 
 // PackError is an error about one pack of a read that does not make the read incomplete.
+//
+// It appears only as an element of Result.FooterErrs, never as the error a call returns,
+// and is a value type: the errors.As target is a PackError, not a pointer
+// (var pe tracepack.PackError; errors.As(err, &pe)).
+// Error and Unwrap make it an error whose chain is Err's.
 type PackError struct {
 	// Pack is the index into the readers given to MergeIterate of the pack the error concerns; 0 for Reader.Iterate.
 	Pack int
-	// Err describes the error.
+	// Err is the pack's PackHeader.FooterErr, wrapping the sentinels its Godoc lists:
+	// ErrNotFinalized, ErrChecksum, ErrCorrupt, ErrInvalidFooter or ErrReadLimit.
 	Err error
 }
 
@@ -181,6 +187,9 @@ var _ error = PackError{}
 // the period is currently 4096 copies gathered and 4096 calls of fn, and may change.
 // A failed check returns ctx's error, and fn is not called again;
 // when fn returns an error, that error is returned, whatever became of ctx during the call.
+// Once ctx is done, the error returned may be ctx's even when a block read, read ahead or not, also failed:
+// which one comes first depends on when ctx was cancelled.
+// Without cancellation the error does not depend on timing, the reads ahead included.
 //
 // Parameters:
 //   - ctx: cancels the read at the checks above.

@@ -236,7 +236,7 @@ The query service, its catalog database and the live-tail interface are designed
   a standalone codec or `Validate` returns the field's sentinel without it.
   `Merge`'s checks of its own blocks report a defect of this package and wrap no input or argument sentinel.
   Where `Err` stays descriptive, the field beside it classifies: `Defect.Reason` for coverage and crash gaps, `TxGap`'s fields, and `WriterDefect.Kind`;
-  `PackError` and `TxPackError` stay value types, found in `FooterErrs`.
+  `PackError` and `TxPackError` stay value types, found only in `FooterErrs`, `errors.As` taking a value (`var pe tracepack.PackError`), their `Err` wrapping the sentinels `PackHeader.FooterErr` lists.
   The package documentation and the README give one decision table per call family, the first match deciding.
   Each line of an error's text names `tracepack: ` at most once: the text is fmt's rendering of the wrap with every later occurrence on a line removed,
   and the error value and its chain are unchanged.
@@ -403,7 +403,8 @@ The query service, its catalog database and the live-tail interface are designed
   at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`) bytes, outside `MergeIterateOptions.MaxHeldBytes`, `TxOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`;
   it reads a block lying wholly inside them from them, a compressed block decoded in place into the read's own buffers and a None block copied first,
   so no `Item` aliases them, and reads any other block with one `ReadAt`.
-  A `ReadAt` that panics in one of its concurrent bootstrap reads makes `Open` panic on its caller with that value once the round's calls have returned (G5-278).
+  A `ReadAt` that panics in one of its concurrent bootstrap reads makes `Open` panic on its caller with that value once the round's calls have returned (G5-278);
+  one that ends its goroutine instead of returning (`runtime.Goexit`) fails `Open` with an error saying it did not return, its bytes never used (G5-296).
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`,
   and `Stats() (PackStats, bool)` (G5-131): the F-5 statistics of a pack whose footer it uses — counts, time and seq ranges, per-epoch summaries with `close_seq`, capture-boundary entries — as a fresh value, false without a used footer.
   `Open` decodes the pack metadata against the registry of the pack's `format_minor` ([FMT §5]),
@@ -447,6 +448,8 @@ The query service, its catalog database and the live-tail interface are designed
   It may issue several `ReadAt` calls concurrently on a Reader's `io.ReaderAt`, as `Open` does, and waits for all of them before it returns, whatever its outcome.
   A `ReadAt` that panics makes it panic with that value on the caller's goroutine when the read reaches the block of that `ReadAt`;
   a block read ahead that the read never reaches is dropped with its panic, as with its error.
+  A `ReadAt` read ahead that ends its goroutine instead of returning fails the read when it reaches the block (G5-296);
+  a panic of a block read on the caller's goroutine gives back the block's buffer and its `MaxHeldBytes` reservation before it leaves the call.
   Readers must be distinct packs (no repeated `pack_id`); the guarantees cover the readers given.
   Copies of a record are compared before the filter, identical ones yielded once, and every selected version of a `conflict` yielded with `Item.Conflict` set;
   `Result.Conflicts` lists every conflict of every compared cluster in discovery order, each with its versions in version order,
@@ -534,12 +537,15 @@ The query service, its catalog database and the live-tail interface are designed
   the error of a failed read of an input, or `ErrReadLimit` for an input over a reader budget of `opts.Reader`, is returned naming the input, never as `ErrMergeInput`;
   record conflicts fail with `ErrMergeConflict` once every block was compared, and each conflict is passed, as it is found, to `opts.OnConflict`, which is required;
   exceeding `MaxOpenBlocks` (default `DefaultMaxOpenBlocks`, 64) or the output footer budget `MaxFooterLen` fails with `ErrMergeLimit`,
-  and so does archive pack metadata longer than `opts.Reader.MaxPackMetadataLen`, the budget the next merge opens it with.
+  and so does archive pack metadata longer than `opts.Reader.MaxPackMetadataLen`, the budget the next merge opens it with,
+  and an archive over a limit of the format its blocks reach, a block's F-3 entry list over the u32 `summary_len` or more blocks than the u32 `block_count`, beside the error naming it (G5-296).
   `Merge` keeps up to `MaxParallelOpens` inputs opening, or opened and not yet checked (default `DefaultMaxParallelOpens`, 16; 1 opens them one after another),
   and checks them in input order (G5-278):
   while ctx is live and each input's `ReaderAt` answers independently of the others', opening fails with the input serial opening names;
   inputs after a failing one may have been read, every open has returned when `Merge` returns,
   and an open's panic is raised on the caller only when the checks reach its input.
+  A `ReadAt` that ends its goroutine instead of returning (`runtime.Goexit`) on a goroutine `Merge` started fails that input's open as a failed read, never `ErrMergeInput` (G5-296).
+  Once ctx is done, `Merge`, `MergeIterate` and `FindTransactions` may return ctx's error even when a read or a lookup also failed; without cancellation their error does not depend on timing.
   An error found before the archive's header leaves `dst` untouched, and after any error the caller discards `dst` and publishes nothing;
   an error of the final write or sync can leave bytes that form a finalized pack, which `Merge` still reports as a failure.
   From format 1.1 it carries the masks and `thinning` of its inputs, and refuses with `ErrMergeInput` the inputs [STO §4] Merge refuses:

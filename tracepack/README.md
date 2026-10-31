@@ -259,8 +259,13 @@ report each fault of a pack with the same sentinel on every path, the cause kept
 | a structure over a reader budget | `ErrReadLimit` |
 | your `ReaderAt`'s error, `io.ErrUnexpectedEOF` of a short read included | returned as it is, never `ErrCorrupt` |
 
+A `ReadAt` the module calls on a goroutine of its own that ends the goroutine instead of returning, through `runtime.Goexit` as `t.FailNow` does,
+fails the call with an error saying the `ReadAt` did not return, never read as the pack's bytes;
+under `Merge` it is a failed read of that input, not `ErrMergeInput`.
+
 Only a fault of the file header or the pack metadata fails `Open`.
 A trailer or footer that cannot be used is reported by `PackHeader.FooterErr`, and by the read's `FooterErrs`, as `PackError.Err` or `TxPackError.Err`;
+`PackError` and `TxPackError` appear only there and are values, so `errors.As` takes `var pe tracepack.PackError` or `var te tracepack.TxPackError`, not a pointer;
 test `ErrNotFinalized` before `ErrCorrupt`, since a damaged trailer carries both and a pack not finalized may still be written to.
 A block or walk fault is a `Defect` in `Result.Incomplete` (a `TxGap` of a lookup), and its `Err` wraps, by `Defect.Reason`:
 
@@ -498,6 +503,9 @@ For the storage service:
   It opens up to `MaxParallelOpens` inputs at once, 16 by default, and checks them in your order,
   so, while ctx is not cancelled and each input's `ReaderAt` answers independently of the others',
   an error names the input opening them one after another would name; inputs after a failing one may have been read.
+  Once `ctx` is done, `Merge`, `MergeIterate` and `FindTransactions` may return `ctx`'s error even when a read or a lookup also failed;
+  without cancellation their error does not depend on timing.
+  An archive over its budget, or over a limit of the format its blocks reach, such as an F-3 entry list longer than the u32 `summary_len`, fails with `ErrMergeLimit`.
   Which packs a merge takes, and when a merged pack may be deleted, is yours to decide (the storage specification §4);
   publish the archive only after `Merge` returned nil.
 - `Merge` merges packs of format 1.2: it carries the inputs' redaction policy, their redaction entries, their `thinning` and their `recorder_instance_name`,
