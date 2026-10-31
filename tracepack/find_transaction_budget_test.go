@@ -15,9 +15,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// txNote returns an annotation record of seq at blockTestHour + seq in epoch txTestEpoch, carrying payload:
+// txNote returns an annotation record of seq at blockTestHour + seq in epoch txTestEpoch, a note carrying raw as its raw value:
 // a record that plays no role in a lookup.
-func txNote(seq uint64, payload []byte) Record {
+func txNote(seq uint64, raw []byte) Record {
+	a := Annotation{AnnotationKind: AnnotationKindNote, Raw: append([]byte{}, raw...)}
+	payload, err := a.MarshalBinary()
+	if err != nil {
+		panic(err)
+	}
+
 	return Record{
 		Seq: seq, TSUTCNs: blockTestHour + int64(seq), Epoch: txTestEpoch, Kind: KindAnnotation, Dir: DirLocal,
 		DecodeStatus: DecodeStatusNotApplicable, Payload: payload,

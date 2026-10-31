@@ -128,9 +128,11 @@ The query service, its catalog database and the live-tail interface are designed
   A consumer checks a message with `bus.CheckMessage(bus.Envelope, body) (bus.Record, error)`,
   which returns the record normalized, `decode_status`, `trailing_bytes` and `field_validity` zero whatever the producer wrote:
   `bus.ErrMalformed` marks a message never written, its seq a seq gap, a message with a non-empty `Tpk-Payload-Digest` and no or an empty `Tpk-Payload-Ref` included (G5-258),
+  as is a transport-event or annotation record whose payload is not a valid TLV body ([FMT §8], G5-294),
   and `bus.ErrNotAccepted` a `start` whose `Tpk-Capture-Descriptor` is missing, not padded standard base64 or does not decode,
   on which the consumer alerts and defers the capture's later records; the header on another record is ignored (G5-257).
-  `bus.CheckPayload` checks a fetched claim-check object (`bus.ErrPayloadMismatch`, deferred)
+  `bus.CheckPayload` checks a fetched claim-check object (`bus.ErrPayloadMismatch`, deferred),
+  its payload as `bus.CheckMessage` checks an inline one (`bus.ErrMalformed`, G5-294)
   and, when its record is a `start`, the message's descriptor header (`bus.ErrNotAccepted`),
   and `bus.DeriveRecord(*tracepack.Record, tracepack.Classifier)` sets the values the consumer derives by kind, an unobserved data record's included.
   Both directions refuse a producer seq of 2^63 − 1, which only a consumer's close carries.
@@ -178,6 +180,10 @@ The query service, its catalog database and the live-tail interface are designed
   The `Writer` accepts a record carrying `QualityUnobserved` only as a data record unobserved by design ([SEM §2]) of a stream and function the pack's `thinning` declares,
   refusing one whose own fields break the rule with `ErrInvalidRecord`,
   and it refuses a `thinning` entry whose stream is above 127 or whose function is above 255 (G5-254).
+  `Writer.Append` refuses a transport-event or annotation record whose payload is not a valid TLV body ([FMT §8]) with `ErrInvalidRecord`,
+  the record not added, no seq taken and the `Writer` still usable, as `SegmentWriter` does (G5-294);
+  a tag or an enum value it does not know is preserved, not refused ([FMT §14]).
+  `Merge` copies such a record of another writer as it is.
   It writes `format_minor` by [FMT §14], from the pack metadata, with no option; only `Merge` overrides it, with the largest input minor.
   Placing records into segments by [STO §4] *Scope and order* stays with the log service.
   `Close` returns a `Continuation`, whose one method `Next() (seq uint64, ok bool)` is the only way to read a continuation seq:

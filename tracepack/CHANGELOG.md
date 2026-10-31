@@ -217,6 +217,17 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   tracekeep writes `T3Ms:` in the two `HSMSTimers` literals of `producer/descriptor_test.go`;
   veq uses none of them.
 
+- **Breaking:** `Writer.Append` refuses a transport-event or annotation record whose payload does not decode (G5-294),
+  with an error wrapping `ErrInvalidRecord` and the decode error, marked `ErrRefused`, as `SegmentWriter.Append` already did;
+  the record is not added, no seq is taken and the `Writer` stays usable.
+  It used to store the payload as given, which `Verify` then reported as a writer defect.
+  A payload holding a tag or an enum value this module does not know still decodes, and is stored as given.
+  `bus.CheckMessage` returns an error wrapping `bus.ErrMalformed` for such an inline record, and `bus.CheckPayload` for such a claim-check record,
+  so the consumer never writes the message and counts its seq as a gap instead of having the `Writer` refuse its batch.
+  `Merge` still copies such a record of another writer as it is.
+  Migration: tracekeep maps the new `bus.ErrMalformed` case as it maps the others, to a seq gap;
+  veq builds its events with `MarshalBinary`, so it is unaffected.
+
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 - `Reader.Iterate` refuses a nil `fn` with an error wrapping `ErrInvalidQuery`, before anything is read, as `MergeIterate` does;

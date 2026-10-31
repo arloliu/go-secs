@@ -67,6 +67,8 @@ type readerPackConfig struct {
 	meta func(*PackMeta)
 	// open leaves the pack unfinalized: the Writer flushes its last block and is never closed.
 	open bool
+	// unchecked stores a transport-event or annotation payload that does not decode, as another writer might.
+	unchecked bool
 }
 
 // readerPack is a pack written for the reader tests, with the Writer's own summaries of its blocks.
@@ -132,7 +134,12 @@ func buildReaderPack(c readerPackConfig, recs []Record) (*readerPack, error) {
 		return nil, err
 	}
 	for i := range recs {
-		if err := w.Append(&recs[i]); err != nil {
+		if c.unchecked {
+			err = w.addRecord(&recs[i], false)
+		} else {
+			err = w.Append(&recs[i])
+		}
+		if err != nil {
 			return nil, err
 		}
 	}

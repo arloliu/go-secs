@@ -41,7 +41,8 @@ const (
 var (
 	// ErrMalformed reports a bus message a consumer never writes, whose seq is a seq gap:
 	// an unknown layout, a body not of the layout's length, a malformed Nats-Msg-Id or one naming seq 2^63-1
-	// or disagreeing with the record header, or malformed claim-check headers
+	// or disagreeing with the record header, malformed claim-check headers,
+	// or a transport-event or annotation record whose payload does not decode
 	// (the tracepack storage specification §4, "Bus message").
 	// A producer's encoder and helpers return it for a message they cannot form within those rules.
 	ErrMalformed = errors.New("tracepack: malformed bus message")
@@ -330,7 +331,11 @@ func EncodeBody(br *Record) ([]byte, error) {
 // its Nats-Msg-Id is not of the form ParseMsgID accepts, names seq 2^63-1, or disagrees with the body's seq;
 // its Tpk-Payload-Ref is not "<bucket>/<Nats-Msg-Id>" with a non-empty bucket;
 // its Tpk-Payload-Digest is missing beside Tpk-Payload-Ref, present without it,
-// or not "SHA-256=" followed by the padded base64url encoding (RFC 4648 §5) of 32 bytes.
+// or not "SHA-256=" followed by the padded base64url encoding (RFC 4648 §5) of 32 bytes;
+// or, after those checks, its record is a transport event or an annotation whose payload does not decode
+// as tracepack.UnmarshalTransportEvent or tracepack.UnmarshalAnnotation decodes it (the tracepack format specification §8).
+// A tag or enum value this module does not know is preserved, so a payload of a newer producer is not malformed.
+// A claim-check record's payload is not known yet, so CheckPayload makes the payload check for it.
 //
 // The record is returned normalized: decode_status, trailing_bytes and field_validity are zero,
 // whatever the producer wrote, since the consumer derives them (DeriveRecord);
@@ -386,7 +391,11 @@ func CheckMessage(env Envelope, body []byte) (Record, error) {
 
 		return br, nil
 	}
-	if err := br.checkStart(env.Descriptor); err != nil {
+	ev, err := checkEventPayload(&br.Record)
+	if err != nil {
+		return Record{}, err
+	}
+	if err := br.checkStart(env.Descriptor, ev); err != nil {
 		return Record{}, err
 	}
 
@@ -438,10 +447,10 @@ func parsePayloadDigest(s string) ([32]byte, error) {
 	return [32]byte(b), nil
 }
 
-// checkStart checks the descriptor header of br's record when the record is a start,
+// checkStart checks the descriptor header of br's record, whose decoded transport event is ev or nil, when the record is a start,
 // setting br.Descriptor to the decoded descriptor, and ignores the header on any other record.
-func (br *Record) checkStart(header string) error {
-	if !isStart(&br.Record) {
+func (br *Record) checkStart(header string, ev *tracepack.TransportEvent) error {
+	if !isStart(ev) {
 		return nil
 	}
 	if header == "" {
@@ -463,15 +472,32 @@ func (br *Record) checkStart(header string) error {
 	return nil
 }
 
-// isStart reports whether r is a capture's start:
-// a transport event whose payload decodes to a capture-boundary event of kind start.
-func isStart(r *tracepack.Record) bool {
-	if r.Kind != tracepack.KindTransportEvent {
-		return false
-	}
-	ev, err := tracepack.UnmarshalTransportEvent(r.Payload)
+// isStart reports whether ev, the decoded payload of a transport-event record or nil for another record, is a capture's start:
+// a capture-boundary event of kind start.
+func isStart(ev *tracepack.TransportEvent) bool {
+	return ev != nil && ev.Event == tracepack.EventCaptureBoundary && ev.BoundaryKind != nil && *ev.BoundaryKind == tracepack.BoundaryKindStart
+}
 
-	return err == nil && ev.Event == tracepack.EventCaptureBoundary && ev.BoundaryKind != nil && *ev.BoundaryKind == tracepack.BoundaryKindStart
+// checkEventPayload decodes the payload of r when r is a transport-event or annotation record,
+// and returns the decoded transport event, or nil for a record of another kind;
+// or an error wrapping ErrMalformed when the payload does not decode (the tracepack format specification §8).
+// A tag or enum value this module does not know is preserved, not refused (the tracepack format specification §14).
+func checkEventPayload(r *tracepack.Record) (*tracepack.TransportEvent, error) {
+	var (
+		ev  *tracepack.TransportEvent
+		err error
+	)
+	if r.Kind == tracepack.KindTransportEvent {
+		ev, err = tracepack.UnmarshalTransportEvent(r.Payload)
+	}
+	if r.Kind == tracepack.KindAnnotation {
+		_, err = tracepack.UnmarshalAnnotation(r.Payload)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: seq %d: %s record payload: %w", ErrMalformed, r.Seq, r.Kind, err)
+	}
+
+	return ev, nil
 }
 
 // storedRecord returns the record whose stored header is h and whose payload is payload:
@@ -507,13 +533,16 @@ func PayloadDigest(payload []byte) string {
 // against the length and digest its message declares (the tracepack storage specification §4, "Large records"),
 // and on a match sets br.Record.Payload to payload, which it aliases.
 //
-// It then makes the start check CheckMessage makes for an inline record:
-// when the record is a start, its message's Tpk-Capture-Descriptor must decode,
+// It then makes the payload and start checks CheckMessage makes for an inline record:
+// a transport-event or annotation payload must decode,
+// and when the record is a start, its message's Tpk-Capture-Descriptor must decode,
 // and br.Descriptor is set to the decoded descriptor.
 //
 // Returns:
 //   - error: an error wrapping ErrPayloadMismatch for an object of another length or digest,
 //     on which the consumer defers the message, and br is left unchanged;
+//     an error wrapping ErrMalformed for a transport-event or annotation payload that does not decode,
+//     on which the consumer never writes the message, its seq a seq gap, and br is left unchanged;
 //     an error wrapping ErrNotAccepted for a start whose descriptor CheckMessage would refuse,
 //     with br.Record.Payload set to the checked object and br.Descriptor nil;
 //     or an error for a record that is not claim-check.
@@ -528,9 +557,13 @@ func CheckPayload(br *Record, payload []byte) error {
 		return fmt.Errorf("%w: object digest differs from %s", ErrPayloadMismatch, HeaderPayloadDigest)
 	}
 
+	ev, err := checkEventPayload(&tracepack.Record{Seq: br.Record.Seq, Kind: br.Record.Kind, Payload: payload})
+	if err != nil {
+		return err
+	}
 	br.Record.Payload = payload
 
-	return br.checkStart(br.descriptorHeader)
+	return br.checkStart(br.descriptorHeader, ev)
 }
 
 // inlineBodyLen returns the length of an inline body holding a payload of payloadLen bytes,

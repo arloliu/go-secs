@@ -576,3 +576,36 @@ func TestPackEditRecomputes(t *testing.T) {
 	e = must(F2Entry(d, 1))(t)
 	assert.Equal(t, uint32(1), binary.LittleEndian.Uint32(d[e.Off+f2RecordCountOff:]), "F-2 record_count follows the envelope")
 }
+
+// TestPlaceholderEvent requires placeholderEvent to give a decodable transport event of the length asked,
+// one the Writer summarizes as a payload that does not decode, and replacePayload to put another payload in its place.
+func TestPlaceholderEvent(t *testing.T) {
+	t.Parallel()
+
+	for _, n := range []int{9, 17, 18, 40} {
+		p := must(placeholderEvent(n))(t)
+		require.Len(t, p, n)
+		ev := must(tracepack.UnmarshalTransportEvent(p))(t)
+		assert.Equal(t, tracepack.EventStateTransition, ev.Event, "no boundary, no close")
+	}
+	for _, n := range []int{0, 8, 10, 16} {
+		_, err := placeholderEvent(n)
+		require.ErrorIs(t, err, ErrPackEdit, "%d bytes", n)
+	}
+
+	placeholder := must(placeholderEvent(20))(t)
+	rec := editBlocks()[0][0]
+	rec.Kind, rec.Dir, rec.Fidelity, rec.DecodeStatus = tracepack.KindTransportEvent, tracepack.DirLocal, tracepack.FidelityNotApplicable, tracepack.DecodeStatusNotApplicable
+	rec.FieldValidity, rec.Payload = 0, placeholder
+	pack := writePack(t, testMeta(), [][]tracepack.Record{{rec}}, true)
+
+	bad := bytes.Repeat([]byte{0xFF}, len(placeholder))
+	patched := must(replacePayload(pack, 0, placeholder, bad))(t)
+	require.Len(t, patched, len(pack))
+	assert.Equal(t, bytes.Index(pack, placeholder), bytes.Index(patched, bad), "the payload replaced in place")
+
+	_, err := replacePayload(pack, 0, placeholder, bad[1:])
+	require.ErrorIs(t, err, ErrPackEdit, "a payload of another length")
+	_, err = replacePayload(pack, 0, bad, bad)
+	require.ErrorIs(t, err, ErrPackEdit, "no placeholder in the block")
+}

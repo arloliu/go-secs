@@ -760,7 +760,7 @@ func isClockStep(ev *TransportEvent) bool {
 }
 
 // transportEventOf decodes r's payload when r is a transport-event record, for the block summary.
-// A payload that does not decode contributes nothing to the summary; its bytes are still stored as received.
+// A payload that does not decode contributes nothing to the summary.
 func transportEventOf(r *Record) *TransportEvent {
 	if r.Kind != KindTransportEvent {
 		return nil
@@ -772,6 +772,36 @@ func transportEventOf(r *Record) *TransportEvent {
 	}
 
 	return ev
+}
+
+// decodeEvent returns transportEventOf(r), decoding r's payload once.
+// With check it also returns an error wrapping ErrInvalidRecord, as eventPayloadError gives it,
+// for a transport-event or annotation record whose payload does not decode (the tracepack format specification §8).
+func decodeEvent(r *Record, check bool) (*TransportEvent, error) {
+	var (
+		ev  *TransportEvent
+		err error
+	)
+	switch {
+	case !check:
+		ev = transportEventOf(r)
+	case r.Kind == KindTransportEvent:
+		ev, err = UnmarshalTransportEvent(r.Payload)
+	case r.Kind == KindAnnotation:
+		_, err = UnmarshalAnnotation(r.Payload)
+	default:
+		// A record of another kind has no payload rule here.
+	}
+	if err != nil {
+		return nil, eventPayloadError(r.Kind, err)
+	}
+
+	return ev, nil
+}
+
+// eventPayloadError returns the error with which a writer refuses a record of kind whose payload does not decode, err.
+func eventPayloadError(kind Kind, err error) error {
+	return fmt.Errorf("tracepack: %s record payload: %w: %w", kind, ErrInvalidRecord, err)
 }
 
 // checkPayload rejects r when no block can hold its payload,
@@ -816,6 +846,9 @@ func clockDrift(r *Record, ev *TransportEvent, a clockAnchor, tolerance uint64) 
 // otherwise r.Seq must equal seq_start for the first record and exceed the previous seq after that.
 // It rejects a data or control record whose field_validity marks a field its payload lacks;
 // a clear bit over present bytes is kept, as a log conversion needs (the tracepack format specification §7.2).
+// It rejects a transport-event or annotation record whose payload does not decode (the tracepack format specification §8),
+// as UnmarshalTransportEvent and UnmarshalAnnotation decode it:
+// a tag or enum value this package does not know is preserved, so a payload of a newer writer is accepted.
 // A record carrying quality.unobserved must be a data record unobserved by design
 // (the tracepack semantics specification §2):
 // its stream and function available and declared in the pack metadata's thinning, its payload longer than 14 bytes,
@@ -837,24 +870,25 @@ func clockDrift(r *Record, ev *TransportEvent, a clockAnchor, tolerance uint64) 
 //   - error: ErrPayloadTooLarge, ErrFieldValidity, ErrSeqOrder,
 //     a *FieldError wrapping ErrMetadataCommitment, and also ErrRedactionDefect for a Marking that fails,
 //     an error wrapping ErrInvalidRecord for a record carrying quality.unobserved whose own fields break the rule above,
+//     or for a transport-event or annotation record whose payload does not decode, wrapping the decode error too,
 //     or an error wrapping ErrScopeBreach, with r not added, no seq taken and the Writer still usable;
 //     an error wrapping ErrValidation or a write or sync error, after which the Writer has failed;
 //     ErrWriterFailed or ErrClosed on a failed or closed Writer.
 //     An error r determines also wraps ErrRefused.
 func (w *Writer) Append(r *Record) error {
-	return refuse(w.addRecord(r))
+	return refuse(w.addRecord(r, true))
 }
 
 // addRecord does the work of Append, without adding ErrRefused (refuse).
-func (w *Writer) addRecord(r *Record) error {
+// With checkEvent it refuses a transport-event or annotation record whose payload does not decode;
+// without it, as for a SegmentWriter, which checked the record itself, it stores such a payload as received.
+func (w *Writer) addRecord(r *Record, checkEvent bool) error {
 	if err := w.usable(); err != nil {
 		return err
 	}
 
-	if err := checkPayload(r); err != nil {
-		return err
-	}
-	if err := w.checkCommitments(r); err != nil {
+	ev, err := w.checkRecord(r, checkEvent)
+	if err != nil {
 		return err
 	}
 	if w.marking != nil {
@@ -872,7 +906,6 @@ func (w *Writer) addRecord(r *Record) error {
 		return err
 	}
 
-	ev := transportEventOf(r)
 	if drift, step := w.clockStep(r, ev); step {
 		if seq >= format.MaxU64 {
 			return fmt.Errorf("tracepack: seq %d leaves no seq for the clock-step record before it: %w", seq, ErrSeqOrder)
@@ -908,6 +941,19 @@ func (w *Writer) addRecord(r *Record) error {
 	}
 
 	return nil
+}
+
+// checkRecord checks r's payload against its kind and the pack's commitments,
+// and returns r's decoded transport event, or nil, as decodeEvent does with checkEvent.
+func (w *Writer) checkRecord(r *Record, checkEvent bool) (*TransportEvent, error) {
+	if err := checkPayload(r); err != nil {
+		return nil, err
+	}
+	if err := w.checkCommitments(r); err != nil {
+		return nil, err
+	}
+
+	return decodeEvent(r, checkEvent)
 }
 
 // Flush closes the open block, writing it and, with a Syncer, syncing it; it does nothing when no record is pending.

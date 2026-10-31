@@ -150,7 +150,9 @@ Which packs to give is the caller's choice; tracepack defines no view.
     A message is never written, and its seq is a seq gap, when its `Tpk-Layout` is unknown,
     its body does not have the layout's length (44 + `payload_len` without `Tpk-Payload-Ref`, 44 with it),
     its `Nats-Msg-Id` is not of the form above, names seq 2^63 − 1 (which no producer assigns) or disagrees with the header,
-    or its claim-check headers are malformed (*Large records*).
+    its claim-check headers are malformed (*Large records*),
+    or its record is a transport event or an annotation whose payload is not a valid TLV body ([FMT §8]), which the writer would refuse (G5-294);
+    a claim-check record's payload is checked once its object is fetched and matches its message (*Large records*).
     Terminating such a message on the bus and raising an alert is informative.
     A `start` the consumer cannot accept — its descriptor does not decode, or names a `capture_method` other than `raw-stream` or `decoded-message` or a `time_source` other than `capture-clock` —
     is never written and raises an alert, and the capture's later records stay deferred on the bus until an operator acts (G5-251).
@@ -538,7 +540,7 @@ The following cases are tests of the Go module, not vectors of the corpus of [FM
   a tool token that needs escaping, `.` included, round-tripping; a descriptor round-tripping a nonzero `capture_origin_mono_ns` and a zero `clock_step_tolerance_ns`;
   a `start` whose header block exceeds 4096 bytes, and a `max_payload` below 4140: no capture started;
   each malformed message — an unknown `Tpk-Layout`, a body of the wrong length, a `Nats-Msg-Id` of another form, naming seq 2^63 − 1 or disagreeing with the header,
-  missing or malformed claim-check headers — never written; a claim-check object whose length or digest does not match, an equal-length corrupted one included: deferred;
+  missing or malformed claim-check headers, a transport-event or annotation payload that is not a valid TLV body, inline or by claim-check — never written; a claim-check object whose length or digest does not match, an equal-length corrupted one included: deferred;
 - masked merges (§4): entries carried, deduplicated and ordered, and the originals restored from the archive, through copied, coalesced and resolved blocks;
   inputs differing in `redaction_policy`, `classifier` or `max_frame_len` (one with a limit, one without), a masked input beside an unmasked one,
   and an input holding a record that an entry names while its `redacted` bit is clear: the merge fails and publishes nothing;
