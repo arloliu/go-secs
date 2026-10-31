@@ -29,8 +29,10 @@ var (
 	// ErrInvalidQuery and ErrInvalidKey also match it.
 	//
 	// The writing calls (see ErrRefused) wrap it for an invalid argument or option that wraps no sentinel of its own,
-	// such as a nil WriterOptions.Meta, and for pack metadata or a transport event the encoding refuses,
-	// beside the *FieldError naming the field, and mark that error ErrRefused.
+	// such as a nil WriterOptions.Meta, and for a value of WriterOptions.Meta, CloseOptions.Meta, a classifier's Name
+	// or an AppendEvent event that the encoding refuses, beside the *FieldError naming the field,
+	// and mark that error ErrRefused.
+	// A CaptureDescriptor value the encoding refuses is the *FieldError CaptureDescriptor.Validate returns, without it.
 	// EncodeDescriptor wraps it for a nil PackMeta, and ParseUUID for a string that is not a canonical UUID;
 	// neither is a writing call, so neither marks it.
 	ErrInvalidArgument = errors.New("tracepack: invalid argument")
