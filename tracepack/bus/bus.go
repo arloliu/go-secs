@@ -187,7 +187,7 @@ func ParseToolToken(token string) (string, error) {
 //
 // Parameters:
 //   - prefix: the deployment's subject prefix, one or more '.'-separated tokens,
-//     none empty and none holding whitespace, a control byte, '*' or '>'.
+//     none empty and none holding a byte at or below 0x20, the byte 0x7F, '*' or '>'.
 //   - toolID: the capture's tool_id, written as ToolToken writes it.
 //   - capture: the capture_id, in canonical lowercase form.
 //
@@ -585,7 +585,7 @@ func CheckStart(headerBlockLen, bodyLen, maxPayload int) error {
 
 // DeriveRecord sets the values a consumer derives for r, a record CheckMessage returned with its payload,
 // by kind (the tracepack storage specification §4, "Bus message"):
-// for a data or control record not carrying quality.unobserved,
+// for a control record, or a data record not carrying quality.unobserved,
 // field_validity from the frame's captured length (the tracepack format specification §7.2),
 // and decode_status and trailing_bytes from cls, the capture's classifier, or not-attempted and 0 when cls is nil;
 // for a data record carrying quality.unobserved, field_validity from its captured header,

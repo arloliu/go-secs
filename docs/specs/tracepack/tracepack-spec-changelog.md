@@ -160,6 +160,16 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   on success, error and cancellation alike, and afterwards uses only their decoded header and metadata,
   so the caller may close that hour's backing objects while the `Reader` values stay valid until the call returns.
   No API is added; no rule of [SEM §7.2] changed.
+- 2026-10-31: corrected to match the code:
+  §1 says the internal AES-SIV package is used by `tracepack/redact` and the module's internal corpus generator;
+  the §3 `Record` bullet names `MonoNs` with `MonoPresent`, not a `Mono` field;
+  the §3 `Writer` bullet says `WriterOptions` carries `CaptureID`, `NextSeq` and the `PackMeta`,
+  not `PackMeta` the capture's ids and next seq;
+  the §3 `ErrRefused` bullet says a caller's own implementation's error is returned wrapped, its chain intact (G5-286);
+  the §3 `SegmentWriter` bullet names the writer tag's fallbacks `tracepack/devel` and `tracepack/unknown`;
+  and §4 says `classify.New` names `go-secs/(devel)` in a Go workspace build, `go-secs/unknown` when the build info does not name go-secs,
+  and the required version under a local `replace`.
+  No rule changed.
 
 ## Changes vs v1 (summary)
 

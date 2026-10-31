@@ -70,7 +70,8 @@ type SegmentWriterOptions struct {
 	// CompressionLevel is the zstd level of every segment's block bodies and footer, as WriterOptions.CompressionLevel;
 	// an undefined value fails NewSegmentWriter, with Uncompressed or not.
 	CompressionLevel CompressionLevel
-	// BlockThreshold is WriterOptions.BlockThreshold for every segment.
+	// BlockThreshold is WriterOptions.BlockThreshold for every segment:
+	// zero means DefaultBlockThreshold, and a negative value or one above 2^31-1 is refused.
 	BlockThreshold int
 	// SkipValidation is WriterOptions.SkipValidation for every segment.
 	SkipValidation bool
@@ -459,6 +460,8 @@ func (w *SegmentWriter) CaptureID() UUID {
 //     for an at that is not representable, for a classifier's trailing_bytes outside 0 to 2^32-1,
 //     or for a quality carrying QualityUnobserved on a frame that is not unobserved by design, as Append refuses it;
 //     or a refusal or failure as SegmentWriter describes.
+//     A SegmentWriter's segments declare no thinning, so QualityUnobserved is always refused:
+//     a *FieldError wrapping ErrMetadataCommitment ("thinning") for a frame unobserved by design, ErrInvalidRecord for any other.
 func (w *SegmentWriter) AppendFrame(ctx context.Context, at time.Time, dir Dir, epoch uint32, frame []byte, quality Quality) error {
 	return refuse(w.addFrame(ctx, at, dir, epoch, frame, quality))
 }
@@ -545,7 +548,8 @@ func (w *SegmentWriter) addEvent(ctx context.Context, at time.Time, epoch uint32
 }
 
 // Append appends a record the producer built, such as a log converter's:
-// the SegmentWriter assigns its seq and takes every other field as given, without applying the classifier.
+// the SegmentWriter assigns its seq and takes every other field as given, stored in canonical form as Record describes,
+// without applying the classifier.
 // It does not modify r, and the caller may reuse r's payload once Append returns.
 //
 // Returns:

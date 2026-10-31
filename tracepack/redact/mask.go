@@ -68,7 +68,7 @@ type match struct {
 // An annotation rule applies to an annotation of its kind and masks the value of its text or raw entry.
 // A match with no target bytes gives no entry.
 // Control records, transport events and records of an unknown kind are never masked.
-// A record already carrying quality.redacted is refused, since it is not in full.
+// A record already carrying quality.redacted, and not unobserved, is refused (ErrRedacted), since it is not in full.
 //
 // Under a policy with encryption the target bytes of a data record's entry are replaced by their AES-SIV ciphertext,
 // sealed with the associated data of the capture, the seq and the entry's first offset, and the entry carries the siv;

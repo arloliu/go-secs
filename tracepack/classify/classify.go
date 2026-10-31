@@ -34,7 +34,8 @@ var buildName = classifierName()
 // Its value is set once, at package initialization, from the go-secs/v2 module version reported by runtime/debug.ReadBuildInfo,
 // so every call returns the same string.
 // It falls back to "go-secs/unknown" when build info is unavailable or does not name that dependency.
-// A Go workspace build hits that fallback: it resolves the dependency to a local directory instead of a versioned module.
+// A Go workspace build reports "go-secs/(devel)", the version a workspace gives a module it resolves to a local directory;
+// a local replace keeps the required version.
 func Name() string {
 	return buildName
 }

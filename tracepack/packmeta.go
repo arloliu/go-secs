@@ -116,10 +116,14 @@ const (
 var (
 	// ErrRequiredTag reports that a "Required when" rule of the tracepack format specification §5 or §8 is not satisfied.
 	ErrRequiredTag = errors.New("tracepack: required tag is missing")
-	// ErrFieldValue reports a field holding a value the format does not allow (the tracepack format specification §5 and §9):
-	// a replacement_set_size other than 1 or a replacement_set_index other than 0, read or written,
-	// the retired pack_role 5, which a writer never writes,
-	// or a CaptureDescriptor value outside the registry or its encoding, or its negative clock-step tolerance.
+	// ErrFieldValue reports a field holding a value the format does not allow (the tracepack format specification §5 and §9),
+	// such as a replacement_set_size other than 1 or a replacement_set_index other than 0, read or written,
+	// the retired pack_role 5, which a writer never writes, or pack_role repair for new output,
+	// a thinning entry outside the stream and function ranges,
+	// a redaction entry holding both MaskedRanges and RawMaskedRanges,
+	// a classifier with an empty Name or a MaxFrameLen above 2^63-1,
+	// a CaptureDescriptor value outside the registry or its encoding, or its negative clock-step tolerance,
+	// or a capture_method or time_source the bus does not serve.
 	ErrFieldValue = errors.New("tracepack: field value not allowed")
 	// ErrAnnotationText reports an annotation whose text and raw tags are not exactly one of the two
 	// (the tracepack format specification §8).
@@ -464,11 +468,9 @@ type PackMeta struct {
 	// ReplacementSetIndex is this pack's index in the replacement set, always 0 (replacement_set_index);
 	// required with ReplacementSetID, and any other value rejects the file.
 	ReplacementSetIndex *uint64
-	// FlushIntervalNs is the recorder's durability contract interval,
-	// or for a consumer of a durable bus its maximum normal segment-flush interval
+	// FlushIntervalNs is a durable-bus consumer's maximum normal segment-flush interval
 	// (flush_interval_ns, the tracepack storage specification §4).
-	// It is required for a recorder with a durable spool and for a consumer of a durable bus,
-	// and never written by a standalone recorder without a durable spool.
+	// It is required for a consumer of a durable bus, and never written by a standalone recorder or a converter.
 	FlushIntervalNs *uint64
 	// ScopeGeneration is 0 for segments and patches, and 1 or more for generations produced by merges
 	// (scope_generation, the tracepack storage specification §2); required for every pack but an extract.
@@ -492,7 +494,8 @@ type PackMeta struct {
 	// Thinning lists one thinned stream and function per entry, in stored order
 	// (thinning, from format 1.1, the tracepack semantics specification §2);
 	// required when a record carries quality.unobserved.
-	// It is a capture-level tag, declared by the producer in the capture descriptor (the tracepack storage specification §4).
+	// It is a capture-level tag, declared in the descriptor a durable-bus producer encodes with EncodeDescriptor
+	// (the tracepack storage specification §4); CaptureDescriptor carries none.
 	Thinning []Thinning
 	// Unknown preserves every entry whose tag PackMeta does not recognize, private tags included, in stored order.
 	// In a pack of an earlier format minor that includes a tag a later minor defines, such as 0x0033 in minor 0 or 0x0034 below minor 2,
@@ -505,7 +508,9 @@ var _ encoding.BinaryMarshaler = (*PackMeta)(nil)
 // FieldError reports which field a PackMeta, TransportEvent, Annotation or CaptureDescriptor rule failed for,
 // or which commitment of the pack metadata or the file header a Writer call contradicts.
 type FieldError struct {
-	// Field is the failing tag's specification name, or a "0x%04X" tag for one PackMeta and Annotation do not name;
+	// Field is the failing tag's specification name, a nested tag's such as "masked_ranges" included,
+	// or a "0x%04X" tag for one PackMeta and Annotation do not name,
+	// or "thinning 0x%04X" or "hsms_timers 0x%04X" for a nested tag DecodeDescriptor does not know;
 	// for a Writer's commitment it may also be "redaction-present", the file header flag.
 	Field string
 	// Err is the sentinel error describing the failure, or an error wrapping one.
@@ -752,9 +757,9 @@ func (m *PackMeta) Validate(facts PackFacts) error {
 // Returns:
 //   - []byte: the encoded pack metadata.
 //   - error: a *FieldError from Validate, a *FieldError wrapping ErrFieldValue for pack_role 5,
-//     a *FieldError wrapping ErrReservedTag for an Unknown entry, of the metadata or of a coverage entry,
-//     that names a tag this package already encodes,
-//     a *FieldError wrapping ErrFieldValue for a redaction entry holding both MaskedRanges and RawMaskedRanges,
+//     a *FieldError wrapping ErrReservedTag for an Unknown entry of the metadata that names a tag this package already encodes,
+//     or an error wrapping such a *FieldError for an Unknown entry of a coverage entry,
+//     an error wrapping a *FieldError wrapping ErrFieldValue for a redaction entry holding both MaskedRanges and RawMaskedRanges,
 //     or an error naming the first value the decoder would reject.
 func (m *PackMeta) MarshalBinary() ([]byte, error) {
 	if err := m.validateIntrinsic(); err != nil {

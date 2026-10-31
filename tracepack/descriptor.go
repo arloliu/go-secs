@@ -93,6 +93,7 @@ type CaptureDescriptor struct {
 	// a record AppendFrame appends carries the bits of its quality argument, and a record given to Append those of Record.Quality,
 	// each with the derived ones,
 	// so a producer that gives AppendFrame a quality of 0 asserts that those conditions do not occur.
+	// A SegmentWriter's segments declare no thinning, so it refuses a record carrying QualityUnobserved (see AppendFrame).
 	QualityEvaluated bool
 
 	// SourceTZ is the IANA time-zone name the source timestamps are parsed in (source_tz);

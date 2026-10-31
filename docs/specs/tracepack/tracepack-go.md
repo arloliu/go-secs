@@ -22,7 +22,8 @@ line numbers are avoided because they drift.
   and, for the encryption of originals, `github.com/tink-crypto/tink-go/v2`, of which the module uses only the raw AES-SIV primitive `daead/subtle`,
   so Tink's keyset format never enters a pack (G5-228, G5-245).
   The dependency is the tracepack module's own and does not reach the go-secs root module;
-  inside the module only the internal AES-SIV package imports it, which only `tracepack/redact` uses,
+  inside the module only the internal AES-SIV package imports it,
+  which only `tracepack/redact` and the module's internal corpus generator use,
   so a program that does not import `redact` links no Tink code;
   the module's tests check Wycheproof's AES-SIV-CMAC vectors for 512-bit keys and the corpus's cases.
   No CGO.
@@ -68,7 +69,7 @@ The query service, its catalog database and the live-tail interface are designed
 
 ## 3. API sketch (non-binding)
 
-- `Record` mirrors the spec's record header (`Mono` nil when `mono_present` is clear).
+- `Record` mirrors the spec's record header (`MonoNs` with `MonoPresent`, false when `mono_present` is clear).
   A helper returns each HSMS header field from the payload as a value and an availability, separately ([FMT §7.2]);
   it reports a field unavailable when its `field_validity` bit is clear, when the payload lacks that field's bytes, and for kinds without an HSMS frame,
   so a short frame still yields the fields it holds.
@@ -84,7 +85,7 @@ The query service, its catalog database and the live-tail interface are designed
   and on a failed check returns an error without writing the block or the trailer ([FMT §12]); nothing is committed to the pack metadata.
   The writer transposes the record headers into the header section when it assembles a block body ([FMT §6]);
   it may feed the header and payload buffers to the encoder in turn instead of concatenating them.
-  `PackMeta` carries `capture_id`, the capture's next seq and every pack metadata tag;
+  `WriterOptions` carries `CaptureID`, `NextSeq` and the `PackMeta` with every pack metadata tag;
   the `Writer` rejects `pack_role` 5, refuses `pack_role` 4 (`repair`) for new output ([FMT §9], G5-202), and rejects replacement-set values other than size 1 and index 0;
   readers keep role 4 a known role and read packs that carry it.
   The `Writer` drops retired tag numbers from the unknown entries it preserves ([FMT §5]).
@@ -194,7 +195,7 @@ The query service, its catalog database and the live-tail interface are designed
   It is never added to an error of `Merge`, of `ctx` or of the writer's prior state (`ErrWriterFailed`, `ErrClosed`),
   nor to an error of the destination, a `Syncer`, a sink, a segment file or the random source,
   nor to one holding such an error beside a refusal;
-  the caller's own implementation's error is returned as it is, with no marker added,
+  the caller's own implementation's error is returned wrapped, its chain intact, with no marker added,
   so one that is `ErrRefused` still matches it.
   The marking is by origin: an error from a supplied implementation is marked external where it enters,
   and the external mark wins,
@@ -223,7 +224,7 @@ The query service, its catalog database and the live-tail interface are designed
   An annotation's masks keep no original (G5-238), so it restores no annotation.
 - `SegmentWriter` (G5-153): `NewSegmentWriter(ctx, SegmentWriterOptions) (*SegmentWriter, error)` writes one capture, in capture order, as segments ([STO §4] Flush),
   as a standalone recorder (G5-150), so its segments carry no `flush_interval_ns`; it keeps its clock-anchor code, and the module exports no stand-alone clock-step detector (G5-226).
-  It owns `writer` (from the module's build info, with the fallback `classify.Name()` uses), `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`,
+  It owns `writer` (from the module's build info, with the fallbacks `tracepack/devel` and `tracepack/unknown`), `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`,
   `pack_role = segment`, `compaction_level = 0` and `scope_generation = 0`, a `capture_id` it generates, and the capture's seq counter.
   `CaptureID()` returns that `capture_id` from construction on, so a recorder can persist it as the next capture's `PreviousCaptureID`.
   Options: `Capture` (a `CaptureDescriptor`, required), `Sink` (required), `FlushInterval` (divides one hour; default 5 minutes),
@@ -536,7 +537,9 @@ The query service, its catalog database and the live-tail interface are designed
 ## 4. Classifier: go-secs → decode_status
 
 The Go classifier writes `classifier = go-secs/<version>`:
-`classify.New(maxFrameLen)` takes the version from the module's build info, `go-secs/unknown` when go-secs is replaced by a local path.
+`classify.New(maxFrameLen)` takes the version from the module's build info:
+`go-secs/(devel)` in a Go workspace build, `go-secs/unknown` when the build info does not name go-secs,
+and the required version when go-secs is replaced by a local path.
 `classify.NewNamed(name, maxFrameLen)` writes the name given,
 as a consumer of a durable bus does, whose classifier configuration is fixed per capture (G5-250).
 

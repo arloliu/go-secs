@@ -65,7 +65,9 @@ type CloseOptions struct {
 //   - opts: see CloseOptions.
 //
 // Returns:
-//   - UUID: the pack_id written in the file header, also with an error once options are valid; the nil UUID otherwise.
+//   - UUID: the pack_id of the pack, returned also with any error after the CloseOptions and Trigger checks,
+//     a NewWriter refusal included, though nothing may have been written;
+//     the nil UUID with an error of those checks or of generating the pack_id.
 //   - error: an error for invalid options, writing nothing;
 //     an error wrapping ErrScopeBreach when Trigger lies outside the UTC hour of the period, writing nothing;
 //     an error of NewWriter for metadata it refuses, such as a *FieldError, writing nothing;
