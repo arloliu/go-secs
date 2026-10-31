@@ -157,7 +157,8 @@ func (h *heldBlock) hold() {
 // decoded only once the decode needs it (fitBuf), and reads the block with readBlock.
 // When the prefetch queued the block, the block takes over the queued reservation and the queued buffer instead of reserving and borrowing again,
 // and a block read ahead is checked and decoded from the bytes read, after waiting for that read;
-// when that read's ReadAt panicked, load panics with the same value, nothing staying reserved for the block.
+// when that read's ReadAt panicked, load panics with the same value.
+// When load panics, of a read ahead or of its own read, the block's buffer goes back to its pool and nothing stays reserved for it.
 // After a load that returns no error, the prefetch admits the next blocks it can.
 // The read never grows a buffer past its capacity:
 // readBlock fills the buffers only to the sizes of the block's envelope,
@@ -188,6 +189,15 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 	}
 
 	h := &heldBlock{pack: pack, block: i, size: s.total, owners: 1}
+	// Until the block is returned to its caller, a panic, of the ReadAt or of the block's own read ahead, drops it,
+	// so its buffer goes back and its reservation is released before the panic leaves load;
+	// drop does nothing for a block dropped before.
+	owned := false
+	defer func() {
+		if !owned {
+			l.drop(h)
+		}
+	}()
 	// fetched is set for a block read ahead, whose read is waited for before its buffers are used.
 	fetched := queued != nil && queued.done != nil
 	if queued != nil {
@@ -199,8 +209,7 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 		queued.buf, queued.pool = nil, nil
 		if fetched {
 			if p := queued.panicked; p != nil {
-				// Raised on the run's goroutine, as the read without prefetch would, once the block's buffer is back.
-				l.drop(h)
+				// Raised on the run's goroutine, as the read without prefetch would, the deferred drop giving the block's buffer back.
 				panic(p.value)
 			}
 			h.buf.view = h.buf.raw
@@ -238,6 +247,7 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 	}
 	h.d = d
 	l.pf.fill()
+	owned = true
 
 	return h, def, nil
 }
