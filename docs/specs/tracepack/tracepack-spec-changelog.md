@@ -131,6 +131,11 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   `TxOptions.MaxHours` is the lookup's hour count, `Searched` holds `TxHour`s, and `TxClass` is tested with `HasAny` and `HasAll`.
   `MergeOptions.WriterTag`, the archive's writer tag, and the `Has` methods of `Quality` and `FieldValidity`, now `HasAny` beside `HasAll`, are not named in the spec.
   Scope keeps its meaning of capture and UTC hour; no format rule changed.
+- 2026-10-31: the §3 bus codec bullet places the codec in the subpackage `tracepack/bus`, its names without the `Bus` prefix (G5-288):
+  `bus.Record`, `bus.Envelope`, `bus.CheckMessage`, `bus.Layout1`, …, with behavior and error text unchanged;
+  §1 adds that the root package never imports `bus`, the descriptor codec bullet keeps `EncodeDescriptor` and `DecodeDescriptor` in the root package,
+  and the `Writer` and documentation bullets name `bus.DeriveRecord`.
+  No rule of [STO §4] changed.
 
 ## Changes vs v1 (summary)
 
@@ -1748,6 +1753,7 @@ Summary:
   a negative option field is refused (G5-284); `AppendFrame` takes quality bits (G5-285); `ErrRefused` (G5-286);
   the masking bullet states the metadata bound (G5-279), and the documentation bullet names the Compatibility section (G5-280).
 - [GO] §3: `Item.Input`, `MergeOptions.WriterTag`, `HasAny` and `HasAll`, and the transaction lookup's `MaxHours`, `DefaultTxMaxHours` and `TxHour` (G5-287).
+- [GO] §1 and §3: the bus codec moves to the subpackage `tracepack/bus`, its names without the `Bus` prefix (G5-288).
 - [GO] §7: the text of the `verify` and `find` reports is not a contract.
 - The overview's list of decisions reaches G5-288.
 

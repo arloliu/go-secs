@@ -50,8 +50,9 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   Migration: an implementation of `redact.Keys` adds a leading `ctx context.Context` to both methods and may bound its key request with it;
   a caller of `Mask` passes its context first.
 - **Breaking:** `BusLayout1` is the untyped string `"1"`, the `Tpk-Layout` value itself, instead of the integer 1 (G5-283).
-  Migration: set the `Tpk-Layout` header to `tracepack.BusLayout1` instead of `strconv.Itoa(tracepack.BusLayout1)`,
-  and compare a received layout with it directly.
+  Migration: set the `Tpk-Layout` header to `bus.Layout1` instead of `strconv.Itoa(tracepack.BusLayout1)`,
+  and compare a received layout with it directly;
+  the constant moves to the subpackage `tracepack/bus` with the rest of the bus codec (G5-288, below).
 - **Breaking:** `classify.Name` is a function, `classify.Name() string`, instead of a variable; it returns the same value (G5-283).
   Migration: write `classify.Name()` where `classify.Name` was read.
 - **Breaking:** `classify.Frame` takes its frame-length limit as a `uint64`, as `classify.New` and `Classifier.MaxFrameLen` do (G5-283).
@@ -122,6 +123,45 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   tracekeep writes `WriterTag:` in the `MergeOptions` of `internal/compact/merge.go`
   and `Quality.HasAny` wherever it called `Quality.Has`;
   veq uses none of these names.
+- **Breaking:** the bus codec moves out of the root package into the subpackage `github.com/arloliu/go-secs/tracepack/bus` (G5-288),
+  and its names drop their `Bus` prefix.
+  Behavior and every error text are unchanged, the `tracepack: ` prefix included;
+  the root package keeps the descriptor codec, `EncodeDescriptor` and `DecodeDescriptor`.
+  Migration: import `github.com/arloliu/go-secs/tracepack/bus` and rename as follows.
+  tracekeep uses every name in the table except `ParseBusToolToken`:
+  in `producer` (`records.go`, `lifecycle.go`, `publisher.go`, `preflight.go`, `config.go`, `descriptor.go`, `bus.go`, `producertest/bus.go`, `producertest/chaos.go`),
+  `internal/ingest` (`deliver.go`, `ingester.go`, `raw.go`), `internal/admin/status.go` and `internal/compact/retention.go`, and their tests;
+  veq uses none of them.
+
+  | Before | After |
+  |---|---|
+  | `tracepack.BusLayout1` | `bus.Layout1` |
+  | `tracepack.BusHeaderLayout` | `bus.HeaderLayout` |
+  | `tracepack.BusHeaderMsgID` | `bus.HeaderMsgID` |
+  | `tracepack.BusHeaderDescriptor` | `bus.HeaderDescriptor` |
+  | `tracepack.BusHeaderPayloadRef` | `bus.HeaderPayloadRef` |
+  | `tracepack.BusHeaderPayloadDigest` | `bus.HeaderPayloadDigest` |
+  | `tracepack.BusHeaderBlockLimit` | `bus.HeaderBlockLimit` |
+  | `tracepack.BusMinMaxPayload` | `bus.MinMaxPayload` |
+  | `tracepack.ErrBusMalformed` | `bus.ErrMalformed` |
+  | `tracepack.ErrBusNotAccepted` | `bus.ErrNotAccepted` |
+  | `tracepack.ErrBusPayloadMismatch` | `bus.ErrPayloadMismatch` |
+  | `tracepack.BusEnvelope` | `bus.Envelope` |
+  | `tracepack.BusRecord` | `bus.Record` |
+  | `tracepack.BusToolToken` | `bus.ToolToken` |
+  | `tracepack.ParseBusToolToken` | `bus.ParseToolToken` |
+  | `tracepack.BusSubject` | `bus.Subject` |
+  | `tracepack.BusMsgID` | `bus.MsgID` |
+  | `tracepack.ParseBusMsgID` | `bus.ParseMsgID` |
+  | `tracepack.NewBusRecord` | `bus.NewRecord` |
+  | `tracepack.EncodeBusBody` | `bus.EncodeBody` |
+  | `tracepack.CheckBusMessage` | `bus.CheckMessage` |
+  | `tracepack.BusPayloadDigest` | `bus.PayloadDigest` |
+  | `tracepack.CheckBusPayload` | `bus.CheckPayload` |
+  | `tracepack.BusInline` | `bus.Inline` |
+  | `tracepack.CheckBusStart` | `bus.CheckStart` |
+  | `tracepack.DeriveBusRecord` | `bus.DeriveRecord` |
+
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 

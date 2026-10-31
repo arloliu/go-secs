@@ -206,23 +206,23 @@ The marker leaves the error's text unchanged.
 ## Publishing a capture over a durable bus
 
 For a producer, such as an equipment gateway, that publishes each record of a capture as one bus message (the storage specification §4):
-the bus codec and the descriptor codec.
+the bus codec, in the subpackage `github.com/arloliu/go-secs/tracepack/bus`, and the descriptor codec in the root package.
 The module imports no NATS client; it encodes and checks what a message carries.
 
 - The producer assigns `capture_id`, `recorder_instance_id` and every `seq`; seq 2^63 − 1 is reserved for the consumer's close.
 - `EncodeDescriptor(meta)` encodes the producer-owned entries of the capture's pack metadata, its `thinning` entries and `recorder_instance_name` included, with no default applied.
   A consumer before v0.8.0 refuses a descriptor carrying `recorder_instance_name`, so upgrade consumers and mergers before producers.
   Publish it in the `Tpk-Capture-Descriptor` header of the capture's `start`, in standard base64 with padding (`base64.StdEncoding`).
-- `NewBusRecord(r)` and `EncodeBusBody(&br)` encode one record as the body of layout 1: the 44-byte record header, then the payload.
-  A record whose body is too large to travel inline, as `BusInline(bodyLen, maxPayload)` says, travels by claim-check:
+- `bus.NewRecord(r)` and `bus.EncodeBody(&br)` encode one record as the body of layout 1: the 44-byte record header, then the payload.
+  A record whose body is too large to travel inline, as `bus.Inline(bodyLen, maxPayload)` says, travels by claim-check:
   set `ClaimCheck`, `Bucket` and `Digest`, the payload's SHA-256 digest, and keep `PayloadLen`;
-  the body is then the header alone, and the `Tpk-Payload-Digest` header carries `BusPayloadDigest(payload)`.
+  the body is then the header alone, and the `Tpk-Payload-Digest` header carries `bus.PayloadDigest(payload)`.
   The body holds `decode_status`, `trailing_bytes` and `field_validity` as zero, since the consumer derives them,
   and the encoder refuses a record carrying `redacted` or seq 2^63 − 1.
-- `BusSubject(prefix, toolID, capture)` and `BusMsgID(capture, seq)` give the subject and the `Nats-Msg-Id`, and constants such as `BusHeaderPayloadRef` name the headers.
-- `CheckBusStart(headerBlockLen, bodyLen, maxPayload)` is the preflight:
-  the header block, as your client encodes it, holds at most `BusHeaderBlockLimit` bytes on every message,
-  and the message fits the deployment's `max_payload`, itself at least `BusMinMaxPayload`.
+- `bus.Subject(prefix, toolID, capture)` and `bus.MsgID(capture, seq)` give the subject and the `Nats-Msg-Id`, and constants such as `bus.HeaderPayloadRef` name the headers.
+- `bus.CheckStart(headerBlockLen, bodyLen, maxPayload)` is the preflight:
+  the header block, as your client encodes it, holds at most `bus.HeaderBlockLimit` bytes on every message,
+  and the message fits the deployment's `max_payload`, itself at least `bus.MinMaxPayload`.
 - A producer leaves a data record unobserved by design only when it identifies the record, by means other than its stream and function,
   as an FDC interval-poll S1F3 or the S1F4 reply paired with it by System Bytes;
   the descriptor's `thinning` must declare that stream and function, a declaration that is necessary, never sufficient.
@@ -232,14 +232,14 @@ The module imports no NATS client; it encodes and checks what a message carries.
 ## Writing the packs of a bus capture
 
 For the log service, the consumer that writes a durable-bus capture's packs:
-`CheckBusMessage`, `DeriveBusRecord`, the package `redact`, the `Writer`'s masked-at-write path, `WriteClose` and `Merge`.
+`bus.CheckMessage`, `bus.DeriveRecord`, the package `redact`, the `Writer`'s masked-at-write path, `WriteClose` and `Merge`.
 
-- `CheckBusMessage(env, body)` checks one message and returns its `BusRecord`, normalized.
-  `ErrBusMalformed` means the message is never written and its seq is a seq gap;
-  `ErrBusNotAccepted` means a `start` whose descriptor cannot be accepted: alert, and defer the capture's later records.
-  For a claim-check record, fetch the object and check it with `CheckBusPayload`; on `ErrBusPayloadMismatch` defer the message.
+- `bus.CheckMessage(env, body)` checks one message and returns its `bus.Record`, normalized.
+  `bus.ErrMalformed` means the message is never written and its seq is a seq gap;
+  `bus.ErrNotAccepted` means a `start` whose descriptor cannot be accepted: alert, and defer the capture's later records.
+  For a claim-check record, fetch the object and check it with `bus.CheckPayload`; on `bus.ErrPayloadMismatch` defer the message.
   `DecodeDescriptor` gives the producer's values from a `start`, to which you add the values you own.
-- `DeriveBusRecord(&br.Record, cls)` sets the values you derive by kind:
+- `bus.DeriveRecord(&br.Record, cls)` sets the values you derive by kind:
   `field_validity`, and `decode_status` and `trailing_bytes` from the capture's classifier, or `not-attempted` for an unobserved record.
   Classify before masking, since the classification describes the payload as received.
   `classify.NewNamed(name, maxFrameLen)` gives the classifier the name of its configuration, which stays fixed for the capture.

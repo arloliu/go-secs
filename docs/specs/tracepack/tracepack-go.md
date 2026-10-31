@@ -13,7 +13,7 @@ line numbers are avoided because they drift.
 - The go-secs dependency carries no `replace` directive, and `go.work` stays local (G5-78).
   A released tracepack requires a released go-secs, at least v2.5.0 (G5-79).
 - Only `classify` imports go-secs, and `cmd/tracepack` would too, for SML rendering, once `dump --sml` returns (G5-206);
-  `tracepack` never imports `redact`, and `internal/corpus` never imports `classify`.
+  `tracepack` never imports `redact` or `bus`, and `internal/corpus` never imports `classify`.
   Internal packages never appear in public signatures.
 - Reference CLI `tracepack/cmd/tracepack` in the same module is the explicit exemption from the root "no binary" rule.
 - The EAP log converter lives in `veq/cmd/eapconv`.
@@ -106,28 +106,30 @@ The query service, its catalog database and the live-tail interface are designed
   The Godoc of `QualityEvaluated` names what `SegmentWriter` evaluates (`correlation-incomplete` for epoch 0, the capture-boundary bit)
   and what the producer evaluates before it sets the field (`ordering-uncertain`, `direction-inferred`, [SEM §6]).
   Every `PackMeta` field gains Godoc from the registry's *Meaning* column and the roles that require it.
-- Bus codec (G5-226): layout 1 of the bus message, in the root package ([STO §4] *Bus message* and *Large records*); the module imports no NATS client.
+- Bus codec (G5-226): layout 1 of the bus message, in the subpackage `tracepack/bus` (G5-288), which imports the root package and is never imported by it
+  ([STO §4] *Bus message* and *Large records*); the module imports no NATS client.
+  Its names carry no `Bus` prefix, and its error texts keep the module's `tracepack: ` prefix.
   The layout number, the header names, the 4096-byte bound of a header block and the smallest `max_payload` are constants:
-  `BusLayout1`, `BusHeaderLayout`, `BusHeaderMsgID`, `BusHeaderDescriptor`, `BusHeaderPayloadRef`, `BusHeaderPayloadDigest`, `BusHeaderBlockLimit` and `BusMinMaxPayload`.
-  `BusLayout1` is the untyped string `"1"`, the `Tpk-Layout` value itself, so `BusEnvelope.Layout` is compared with it directly (G5-283).
-  `BusToolToken`, `ParseBusToolToken` and `BusSubject` spell the subject, `BusMsgID` and `ParseBusMsgID` the `Nats-Msg-Id`, and `BusPayloadDigest` the claim-check digest.
-  A producer builds a `BusRecord` with `NewBusRecord(*Record)` and encodes it with `EncodeBusBody(*BusRecord) ([]byte, error)`:
+  `bus.Layout1`, `bus.HeaderLayout`, `bus.HeaderMsgID`, `bus.HeaderDescriptor`, `bus.HeaderPayloadRef`, `bus.HeaderPayloadDigest`, `bus.HeaderBlockLimit` and `bus.MinMaxPayload`.
+  `bus.Layout1` is the untyped string `"1"`, the `Tpk-Layout` value itself, so `bus.Envelope.Layout` is compared with it directly (G5-283).
+  `bus.ToolToken`, `bus.ParseToolToken` and `bus.Subject` spell the subject, `bus.MsgID` and `bus.ParseMsgID` the `Nats-Msg-Id`, and `bus.PayloadDigest` the claim-check digest.
+  A producer builds a `bus.Record` with `bus.NewRecord(*tracepack.Record)` and encodes it with `bus.EncodeBody(*bus.Record) ([]byte, error)`:
   the 44-byte record header with `decode_status`, `trailing_bytes` and `field_validity` zero, then the payload,
   or nothing for a claim-check record, which keeps its `PayloadLen` with no payload in memory.
-  It checks a message's size with `BusInline` and `CheckBusStart`, computing the length of the NATS header block itself;
+  It checks a message's size with `bus.Inline` and `bus.CheckStart`, computing the length of the NATS header block itself;
   the 4096-byte bound holds for every message.
-  A consumer checks a message with `CheckBusMessage(BusEnvelope, body) (BusRecord, error)`,
+  A consumer checks a message with `bus.CheckMessage(bus.Envelope, body) (bus.Record, error)`,
   which returns the record normalized, `decode_status`, `trailing_bytes` and `field_validity` zero whatever the producer wrote:
-  `ErrBusMalformed` marks a message never written, its seq a seq gap, a message with a non-empty `Tpk-Payload-Digest` and no or an empty `Tpk-Payload-Ref` included (G5-258),
-  and `ErrBusNotAccepted` a `start` whose `Tpk-Capture-Descriptor` is missing, not padded standard base64 or does not decode,
+  `bus.ErrMalformed` marks a message never written, its seq a seq gap, a message with a non-empty `Tpk-Payload-Digest` and no or an empty `Tpk-Payload-Ref` included (G5-258),
+  and `bus.ErrNotAccepted` a `start` whose `Tpk-Capture-Descriptor` is missing, not padded standard base64 or does not decode,
   on which the consumer alerts and defers the capture's later records; the header on another record is ignored (G5-257).
-  `CheckBusPayload` checks a fetched claim-check object (`ErrBusPayloadMismatch`, deferred)
-  and, when its record is a `start`, the message's descriptor header (`ErrBusNotAccepted`),
-  and `DeriveBusRecord(*Record, Classifier)` sets the values the consumer derives by kind, an unobserved data record's included.
+  `bus.CheckPayload` checks a fetched claim-check object (`bus.ErrPayloadMismatch`, deferred)
+  and, when its record is a `start`, the message's descriptor header (`bus.ErrNotAccepted`),
+  and `bus.DeriveRecord(*tracepack.Record, tracepack.Classifier)` sets the values the consumer derives by kind, an unobserved data record's included.
   Both directions refuse a producer seq of 2^63 − 1, which only a consumer's close carries.
-  `EncodeBusBody` also refuses a record carrying `redacted`, which a producer never sets,
-  while `CheckBusMessage` accepts a well-framed body carrying it and keeps the bit, as it keeps every defined `quality` bit.
-- Descriptor codec (G5-226): `EncodeDescriptor(*PackMeta) ([]byte, error)` and `DecodeDescriptor([]byte) (*PackMeta, error)`,
+  `bus.EncodeBody` also refuses a record carrying `redacted`, which a producer never sets,
+  while `bus.CheckMessage` accepts a well-framed body carrying it and keeps the bit, as it keeps every defined `quality` bit.
+- Descriptor codec (G5-226), in the root package: `EncodeDescriptor(*PackMeta) ([]byte, error)` and `DecodeDescriptor([]byte) (*PackMeta, error)`,
   the producer-owned entries of a capture descriptor (TLV, [FMT §5]), `thinning` included, as raw values with no default applied:
   the decoder yields the producer-owned pack-metadata values, a nonzero `capture_origin_mono_ns` and a zero `clock_step_tolerance_ns` kept, which the consumer copies.
   It refuses a top-level tag a descriptor does not carry, single or repeated (G5-259), a nested tag `thinning` or `hsms_timers` does not define (G5-252, G5-256),
@@ -160,7 +162,7 @@ The query service, its catalog database and the live-tail interface are designed
 - `Writer`, format 1.1: the existing `AssignSeq = false` path keeps each record's given seq, with its ordering checks (G5-246).
   Classification happens before masking, outside the `Writer`,
   since [STO §4] *Masking* classifies the payload as received and a classification at append would see ciphertext:
-  a consumer derives each bus record's `decode_status` and `trailing_bytes` with `DeriveBusRecord` and the capture's `Classifier`, then masks it.
+  a consumer derives each bus record's `decode_status` and `trailing_bytes` with `bus.DeriveRecord` and the capture's `Classifier`, then masks it.
   The given-seq path classifies nothing; it checks, as for every pack, that the metadata's `classifier` and `max_frame_len` cover the records.
   A pack masked at write, one that is not an `extract` and carries `redaction_policy`,
   must carry both encryption tags, exactly one `classifier` and at most one `max_frame_len` ([FMT §5], G5-243, G5-250);
@@ -484,9 +486,9 @@ The query service, its catalog database and the live-tail interface are designed
   a write error of `w`, wrapped, `io.ErrShortWrite` for a short write. On an error the `Result` holds what was found so far, and the bytes written stay written for the caller to discard.
   It writes each line in pieces of at most 64 KiB, so a line may take several `Write` calls (G5-172);
   beyond the reader's decoded block and the `Result`'s diagnostics, its memory does not grow with the length of a payload, a value or an entry list.
-- Documentation (G5-155): the `tracepack` package and `tracepack/redact`; `tracepack/README.md` and the package documentation open with the API by audience:
-  recorders (`CaptureDescriptor`, `SegmentWriter`, `SegmentSink`), producers over a durable bus (the bus codec, the descriptor codec),
-  the log service (`DeriveBusRecord`, `redact`, the `Writer`'s masked-at-write path, `WriteClose`, `Merge`),
+- Documentation (G5-155): the `tracepack` package, `tracepack/bus` and `tracepack/redact`; `tracepack/README.md` and the package documentation open with the API by audience:
+  recorders (`CaptureDescriptor`, `SegmentWriter`, `SegmentSink`), producers over a durable bus (the bus codec of `tracepack/bus`, the descriptor codec),
+  the log service (`bus.DeriveRecord`, `redact`, the `Writer`'s masked-at-write path, `WriteClose`, `Merge`),
   readers (`Open`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `NewReaderSource`, `ExportJSONL`, `Verify`, with `Item.Redaction` and `PackHeader.RedactionDefects`)
   and the storage service (`Merge`, the key builders),
   with runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` and `ExampleFindTransactions` over `NewReaderSource`, `ExampleMergeIterate`, `ExampleExportJSONL`

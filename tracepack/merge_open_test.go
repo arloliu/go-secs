@@ -58,8 +58,7 @@ var serialHooks = mergeHooks{open: serialOpenInputs}
 // the io and context sentinels a merge may wrap, and the tests' injected cause,
 // so two outcomes are compared on each, present or absent.
 var mergeSentinels = map[string]error{
-	"ErrAnnotationText": ErrAnnotationText, "ErrBusMalformed": ErrBusMalformed, "ErrBusNotAccepted": ErrBusNotAccepted,
-	"ErrBusPayloadMismatch": ErrBusPayloadMismatch, "ErrChecksum": ErrChecksum, "ErrClosed": ErrClosed,
+	"ErrAnnotationText": ErrAnnotationText, "ErrChecksum": ErrChecksum, "ErrClosed": ErrClosed,
 	"ErrFieldLength": ErrFieldLength, "ErrFieldValidity": ErrFieldValidity, "ErrFieldValue": ErrFieldValue,
 	"ErrInvalidFooter": ErrInvalidFooter, "ErrInvalidKey": ErrInvalidKey, "ErrInvalidQuery": ErrInvalidQuery,
 	"ErrInvalidRecord": ErrInvalidRecord, "ErrMergeConflict": ErrMergeConflict, "ErrMergeInput": ErrMergeInput,

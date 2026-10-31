@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/arloliu/go-secs/tracepack/internal/keyesc"
 )
 
 // Fixed UUIDs of the key tests, in canonical lowercase form.
@@ -404,7 +406,7 @@ func FuzzKeys(f *testing.F) {
 		}
 
 		built, err := SegmentKey(prefix, tool, capture, 0, pack)
-		if checkKeyTool(tool) != nil {
+		if keyesc.CheckTool(tool) != nil {
 			require.ErrorIs(t, err, ErrInvalidKey)
 
 			return
