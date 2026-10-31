@@ -127,13 +127,18 @@ func addSat(a, b uint64) uint64 {
 
 // walkDefects returns the defects of a forward walk that ended at end, or stopped with stop,
 // having walked blocks holding records records in all:
-// the stop; else, for a pack that is not finalized, one defect at end, since more records may follow;
+// the stop; else, for a pack that is not finalized, one defect at end:
+// with no valid trailer more records may follow (ErrNotFinalized),
+// while a pack with a valid trailer whose footer CRC fails was finished and is damaged (ErrCorrupt);
 // else, for a finalized pack, one defect when the walk disagrees with the trailer's block_count or record_count.
 // A pack carries at most one such defect.
 func (r *Reader) walkDefects(stop *Defect, end, records uint64) []Defect {
 	switch {
 	case stop != nil:
 		return []Defect{*stop}
+	case !r.finalized && r.trailer != nil:
+		return []Defect{*walkStop(end, wrapf(
+			"tracepack: forward walk: the pack ends at the footer_offset %d of a valid trailer whose footer fails its CRC: %w", end, ErrCorrupt))}
 	case !r.finalized:
 		return []Defect{*walkStop(end, wrapf("%w: more records may follow", ErrNotFinalized))}
 	case uint64(len(r.blocks)) != uint64(r.trailer.BlockCount) || records != r.trailer.RecordCount:

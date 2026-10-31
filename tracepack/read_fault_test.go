@@ -345,6 +345,8 @@ func TestReadFaultSentinels(t *testing.T) {
 				verify: IncompleteReasonTruncated, want: []error{ErrNotFinalized},
 			},
 			{name: "end of a pack that is not finalized", file: file[:at], want: []error{ErrNotFinalized}},
+			// The pack was finished, so it is damaged, not still being written: retrying it would wait forever.
+			{name: "end of the walk of a valid trailer whose footer fails its CRC", file: flipByte(file, l.tr.FooterOffset+5), want: []error{ErrCorrupt}},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {

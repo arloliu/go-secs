@@ -59,6 +59,9 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ### Fixed
 
+- The forward walk of a pack whose trailer is valid but whose footer CRC fails ends with a defect wrapping `ErrCorrupt`, not `ErrNotFinalized` (G5-296):
+  the pack was finished, so it is damaged, and a caller retrying `ErrNotFinalized` would have waited for it forever.
+  Its `PackHeader.FooterErr` still wraps `ErrChecksum`.
 - `Open` caps `ReaderOptions.MaxPackMetadataLen` at the largest pack metadata a 32-bit platform can address,
   so on such a platform a raised budget and a hostile `pack_metadata_len` of 2 GiB or more fail with `ErrReadLimit` instead of panicking.
 

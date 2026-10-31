@@ -58,8 +58,9 @@ type Defect struct {
 	// Err describes the defect; by Reason, it wraps:
 	//   - IncompleteReasonCorruptBlock: ErrChecksum for a block envelope or body CRC mismatch, else ErrCorrupt;
 	//   - IncompleteReasonUnknownCodec and IncompleteReasonIndexMismatch: ErrCorrupt;
-	//   - IncompleteReasonTruncated: ErrNotFinalized at the end of the walk of a pack that is not finalized (I-5),
+	//   - IncompleteReasonTruncated: ErrNotFinalized at the end of the walk of a pack with no valid trailer,
 	//     and for a walk stop at a block the object's end cuts short when the pack has no valid trailer;
+	//     ErrCorrupt at the end of the walk of a pack whose trailer is valid but whose footer CRC fails, which is not finalized (I-5);
 	//     ErrChecksum or ErrCorrupt, by its cause, for a walk stop at a bad block envelope;
 	//     ErrCorrupt for a walk stop at a block that crosses a valid trailer's footer_offset,
 	//     and for a walk that disagrees with the trailer's block_count or record_count;

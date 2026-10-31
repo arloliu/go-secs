@@ -250,7 +250,7 @@ A block or walk fault is a `Defect` in `Result.Incomplete` (a `TxGap` of a looku
 |---|---|
 | `IncompleteReasonCorruptBlock` | `ErrChecksum` for an envelope or body CRC mismatch, else `ErrCorrupt` |
 | `IncompleteReasonUnknownCodec`, `IncompleteReasonIndexMismatch` | `ErrCorrupt` |
-| `IncompleteReasonTruncated` | `ErrNotFinalized` at the end of a pack that is not finalized, or where a pack with no valid trailer ends inside a block; `ErrChecksum` or `ErrCorrupt` at a bad envelope, a block past a valid trailer's `footer_offset`, or a walk that disagrees with the trailer |
+| `IncompleteReasonTruncated` | `ErrNotFinalized` at the end of a pack with no valid trailer, or where such a pack ends inside a block; `ErrChecksum` or `ErrCorrupt` at a bad envelope, a block past a valid trailer's `footer_offset`, or a walk that disagrees with the trailer; `ErrCorrupt` at the end of a pack whose trailer is valid but whose footer CRC fails, which was finished, so it is damaged rather than still being written |
 | `IncompleteReasonLimit` | `ErrReadLimit` |
 | `IncompleteReasonCoverage`, `IncompleteReasonCrashGap` | no sentinel: `Reason`, with `Coverage` or `Boundary`, classifies it |
 
