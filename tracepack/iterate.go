@@ -101,10 +101,13 @@ func clonePtr[T any](v *T) *T {
 // Returns:
 //   - Result: the status of the read; complete when Incomplete is empty.
 //     On an error it holds what was found before the error; Result{} for an invalid query.
-//   - error: an error wrapping ErrInvalidQuery, before anything is read;
+//   - error: an error wrapping ErrInvalidQuery, before anything is read, for a nil fn or an invalid q;
 //     ctx's error, wrapped; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read;
 //     or the error fn returned, as is.
 func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Result, error) {
+	if fn == nil {
+		return Result{}, fmt.Errorf("%w: fn is nil", ErrInvalidQuery)
+	}
 	if err := q.validate(); err != nil {
 		return Result{}, err
 	}

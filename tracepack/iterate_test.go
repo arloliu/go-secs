@@ -150,21 +150,31 @@ func TestIterateInvalidQuery(t *testing.T) {
 	r, g := openGated(t, p.file)
 	opened := len(g.allCalls())
 
+	inverted := Query{Filter: Filter{TimeFrom: new(blockTestHour + 1), TimeTo: new(blockTestHour)}}
 	tests := []struct {
-		name string
-		q    Query
+		name  string
+		q     Query
+		nilFn bool
+		msg   string
 	}{
-		{name: "TimeFrom after TimeTo", q: Query{Filter: Filter{TimeFrom: new(blockTestHour + 1), TimeTo: new(blockTestHour)}}},
+		{name: "TimeFrom after TimeTo", q: inverted, msg: "after"},
+		{name: "nil fn", nilFn: true, msg: "fn is nil"},
+		{name: "nil fn first", q: inverted, nilFn: true, msg: "fn is nil"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			res, err := r.Iterate(t.Context(), tt.q, func(*Item) error {
+			fn := func(*Item) error {
 				t.Fatal("an invalid query yields nothing")
 				return nil
-			})
+			}
+			if tt.nilFn {
+				fn = nil
+			}
+			res, err := r.Iterate(t.Context(), tt.q, fn)
 			require.ErrorIs(t, err, ErrInvalidQuery)
+			require.ErrorContains(t, err, tt.msg)
 			assert.Equal(t, Result{}, res)
 			assert.Len(t, g.allCalls(), opened, "an invalid query reads nothing")
 		})
