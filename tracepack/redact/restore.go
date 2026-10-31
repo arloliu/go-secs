@@ -109,8 +109,12 @@ func checkRestorable(r *tracepack.Record, rr *tracepack.RecordRedaction) error {
 // defectsError returns the error of a Marking that lists defects: one line naming the seq and the count,
 // wrapping tracepack.ErrRedactionDefect, then each defect's error on its own line, in their order.
 func defectsError(seq uint64, defects []tracepack.RedactionDefect) error {
+	noun := "defects"
+	if len(defects) == 1 {
+		noun = "defect"
+	}
 	errs := make([]error, 0, 1+len(defects))
-	errs = append(errs, wrapf("%w: seq %d: its Marking lists %d defects", tracepack.ErrRedactionDefect, seq, len(defects)))
+	errs = append(errs, wrapf("%w: seq %d: its Marking lists %d %s", tracepack.ErrRedactionDefect, seq, len(defects), noun))
 	for _, d := range defects {
 		errs = append(errs, d.Err)
 	}

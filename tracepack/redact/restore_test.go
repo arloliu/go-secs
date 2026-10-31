@@ -321,7 +321,7 @@ func TestRestoreUntrustedInput(t *testing.T) {
 		in.rr.Defects = []tracepack.RedactionDefect{{Seq: 32, Entry: 0, Err: tracepack.ErrRedactionDefect}}
 		_, err = in.restore(t)
 		require.ErrorIs(t, err, tracepack.ErrRedactionDefect)
-		require.EqualError(t, err, "tracepack: redaction defect: seq 32: its Marking lists 1 defects\ntracepack: redaction defect")
+		require.EqualError(t, err, "tracepack: redaction defect: seq 32: its Marking lists 1 defect\ntracepack: redaction defect")
 
 		in = maskedInput(t, 32, ppbody)
 		in.rr.WhollyMasked = true
