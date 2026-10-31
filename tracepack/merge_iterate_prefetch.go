@@ -29,7 +29,9 @@ type prefetchEntry struct {
 	buf  *blockBuf
 	pool blockBufPool
 	// done is closed once the speculative read returned, err holding its error,
-	// or once its ReadAt panicked, panicked holding the value; nil without a speculative read.
+	// once its ReadAt panicked, panicked holding the value,
+	// or once its ReadAt ended the read's goroutine without returning, err holding the error of noReturnError;
+	// nil without a speculative read.
 	done     chan struct{}
 	err      error
 	panicked *caughtPanic
@@ -171,6 +173,7 @@ func (pf *prefetcher) fill() {
 
 // issue starts the speculative read of the n bytes at off of r into the raw of e's buffer, which fitBuf sized to hold them.
 // A ReadAt that panics does not end the process: the read's goroutine keeps the value in e and closes done as for any other return.
+// A ReadAt that ends the read's goroutine instead of returning, as runtime.Goexit does, leaves e the error of noReturnError.
 func (pf *prefetcher) issue(r *Reader, e *prefetchEntry, off int64, n int) {
 	raw := e.buf.raw[:n]
 	e.buf.raw = raw
@@ -179,14 +182,18 @@ func (pf *prefetcher) issue(r *Reader, e *prefetchEntry, off int64, n int) {
 	pf.inflight.Add(1)
 	go func() {
 		defer pf.wg.Done()
+		returned := false
 		defer func() {
 			if v := recover(); v != nil {
 				e.panicked = &caughtPanic{value: v}
+			} else if !returned {
+				e.err = noReturnError(n, off)
 			}
 			pf.inflight.Add(-1)
 			close(e.done)
 		}()
 		e.err = readAt(r.ra, raw, off)
+		returned = true
 	}()
 }
 

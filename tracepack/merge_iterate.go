@@ -143,6 +143,9 @@ var _ error = PackError{}
 // those the read never reaches are dropped with their errors and their panics.
 // A ReadAt that panics, read ahead or not, makes MergeIterate panic with the same value on the caller's goroutine
 // when the read reaches its block.
+// A ReadAt read ahead that ends its goroutine instead of returning, as runtime.Goexit does,
+// fails the read with an error saying it did not return when the read reaches its block, its bytes never read as the block's;
+// a ReadAt made on the caller's goroutine that does so ends that goroutine, as it would anywhere.
 // Whatever its outcome, a panic included, MergeIterate waits for its ReadAt calls in flight before it returns,
 // so none touches a Reader's io.ReaderAt after it returned.
 // A block over its Reader's ReaderOptions.MaxBlockLen, or whose stated dimensions cannot be consistent, is a defect and is not read;
@@ -195,7 +198,7 @@ var _ error = PackError{}
 //     or a negative MaxHeldBytes or MaxConflicts;
 //     ctx's error, wrapped;
 //     an error wrapping ErrReadLimit when a reservation would exceed MaxHeldBytes or one more conflict would exceed MaxConflicts;
-//     a ReadAt error, wrapped with the reader and block index;
+//     a ReadAt error, or the error saying a ReadAt read ahead did not return, wrapped with the reader and block index;
 //     or the error fn returned, as is.
 func MergeIterate(ctx context.Context, readers []*Reader, q Query, opts MergeIterateOptions, fn func(*Item) error) (Result, error) {
 	return mergeIterateWith(ctx, readers, q, opts, mergeIterateOptions{}, fn)

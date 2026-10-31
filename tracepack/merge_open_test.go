@@ -20,6 +20,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
 // serialOpenInputs is mergePlan.openInputs as it was before Merge opened its inputs concurrently, kept unchanged as the tests' oracle:
@@ -470,6 +472,49 @@ func TestMergeOpenJoin(t *testing.T) {
 			})
 		})
 	}
+}
+
+// A ReadAt that ends its goroutine with runtime.Goexit instead of returning fails the merge with an error naming its input,
+// a failed read of the input, not a pack Merge refuses (ErrMergeInput):
+// on the goroutine that opens the input, which the call reading the whole input runs on,
+// and on a goroutine of a round of the open's reads.
+func TestMergeOpenGoexit(t *testing.T) {
+	t.Parallel()
+
+	files := openTestFiles(t, 4)
+	t.Run("open's goroutine", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			rs, in := gatedInputs(files)
+			// Input 0 is held until input 1's open, on its own goroutine, has ended.
+			release := make(chan struct{})
+			rs[0].at(0).after = release
+			rs[1].at(0).goexit = true
+			got := mergeAsync(t.Context(), in, openTestOpts(), mergeHooks{})
+			<-rs[1].at(0).done
+			close(release)
+			err, ok := (<-got).(error)
+			require.True(t, ok, "Merge returned an error")
+			require.EqualError(t, err, "tracepack: merge: input 1: ReadAt did not return")
+			require.NotErrorIs(t, err, ErrMergeInput)
+		})
+	})
+
+	t.Run("a round's goroutine", func(t *testing.T) {
+		t.Parallel()
+
+		rs, in := gatedInputs(files)
+		tail := int64(len(files[0])) - format.TrailerLen
+		rs[0].at(tail).goexit = true
+		opts := openTestOpts()
+		opts.Reader = roundOptions
+		opts.MaxParallelOpens = 1
+		_, _, err := mergeBytes(t.Context(), in, opts)
+		require.EqualError(t, err,
+			fmt.Sprintf("tracepack: merge: input 0: tracepack: read %d bytes at offset %d: ReadAt did not return", format.TrailerLen, tail))
+		require.NotErrorIs(t, err, ErrMergeInput)
+	})
 }
 
 // At most MaxParallelOpens inputs open, or wait to be checked, at once, the one checked next included:
