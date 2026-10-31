@@ -146,7 +146,8 @@ The query service, its catalog database and the live-tail interface are designed
   `bus.DeriveRecord(*tracepack.Record, tracepack.Classifier)` sets the values the consumer derives by kind, an unobserved data record's included;
   its `ErrInvalidRecord` for another kind is never reached by a record `bus.CheckMessage` accepted.
   Both directions refuse a producer seq of 2^63 − 1, which only a consumer's close carries.
-  `bus.EncodeBody` also refuses a record carrying `redacted`, which a producer never sets,
+  `bus.EncodeBody` refuses with `bus.ErrMalformed` a record whose kind layout 1 does not carry, kind 0 included, as `bus.CheckMessage` does (G5-295);
+  it also refuses a record carrying `redacted`, which a producer never sets,
   while `bus.CheckMessage` accepts a well-framed body carrying it and keeps the bit, as it keeps every defined `quality` bit.
 - Descriptor codec (G5-226), in the root package: `EncodeDescriptor(*PackMeta) ([]byte, error)` and `DecodeDescriptor([]byte) (*PackMeta, error)`,
   the producer-owned entries of a capture descriptor (TLV, [FMT §5]), `thinning` included, as raw values with no default applied:

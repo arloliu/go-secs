@@ -478,8 +478,7 @@ func TestCheckMessageUnsupportedLayout(t *testing.T) {
 	body := busEncode(t, &data)
 	id := busEnvelope(t, seq).MsgID
 	ccBody, ccEnv := claimCheck(t, &data, "bucket")
-	kindFive := data
-	kindFive.Kind = tracepack.Kind(5)
+	kindFive := withKind(body, tracepack.Kind(5))
 
 	for _, layout := range []string{"", "2", "01", " 1", "1 "} {
 		for _, tc := range []struct {
@@ -489,7 +488,7 @@ func TestCheckMessageUnsupportedLayout(t *testing.T) {
 		}{
 			{"inline", Envelope{Layout: layout, MsgID: id}, body},
 			{"claim-check", withLayout(ccEnv, layout), ccBody},
-			{"of another kind", Envelope{Layout: layout, MsgID: id}, busEncode(t, &kindFive)},
+			{"of another kind", Envelope{Layout: layout, MsgID: id}, kindFive},
 			{"with a body layout 1 refuses", Envelope{Layout: layout, MsgID: id}, body[:43]},
 		} {
 			t.Run(fmt.Sprintf("layout %q %s", layout, tc.name), func(t *testing.T) {
@@ -516,15 +515,16 @@ func TestCheckMessageKind(t *testing.T) {
 		t.Run(kind.String(), func(t *testing.T) {
 			t.Parallel()
 
-			r := tracepack.Record{Seq: 7, TSUTCNs: 1, Kind: kind, Fidelity: tracepack.FidelityWireExact, Payload: busFrame(1, 3, []byte{1, 2})}
-			br, err := CheckMessage(busEnvelope(t, r.Seq), busEncode(t, &r))
+			// EncodeBody refuses these kinds, so the bodies are a data record's with its kind byte replaced.
+			r := tracepack.Record{Seq: 7, TSUTCNs: 1, Kind: tracepack.KindData, Fidelity: tracepack.FidelityWireExact, Payload: busFrame(1, 3, []byte{1, 2})}
+			br, err := CheckMessage(busEnvelope(t, r.Seq), withKind(busEncode(t, &r), kind))
 			require.ErrorIs(t, err, ErrMalformed)
 			assert.NotErrorIs(t, err, ErrUnsupportedLayout)
 			assert.True(t, strings.HasPrefix(err.Error(), "tracepack: malformed bus message: "), err.Error())
 			assert.Equal(t, Record{}, br)
 
 			body, env := claimCheck(t, &r, "b")
-			br, err = CheckMessage(env, body)
+			br, err = CheckMessage(env, withKind(body, kind))
 			require.ErrorIs(t, err, ErrMalformed, "the kind is in the record header, checked before the payload is fetched")
 			assert.NotErrorIs(t, err, ErrUnsupportedLayout)
 			assert.Equal(t, Record{}, br)
@@ -1090,6 +1090,15 @@ func TestPayloadCheck(t *testing.T) {
 	assert.NotErrorIs(t, err, ErrPayloadMismatch)
 }
 
+// withKind returns a copy of body, a layout-1 body, with its record header's kind byte set to k.
+func withKind(body []byte, k tracepack.Kind) []byte {
+	const kindOff = 38
+	b := slicesClone(body)
+	b[kindOff] = byte(k)
+
+	return b
+}
+
 // busRawBody returns a 44-byte header of seq with every byte the normalization concerns set,
 // followed by payload.
 func busRawBody(seq uint64, quality uint16, payload []byte) []byte {
@@ -1172,6 +1181,8 @@ func TestEncodeBodyRefuses(t *testing.T) {
 		{"redacted", tracepack.Record{Seq: 1, Kind: tracepack.KindData, Quality: tracepack.QualityRedacted, Payload: busFrame(1, 1, nil)}},
 		{"seq 2^63-1", tracepack.Record{Seq: math.MaxInt64, Kind: tracepack.KindTransportEvent}},
 		{"seq 2^63", tracepack.Record{Seq: 1 << 63, Kind: tracepack.KindTransportEvent}},
+		{"kind 0", tracepack.Record{Seq: 1, Payload: busFrame(1, 1, nil)}},
+		{"kind 5", tracepack.Record{Seq: 1, Kind: tracepack.Kind(5), Payload: busFrame(1, 1, nil)}},
 	} {
 		br := NewRecord(&tc.rec)
 		b, err := EncodeBody(&br)

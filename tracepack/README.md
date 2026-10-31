@@ -296,7 +296,8 @@ The module imports no NATS client; it encodes and checks what a message carries.
   set `ClaimCheck`, `Bucket` and `Digest`, the payload's SHA-256 digest, and keep `PayloadLen`;
   the body is then the header alone, and the `Tpk-Payload-Digest` header carries `bus.PayloadDigest(payload)`.
   The body holds `decode_status`, `trailing_bytes` and `field_validity` as zero, since the consumer derives them,
-  and the encoder refuses a record carrying `redacted` or seq 2^63 − 1.
+  and the encoder refuses (`bus.ErrMalformed`) a record carrying `redacted` or seq 2^63 − 1,
+  and a record whose kind layout 1 does not carry: anything but data, control, transport-event or annotation, kind 0 included.
 - `bus.Subject(prefix, toolID, capture)` and `bus.MsgID(capture, seq)` give the subject and the `Nats-Msg-Id`, and constants such as `bus.HeaderPayloadRef` name the headers.
 - `bus.CheckStart(headerBlockLen, bodyLen, maxPayload)` is the preflight:
   the header block, as your client encodes it, holds at most `bus.HeaderBlockLimit` bytes on every message,

@@ -286,6 +286,7 @@ func NewRecord(r *tracepack.Record) Record {
 // Returns:
 //   - []byte: the body; nil on error.
 //   - error: an error wrapping ErrMalformed for a record carrying quality.redacted, which a producer never sets,
+//     a record whose kind is not data, control, transport-event or annotation, kind 0 included, the kinds layout 1 carries,
 //     a seq of 2^63-1 or more, a payload_len above 2^31-1,
 //     an inline record whose PayloadLen differs from its payload's length,
 //     or, on a 32-bit platform, an inline body whose length does not fit in memory, near 2^31 bytes.
@@ -293,6 +294,9 @@ func EncodeBody(br *Record) ([]byte, error) {
 	r := &br.Record
 	if r.Quality.HasAny(tracepack.QualityRedacted) {
 		return nil, wrapf("%w: seq %d carries quality.redacted, which a producer never sets", ErrMalformed, r.Seq)
+	}
+	if !layout1Kind(r.Kind) {
+		return nil, wrapf("%w: seq %d: record of kind %s, which layout 1 does not carry", ErrMalformed, r.Seq, r.Kind)
 	}
 	if r.Seq > maxSeq {
 		return nil, wrapf("%w: seq %d is not a producer's (at most %d)", ErrMalformed, r.Seq, maxSeq)
