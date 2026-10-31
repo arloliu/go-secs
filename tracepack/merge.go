@@ -827,8 +827,8 @@ func equalTimers(a, b *HSMSTimers) bool {
 		return a == b
 	}
 
-	return equalPtr(a.T1, b.T1) && equalPtr(a.T2, b.T2) && equalPtr(a.T3, b.T3) && equalPtr(a.T4, b.T4) &&
-		equalPtr(a.T5, b.T5) && equalPtr(a.T6, b.T6) && equalPtr(a.T7, b.T7) && equalPtr(a.T8, b.T8)
+	return equalPtr(a.T1Ms, b.T1Ms) && equalPtr(a.T2Ms, b.T2Ms) && equalPtr(a.T3Ms, b.T3Ms) && equalPtr(a.T4Ms, b.T4Ms) &&
+		equalPtr(a.T5Ms, b.T5Ms) && equalPtr(a.T6Ms, b.T6Ms) && equalPtr(a.T7Ms, b.T7Ms) && equalPtr(a.T8Ms, b.T8Ms)
 }
 
 // ReadAt implements io.ReaderAt.

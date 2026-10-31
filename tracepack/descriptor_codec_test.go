@@ -38,7 +38,7 @@ func descriptorMeta() *PackMeta {
 		EquipmentEndpoint:    new("10.0.0.2:5000"),
 		EquipmentConnectMode: &role,
 		DeviceID:             new(uint64(7)),
-		HSMSTimers:           &HSMSTimers{T3: new(uint64(45_000)), T5: new(uint64(10_000))},
+		HSMSTimers:           &HSMSTimers{T3Ms: new(uint64(45_000)), T5Ms: new(uint64(10_000))},
 		ClockStepToleranceNs: new(uint64(0)),
 		Thinning: []Thinning{
 			{Stream: 1, Function: 3, Source: "fdc interval poll"},
@@ -358,8 +358,8 @@ func TestDecodeDescriptorEveryTimer(t *testing.T) {
 
 	want := descriptorMeta()
 	want.HSMSTimers = &HSMSTimers{
-		T1: new(uint64(1)), T2: new(uint64(2)), T3: new(uint64(3)), T4: new(uint64(4)),
-		T5: new(uint64(5)), T6: new(uint64(6)), T7: new(uint64(7)), T8: new(uint64(8)),
+		T1Ms: new(uint64(1)), T2Ms: new(uint64(2)), T3Ms: new(uint64(3)), T4Ms: new(uint64(4)),
+		T5Ms: new(uint64(5)), T6Ms: new(uint64(6)), T7Ms: new(uint64(7)), T8Ms: new(uint64(8)),
 	}
 	b, err := EncodeDescriptor(want)
 	require.NoError(t, err)

@@ -38,7 +38,7 @@ func richMeta(m *PackMeta) {
 	m.EquipmentConnectMode, m.DeviceID, m.PreviousCaptureID = new(SocketRolePassive), new(uint64(7)), new(UUID{0xCB})
 	m.CaptureOriginUTCNs, m.CaptureOriginMonoNs = new(blockTestHour), new(int64(5))
 	m.ClockStepToleranceNs, m.FlushIntervalNs = new(uint64(1000)), new(uint64(60_000_000_000))
-	m.HSMSTimers = &HSMSTimers{T1: new(uint64(1)), T3: new(uint64(45_000)), T8: new(uint64(8))}
+	m.HSMSTimers = &HSMSTimers{T1Ms: new(uint64(1)), T3Ms: new(uint64(45_000)), T8Ms: new(uint64(8))}
 	m.Supersedes = []UUID{{0xAB}}
 	m.Coverage = []Coverage{{
 		CaptureID: new(UUID{0xC0}), SeqFirst: new(uint64(1)), SeqLast: new(uint64(2)),
@@ -70,7 +70,7 @@ func scrambleMeta(m *PackMeta) {
 		[]*int64{m.CaptureOriginUTCNs, m.CaptureOriginMonoNs},
 	)
 	if tm := m.HSMSTimers; tm != nil {
-		scrambleValues([]*uint64{tm.T1, tm.T2, tm.T3, tm.T4, tm.T5, tm.T6, tm.T7, tm.T8}, nil, nil, nil)
+		scrambleValues([]*uint64{tm.T1Ms, tm.T2Ms, tm.T3Ms, tm.T4Ms, tm.T5Ms, tm.T6Ms, tm.T7Ms, tm.T8Ms}, nil, nil, nil)
 	}
 	for i := range m.Coverage {
 		c := &m.Coverage[i]
@@ -159,7 +159,7 @@ func TestUnmarshalPackMetaRejectsInvalidValues(t *testing.T) {
 	meta := func() *PackMeta {
 		m := repairTestMeta()
 		generationMeta(m, setA, 1, 1, nil)
-		m.HSMSTimers = &HSMSTimers{T3: new(uint64(45_000))}
+		m.HSMSTimers = &HSMSTimers{T3Ms: new(uint64(45_000))}
 		m.Coverage = []Coverage{{SeqFirst: new(uint64(1)), SeqLast: new(uint64(2))}}
 		m.RedactionPolicy = &RedactionPolicy{PolicyID: "p", PolicyVersion: 1, KeyID: "k", DigestAlgorithm: DigestAlgorithmHMACSHA256}
 
@@ -243,7 +243,7 @@ func TestHeaderUnaffectedByHeaderMutation(t *testing.T) {
 	p := writeRepairPack(t, CodecZstd, func(m *PackMeta) {
 		archiveMeta(m)
 		m.SiteID = new("fab")
-		m.HSMSTimers = &HSMSTimers{T3: new(uint64(45_000))}
+		m.HSMSTimers = &HSMSTimers{T3Ms: new(uint64(45_000))}
 	}, false, repairSteps(t))
 	r := mustOpen(t, p.file, ReaderOptions{})
 	want := r.Header()
@@ -252,7 +252,7 @@ func TestHeaderUnaffectedByHeaderMutation(t *testing.T) {
 	*h.Meta.PublisherEpoch = 99
 	h.Meta.ToolID = "changed"
 	*h.Meta.SiteID = "changed"
-	*h.Meta.HSMSTimers.T3 = 1
+	*h.Meta.HSMSTimers.T3Ms = 1
 	h.Meta.CompactedFrom[0][0]++
 	h.Meta.Coverage[0].Unknown[0].Value[0]++
 

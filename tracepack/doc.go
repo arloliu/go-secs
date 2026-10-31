@@ -23,6 +23,12 @@
 // Format 1.2, minor 2, adds recorder_instance_name, the human-readable name of the deployment recorder_instance_id identifies;
 // a Writer writes minor 2 exactly when the pack metadata carries it.
 //
+// Fields that mirror stored values carry the stored units:
+// a time is int64 nanoseconds since the Unix epoch, as ts_utc_ns is, and Filter bounds it in the same unit;
+// the HSMSTimers fields hold milliseconds, which their names say with Ms.
+// Inputs that state a caller's intent, such as a capture's origin, a flush interval or a lookup's time range,
+// take time.Time and time.Duration.
+//
 // # Recording
 //
 // A CaptureDescriptor holds the pack metadata the producer of a capture owns.

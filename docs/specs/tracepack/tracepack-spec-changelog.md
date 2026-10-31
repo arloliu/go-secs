@@ -141,6 +141,10 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   `Item.Unobserved` and `TxRecord.Unobserved`, `Reader.Unobserved` of the pack the record or version was yielded from,
   and `Item.Clone` and `Record.Clone`, copies sharing no mutable storage with the read, the errors inside redaction defects excepted.
   No format rule changed.
+- 2026-10-31: the §3 `CaptureDescriptor` bullet names the fields of `HSMSTimers` by their unit, `T1Ms`..`T8Ms`, milliseconds as stored (G5-290),
+  and states the unit rule: fields that mirror stored values carry the stored units,
+  while inputs that state a caller's intent take `time.Time` and `time.Duration`.
+  The `hsms_timers` nested tags and JSONL keys are unchanged; no format rule changed.
 
 ## Changes vs v1 (summary)
 

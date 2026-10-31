@@ -242,7 +242,7 @@ func (d *CaptureDescriptor) clone() CaptureDescriptor {
 	c.DeviceID = clonePtr(d.DeviceID)
 	if d.HSMSTimers != nil {
 		t := *d.HSMSTimers
-		for _, p := range []**uint64{&t.T1, &t.T2, &t.T3, &t.T4, &t.T5, &t.T6, &t.T7, &t.T8} {
+		for _, p := range []**uint64{&t.T1Ms, &t.T2Ms, &t.T3Ms, &t.T4Ms, &t.T5Ms, &t.T6Ms, &t.T7Ms, &t.T8Ms} {
 			*p = clonePtr(*p)
 		}
 		c.HSMSTimers = &t

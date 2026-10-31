@@ -106,6 +106,12 @@ The query service, its catalog database and the live-tail interface are designed
   The Godoc of `QualityEvaluated` names what `SegmentWriter` evaluates (`correlation-incomplete` for epoch 0, the capture-boundary bit)
   and what the producer evaluates before it sets the field (`ordering-uncertain`, `direction-inferred`, [SEM §6]).
   Every `PackMeta` field gains Godoc from the registry's *Meaning* column and the roles that require it.
+  `HSMSTimers`, the nested `hsms_timers` entry, has the fields `T1Ms`..`T8Ms` (`*uint64`, nested tags 1–8), in milliseconds as stored,
+  each documented with its timer's HSMS or SECS-I meaning;
+  the nested tags and the JSONL keys `T1`..`T8` are unchanged (G5-290).
+  Fields that mirror stored values carry the stored units: a time is `int64` nanoseconds since the Unix epoch, which `Filter` bounds take too,
+  and the timers are milliseconds, named by `Ms`;
+  inputs that state a caller's intent take `time.Time` and `time.Duration`.
 - Bus codec (G5-226): layout 1 of the bus message, in the subpackage `tracepack/bus` (G5-288), which imports the root package and is never imported by it
   ([STO §4] *Bus message* and *Large records*); the module imports no NATS client.
   Its names carry no `Bus` prefix, and its error texts keep the module's `tracepack: ` prefix.
