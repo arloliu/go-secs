@@ -163,8 +163,9 @@ func TestWrapfMarkers(t *testing.T) {
 	require.Same(t, fe, got)
 }
 
-// TestWrapfVet requires vet's printf check to treat wrapf as a wrapper of fmt.Errorf:
-// it runs vet over a scratch package holding errtext.go as it is and calls with a malformed format or a %w of no error.
+// TestWrapfVet requires vet's printf check to treat wrapf as a wrapper of fmt.Errorf through the helper package it forwards to:
+// it runs vet over a scratch module holding errtext.go and internal/errtext as they are
+// and calls with a malformed format or a %w of no error.
 func TestWrapfVet(t *testing.T) {
 	t.Parallel()
 
@@ -172,9 +173,12 @@ func TestWrapfVet(t *testing.T) {
 	if err != nil {
 		t.Skip("no go command:", err)
 	}
-	src, err := os.ReadFile("errtext.go")
+	root, err := os.ReadFile("errtext.go")
+	require.NoError(t, err)
+	helper, err := os.ReadFile(filepath.Join("internal", "errtext", "errtext.go"))
 	require.NoError(t, err)
 	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "internal", "errtext"), 0o700))
 	fixture := `package tracepack
 
 import "errors"
@@ -187,12 +191,14 @@ func fixture() []error {
 		wrapf("tracepack: unknown verb %z", 1),
 		wrapf("tracepack: not an error: %w", 42),
 		wrapf("tracepack: missing %d"),
+		joinErrors(errFixture),
 	}
 }
 `
 	for name, data := range map[string][]byte{
-		"go.mod":     []byte("module vetfixture\n\ngo 1.26\n"),
-		"errtext.go": src,
+		"go.mod":     []byte("module github.com/arloliu/go-secs/tracepack\n\ngo 1.26\n"),
+		"errtext.go": root,
+		filepath.Join("internal", "errtext", "errtext.go"): helper,
 		"fixture.go": []byte(fixture),
 	} {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0o600))
@@ -211,4 +217,5 @@ func fixture() []error {
 	require.Contains(t, text, "wrapf format %w has arg 42 of wrong type int")
 	require.Contains(t, text, "fixture.go:12:")
 	require.Contains(t, text, "wrapf format %d reads arg #1, but call has 0 args")
+	require.NotContains(t, text, "fixture.go:13:", "a join is no format")
 }
