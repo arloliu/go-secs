@@ -22,6 +22,7 @@ const DefaultBlockThreshold = 4 << 20
 const fileHeaderRedactionPresent uint32 = 1
 
 // Sentinel errors returned by Writer.
+// Each stands alone, belonging to no family; a writing call marks those its input determines with ErrRefused (see ErrRefused).
 var (
 	// ErrSeqOrder reports a record seq that is not above the previous record's,
 	// a first record whose seq is not the pack's seq_start,
