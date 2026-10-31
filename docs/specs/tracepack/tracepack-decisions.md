@@ -2039,3 +2039,33 @@ Source: the v1.0 API usability review (Claude and Codex), with the owner's rulin
   their behavior and error text are unchanged.
   Rationale *(editorial)*: only a durable-bus producer or consumer uses them, and they were a seventh of the root package.
   Spec: `tracepack-go.md` §3, v2.39.
+
+## 2026-10-31 the v1.0 usability additions (owner's choice, consumers consulted)
+
+Source: the v1.0 API usability review (items 7–14), with tracekeep and veq consulted; the owner deferred `OpenFile` to v1.x.
+
+- G5-289 An `Item` carries what a caller needs without its Reader (2026-10-31, Go mapping):
+  `Item.HSMSHeader` is the HSMS header of the record as stored, set whatever `Query.Payloads`;
+  `Item.Unobserved` and `TxRecord.Unobserved` are `Reader.Unobserved` of the pack the record or version was yielded from;
+  `Item.Clone` and `Record.Clone` return copies that share no mutable storage with the read, the errors inside redaction defects excepted.
+  Rationale *(editorial)*: a filter on S/F selected a record whose header the callback could not see; under `MergeIterate` and `FindTransaction` the unobserved bit needed a Reader the caller may not hold;
+  tracekeep copied Items by hand, and both consumers want these.
+  Spec: `tracepack-go.md` §3, v2.39.
+- G5-290 `HSMSTimers.T1..T8` become `T1Ms..T8Ms` (2026-10-31, Go mapping):
+  the only integer time fields not in nanoseconds name their unit; `Filter` keeps `*int64` nanoseconds, which both consumers build from stored values or hour bounds.
+  The tags `t1`..`t8` and the JSONL keys `T1`..`T8` are unchanged.
+  Rationale *(editorial)*: a `time.Duration` cast into a timer field compiled and stored nanoseconds as milliseconds.
+  Spec: `tracepack-go.md` §3, v2.39.
+- G5-291 `TxResult.Complete`, `Matches` and `PrimaryVersions` (2026-10-31, Go mapping of [SEM §7]):
+  `Complete` reports an empty `Incomplete`; `Matches` and `PrimaryVersions` return pointers into `Records` to the valid matches and the primary's versions; `Records` keeps every diagnostic version.
+  Rationale *(editorial)*: every caller filtered `Records` by hand, and both consumers also read the diagnostics, so the helpers sit beside `Records`.
+  Spec: `tracepack-go.md` §3, v2.39.
+- G5-292 `NewDirSink` returns `*DirSink`, which has `Close` (2026-10-31, Go mapping):
+  Close waits for the sink's operations in progress, then closes its root; afterwards Create and the Commit of an uncommitted file fail, publishing nothing.
+  Rationale *(editorial)*: the sink held an `os.Root` that only the garbage collector released, and v1.0 freezes the return type.
+  Spec: `tracepack-go.md` §3, v2.39.
+- G5-293 An hour's packs are read only during that hour's read (2026-10-31, Go mapping of [SEM §7.2]):
+  a lookup issues no read of, and has no read in flight on, the packs `PackSource.Readers` returned for an hour once it enters its next `Readers` call, or once it returns;
+  afterwards it uses only their decoded header and metadata, so the caller may close that hour's backing objects. No API is added.
+  Rationale *(editorial)*: a lazy source had to keep every hour's objects open for the whole call; tracekeep asked for the exact point instead of a release hook.
+  Spec: `tracepack-go.md` §3, v2.39.

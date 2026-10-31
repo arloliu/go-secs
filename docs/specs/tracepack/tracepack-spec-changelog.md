@@ -1739,7 +1739,7 @@ Review rounds:
 | plan review 3 | copying a large diagnostic result and sorting keys could not be cancelled; error values are shared | the batch's counter counts that work and brackets the sort; error values are shared as immutable |
 | plan review 4 | — | ready |
 
-## Changes v2.38 → v2.39: the v1.0 API freeze (owner decisions G5-279..G5-288, 2026-10-30)
+## Changes v2.38 → v2.39: the v1.0 API freeze (owner decisions G5-279..G5-293, 2026-10-30)
 
 Source: the tracepack maintainers' v1.0 API review and the redaction-entry placement research, with the log service (tracekeep) consulted.
 Format 1.2, the canonical export bytes and the corpus goldens are unchanged.
@@ -1754,8 +1754,10 @@ Summary:
   the masking bullet states the metadata bound (G5-279), and the documentation bullet names the Compatibility section (G5-280).
 - [GO] §3: `Item.Input`, `MergeOptions.WriterTag`, `HasAny` and `HasAll`, and the transaction lookup's `MaxHours`, `DefaultTxMaxHours` and `TxHour` (G5-287).
 - [GO] §1 and §3: the bus codec moves to the subpackage `tracepack/bus`, its names without the `Bus` prefix (G5-288).
+- [GO] §3: `Item.HSMSHeader`, `Item.Unobserved`, `TxRecord.Unobserved`, `Item.Clone` and `Record.Clone` (G5-289); `HSMSTimers.T1Ms`..`T8Ms` (G5-290);
+  `TxResult.Complete`, `Matches` and `PrimaryVersions` (G5-291); `*DirSink` with `Close` (G5-292); the point after which a caller may close an hour's packs (G5-293).
 - [GO] §7: the text of the `verify` and `find` reports is not a contract.
-- The overview's list of decisions reaches G5-288.
+- The overview's list of decisions reaches G5-293.
 
 Review rounds:
 
