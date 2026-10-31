@@ -190,6 +190,9 @@ It writes block bodies and the footer with zstd, as the format specification §2
 the zero value, `CompressionDefault`, writes what earlier versions wrote.
 It validates each block before writing it unless `WriterOptions.SkipValidation` is set.
 For every pack but an extract it refuses a period not inside one UTC hour, and a record of another hour, with `ErrScopeBreach`.
+`Append` refuses a transport-event or annotation record whose payload does not decode with `ErrInvalidRecord`;
+a payload holding a tag or an enum value this module does not know still decodes, and is stored as given.
+`Merge` copies such a record of another writer as it is, and `Verify` reports it as a writer defect.
 It writes `format_minor` 2 when the pack metadata carries `recorder_instance_name` (format 1.2),
 else 1 when it holds a feature of format 1.1, and 0 otherwise.
 `Close` writes the footer and trailer and returns a `Continuation`:
@@ -240,9 +243,11 @@ For the log service, the consumer that writes a durable-bus capture's packs:
 `bus.CheckMessage`, `bus.DeriveRecord`, the package `redact`, the `Writer`'s masked-at-write path, `WriteClose` and `Merge`.
 
 - `bus.CheckMessage(env, body)` checks one message and returns its `bus.Record`, normalized.
-  `bus.ErrMalformed` means the message is never written and its seq is a seq gap;
+  `bus.ErrMalformed` means the message is never written and its seq is a seq gap,
+  a transport-event or annotation record whose payload does not decode included, which the `Writer` would refuse;
   `bus.ErrNotAccepted` means a `start` whose descriptor cannot be accepted: alert, and defer the capture's later records.
-  For a claim-check record, fetch the object and check it with `bus.CheckPayload`; on `bus.ErrPayloadMismatch` defer the message.
+  For a claim-check record, fetch the object and check it with `bus.CheckPayload`; on `bus.ErrPayloadMismatch` defer the message,
+  and treat `bus.ErrMalformed` as above.
   `DecodeDescriptor` gives the producer's values from a `start`, to which you add the values you own.
 - `bus.DeriveRecord(&br.Record, cls)` sets the values you derive by kind:
   `field_validity`, and `decode_status` and `trailing_bytes` from the capture's classifier, or `not-attempted` for an unobserved record.

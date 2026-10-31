@@ -498,7 +498,7 @@ func TestExportJSONL_SameAsIterate(t *testing.T) {
 	require.NotEmpty(t, rep.Disagreements, "the F-3 summary disagrees with the block")
 
 	// An event record and an annotation record whose payloads are not valid bodies.
-	invalid := writeReaderPack(t, readerPackConfig{}, []Record{
+	invalid := writeReaderPack(t, readerPackConfig{unchecked: true}, []Record{
 		testDataRecord(0, blockTestHour, 1),
 		{Seq: 1, TSUTCNs: blockTestHour + 1, Kind: KindTransportEvent, Dir: DirLocal, DecodeStatus: DecodeStatusNotApplicable, Payload: []byte("abc")},
 		{Seq: 2, TSUTCNs: blockTestHour + 2, Kind: KindAnnotation, Dir: DirLocal, DecodeStatus: DecodeStatusNotApplicable,

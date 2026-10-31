@@ -544,20 +544,13 @@ func TestWriterDerivesEpochAndBoundaryBits(t *testing.T) {
 	closeClaimingBoundary := eventRecord(t, 4, hourStart+4, 1, &tracepack.TransportEvent{Event: tracepack.EventSocketClose})
 	closeClaimingBoundary.Quality = tracepack.QualityCaptureBoundary
 
-	undecodableClaimingBoundary := eventRecord(t, 5, hourStart+5, 1, &tracepack.TransportEvent{Event: tracepack.EventCaptureBoundary})
-	undecodableClaimingBoundary.Payload = []byte{0xFF}
-	undecodableClaimingBoundary.Quality = tracepack.QualityCaptureBoundary
-
-	in := []tracepack.Record{
-		unknownEpoch, keptIncomplete, dataClaimingBoundary, boundaryWithoutBit, closeClaimingBoundary, undecodableClaimingBoundary,
-	}
+	in := []tracepack.Record{unknownEpoch, keptIncomplete, dataClaimingBoundary, boundaryWithoutBit, closeClaimingBoundary}
 	want := make([]tracepack.Record, len(in))
 	copy(want, in)
 	want[0].Quality = tracepack.QualityCorrelationIncomplete
 	want[2].Quality = 0
 	want[3].Quality = tracepack.QualityCaptureBoundary
 	want[4].Quality = 0
-	want[5].Quality = 0
 
 	w, buf := newTestWriter(t, tracepack.WriterOptions{})
 	appendAll(t, w, in)

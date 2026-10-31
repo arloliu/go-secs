@@ -658,13 +658,110 @@ func TestDescriptorHeader(t *testing.T) {
 		assert.Nil(t, br.Descriptor)
 	})
 
-	t.Run("a transport event that does not decode is not a start", func(t *testing.T) {
+	t.Run("a transport event that does not decode is malformed, not a start", func(t *testing.T) {
 		t.Parallel()
 
 		r := tracepack.Record{Seq: 1, TSUTCNs: 1, Kind: tracepack.KindTransportEvent, Fidelity: tracepack.FidelityNotApplicable, Payload: []byte{1, 2, 3}}
-		_, err := CheckMessage(busEnvelope(t, 1), busEncode(t, &r))
-		require.NoError(t, err)
+		env := busEnvelope(t, 1)
+		env.Descriptor = "!!!!"
+		_, err := CheckMessage(env, busEncode(t, &r))
+		require.ErrorIs(t, err, ErrMalformed)
+		assert.NotErrorIs(t, err, ErrNotAccepted)
 	})
+}
+
+// busTLV returns the TLV encoding of entries.
+func busTLV(entries ...tlv.Entry) []byte {
+	var b []byte
+	for _, e := range entries {
+		b = tlv.AppendEntry(b, e)
+	}
+
+	return b
+}
+
+// TestCheckMessageEventPayload checks a transport-event or annotation record whose payload does not decode,
+// inline and by claim-check: the message is malformed, its seq a seq gap.
+// A payload of a newer producer, with a tag or an enum value this module does not know, is accepted as it is.
+func TestCheckMessageEventPayload(t *testing.T) {
+	t.Parallel()
+
+	const (
+		tagEvent, tagSocketRole, tagDetail = 0x0001, 0x0007, 0x0012
+		tagAnnotationKind, tagText, tagRaw = 0x0001, 0x0005, 0x0006
+		unknownTag                         = 0x0F00
+	)
+	event := busEventPayload(t, &tracepack.TransportEvent{Event: tracepack.EventSocketClose, SocketRole: new(tracepack.SocketRoleActive)})
+	noteKind := tlv.U8Entry(tagAnnotationKind, uint8(tracepack.AnnotationKindNote))
+	note := busTLV(noteKind, tlv.UTF8Entry(tagText, "note"))
+	stateTransition := tlv.U8Entry(tagEvent, uint8(tracepack.EventStateTransition))
+
+	malformed := []struct {
+		name    string
+		kind    tracepack.Kind
+		payload []byte
+	}{
+		{"transport event, not TLV framing", tracepack.KindTransportEvent, []byte{0xFF}},
+		{"transport event, truncated", tracepack.KindTransportEvent, event[:len(event)-1]},
+		{"transport event, without event", tracepack.KindTransportEvent, busTLV(tlv.U8Entry(tagSocketRole, 1))},
+		{"transport event, invalid UTF-8", tracepack.KindTransportEvent,
+			busTLV(stateTransition, tlv.Entry{Tag: tagDetail, Type: tlv.TypeUTF8, Value: []byte{0xFF, 0xFE}})},
+		{"annotation, not TLV framing", tracepack.KindAnnotation, []byte{0x01}},
+		{"annotation, truncated", tracepack.KindAnnotation, note[:len(note)-1]},
+		{"annotation, without annotation_kind", tracepack.KindAnnotation, busTLV(tlv.UTF8Entry(tagText, "note"))},
+		{"annotation, neither text nor raw", tracepack.KindAnnotation, busTLV(noteKind)},
+		{"annotation, both text and raw", tracepack.KindAnnotation,
+			busTLV(noteKind, tlv.UTF8Entry(tagText, "note"), tlv.BytesEntry(tagRaw, []byte{1}))},
+	}
+	newer := []struct {
+		name    string
+		kind    tracepack.Kind
+		payload []byte
+	}{
+		{"transport event, unknown tag", tracepack.KindTransportEvent, busTLV(stateTransition, tlv.BytesEntry(unknownTag, []byte{1}))},
+		{"transport event, unknown event", tracepack.KindTransportEvent, busTLV(tlv.U8Entry(tagEvent, 0xEE))},
+		{"annotation, unknown tag", tracepack.KindAnnotation, busTLV(noteKind, tlv.UTF8Entry(tagText, "note"), tlv.BytesEntry(unknownTag, nil))},
+		{"annotation, unknown annotation_kind", tracepack.KindAnnotation, busTLV(tlv.U8Entry(tagAnnotationKind, 0xEE), tlv.UTF8Entry(tagText, "note"))},
+	}
+	record := func(kind tracepack.Kind, payload []byte) tracepack.Record {
+		return tracepack.Record{Seq: 7, TSUTCNs: 1, Kind: kind, Dir: tracepack.DirLocal, Fidelity: tracepack.FidelityNotApplicable, Payload: payload}
+	}
+
+	for _, tc := range malformed {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := record(tc.kind, tc.payload)
+			br, err := CheckMessage(busEnvelope(t, r.Seq), busEncode(t, &r))
+			require.ErrorIs(t, err, ErrMalformed)
+			assert.True(t, strings.HasPrefix(err.Error(), "tracepack: malformed bus message: "), err.Error())
+			assert.Equal(t, Record{}, br)
+
+			body, env := claimCheck(t, &r, "b")
+			br, err = CheckMessage(env, body)
+			require.NoError(t, err, "a claim-check record's payload is not known yet")
+			err = CheckPayload(&br, r.Payload)
+			require.ErrorIs(t, err, ErrMalformed)
+			assert.NotErrorIs(t, err, ErrPayloadMismatch)
+			assert.Nil(t, br.Record.Payload, "br is left unchanged")
+		})
+	}
+	for _, tc := range newer {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := record(tc.kind, tc.payload)
+			br, err := CheckMessage(busEnvelope(t, r.Seq), busEncode(t, &r))
+			require.NoError(t, err)
+			assert.Equal(t, tc.payload, br.Record.Payload)
+
+			body, env := claimCheck(t, &r, "b")
+			br, err = CheckMessage(env, body)
+			require.NoError(t, err)
+			require.NoError(t, CheckPayload(&br, r.Payload))
+			assert.Equal(t, tc.payload, br.Record.Payload)
+		})
+	}
 }
 
 // natsHeaderBlockLen returns the length of the NATS header block that carries headers:

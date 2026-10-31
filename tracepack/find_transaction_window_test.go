@@ -269,7 +269,7 @@ func TestTxPrimaryKeyClassify(t *testing.T) {
 				ev.PrimarySystemBytes, ev.PrimarySystemBytesPresent = [4]byte{}, false
 			}))},
 		{name: "a T6", rec: event(txTestEpoch, txT3(func(ev *TransportEvent) { ev.Timer = new(TimerT6) }))},
-		{name: "an annotation", rec: Record{Seq: 13, TSUTCNs: blockTestHour + 13, Epoch: txTestEpoch, Kind: KindAnnotation}},
+		{name: "an annotation", rec: txNote(13, nil)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

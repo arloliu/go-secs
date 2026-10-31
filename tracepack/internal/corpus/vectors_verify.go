@@ -144,7 +144,7 @@ func verifyVectors() []Recipe {
 
 				return b, err
 			},
-			// The Writer stores the body and leaves it out of its summaries; a state-transition is no boundary and ends no epoch,
+			// The nonconforming writer stores the body and leaves it out of its summaries; a state-transition is no boundary and ends no epoch,
 			// so the footer agrees with the records and the defect is the pack's only fault.
 			Expect: &Expectation{
 				Outcome: tracepack.VerifyOutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),

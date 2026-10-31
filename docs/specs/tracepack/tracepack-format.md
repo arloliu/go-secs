@@ -485,6 +485,9 @@ a reader treats the field as unavailable, and `verify` reports the defect.
 
 - A transport-event or annotation payload is a **valid TLV body** when it is an entry list that fills the payload exactly and passes the rules of §5 under its kind's registry above,
   a present `primary_system_bytes` holds exactly 4 bytes, and an annotation holds exactly one of `text` and `raw`, either of which may be empty.
+  A writer refuses a transport-event or annotation record whose payload is not a valid TLV body, and does not add it (G5-294);
+  a tag or an enum value the writer does not know leaves a body valid (§14), so a payload only newer than the writer is never refused.
+  A reader still reports such a record another writer stored (§13).
 
 - Every record produced from a source file must be able to carry a source reference.
   Annotations carry it as above; the representation for data/control records is deferred ([OVW §6]).
@@ -802,7 +805,8 @@ The object size is known before reading (file system stat, object listing, the s
 
   Validated blocks are also checked for **writer defects**, which are reported and never change the outcome:
   a set `field_validity` bit whose bytes the payload lacks (§7.2);
-  a transport-event or annotation record whose `field_validity` is not 0 or whose payload is not a valid TLV body (§8);
+  a transport-event or annotation record whose `field_validity` is not 0 or whose payload is not a valid TLV body (§8),
+  which a conforming writer refuses, so only a record another writer stored has it (G5-294);
   a block whose first seq is not above the last seq of the validated block before it (I-12);
   a block whose records lie in more than one UTC hour (I-13);
   and a first validated block whose first seq is not the pack's `seq_start` (§5),

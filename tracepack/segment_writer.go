@@ -27,13 +27,16 @@ const tracepackModulePath = "github.com/arloliu/go-secs/tracepack"
 // Writer.Append returns it for a record carrying quality.unobserved that is not a data record unobserved by design
 // (the tracepack semantics specification §2): a record of another kind,
 // a payload of 14 bytes or fewer, a stream or function unavailable, a message text that is not zero-filled,
-// a decode_status other than not-attempted, trailing_bytes other than 0, or quality.redacted set.
+// a decode_status other than not-attempted, trailing_bytes other than 0, or quality.redacted set;
+// and for a transport-event or annotation record whose payload does not decode (the tracepack format specification §8),
+// so Verify finds no such writer defect in a record the Writer appended.
+// Merge copies such a record of another writer as it is.
 //
-// A SegmentWriter returns it before it touches a segment, for the record above and for
+// A SegmentWriter returns it before it touches a segment, for the records above and for
 // an AppendFrame for a capture method whose frames it cannot describe,
 // a time that is not representable,
 // a capture-boundary event of kind start, stop or stop-unclean, which the SegmentWriter writes itself,
-// a transport-event or annotation record whose field_validity is not 0 or whose payload does not decode,
+// a transport-event or annotation record whose field_validity is not 0,
 // so Verify finds no writer defect in a record the SegmentWriter appended,
 // a classifier's trailing_bytes outside 0 to 2^32-1,
 // or a nil record or event.
@@ -785,7 +788,7 @@ func (w *SegmentWriter) appendRecord(ctx context.Context, r *Record, caller bool
 func (w *SegmentWriter) appendToSegment(ctx context.Context, r *Record) error {
 	done := w.seg.out.use(ctx)
 	defer done()
-	if err := w.seg.w.addRecord(r); err != nil {
+	if err := w.seg.w.addRecord(r, false); err != nil {
 		return err
 	}
 
@@ -843,7 +846,7 @@ func checkEventRecord(r *Record) error {
 		return fmt.Errorf("tracepack: %s record with field_validity %#02x, not 0: %w", r.Kind, uint8(r.FieldValidity), ErrInvalidRecord)
 	}
 	if err := checkEventPayload(r.Kind, r.Payload); err != nil {
-		return fmt.Errorf("tracepack: %s record payload: %w: %w", r.Kind, ErrInvalidRecord, err)
+		return eventPayloadError(r.Kind, err)
 	}
 
 	return nil

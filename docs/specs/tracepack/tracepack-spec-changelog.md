@@ -175,6 +175,10 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   the §3 `ExportJSONL` bullet says it fails wherever a reader budget keeps part of the pack from the read,
   a footer over `MaxFooterLen` being reported by `Iterate` only in `FooterErrs`, not as an `IncompleteReasonLimit` defect.
   No rule changed.
+- 2026-10-31: the §3 `Writer` bullet says `Writer.Append` refuses a transport-event or annotation record whose payload is not a valid TLV body with `ErrInvalidRecord` (G5-294),
+  the record not added and the `Writer` still usable, a tag or enum value it does not know preserved, and `Merge` copying such a record as it is;
+  the bus codec bullet adds such a payload to what `bus.ErrMalformed` marks, inline in `bus.CheckMessage` and by claim-check in `bus.CheckPayload`.
+  No API is added.
 
 ## Changes vs v1 (summary)
 
@@ -1795,6 +1799,8 @@ Summary:
 - [GO] §1 and §3: the bus codec moves to the subpackage `tracepack/bus`, its names without the `Bus` prefix (G5-288).
 - [GO] §3: `Item.HSMSHeader`, `Item.Unobserved`, `TxRecord.Unobserved`, `Item.Clone` and `Record.Clone` (G5-289); `HSMSTimers.T1Ms`..`T8Ms` (G5-290);
   `TxResult.Complete`, `Matches` and `PrimaryVersions` (G5-291); `*DirSink` with `Close` (G5-292); the point after which a caller may close an hour's packs (G5-293).
+- [FMT] §8 and §13, [STO] §4 and §8, [GO] §3: a writer refuses a transport-event or annotation record whose payload is not a valid TLV body,
+  and a durable-bus consumer treats one as malformed, its seq a seq gap; a reader still reports one another writer stored (G5-294).
 - [GO] §7: the text of the `verify` and `find` reports is not a contract.
 - The overview's list of decisions reaches G5-294.
 

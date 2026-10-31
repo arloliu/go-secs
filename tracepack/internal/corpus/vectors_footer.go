@@ -828,21 +828,29 @@ func closingStopStats() []BoundaryWant {
 }
 
 // invalidBodyBuild returns the Build of a pack of one block of epoch 1:
-// a socket-connect (seq 0), data (seq 1), a transport-event record carrying payload (seq 2) and data (seq 3).
-// The Writer stores the payload as given and leaves it out of the footer's summaries.
+// a socket-connect (seq 0), data (seq 1), a transport-event record carrying payload (seq 2) and data (seq 3),
+// as a writer that stores the payload as given and leaves it out of the footer's summaries writes it.
+// The Writer refuses the payload, so the pack is written with placeholderEvent in its place, then replaced.
 func invalidBodyBuild(payload []byte) func(seed string) (*Built, error) {
 	return func(seed string) (*Built, error) {
 		connect, err := newSocketEvent(0, 1, tracepack.EventSocketConnect)
 		if err != nil {
 			return nil, err
 		}
+		placeholder, err := placeholderEvent(len(payload))
+		if err != nil {
+			return nil, err
+		}
 		bad := tracepack.Record{
 			Seq: 2, TSUTCNs: msAt(2), Epoch: 1, Kind: tracepack.KindTransportEvent, Dir: tracepack.DirLocal,
-			Fidelity: tracepack.FidelityNotApplicable, DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: payload,
+			Fidelity: tracepack.FidelityNotApplicable, DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: placeholder,
 		}
 		pack, err := writeSpec(&packSpec{seed: seed, meta: segmentMeta(seed), blocks: [][]tracepack.Record{
 			{connect, footerData(1, 1), bad, footerData(3, 1)},
 		}})
+		if err == nil {
+			pack, err = replacePayload(pack, 0, placeholder, payload)
+		}
 
 		return &Built{Pack: pack, Footer: true}, err
 	}

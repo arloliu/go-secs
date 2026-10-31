@@ -257,6 +257,47 @@ func newEvent(seq uint64, epoch uint32, ev *tracepack.TransportEvent) (tracepack
 	}, nil
 }
 
+// placeholderEvent returns a transport-event payload of n bytes that decodes:
+// a state-transition, padded by a detail of 'x' bytes when n is more than its 9 bytes.
+// The Writer summarizes it as it summarized a payload that does not decode:
+// it marks no boundary and ends no epoch (the tracepack format specification §10).
+func placeholderEvent(n int) ([]byte, error) {
+	ev := &tracepack.TransportEvent{Event: tracepack.EventStateTransition}
+	base, err := ev.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	// A detail entry takes an 8-byte entry header before its value.
+	switch pad := n - len(base) - 8; {
+	case n == len(base):
+		return base, nil
+	case pad >= 0:
+		ev.Detail = new(string(bytes.Repeat([]byte{'x'}, pad)))
+		return ev.MarshalBinary()
+	default:
+		return nil, fmt.Errorf("%w: no placeholder transport event of %d bytes", ErrPackEdit, n)
+	}
+}
+
+// replacePayload returns pack with the one payload of block i equal to placeholder replaced by payload, as long as it.
+// The Writer refuses a transport-event or annotation payload that does not decode (the tracepack format specification §8),
+// so a vector of a nonconforming writer that stored one writes placeholderEvent in its place, then replaces it.
+func replacePayload(pack []byte, i int, placeholder, payload []byte) ([]byte, error) {
+	if len(payload) != len(placeholder) {
+		return nil, fmt.Errorf("%w: a payload of %d bytes in place of %d", ErrPackEdit, len(payload), len(placeholder))
+	}
+
+	return PatchBody(pack, i, func(b *Body) error {
+		at := bytes.Index(b.Payloads, placeholder)
+		if at < 0 || bytes.Count(b.Payloads, placeholder) != 1 {
+			return fmt.Errorf("%w: block %d does not hold the placeholder payload once", ErrPackEdit, i)
+		}
+		copy(b.Payloads[at:], payload)
+
+		return nil
+	})
+}
+
 // newAnnotation returns an annotation record of seq at msAt(seq) carrying a, local and not-applicable:
 // the fidelity of annotation records (the tracepack semantics specification §2).
 func newAnnotation(seq uint64, epoch uint32, a *tracepack.Annotation) (tracepack.Record, error) {

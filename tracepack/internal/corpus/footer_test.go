@@ -33,7 +33,9 @@ func closurePack(t *testing.T) []byte {
 	unclean.GapStart, unclean.GapEnd = new(int64(math.MinInt64)), new(int64(math.MaxInt64))
 	invalid := eventRecord(t, 9, 3, closeEv)
 	// A second event entry: the tag is not repeatable, so the body is not a valid TLV body.
-	invalid.Payload = tlv.AppendEntry(invalid.Payload, tlv.U8Entry(0x0001, uint8(tracepack.EventSocketClose)))
+	// The Writer refuses it, so the pack holds a placeholder in its place until it is written.
+	body := tlv.AppendEntry(invalid.Payload, tlv.U8Entry(0x0001, uint8(tracepack.EventSocketClose)))
+	invalid.Payload = must(placeholderEvent(len(body)))(t)
 
 	blocks := [][]tracepack.Record{
 		{dataRecord(0, 1, nil), eventRecord(t, 1, 1, closeEv), eventRecord(t, 2, 1, kind(tracepack.BoundaryKindStop)), dataRecord(3, 2, nil)},
@@ -44,7 +46,7 @@ func closurePack(t *testing.T) []byte {
 		},
 	}
 
-	return writePack(t, testMeta(), blocks, true)
+	return must(replacePayload(writePack(t, testMeta(), blocks, true), 1, invalid.Payload, body))(t)
 }
 
 // closureProjection is the projection of closurePack, written from the rules of the tracepack format specification §10.

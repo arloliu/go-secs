@@ -17,6 +17,7 @@
 // ErrMalformed marks a message never written, its seq a seq gap,
 // and ErrNotAccepted a start whose descriptor it cannot accept, on which it defers the capture.
 // CheckPayload checks a claim-check object once it is fetched (ErrPayloadMismatch),
+// and its payload as CheckMessage checks an inline one,
 // [tracepack.DecodeDescriptor] gives the producer's values of a start from Record.Descriptor,
 // and DeriveRecord sets the values the consumer derives from the payload as received,
 // classified by a [tracepack.Classifier] before any masking.
