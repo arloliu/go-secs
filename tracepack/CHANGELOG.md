@@ -12,6 +12,9 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   `ErrChecksum` and `ErrInvalidFooter` now also match `ErrCorrupt`,
   and `ErrInvalidQuery` and `ErrInvalidKey` now also match `ErrInvalidArgument`;
   each keeps its identity and text, so `errors.Is` against it, and `==` against a bare return of it, match as before.
+- `bus.ErrUnsupportedLayout`, a bus message of a `Tpk-Layout` this module does not know, the message of a newer producer (G5-295):
+  the consumer neither writes it nor counts its seq as a seq gap, but raises an alert and defers it until a consumer that knows the layout takes it.
+  Deploy consumers that know a layout before any producer emits it.
 
 ### Changed
 
@@ -84,6 +87,24 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   A `Close` refused because `ctx` was done before any sink call still leaves the writer usable.
   For tracekeep and veq: a caller that closed twice and expected nil the second time gets `ErrClosed`;
   test `ErrClosed` and `ErrWriterFailed` before `ErrRefused` or any sink sentinel, and stop using the writer on either.
+- **Breaking:** `bus.CheckMessage` returns an error wrapping `bus.ErrUnsupportedLayout` for a `Tpk-Layout` other than `"1"`;
+  it wrapped `bus.ErrMalformed`, so a consumer terminated the message and lost its seq as a gap,
+  which in a rolling upgrade would lose every record of a newer producer (G5-295).
+  `bus.CheckPayload`, which has no layout to check, never returns it.
+  For tracekeep: its "any other error: nak with delay" already defers such a message; add the alert, and keep the claim-check object it names.
+  For veq: defer it with an alert, never drop it as a seq gap.
+- **Breaking:** `bus.CheckMessage` refuses with `bus.ErrMalformed` a layout-1 record whose `kind` is not data, control, transport-event or annotation, kind 0 included,
+  inline or by claim-check, before the claim-check object is fetched (G5-295);
+  it accepted any kind, and `bus.DeriveRecord` then refused it with `ErrInvalidRecord`, which a record `CheckMessage` accepted now never reaches.
+  A tag or enum value the module does not know inside a valid transport-event or annotation payload is still preserved, not refused.
+  For tracekeep and veq: such a message is now terminated as a seq gap at the check; no producer sends one.
+- **Breaking:** `bus.CheckStart` reports the caller's mistakes, a `maxPayload` below `bus.MinMaxPayload`, a negative length or a body shorter than the 44-byte record header,
+  with an error wrapping `tracepack.ErrInvalidArgument`, no longer `bus.ErrMalformed`;
+  a header block or a message over its bound still wraps `bus.ErrMalformed` (G5-296).
+  `bus.CheckPayload` on a record that is not claim-check, a plain error, now wraps `tracepack.ErrInvalidArgument` too.
+  Error text changed with the new wrapping; text is not part of the contract.
+  For tracekeep and veq: treat `errors.Is(err, tracepack.ErrInvalidArgument)` from either as a configuration or caller bug to fix, not a malformed message;
+  test each bus sentinel before any cause it wraps, since a `bus.ErrMalformed` or `bus.ErrNotAccepted` error may also wrap a decoder's `ErrCorrupt` or `*FieldError`.
 - **Breaking:** `redact.Compile` refuses, with `redact.ErrInvalidPolicy`, a policy whose `PackPolicy` the pack metadata cannot hold:
   an `ID`, `DigestKeyID` or `Encryption.KeyID` that is not valid UTF-8, or a `Version` above 2^63 − 1.
   `NewWriter` refused every such policy's pack metadata, at each flush; it now fails once, at configuration.
@@ -100,6 +121,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - A `SegmentWriter` marks every error of its `ctx` as the caller's, as it does a sink's, so a `ctx` whose `Err` wraps a refusal sentinel is never marked `ErrRefused` (G5-296).
 - A block's F-3 entry list too long for the footer's u32 `summary_len`, and a block count over the u32 `block_count`, which the records written determine,
   do not wrap `ErrInvalidArgument`, from the writing calls, which still mark them `ErrRefused`, or from `Merge` (G5-296).
+- `bus.EncodeBody`'s documentation names its `bus.ErrMalformed` for an inline body that does not fit in memory on a 32-bit platform.
 - `Open` caps `ReaderOptions.MaxPackMetadataLen` at the largest pack metadata a 32-bit platform can address,
   so on such a platform a raised budget and a hostile `pack_metadata_len` of 2 GiB or more fail with `ErrReadLimit` instead of panicking.
 

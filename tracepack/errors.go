@@ -60,6 +60,9 @@ var (
 	// returns the field sentinel without it,
 	// except EncodeDescriptor for a nil PackMeta and ParseUUID for a string that is not a canonical UUID.
 	// A nil reader from a PackSource wraps ErrInvalidQuery, which matches it.
+	// The bus codec wraps it, never its own bus.ErrMalformed, for bus.CheckStart with a max_payload below bus.MinMaxPayload,
+	// a negative length or a body shorter than the 44-byte record header,
+	// and for bus.CheckPayload on a record that is not claim-check.
 	ErrInvalidArgument = errors.New("tracepack: invalid argument")
 )
 

@@ -38,18 +38,31 @@ const (
 )
 
 // Sentinel errors of the bus codec.
+// Each stands alone, and an error wrapping one may also wrap the cause it reports,
+// such as a decoder's [tracepack.ErrCorrupt] or [*tracepack.FieldError]:
+// test the sentinels of this package first, before any cause they wrap.
 var (
 	// ErrMalformed reports a bus message a consumer never writes, whose seq is a seq gap:
-	// an unknown layout, a body not of the layout's length, a malformed Nats-Msg-Id or one naming seq 2^63-1
+	// a body not of the layout's length, a malformed Nats-Msg-Id or one naming seq 2^63-1
 	// or disagreeing with the record header, malformed claim-check headers,
+	// a layout-1 record whose kind is not data, control, transport-event or annotation, kind 0 included,
 	// or a transport-event or annotation record whose payload does not decode
 	// (the tracepack storage specification §4, "Bus message").
+	// The error of a payload that does not decode also wraps the decoder's, which matches [tracepack.ErrCorrupt].
 	// A producer's encoder and helpers return it for a message they cannot form within those rules.
 	ErrMalformed = errors.New("tracepack: malformed bus message")
+	// ErrUnsupportedLayout reports a bus message whose Tpk-Layout this module does not know, the message of a newer producer:
+	// the consumer neither writes it nor counts its seq as a seq gap,
+	// but raises an alert and defers the message until a consumer that knows the layout takes it,
+	// a claim-check object it names kept meanwhile (the tracepack storage specification §4, "Bus message").
+	// Consumers that know a layout are deployed before any producer emits it, so such a message waits and is never dropped.
+	ErrUnsupportedLayout = errors.New("tracepack: bus message of an unsupported layout")
 	// ErrNotAccepted reports a capture's start that a consumer cannot accept:
 	// its descriptor header is missing, not standard base64 with padding, or does not decode (see [tracepack.DecodeDescriptor]).
 	// The consumer writes nothing for it, raises an alert, and defers the capture's later records until an operator acts
 	// (the tracepack storage specification §4, "Bus message").
+	// The error of a descriptor that does not decode also wraps [tracepack.DecodeDescriptor]'s,
+	// which matches [tracepack.ErrCorrupt] and may hold a [*tracepack.FieldError].
 	ErrNotAccepted = errors.New("tracepack: bus start not accepted")
 	// ErrPayloadMismatch reports a claim-check object whose length or SHA-256 digest differs from its message's:
 	// the consumer defers the message and writes nothing (the tracepack storage specification §4, "Large records").
@@ -275,7 +288,8 @@ func NewRecord(r *tracepack.Record) Record {
 //   - []byte: the body; nil on error.
 //   - error: an error wrapping ErrMalformed for a record carrying quality.redacted, which a producer never sets,
 //     a seq of 2^63-1 or more, a payload_len above 2^31-1,
-//     or an inline record whose PayloadLen differs from its payload's length.
+//     an inline record whose PayloadLen differs from its payload's length,
+//     or, on a 32-bit platform, an inline body whose length does not fit in memory, near 2^31 bytes.
 func EncodeBody(br *Record) ([]byte, error) {
 	r := &br.Record
 	if r.Quality.HasAny(tracepack.QualityRedacted) {
@@ -325,16 +339,21 @@ func EncodeBody(br *Record) ([]byte, error) {
 // as a consumer receives it (the tracepack storage specification §4, "Bus message" and "Large records"),
 // and returns its record.
 //
+// A message whose Tpk-Layout is not "1" returns ErrUnsupportedLayout, never ErrMalformed:
+// it is the message of a newer producer, which the consumer defers with an alert, its seq not a seq gap.
+//
 // The message is malformed, never written and its seq a seq gap, when
-// its Tpk-Layout is not "1";
 // its body is not 44 + payload_len bytes long without Tpk-Payload-Ref, or 44 with it;
 // its Nats-Msg-Id is not of the form ParseMsgID accepts, names seq 2^63-1, or disagrees with the body's seq;
 // its Tpk-Payload-Ref is not "<bucket>/<Nats-Msg-Id>" with a non-empty bucket;
 // its Tpk-Payload-Digest is missing beside Tpk-Payload-Ref, present without it,
 // or not "SHA-256=" followed by the padded base64url encoding (RFC 4648 §5) of 32 bytes;
+// its record's kind is not data, control, transport-event or annotation, kind 0 included,
+// the kinds layout 1 carries, checked alike for an inline and a claim-check message;
 // or, after those checks, its record is a transport event or an annotation whose payload does not decode
 // as tracepack.UnmarshalTransportEvent or tracepack.UnmarshalAnnotation decodes it (the tracepack format specification §8).
-// A tag or enum value this module does not know is preserved, so a payload of a newer producer is not malformed.
+// Inside a payload's TLV body, a tag or enum value this module does not know is preserved, so a payload of a newer producer is not malformed;
+// a record kind is not such a value, since a producer that emits another kind uses another layout.
 // A claim-check record's payload is not known yet, so CheckPayload makes the payload check for it.
 //
 // The record is returned normalized: decode_status, trailing_bytes and field_validity are zero,
@@ -353,10 +372,11 @@ func EncodeBody(br *Record) ([]byte, error) {
 //
 // Returns:
 //   - Record: the record; the zero Record on error.
-//   - error: an error wrapping ErrMalformed or ErrNotAccepted.
+//   - error: an error wrapping ErrUnsupportedLayout, ErrMalformed or ErrNotAccepted,
+//     each tested before any decoder cause it wraps.
 func CheckMessage(env Envelope, body []byte) (Record, error) {
 	if env.Layout != Layout1 {
-		return Record{}, fmt.Errorf("%w: %s %q is not a known layout", ErrMalformed, HeaderLayout, env.Layout)
+		return Record{}, fmt.Errorf("%w: %s %q", ErrUnsupportedLayout, HeaderLayout, env.Layout)
 	}
 	if len(body) < format.RecordHeaderLen {
 		return Record{}, fmt.Errorf("%w: body of %d bytes, shorter than the record header", ErrMalformed, len(body))
@@ -371,6 +391,10 @@ func CheckMessage(env Envelope, body []byte) (Record, error) {
 	}
 	if seq != h.Seq {
 		return Record{}, fmt.Errorf("%w: %s names seq %d, the record header %d", ErrMalformed, HeaderMsgID, seq, h.Seq)
+	}
+	// Checked before the claim-check return, so an inline and a claim-check message are checked alike.
+	if !layout1Kind(tracepack.Kind(h.Kind)) {
+		return Record{}, fmt.Errorf("%w: seq %d: record of kind %s, which layout 1 does not carry", ErrMalformed, h.Seq, tracepack.Kind(h.Kind))
 	}
 
 	br := Record{CaptureID: capture, PayloadLen: h.PayloadLen, ClaimCheck: env.PayloadRef != ""}
@@ -472,6 +496,11 @@ func (br *Record) checkStart(header string, ev *tracepack.TransportEvent) error 
 	return nil
 }
 
+// layout1Kind reports whether layout 1 carries records of kind k: data, control, transport-event and annotation.
+func layout1Kind(k tracepack.Kind) bool {
+	return k == tracepack.KindData || k == tracepack.KindControl || k == tracepack.KindTransportEvent || k == tracepack.KindAnnotation
+}
+
 // isStart reports whether ev, the decoded payload of a transport-event record or nil for another record, is a capture's start:
 // a capture-boundary event of kind start.
 func isStart(ev *tracepack.TransportEvent) bool {
@@ -537,6 +566,8 @@ func PayloadDigest(payload []byte) string {
 // a transport-event or annotation payload must decode,
 // and when the record is a start, its message's Tpk-Capture-Descriptor must decode,
 // and br.Descriptor is set to the decoded descriptor.
+// CheckMessage has already checked the message's layout and its record's kind,
+// so CheckPayload, which has no layout to check, never returns ErrUnsupportedLayout.
 //
 // Returns:
 //   - error: an error wrapping ErrPayloadMismatch for an object of another length or digest,
@@ -545,10 +576,11 @@ func PayloadDigest(payload []byte) string {
 //     on which the consumer never writes the message, its seq a seq gap, and br is left unchanged;
 //     an error wrapping ErrNotAccepted for a start whose descriptor CheckMessage would refuse,
 //     with br.Record.Payload set to the checked object and br.Descriptor nil;
-//     or an error for a record that is not claim-check.
+//     or an error wrapping [tracepack.ErrInvalidArgument] for a record that is not claim-check, the caller's mistake.
+//     Each sentinel of this package is tested before any decoder cause it wraps.
 func CheckPayload(br *Record, payload []byte) error {
 	if !br.ClaimCheck {
-		return errors.New("tracepack: bus record is not claim-check")
+		return fmt.Errorf("%w: bus record is not claim-check", tracepack.ErrInvalidArgument)
 	}
 	if uint64(len(payload)) != uint64(br.PayloadLen) {
 		return fmt.Errorf("%w: object of %d bytes, payload_len %d", ErrPayloadMismatch, len(payload), br.PayloadLen)
@@ -599,14 +631,16 @@ func Inline(bodyLen, maxPayload int) bool {
 //   - maxPayload: the deployment's max_payload.
 //
 // Returns:
-//   - error: an error wrapping ErrMalformed for a maxPayload below 4140, a header block above 4096 bytes,
-//     a message longer than maxPayload, or a negative length or a body shorter than 44 bytes.
+//   - error: an error wrapping ErrMalformed for a header block above 4096 bytes or a message longer than maxPayload,
+//     which the producer does not publish;
+//     or an error wrapping [tracepack.ErrInvalidArgument], the caller's mistake, never ErrMalformed,
+//     for a maxPayload below 4140, a negative length, or a body shorter than the 44 bytes every body holds.
 func CheckStart(headerBlockLen, bodyLen, maxPayload int) error {
 	switch {
 	case maxPayload < MinMaxPayload:
-		return fmt.Errorf("%w: max_payload %d is below %d", ErrMalformed, maxPayload, MinMaxPayload)
+		return fmt.Errorf("%w: max_payload %d is below %d", tracepack.ErrInvalidArgument, maxPayload, MinMaxPayload)
 	case headerBlockLen < 0 || bodyLen < format.RecordHeaderLen:
-		return fmt.Errorf("%w: header block of %d bytes, body of %d bytes", ErrMalformed, headerBlockLen, bodyLen)
+		return fmt.Errorf("%w: header block of %d bytes, body of %d bytes", tracepack.ErrInvalidArgument, headerBlockLen, bodyLen)
 	case headerBlockLen > HeaderBlockLimit:
 		return fmt.Errorf("%w: header block of %d bytes exceeds %d", ErrMalformed, headerBlockLen, HeaderBlockLimit)
 	case bodyLen > maxPayload-headerBlockLen: // no overflow: maxPayload is at least 4140 and headerBlockLen at most 4096
@@ -628,6 +662,7 @@ func CheckStart(headerBlockLen, bodyLen, maxPayload int) error {
 //
 // Returns:
 //   - error: an error wrapping [tracepack.ErrInvalidRecord] for a kind outside the four,
+//     which a record CheckMessage accepted never has, since CheckMessage refuses such a record as ErrMalformed,
 //     or a classifier's trailing_bytes outside 0 to 2^32-1; r is unchanged then.
 func DeriveRecord(r *tracepack.Record, cls tracepack.Classifier) error {
 	if r.Kind == tracepack.KindTransportEvent || r.Kind == tracepack.KindAnnotation {

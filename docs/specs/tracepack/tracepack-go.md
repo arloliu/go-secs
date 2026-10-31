@@ -126,7 +126,7 @@ The query service, its catalog database and the live-tail interface are designed
   It checks a message's size with `bus.Inline` and `bus.CheckStart`, computing the length of the NATS header block itself;
   the 4096-byte bound holds for every message.
   `bus.CheckStart` reports a header block or message over its bound with `bus.ErrMalformed`,
-  and a `maxPayload` below `bus.MinMaxPayload` or a negative length, the caller's mistake, with an error wrapping `tracepack.ErrInvalidArgument` (G5-296).
+  and a `maxPayload` below `bus.MinMaxPayload`, a negative length or a body shorter than the 44-byte record header, the caller's mistake, with an error wrapping `tracepack.ErrInvalidArgument` (G5-296).
   A consumer checks a message with `bus.CheckMessage(bus.Envelope, body) (bus.Record, error)`,
   which returns the record normalized, `decode_status`, `trailing_bytes` and `field_validity` zero whatever the producer wrote:
   `bus.ErrMalformed` marks a message never written, its seq a seq gap, a message with a non-empty `Tpk-Payload-Digest` and no or an empty `Tpk-Payload-Ref` included (G5-258),
