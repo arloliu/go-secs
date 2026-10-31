@@ -296,6 +296,10 @@ The module imports no NATS client; it encodes and checks what a message carries.
 - `bus.CheckStart(headerBlockLen, bodyLen, maxPayload)` is the preflight:
   the header block, as your client encodes it, holds at most `bus.HeaderBlockLimit` bytes on every message,
   and the message fits the deployment's `max_payload`, itself at least `bus.MinMaxPayload`.
+  A message over a bound fails with `bus.ErrMalformed`: do not publish it.
+  A `max_payload` below `bus.MinMaxPayload`, a negative length or a body shorter than 44 bytes is your mistake, an error wrapping `tracepack.ErrInvalidArgument`.
+- Every message carries `Tpk-Layout: 1` (`bus.Layout1`), and layout 1 carries data, control, transport-event and annotation records only;
+  a record of another kind needs a new layout, which consumers must know before you emit it.
 - A producer leaves a data record unobserved by design only when it identifies the record, by means other than its stream and function,
   as an FDC interval-poll S1F3 or the S1F4 reply paired with it by System Bytes;
   the descriptor's `thinning` must declare that stream and function, a declaration that is necessary, never sufficient.
@@ -308,14 +312,25 @@ For the log service, the consumer that writes a durable-bus capture's packs:
 `bus.CheckMessage`, `bus.DeriveRecord`, the package `redact`, the `Writer`'s masked-at-write path, `WriteClose` and `Merge`.
 
 - `bus.CheckMessage(env, body)` checks one message and returns its `bus.Record`, normalized.
-  `bus.ErrMalformed` means the message is never written and its seq is a seq gap,
-  a transport-event or annotation record whose payload does not decode included, which the `Writer` would refuse;
-  `bus.ErrNotAccepted` means a `start` whose descriptor cannot be accepted: alert, and defer the capture's later records.
-  For a claim-check record, fetch the object and check it with `bus.CheckPayload`; on `bus.ErrPayloadMismatch` defer the message,
-  and treat `bus.ErrMalformed` as above.
+  For a claim-check record, fetch the object and check it with `bus.CheckPayload`.
   `DecodeDescriptor` gives the producer's values from a `start`, to which you add the values you own.
+  Act on the first sentinel an error matches, before any cause it wraps,
+  since a `bus.ErrMalformed` or `bus.ErrNotAccepted` error may also wrap a decoder's `ErrCorrupt` or `*FieldError`:
+
+  | Error | Meaning | Action |
+  |---|---|---|
+  | `bus.ErrMalformed` | never written, a layout-1 record of a kind layout 1 does not carry (kind 0 included) and a transport-event or annotation payload that does not decode included | the seq is a seq gap: terminate the message, alert |
+  | `bus.ErrUnsupportedLayout` | a `Tpk-Layout` this module does not know, from a newer producer | defer the message and alert, keeping a claim-check object it names, until a consumer that knows the layout takes it; never a seq gap |
+  | `bus.ErrNotAccepted` | a `start` whose descriptor cannot be accepted | alert, and defer the capture's later records until an operator acts |
+  | `bus.ErrPayloadMismatch` | a claim-check object whose length or digest differs | defer the message, or fetch the object again |
+  | `tracepack.ErrInvalidArgument` | your mistake, such as `bus.CheckPayload` on an inline record | fix the caller |
+  | anything else | | may be transient: retry |
+
+  Deploy consumers that know a layout before any producer emits it, so `bus.ErrUnsupportedLayout` defers messages and never drops them.
 - `bus.DeriveRecord(&br.Record, cls)` sets the values you derive by kind:
   `field_validity`, and `decode_status` and `trailing_bytes` from the capture's classifier, or `not-attempted` for an unobserved record.
+  Its `ErrInvalidRecord` for a kind outside the four is never reached by a record `bus.CheckMessage` accepted;
+  for a classifier's `trailing_bytes` out of range, it is a classifier bug.
   Classify before masking, since the classification describes the payload as received.
   `classify.NewNamed(name, maxFrameLen)` gives the classifier the name of its configuration, which stays fixed for the capture.
 - Under a redaction policy, compile it once with `redact.Compile`, then mask every record of a flush batch with `(*Compiled).Mask(ctx, capture, r, unobserved, keys)`;

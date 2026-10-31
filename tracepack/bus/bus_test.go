@@ -287,6 +287,9 @@ func TestStartRefusedDescriptor(t *testing.T) {
 		br, err := CheckMessage(startEnvelope(t, base64.StdEncoding.EncodeToString(desc)), startBody(t))
 		require.ErrorIs(t, err, ErrNotAccepted, "%x", desc)
 		assert.NotErrorIs(t, err, ErrMalformed, "%x", desc)
+		if len(desc) > 0 { // an empty descriptor is a missing header, never decoded
+			assert.ErrorIs(t, err, tracepack.ErrCorrupt, "%x: the decoder's cause stays beside the bus sentinel", desc)
+		}
 		assert.Equal(t, Record{}, br)
 	}
 	// Nearly every truncation, the trailing byte, each required entry dropped, each entry that may not repeat repeated,
@@ -399,10 +402,6 @@ func TestCheckMessage(t *testing.T) {
 		env  Envelope
 		body []byte
 	}{
-		{"layout missing", Envelope{MsgID: id}, body},
-		{"layout 2", Envelope{Layout: "2", MsgID: id}, body},
-		{"layout 01", Envelope{Layout: "01", MsgID: id}, body},
-		{"layout with space", Envelope{Layout: " 1", MsgID: id}, body},
 		{"body of 43 bytes", env, body[:43]},
 		{"empty body", env, nil},
 		{"inline one byte short", env, body[:len(body)-1]},
@@ -467,6 +466,120 @@ func TestCheckMessage(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "bucket", br.Bucket)
 	})
+}
+
+// TestCheckMessageUnsupportedLayout checks that a message of a layout this module does not know is deferred, not malformed:
+// its seq is not a seq gap, inline or by claim-check, whatever else the message holds.
+func TestCheckMessageUnsupportedLayout(t *testing.T) {
+	t.Parallel()
+
+	const seq = 42
+	data := tracepack.Record{Seq: seq, TSUTCNs: 1, Epoch: 1, Kind: tracepack.KindData, Fidelity: tracepack.FidelityWireExact, Payload: busFrame(1, 3, []byte{1, 2})}
+	body := busEncode(t, &data)
+	id := busEnvelope(t, seq).MsgID
+	ccBody, ccEnv := claimCheck(t, &data, "bucket")
+	kindFive := data
+	kindFive.Kind = tracepack.Kind(5)
+
+	for _, layout := range []string{"", "2", "01", " 1", "1 "} {
+		for _, tc := range []struct {
+			name string
+			env  Envelope
+			body []byte
+		}{
+			{"inline", Envelope{Layout: layout, MsgID: id}, body},
+			{"claim-check", withLayout(ccEnv, layout), ccBody},
+			{"of another kind", Envelope{Layout: layout, MsgID: id}, busEncode(t, &kindFive)},
+			{"with a body layout 1 refuses", Envelope{Layout: layout, MsgID: id}, body[:43]},
+		} {
+			t.Run(fmt.Sprintf("layout %q %s", layout, tc.name), func(t *testing.T) {
+				t.Parallel()
+
+				br, err := CheckMessage(tc.env, tc.body)
+				require.ErrorIs(t, err, ErrUnsupportedLayout)
+				assert.NotErrorIs(t, err, ErrMalformed, "an unknown layout is deferred, its seq not a seq gap")
+				assert.NotErrorIs(t, err, ErrNotAccepted)
+				assert.True(t, strings.HasPrefix(err.Error(), "tracepack: bus message of an unsupported layout: "), err.Error())
+				assert.Equal(t, Record{}, br)
+			})
+		}
+	}
+}
+
+// TestCheckMessageKind checks that layout 1 carries data, control, transport-event and annotation records only:
+// a record of kind 0 or of a kind outside the four is malformed, inline and by claim-check alike,
+// before its claim-check payload is fetched.
+func TestCheckMessageKind(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []tracepack.Kind{tracepack.KindUnknown, tracepack.Kind(5), tracepack.Kind(0xFF)} {
+		t.Run(kind.String(), func(t *testing.T) {
+			t.Parallel()
+
+			r := tracepack.Record{Seq: 7, TSUTCNs: 1, Kind: kind, Fidelity: tracepack.FidelityWireExact, Payload: busFrame(1, 3, []byte{1, 2})}
+			br, err := CheckMessage(busEnvelope(t, r.Seq), busEncode(t, &r))
+			require.ErrorIs(t, err, ErrMalformed)
+			assert.NotErrorIs(t, err, ErrUnsupportedLayout)
+			assert.True(t, strings.HasPrefix(err.Error(), "tracepack: malformed bus message: "), err.Error())
+			assert.Equal(t, Record{}, br)
+
+			body, env := claimCheck(t, &r, "b")
+			br, err = CheckMessage(env, body)
+			require.ErrorIs(t, err, ErrMalformed, "the kind is in the record header, checked before the payload is fetched")
+			assert.NotErrorIs(t, err, ErrUnsupportedLayout)
+			assert.Equal(t, Record{}, br)
+		})
+	}
+
+	for _, kind := range []tracepack.Kind{tracepack.KindData, tracepack.KindControl} {
+		t.Run(kind.String(), func(t *testing.T) {
+			t.Parallel()
+
+			r := tracepack.Record{Seq: 7, TSUTCNs: 1, Kind: kind, Fidelity: tracepack.FidelityWireExact, Payload: busFrame(1, 3, []byte{1, 2})}
+			br, err := CheckMessage(busEnvelope(t, r.Seq), busEncode(t, &r))
+			require.NoError(t, err)
+			require.NoError(t, DeriveRecord(&br.Record, nil), "a record CheckMessage accepts has a kind DeriveRecord derives")
+
+			body, env := claimCheck(t, &r, "b")
+			br, err = CheckMessage(env, body)
+			require.NoError(t, err)
+			require.NoError(t, CheckPayload(&br, r.Payload))
+			require.NoError(t, DeriveRecord(&br.Record, nil))
+		})
+	}
+}
+
+// TestSentinelIdentity checks that the sentinels of this package are distinct, keep their texts,
+// and match neither one another nor a root sentinel.
+func TestSentinelIdentity(t *testing.T) {
+	t.Parallel()
+
+	sentinels := []struct {
+		err  error
+		text string
+	}{
+		{ErrMalformed, "tracepack: malformed bus message"},
+		{ErrUnsupportedLayout, "tracepack: bus message of an unsupported layout"},
+		{ErrNotAccepted, "tracepack: bus start not accepted"},
+		{ErrPayloadMismatch, "tracepack: claim-check object does not match its message"},
+	}
+	for i, s := range sentinels {
+		assert.Equal(t, s.text, s.err.Error())
+		for j, other := range sentinels {
+			if i != j {
+				assert.NotErrorIs(t, s.err, other.err, s.text)
+			}
+		}
+		assert.NotErrorIs(t, s.err, tracepack.ErrInvalidArgument, s.text)
+		assert.NotErrorIs(t, s.err, tracepack.ErrCorrupt, s.text)
+	}
+}
+
+// withLayout returns env with the Tpk-Layout header layout.
+func withLayout(env Envelope, layout string) Envelope {
+	env.Layout = layout
+
+	return env
 }
 
 // withRef returns env with the claim-check headers ref and digest.
@@ -734,6 +847,7 @@ func TestCheckMessageEventPayload(t *testing.T) {
 			r := record(tc.kind, tc.payload)
 			br, err := CheckMessage(busEnvelope(t, r.Seq), busEncode(t, &r))
 			require.ErrorIs(t, err, ErrMalformed)
+			assert.ErrorIs(t, err, tracepack.ErrCorrupt, "the decoder's cause stays beside the bus sentinel")
 			assert.True(t, strings.HasPrefix(err.Error(), "tracepack: malformed bus message: "), err.Error())
 			assert.Equal(t, Record{}, br)
 
@@ -742,7 +856,9 @@ func TestCheckMessageEventPayload(t *testing.T) {
 			require.NoError(t, err, "a claim-check record's payload is not known yet")
 			err = CheckPayload(&br, r.Payload)
 			require.ErrorIs(t, err, ErrMalformed)
+			assert.ErrorIs(t, err, tracepack.ErrCorrupt)
 			assert.NotErrorIs(t, err, ErrPayloadMismatch)
+			assert.NotErrorIs(t, err, ErrUnsupportedLayout)
 			assert.Nil(t, br.Record.Payload, "br is left unchanged")
 		})
 	}
@@ -781,17 +897,36 @@ func TestSizing(t *testing.T) {
 	t.Run("max_payload", func(t *testing.T) {
 		t.Parallel()
 
-		require.Error(t, CheckStart(100, 44, MinMaxPayload-1))
-		require.ErrorIs(t, CheckStart(100, 44, 4139), ErrMalformed)
 		require.NoError(t, CheckStart(100, 44, 4140))
 		require.NoError(t, CheckStart(100, 44, 4141))
 		require.NoError(t, CheckStart(HeaderBlockLimit, 44, MinMaxPayload), "every header-only message fits the minimum")
-		require.Error(t, CheckStart(HeaderBlockLimit, 45, MinMaxPayload), "the whole message counts against max_payload")
-		require.Error(t, CheckStart(-1, 44, 1<<20))
-		require.Error(t, CheckStart(10, 43, 1<<20), "a body holds the 44-byte header")
+		require.ErrorIs(t, CheckStart(HeaderBlockLimit, 45, MinMaxPayload), ErrMalformed, "the whole message counts against max_payload")
+		require.ErrorIs(t, CheckStart(HeaderBlockLimit+1, 44, 1<<20), ErrMalformed, "a header block over its bound")
 		require.ErrorIs(t, CheckStart(HeaderBlockLimit, math.MaxInt, MinMaxPayload), ErrMalformed, "a body length near the int limit")
 		require.ErrorIs(t, CheckStart(HeaderBlockLimit, math.MaxInt, math.MaxInt), ErrMalformed, "header block and body exceed even the largest max_payload")
 		require.NoError(t, CheckStart(HeaderBlockLimit, math.MaxInt-HeaderBlockLimit, math.MaxInt))
+	})
+
+	t.Run("the caller's mistake", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tc := range []struct {
+			name                                string
+			headerBlockLen, bodyLen, maxPayload int
+		}{
+			{"max_payload below the minimum", 100, 44, MinMaxPayload - 1},
+			{"max_payload of 4139", 100, 44, 4139},
+			{"max_payload zero", 100, 44, 0},
+			{"max_payload negative", 100, 44, -1},
+			{"negative header block", -1, 44, 1 << 20},
+			{"negative body", 10, -1, 1 << 20},
+			{"body shorter than the record header", 10, 43, 1 << 20},
+			{"body shorter, header block over its bound", HeaderBlockLimit + 1, 43, 1 << 20},
+		} {
+			err := CheckStart(tc.headerBlockLen, tc.bodyLen, tc.maxPayload)
+			require.ErrorIs(t, err, tracepack.ErrInvalidArgument, tc.name)
+			assert.NotErrorIs(t, err, ErrMalformed, tc.name)
+		}
 	})
 
 	t.Run("inline bound", func(t *testing.T) {
@@ -949,7 +1084,10 @@ func TestPayloadCheck(t *testing.T) {
 
 	inline, err := CheckMessage(busEnvelope(t, 3), busEncode(t, &r))
 	require.NoError(t, err)
-	require.Error(t, CheckPayload(&inline, r.Payload), "an inline record has no object to check")
+	err = CheckPayload(&inline, r.Payload)
+	require.ErrorIs(t, err, tracepack.ErrInvalidArgument, "an inline record has no object to check")
+	assert.NotErrorIs(t, err, ErrMalformed)
+	assert.NotErrorIs(t, err, ErrPayloadMismatch)
 }
 
 // busRawBody returns a 44-byte header of seq with every byte the normalization concerns set,
