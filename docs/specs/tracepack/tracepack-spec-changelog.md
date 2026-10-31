@@ -145,6 +145,11 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   and states the unit rule: fields that mirror stored values carry the stored units,
   while inputs that state a caller's intent take `time.Time` and `time.Duration`.
   The `hsms_timers` nested tags and JSONL keys are unchanged; no format rule changed.
+- 2026-10-31: the §3 `FindTransaction` bullet gives `TxResult` the methods `Complete`, `Matches` and `PrimaryVersions` (G5-291):
+  `Complete` reports an empty `Incomplete`, where a conflict bearing on the lookup is a `TxGapConflict` gap;
+  `Matches` and `PrimaryVersions` return pointers into `Records` to the valid matches and the primary's versions, nil when none,
+  and `Records` keeps every diagnostic version.
+  No rule of [SEM §7.2] changed.
 
 ## Changes vs v1 (summary)
 

@@ -314,6 +314,10 @@ For readers and troubleshooters working on local files:
   It reports `TxMatched`, `TxAmbiguous` or `TxNotFound`,
   and lists in `TxResult.Incomplete`, beside any outcome, every reason the lookup is incomplete, each a `TxGap`.
   `TxNotFound` states nothing about records outside the packs it read.
+  `TxResult.Complete()` reports an empty `Incomplete`:
+  a conflict that bears on the lookup is a `TxGapConflict` gap there, while an unrelated one is listed only in `Conflicts`.
+  `Matches()` returns the valid matches and `PrimaryVersions()` the primary's versions, as pointers into `Records`, nil when none;
+  `Records` keeps every version the lookup kept, the diagnostic ones included.
   See `ExampleFindTransaction`.
 - `FindTransactions(ctx, src, r, opts, fn)` pairs every primary of one capture whose timestamp lies in `[r.From, r.To)`, reading each hour once,
   where a `FindTransaction` per primary reads its hours again for every primary.

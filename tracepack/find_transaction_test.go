@@ -223,3 +223,148 @@ func TestTxPackError(t *testing.T) {
 	assert.Equal(t, "tracepack: hour 12 pack "+seg0.String()+": footer CRC mismatch", e.Error())
 	require.ErrorIs(t, e, inner)
 }
+
+// TestTxResultHelpers derives Complete, Matches and PrimaryVersions from constructed results:
+// Complete follows Incomplete alone, so a conflict reported there as a TxGapConflict gap makes the lookup incomplete,
+// while a conflict listed in Conflicts only, or a footer error, does not;
+// Matches and PrimaryVersions point into Records at the versions with Valid and with TxPrimary, in Records order, nil when none.
+func TestTxResultHelpers(t *testing.T) {
+	t.Parallel()
+
+	// The primary in its own hour and a later one, a valid candidate, an invalid one,
+	// a valid candidate in conflict and the other version of its seq.
+	mixed := []TxRecord{
+		{Record: Record{Seq: 12}, Hour: 1, Class: TxPrimary},
+		{Record: Record{Seq: 12}, Hour: 2, Class: TxPrimary},
+		{Record: Record{Seq: 13}, Hour: 1, Class: TxCandidate | TxClosing, Decidable: true, Eligible: true, Valid: true},
+		{Record: Record{Seq: 14}, Hour: 1, Class: TxCandidate, Decidable: true},
+		{Record: Record{Seq: 15}, Hour: 2, Class: TxCandidate, Conflict: true, Decidable: true, Eligible: true, Valid: true},
+		{Record: Record{Seq: 15}, Hour: 2, Conflict: true},
+	}
+	tests := []struct {
+		name      string
+		res       TxResult
+		complete  bool
+		matches   []int
+		primaries []int
+	}{
+		{name: "the zero result", complete: true},
+		{name: "a conflict on a seq the lookup kept, a gap", complete: false, res: TxResult{
+			Incomplete: []TxGap{{Reason: TxGapConflict, Hours: []int64{1}, Block: -1, Offset: -1, Seq: new(uint64(13))}},
+			Conflicts:  []Conflict{{CaptureID: captureLow, Seq: 13}},
+		}},
+		{name: "a conflict below the primary, not a gap", complete: true, res: TxResult{
+			Conflicts: []Conflict{{CaptureID: captureLow, Seq: 11}},
+		}},
+		{name: "a conflict of another capture, not a gap", complete: true, res: TxResult{
+			Conflicts: []Conflict{{CaptureID: captureHigh, Seq: 13}},
+		}},
+		{name: "a footer error alone", complete: true, res: TxResult{
+			FooterErrs: []TxPackError{{Hour: 1, Pack: seg0, Err: errors.New("footer CRC mismatch")}},
+		}},
+		{name: "another gap", complete: false, res: TxResult{Incomplete: []TxGap{{Reason: TxGapOpenWindow, Block: -1, Offset: -1}}}},
+		{name: "no version qualifies", complete: true, res: TxResult{Records: []TxRecord{
+			{Record: Record{Seq: 13}, Class: TxSameKeyPrimary},
+			{Record: Record{Seq: 14}, Class: TxCandidate, Decidable: true},
+			{Record: Record{Seq: 15}, Conflict: true},
+		}}},
+		{name: "versions interleaved", complete: true, res: TxResult{Records: mixed}, matches: []int{2, 4}, primaries: []int{0, 1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			res := tt.res
+			assert.Equal(t, tt.complete, res.Complete())
+			requireTxRecordsAt(t, &res, tt.matches, res.Matches())
+			requireTxRecordsAt(t, &res, tt.primaries, res.PrimaryVersions())
+		})
+	}
+}
+
+// TestTxResultHelpersAlias writes through the pointers Matches returns, which changes the elements of Records,
+// and reallocates Records, which detaches them from it.
+func TestTxResultHelpersAlias(t *testing.T) {
+	t.Parallel()
+
+	res := TxResult{Records: []TxRecord{
+		{Record: Record{Seq: 12}, Class: TxPrimary},
+		{Record: Record{Seq: 13}, Class: TxCandidate, Valid: true},
+	}}
+	m := res.Matches()
+	require.Len(t, m, 1)
+	m[0].Hour = 7
+	assert.Equal(t, int64(7), res.Records[1].Hour, "written through the pointer")
+
+	res.Records = append([]TxRecord(nil), res.Records...)
+	m[0].Hour = 8
+	assert.Equal(t, int64(7), res.Records[1].Hour, "detached by the reallocation")
+	assert.Same(t, &res.Records[1], res.Matches()[0], "a new call points into the new array")
+}
+
+// TestTxResultHelpersLookup runs real lookups of txRecord's primary at 12, answered at 13 and bounded by a same-key primary at 14,
+// over two packs of one hour:
+// a conflict below the primary leaves the lookup complete and is listed in Conflicts only,
+// while a conflict on the reply's seq is a TxGapConflict gap that makes it incomplete;
+// in both, the helpers select from Records exactly what filtering Records by hand selects.
+func TestTxResultHelpersLookup(t *testing.T) {
+	t.Parallel()
+
+	other := txFrame(func(p []byte) { p[fieldSystemBytesOff] = 0 })
+	tests := []struct {
+		name     string
+		second   []Record
+		complete bool
+		gaps     []TxGapReason
+		conflict uint64
+	}{
+		{name: "a conflict below the primary", second: []Record{txRecord(11, other), txRecord(12, nil), txReply(13, nil), txRecord(14, nil)},
+			complete: true, gaps: []TxGapReason{}, conflict: 11},
+		{name: "a conflict on the reply's seq", second: []Record{txRecord(11, nil), txRecord(12, nil), txReply(13, other), txRecord(14, nil)},
+			complete: false, gaps: []TxGapReason{TxGapConflict}, conflict: 13},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			first := txPack(t, seg0, nil, txBlock(txRecord(11, nil), txRecord(12, nil), txReply(13, nil), txRecord(14, nil)))
+			second := txPack(t, seg1, nil, txBlock(tt.second...))
+			res, err := findTx(t, t.Context(), txSource(t, first, second), txKeyAt(12), TxOptions{MaxHours: 1})
+			require.NoError(t, err)
+			assert.Equal(t, TxMatched, res.Outcome)
+			assert.Equal(t, tt.gaps, gapReasons(res.Incomplete))
+			assert.Equal(t, []uint64{tt.conflict}, conflictSeqs(res.Conflicts))
+			assert.Equal(t, tt.complete, res.Complete())
+
+			var matches, primaries []int
+			for i := range res.Records {
+				if res.Records[i].Valid {
+					matches = append(matches, i)
+				}
+				if res.Records[i].Class.HasAny(TxPrimary) {
+					primaries = append(primaries, i)
+				}
+			}
+			require.NotEmpty(t, matches, "the reply is a valid match")
+			require.Len(t, primaries, 1, "one version of the primary")
+			requireTxRecordsAt(t, &res, matches, res.Matches())
+			requireTxRecordsAt(t, &res, primaries, res.PrimaryVersions())
+		})
+	}
+}
+
+// requireTxRecordsAt requires that got points at the elements of res.Records at the indices want, in order,
+// and that it is nil when want is empty.
+func requireTxRecordsAt(t *testing.T, res *TxResult, want []int, got []*TxRecord) {
+	t.Helper()
+
+	if len(want) == 0 {
+		require.Nil(t, got)
+
+		return
+	}
+	require.Len(t, got, len(want))
+	for k, i := range want {
+		require.Same(t, &res.Records[i], got[k], "index %d", i)
+	}
+}

@@ -421,6 +421,11 @@ The query service, its catalog database and the live-tail interface are designed
   `TxResult` holds the outcome (`TxMatched`, `TxAmbiguous`, `TxNotFound`; zero only beside an error), the derived key with the W bit,
   the window end, every kept version as a `TxRecord` with its roles as a `TxClass` bit set (primary, candidate, possible reply, same-key primary, possible same-key primary, closing record, outcome record), which `HasAny` and `HasAll` test (G5-287), its candidate flags and `Unobserved` (G5-289),
   `Incomplete` with every reason of [SEM §7.2], beside any outcome and none hiding another, the hours read (`Searched`, each a `TxHour`), the conflicts and the footer errors.
+  `(*TxResult).Complete()` reports an empty `Incomplete`:
+  a conflict that bears on the lookup is a `TxGapConflict` gap there, an unrelated conflict is listed in `Conflicts` only, and footer errors alone never count.
+  `Matches()` and `PrimaryVersions()` return `[]*TxRecord`, nil when none: the versions with `Valid` and those whose `Class` has `TxPrimary`, in `Records` order,
+  as pointers aliasing the elements of `Records`' backing array;
+  `Records` keeps every diagnostic version (G5-291).
   `TxNotFound` states nothing about records outside the packs given;
   when it detects that a block it read disagrees with its F-2 entry or its F-3 summary, or that another footer value disagrees with the records it describes,
   only `Incomplete` and that defect are guaranteed, every other fact best-effort (G5-203).
