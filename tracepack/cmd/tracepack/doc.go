@@ -14,8 +14,9 @@
 //
 // dump --jsonl writes the canonical JSONL export of a pack (the tracepack format specification §15) to stdout,
 // and the read's incomplete reasons, footer errors and redaction defects to stderr.
-// With -o, the export is written to a temporary file beside <file> and renamed over it only when the export succeeds,
-// an incomplete export included; an export that fails leaves an existing <file> as it was.
+// With -o, the export is written to a temporary file beside <file>, synced, and renamed over it only when the export succeeds,
+// an incomplete export included, and on a Unix system <file>'s directory is synced after the rename;
+// an export that fails leaves an existing <file> as it was, and its error names a temporary file it could not remove.
 // The file is created with mode 0600, as a temporary file is, whatever the mode of the file it replaces.
 // Without -o, an export that fails has already written part of its output to stdout,
 // and stderr says that output is not an export.
@@ -46,4 +47,6 @@
 //     The lookup's outcome does not change the exit code.
 //   - 2: the command could not run: a usage error, a path that cannot be read, a pack rejected at bootstrap,
 //     an error of the read or the lookup, a write error, its diagnostics' included, or an interrupt.
+//     After dump -o, exit 2 does not always mean <file> was left as it was:
+//     the export may have been published when only writing the diagnostics, or syncing <file>'s directory, failed.
 package main

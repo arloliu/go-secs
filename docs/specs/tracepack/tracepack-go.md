@@ -749,8 +749,10 @@ the text of the `verify` and `find` reports is not, and may change in any releas
 
 `dump --jsonl <pack>` emits the spec's canonical export ([FMT §15]) on stdout, and the read's `incomplete` reasons, its footer errors and the pack's redaction defects on stderr;
 `dump` needs `--jsonl`, its only format.
-With `-o <file>` the export is written to a temporary file beside `<file>` and renamed over it only when the export succeeds, an incomplete export included,
-and removed on an error, an existing `<file>` left as it was;
+With `-o <file>` the export is written to a temporary file beside `<file>`, synced, and renamed over it only when the export succeeds, an incomplete export included,
+the directory synced after the rename on a Unix system,
+and removed on an error, an existing `<file>` left as it was, the error joining a failed close or removal that names the temporary file;
+exit 2 after a published `<file>` means only the diagnostics or the directory's sync failed (G5-296);
 without `-o`, an error exits 2 with a line on stderr that says the output is not an export (G5-264).
 `verify <pack>...` reports each pack's outcome and evidence ([FMT §13]) and a `complete` line,
 true exactly when no block failed and no validated block disagrees with the index;
