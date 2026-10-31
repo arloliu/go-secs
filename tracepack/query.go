@@ -1,6 +1,7 @@
 package tracepack
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
@@ -72,10 +73,11 @@ type Filter struct {
 // An Item is valid only during the callback that receives it:
 // the read reuses the Item, and Record.Payload and HeaderExtra alias its buffers,
 // for MergeIterate the block of the record's representative, held until the callback returns.
-// A caller that keeps a record copies it, cloning Payload and HeaderExtra.
+// A caller that keeps an Item keeps its Clone.
+// Redaction is allocated for each record and shares no storage with the read, so a kept pointer to it stays valid.
 type Item struct {
 	// Record is the record as stored.
-	// Payload is set iff Query.Payloads; without it Record.HSMSHeader reports no field available.
+	// Payload is set iff Query.Payloads; without it Record.HSMSHeader reports no field available, and HSMSHeader holds the fields.
 	Record Record
 	// HeaderExtra holds the record header's extension area, the bytes behind offset 44, which a newer minor version may define
 	// (the tracepack format specification §7.1); nil for a 44-byte record header.
@@ -93,6 +95,14 @@ type Item struct {
 	// Conflict reports that another version of the record exists among the copies the read compared;
 	// Reader.Iterate never sets it.
 	Conflict bool
+	// Unobserved reports that the record is unobserved by design:
+	// Reader.Unobserved of the record, asked of the Reader of the pack named by Input,
+	// for a record held by several packs that of its representative's pack.
+	Unobserved bool
+	// HSMSHeader is Record.HSMSHeader of the record as stored, whatever Query.Payloads:
+	// the HSMS header fields of its payload and which of them are available.
+	// It is a value, valid after the callback.
+	HSMSHeader HSMSHeader
 	// Redaction is the Marking of a record that carries quality.redacted or that a redaction entry of its pack names
 	// (the tracepack semantics specification §8), for MergeIterate the entries of the representative's pack:
 	// copies of those entries, the defects of the record and of its entries, and whether the record is wholly masked.
@@ -120,6 +130,20 @@ func inverted[T cmp.Ordered](first, last *T) bool {
 // oneOf reports whether values is empty or holds v.
 func oneOf[T comparable](values []T, v T) bool {
 	return len(values) == 0 || slices.Contains(values, v)
+}
+
+// Clone returns a copy of it that shares no mutable storage with it or with the read, valid after the callback:
+// Record.Payload and HeaderExtra are copied,
+// and so is Redaction, its Entries with every entry's byte slices and ItemPath, and its Defects.
+// The errors of the defects are shared, since an error cannot in general be copied; treat them as read-only.
+// A nil field stays nil.
+func (it *Item) Clone() Item {
+	c := *it
+	c.Record = it.Record.Clone()
+	c.HeaderExtra = bytes.Clone(it.HeaderExtra)
+	c.Redaction = cloneRecordRedaction(it.Redaction)
+
+	return c
 }
 
 // validate checks q before Iterate reads anything: a time range whose start is not after its end.

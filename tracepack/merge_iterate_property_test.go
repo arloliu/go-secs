@@ -325,7 +325,14 @@ func (ref *mergeIterateReference) item(vs []refVersion, k int) iterItem {
 		extra = bytes.Clone(v.rec.row[format.RecordHeaderLen:])
 	}
 
-	return iterItem{rec: refRecord(&v.rec, ref.q.Payloads), extra: extra, pack: v.rep.pack, block: v.rep.block, conflict: len(vs) > 1}
+	stored := refRecord(&v.rec, true)
+	// Bit 7 means unobserved only in a pack of minor 1 or later: the minor of the representative's pack.
+	unobserved := ref.readers[v.rep.pack].Header().FormatMinor >= 1 && stored.Quality&QualityUnobserved != 0
+
+	return iterItem{
+		rec: refRecord(&v.rec, ref.q.Payloads), extra: extra, pack: v.rep.pack, block: v.rep.block, conflict: len(vs) > 1,
+		unobserved: unobserved, header: stored.HSMSHeader(),
+	}
 }
 
 // conflict returns the conflict of the seq whose versions are vs, of the capture at index capture.

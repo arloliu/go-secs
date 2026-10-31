@@ -85,7 +85,10 @@
 //
 // Readers decode the pack metadata under the pack's format_minor, as UnmarshalPackMetaMinor does,
 // so a number of format 1.1 keeps its format 1.0 status in a pack of minor 0;
-// Reader.Unobserved says whether a record's bit 7 means unobserved in its pack.
+// Reader.Unobserved says whether a record's bit 7 means unobserved in its pack,
+// and Item.Unobserved and TxRecord.Unobserved carry that answer for each record read.
+// An Item is valid only during its callback; Item.Clone returns a copy to keep,
+// and Item.HSMSHeader holds the record's HSMS header fields whether or not the read carries payloads.
 // A record that carries quality.redacted or that a redaction entry names has its Marking in Item.Redaction,
 // and PackHeader.RedactionDefects lists the defects of the entries found at bootstrap
 // (the tracepack semantics specification §8);

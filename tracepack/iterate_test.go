@@ -24,11 +24,13 @@ var errStopIterate = errors.New("stop iterating")
 
 // iterItem is an Item copied out of an Iterate callback.
 type iterItem struct {
-	rec      Record
-	extra    []byte
-	pack     int
-	block    int
-	conflict bool
+	rec        Record
+	extra      []byte
+	pack       int
+	block      int
+	conflict   bool
+	unobserved bool
+	header     HSMSHeader
 }
 
 // iterRun is what one Iterate call yielded and returned.
@@ -42,7 +44,10 @@ func copyItem(it *Item) iterItem {
 	rec := it.Record
 	rec.Payload = bytes.Clone(rec.Payload)
 
-	return iterItem{rec: rec, extra: bytes.Clone(it.HeaderExtra), pack: it.Input, block: it.Block, conflict: it.Conflict}
+	return iterItem{
+		rec: rec, extra: bytes.Clone(it.HeaderExtra), pack: it.Input, block: it.Block, conflict: it.Conflict,
+		unobserved: it.Unobserved, header: it.HSMSHeader,
+	}
 }
 
 // runQuery runs q over r and returns what it yielded.

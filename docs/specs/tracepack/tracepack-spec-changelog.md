@@ -136,6 +136,11 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   §1 adds that the root package never imports `bus`, the descriptor codec bullet keeps `EncodeDescriptor` and `DecodeDescriptor` in the root package,
   and the `Writer` and documentation bullets name `bus.DeriveRecord`.
   No rule of [STO §4] changed.
+- 2026-10-31: the §3 `Reader`, `Query` and `FindTransaction` bullets give an `Item` what a caller needs without its Reader (G5-289):
+  `Item.HSMSHeader`, the HSMS header of the record as stored whatever `Query.Payloads`,
+  `Item.Unobserved` and `TxRecord.Unobserved`, `Reader.Unobserved` of the pack the record or version was yielded from,
+  and `Item.Clone` and `Record.Clone`, copies sharing no mutable storage with the read, the errors inside redaction defects excepted.
+  No format rule changed.
 
 ## Changes vs v1 (summary)
 

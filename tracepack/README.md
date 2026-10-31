@@ -291,10 +291,15 @@ For readers and troubleshooters working on local files:
   so it may issue several `ReadAt` calls at once on a Reader's `io.ReaderAt`, as `Open` does;
   whatever its outcome, it waits for every call it issued before it returns.
   See `ExampleMergeIterate`.
-- An `Item` is valid only during the callback that receives it; clone what you keep.
+- An `Item` is valid only during the callback that receives it, its payload and header extension aliasing the read's buffers;
+  keep `item.Clone()`, which copies them and the Marking; `Record.Clone()` copies a record with its payload.
+- `Item.HSMSHeader` holds the record's HSMS header fields, stream, function, SessionID, System Bytes and the rest, and which of them are available,
+  with or without `Query.Payloads`, so a read that filters on S/F without payloads still sees them.
 - Readers decode the pack metadata under the pack's `format_minor`, so a number of format 1.1 means nothing in a pack of minor 0.
   `Reader.Unobserved(r)` says whether a record is unobserved by design, its bit 7 meaning `unobserved` only in a pack of minor 1 or later;
   with `len(r.Payload)` and `r.DecodeStatus` it tells such a record from an empty message text and from an abnormal reply.
+  `Item.Unobserved` and `TxRecord.Unobserved` hold that answer for the pack each record was read from,
+  so a `MergeIterate` or `FindTransaction` caller needs no Reader to ask.
 - A record that carries `quality.redacted` or that a redaction entry names has its Marking in `Item.Redaction`:
   copies of its entries, its defects, and whether it is wholly masked, the same with or without `Query.Payloads`.
   `PackHeader.RedactionDefects` lists the defects of the entries found at bootstrap.

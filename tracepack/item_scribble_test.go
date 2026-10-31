@@ -22,6 +22,8 @@ func scribbleItem(it *Item) {
 		Input:       99,
 		Block:       -7,
 		Conflict:    true,
+		Unobserved:  true,
+		HSMSHeader:  HSMSHeader{SessionID: 0xbeef, Stream: 0x7f, W: true, Function: 0xff, SystemBytes: [4]byte{9, 9, 9, 9}, Available: 0xff},
 		Redaction:   &RecordRedaction{WhollyMasked: true},
 	}
 }
@@ -45,7 +47,7 @@ func collectScribbled(t *testing.T, overwrite bool, read func(fn func(*Item) err
 }
 
 // A callback that overwrites every field of the Item it receives changes nothing a read yields after it:
-// each record's Item is set in full, its pack, block, conflict, header extension and Marking included.
+// each record's Item is set in full, its pack, block, conflict, unobserved flag, HSMS header, header extension and Marking included.
 func TestReadsUnaffectedByItemScribble(t *testing.T) {
 	t.Parallel()
 

@@ -199,6 +199,9 @@ type TxRecord struct {
 	// and is set for every kept version of that seq, not only those Item.Conflict marks:
 	// a copy that a block disagreeing with its F-2 entry let arrive uncompared is marked as well.
 	Conflict bool
+	// Unobserved reports that the version is unobserved by design:
+	// Reader.Unobserved of the record, asked of the Reader of the version's representative pack, Pack.
+	Unobserved bool
 	// Class is the set of roles the version plays.
 	Class TxClass
 	// InWindow reports that the seq lies inside the window:

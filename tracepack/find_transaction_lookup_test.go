@@ -711,7 +711,7 @@ func TestKeepVersionCopies(t *testing.T) {
 	t.Parallel()
 
 	payload, extra := slices.Clone(blockTestFrame), seqExtra(12)
-	it := &Item{Record: txRecord(12, nil), HeaderExtra: extra, Input: 1, Block: 2, Conflict: true}
+	it := &Item{Record: txRecord(12, nil), HeaderExtra: extra, Input: 1, Block: 2, Conflict: true, Unobserved: true}
 	it.Record.Payload = payload
 	rd := &txScopeRead{hour: memTestHour, packs: []UUID{seg0, seg1}}
 	got := keepVersion(rd, it, TxPrimary)
@@ -719,7 +719,8 @@ func TestKeepVersionCopies(t *testing.T) {
 	clear(extra)
 
 	assert.Equal(t, TxRecord{
-		Record: txRecord(12, nil), HeaderExtra: seqExtra(12), Hour: memTestHour, Pack: seg1, Block: 2, Conflict: true, Class: TxPrimary,
+		Record: txRecord(12, nil), HeaderExtra: seqExtra(12), Hour: memTestHour, Pack: seg1, Block: 2, Conflict: true, Unobserved: true,
+		Class: TxPrimary,
 	}, got)
 }
 
