@@ -370,6 +370,13 @@ and opening them at once removes that wait on any number of CPUs.
   See `ExampleOpen_parallel`, which keeps the errors by position, so the one it reports does not depend on timing.
 - A `PackSource` of your own may open an hour's packs in parallel inside `Readers(ctx, hour)`;
   a lookup asks for its hours one at a time.
+- Such a source may close an hour's objects, such as its files, once the lookup moves on:
+  `FindTransaction` and `FindTransactions` read the packs `Readers` returned for an hour only during that hour's read,
+  so once a lookup enters its next `Readers` call, or once it returns, no `ReadAt` of them is issued or in flight,
+  on success, error and cancellation alike.
+  A cancelled `ctx` alone is not that point, since a `ReadAt` in flight takes no context.
+  The `Reader` values stay valid until the call returns, which still uses their decoded header and metadata;
+  an object you also give for another hour, or share with another lookup, stays open while those may read it.
 - Work done hour by hour, such as a batch over settled hours, can run one read per hour on several goroutines;
   with a single CPU, one read of all the hours costs less.
   For packs a `Writer` wrote, other than extracts, every record lies in its pack's hour,

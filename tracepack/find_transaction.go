@@ -350,6 +350,11 @@ type TxResult struct {
 // A stop-unclean boundary of any pack read is a crash gap when its gap meets the time range of the hours scheduled
 // (the tracepack semantics specification §7.4, Crash gaps).
 //
+// FindTransaction reads the packs src gives for an hour only during that hour's read, as PackSource describes:
+// once it enters its next src.Readers call, or once it returns, it issues no read of them and has none in flight,
+// so the caller may close the objects backing that hour's Readers,
+// which stay valid as values until FindTransaction returns.
+//
 // One valid match is TxMatched, several TxAmbiguous, none TxNotFound;
 // every reason the lookup is incomplete is listed in TxResult.Incomplete beside the outcome, none hiding another.
 // When an hour's read detects a disagreement between a block and its F-2 entry, or another footer value and its records,

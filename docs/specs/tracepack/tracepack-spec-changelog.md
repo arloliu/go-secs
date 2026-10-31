@@ -155,6 +155,11 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   afterwards `Create` and the `Commit` of a segment not yet committed fail, publishing nothing,
   and the `Abort` of such a segment leaves its temporary file under `.partial/`.
   No rule of [STO §3] changed.
+- 2026-10-31: the §3 `FindTransaction` bullet states when a lookup is done reading an hour's packs (G5-293):
+  once it enters its next `PackSource.Readers` call, or once it returns, it issues no read of them and has none in flight,
+  on success, error and cancellation alike, and afterwards uses only their decoded header and metadata,
+  so the caller may close that hour's backing objects while the `Reader` values stay valid until the call returns.
+  No API is added; no rule of [SEM §7.2] changed.
 
 ## Changes vs v1 (summary)
 

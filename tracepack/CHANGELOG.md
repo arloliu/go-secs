@@ -32,6 +32,16 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   and replacing or reallocating `Records` detaches them.
   `Records` is unchanged and keeps every diagnostic version.
   The `tracepack find` report and the examples use them; the report's bytes are unchanged.
+- `PackSource`, `FindTransaction` and `FindTransactions` state when a lookup is done reading an hour's packs (G5-293):
+  once it enters its next `Readers` call, or once it returns,
+  it issues no read of the packs `Readers` returned for that hour and has none in flight,
+  on success, error and cancellation alike; a cancelled `ctx` alone is not that point.
+  The `Reader` values stay valid until the call returns, which uses only their decoded header and metadata,
+  while the caller may close the hour's backing objects,
+  unless the source also returns them for another hour or shares them with another lookup.
+  `FindTransactions` no longer asks for every hour's backing objects to stay open until it returns.
+  No behavior changed: the promise documents what the lookups already did, and tests now hold them to it.
+  For tracekeep: a source that opens an hour's files lazily may close them at its next `Readers` call and after the lookup returns.
 - `Quality.HasAll`, `FieldValidity.HasAll` and `TxClass.HasAll` report whether every bit of the argument is set (G5-287);
   `HasAll(0)` is true, and `HasAny(0)` false.
 - `ErrRefused` marks an error that a writing call's own arguments, options or records determine (G5-286),
