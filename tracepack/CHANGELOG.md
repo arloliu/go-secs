@@ -50,7 +50,9 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   and `SegmentWriter`'s `Append`, `AppendFrame`, `AppendEvent`, `Tick`, `Rotate` and `Close` add it
   to an error wrapping `ErrSeqOrder`, `ErrPayloadTooLarge`, `ErrFieldValidity`, `ErrMetadataCommitment`, `ErrValidation`, `ErrScopeBreach`,
   `ErrInvalidRecord`, `ErrRequiredTag`, `ErrFieldValue`, `ErrFieldLength`, `ErrAnnotationText` or `ErrReservedTag`,
-  and to an invalid argument or option.
+  and to an invalid argument or option,
+  a value of the pack metadata or of an `AppendEvent` event that the encoding refuses included:
+  a string that is not valid UTF-8, a u64 above 2^63-1 or a malformed `Unknown` entry.
   It is never added to an error of `Merge`, of `ctx`, of the writer's prior state (`ErrWriterFailed`, `ErrClosed`),
   or of the destination, a `Syncer`, a sink, a segment file or the random source;
   an error from the caller's own implementation is returned as it is.
