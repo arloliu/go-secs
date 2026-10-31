@@ -151,6 +151,11 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - A `SegmentWriter` marks every error of its `ctx` as the caller's, as it does a sink's, so a `ctx` whose `Err` wraps a refusal sentinel is never marked `ErrRefused` (G5-296).
 - A block's F-3 entry list too long for the footer's u32 `summary_len`, and a block count over the u32 `block_count`, which the records written determine,
   do not wrap `ErrInvalidArgument`, from the writing calls, which still mark them `ErrRefused`, or from `Merge`, which reports them with `ErrMergeLimit` (G5-296).
+- `tracepack dump -o` syncs the temporary file before renaming it over `<file>`, and `<file>`'s directory after the rename on a Unix system,
+  so a published export survives a crash (G5-296).
+  An error that leaves the temporary file to be removed now joins the error of closing or removing it, which names the file,
+  where it dropped them, so a temporary file left behind is reported.
+  The command documents that exit 2 after `-o` may come with `<file>` published, when only writing the diagnostics or syncing its directory failed.
 - `bus.EncodeBody`'s documentation names its `bus.ErrMalformed` for an inline body that does not fit in memory on a 32-bit platform.
 - `Open` caps `ReaderOptions.MaxPackMetadataLen` at the largest pack metadata a 32-bit platform can address,
   so on such a platform a raised budget and a hostile `pack_metadata_len` of 2 GiB or more fail with `ErrReadLimit` instead of panicking.

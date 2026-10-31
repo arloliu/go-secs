@@ -314,10 +314,18 @@ func assertOnly(t *testing.T, dir string, names ...string) {
 	assert.ElementsMatch(t, names, got)
 }
 
-// fakeTemp is a temporary file over a real file whose close can be made to fail.
+// fakeTemp is a temporary file over a real file whose sync and close can be made to fail.
 type fakeTemp struct {
 	*os.File
-	closeErr error
+	syncErr, closeErr error
+}
+
+func (f *fakeTemp) Sync() error {
+	if f.syncErr != nil {
+		return f.syncErr
+	}
+
+	return f.File.Sync()
 }
 
 func (f *fakeTemp) Close() error {
@@ -329,6 +337,18 @@ func (f *fakeTemp) Close() error {
 	return err
 }
 
+// blockRemoval replaces the temporary file w with a directory that is not empty, so its removal fails, and returns its name.
+func blockRemoval(t *testing.T, w io.Writer) string {
+	t.Helper()
+	f, ok := w.(*fakeTemp)
+	require.True(t, ok)
+	name := f.Name()
+	require.NoError(t, os.Remove(name))
+	require.NoError(t, os.MkdirAll(filepath.Join(name, "inside"), 0o700))
+
+	return name
+}
+
 func TestPublish(t *testing.T) {
 	t.Parallel()
 
@@ -338,15 +358,19 @@ func TestPublish(t *testing.T) {
 
 		return err
 	}
-	createWith := func(closeErr error) func(dir, pattern string) (*fakeTemp, error) {
+	errSync := errors.New("sync failed")
+	createFailing := func(syncErr, closeErr error) func(dir, pattern string) (*fakeTemp, error) {
 		return func(dir, pattern string) (*fakeTemp, error) {
 			f, err := os.CreateTemp(dir, pattern)
 			if err != nil {
 				return nil, err
 			}
 
-			return &fakeTemp{File: f, closeErr: closeErr}, nil
+			return &fakeTemp{File: f, syncErr: syncErr, closeErr: closeErr}, nil
 		}
+	}
+	createWith := func(closeErr error) func(dir, pattern string) (*fakeTemp, error) {
+		return createFailing(nil, closeErr)
 	}
 
 	t.Run("success", func(t *testing.T) {
@@ -386,6 +410,66 @@ func TestPublish(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "old", string(got))
 		assertOnly(t, dir, "out")
+	})
+	t.Run("sync fails", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		out := filepath.Join(dir, "out")
+		require.NoError(t, os.WriteFile(out, []byte("old"), 0o600))
+		require.ErrorIs(t, publish(out, createFailing(errSync, nil), content), errSync)
+		got, err := os.ReadFile(out)
+		require.NoError(t, err)
+		assert.Equal(t, "old", string(got))
+		assertOnly(t, dir, "out")
+	})
+	t.Run("write, close and removal fail", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		out := filepath.Join(dir, "out")
+		require.NoError(t, os.WriteFile(out, []byte("old"), 0o600))
+		var name string
+		err := publish(out, createWith(errClose), func(w io.Writer) error {
+			name = blockRemoval(t, w)
+
+			return errWrite
+		})
+		require.ErrorIs(t, err, errWrite)
+		require.ErrorIs(t, err, errClose)
+		require.True(t, strings.HasPrefix(err.Error(), errWrite.Error()+"\n"), "the primary error first: %s", err)
+		assert.Contains(t, err.Error(), "close temporary file "+name+": close failed")
+		assert.Contains(t, err.Error(), "remove temporary file "+name+": ")
+		got, err := os.ReadFile(out)
+		require.NoError(t, err)
+		assert.Equal(t, "old", string(got))
+	})
+	t.Run("close and removal fail", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		out := filepath.Join(dir, "out")
+		var name string
+		err := publish(out, createWith(errClose), func(w io.Writer) error {
+			name = blockRemoval(t, w)
+
+			return nil
+		})
+		require.ErrorIs(t, err, errClose)
+		assert.Contains(t, err.Error(), "remove temporary file "+name+": ")
+		assertOnly(t, dir, filepath.Base(name))
+	})
+	t.Run("rename and removal fail", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		out := filepath.Join(dir, "out")
+		require.NoError(t, os.MkdirAll(filepath.Join(out, "inside"), 0o700))
+		var name string
+		err := publish(out, createWith(nil), func(w io.Writer) error {
+			name = blockRemoval(t, w)
+
+			return nil
+		})
+		var le *os.LinkError
+		require.ErrorAs(t, err, &le, "the rename's error")
+		assert.Contains(t, err.Error(), "remove temporary file "+name+": ")
 	})
 	t.Run("rename fails", func(t *testing.T) {
 		t.Parallel()

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,7 @@ const exportBuffer = 64 << 10
 // tempFile is the temporary file publish writes.
 type tempFile interface {
 	io.Writer
+	Sync() error
 	Close() error
 	Name() string
 }
@@ -99,8 +101,9 @@ func reportDump(stderr io.Writer, r *tracepack.Reader, res tracepack.Result) int
 }
 
 // publish writes a file at path through write, so that path is replaced only by a file write completed:
-// write writes a temporary file that create makes in path's directory;
-// the file is renamed over path when write and the close succeed, and removed otherwise, leaving an existing path as it was.
+// write writes a temporary file that create makes in path's directory, which is synced and closed;
+// the file is renamed over path when write, the sync and the close succeed, and removed otherwise, leaving an existing path as it was.
+// After the rename, path's directory is synced where the system allows it, so the rename itself is durable.
 //
 // Parameters:
 //   - path: the file to publish.
@@ -108,32 +111,47 @@ func reportDump(stderr io.Writer, r *tracepack.Reader, res tracepack.Result) int
 //   - write: writes the file's content.
 //
 // Returns:
-//   - error: the error of create, write, the close or the rename.
+//   - error: the error of create, write, the sync, the close or the rename,
+//     joined with the error of closing or removing the temporary file after it, each naming the temporary file;
+//     or, with path published, the error of syncing its directory.
 func publish[F tempFile](path string, create func(dir, pattern string) (F, error), write func(io.Writer) error) error {
 	tmp, err := create(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
 	}
 	name := tmp.Name()
-	published := false
-	defer func() {
-		if !published {
-			_ = os.Remove(name)
-		}
-	}()
-
-	if err := write(tmp); err != nil {
-		_ = tmp.Close()
-
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
+	if err := writeTemp(tmp, name, write); err != nil {
+		return errors.Join(err, removeTemp(name))
 	}
 	if err := os.Rename(name, path); err != nil {
-		return err
+		return errors.Join(err, removeTemp(name))
 	}
-	published = true
+	if err := syncDir(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("%s published, but its directory not synced: %w", path, err)
+	}
+
+	return nil
+}
+
+// writeTemp writes tmp, the temporary file name, through write, then syncs and closes it;
+// it closes tmp whatever fails, joining the close's error, which names the file, to the first failure.
+func writeTemp(tmp tempFile, name string, write func(io.Writer) error) error {
+	err := write(tmp)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); cerr != nil {
+		return errors.Join(err, fmt.Errorf("close temporary file %s: %w", name, cerr))
+	}
+
+	return err
+}
+
+// removeTemp removes the temporary file name and returns the error, which names the file, of a removal that leaves it behind.
+func removeTemp(name string) error {
+	if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove temporary file %s: %w", name, err)
+	}
 
 	return nil
 }

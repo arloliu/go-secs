@@ -555,8 +555,10 @@ tracepack verify <pack>...
 tracepack find --capture <uuid> --seq <n> (--hour <n> | --at <time>) <path>...
 ```
 
-- `dump --jsonl` writes the canonical JSONL export to stdout, or to `<file>` with `-o`, replaced only when the export succeeds;
+- `dump --jsonl` writes the canonical JSONL export to stdout, or to `<file>` with `-o`, replaced only when the export succeeds,
+  through a synced temporary file whose rename is synced too on a Unix system;
   the read's incomplete reasons, footer errors and redaction defects go to stderr.
+  An exit 2 after `-o` may come with `<file>` published, when only writing the diagnostics or syncing its directory failed.
 - `verify` reports each pack's verification outcome and evidence, and `complete`: no block failed and no block disagrees with the index.
 - `find` looks up the reply to a primary over the packs the paths name, a directory searched for `*.tpk` files,
   and prints the outcome, every kept version with its roles, and every reason the lookup is incomplete.
