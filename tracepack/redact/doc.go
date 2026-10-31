@@ -26,8 +26,9 @@
 // to the holder of the capture's encryption key;
 // it reruns every Marking check on its own inputs and trusts no value its caller built.
 //
-// Errors: each error this package builds wraps one of its sentinels or the cause it reports, under the redact namespace,
-// which each line of its text names once; Mask names the record's seq after it.
+// Errors: the package's own sentinels and Mask's errors carry the redact namespace, each line of the text naming it at most once,
+// and Mask names the record's seq after it;
+// Restore's errors for a defective Marking wrap tracepack.ErrRedactionDefect and carry that sentinel's namespace instead.
 // Every error is deterministic, the same input failing the same way,
 // but an error of the caller's Keys, which Mask returns wrapped, may be transient, and ctx's, which Mask returns as it is.
 // A caller acts on the first of this package's sentinels an error matches, before any cause it wraps:
