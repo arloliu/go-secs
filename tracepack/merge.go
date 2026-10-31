@@ -157,8 +157,8 @@ type MergeOptions struct {
 	// Its MaxPackMetadataLen, or DefaultMaxPackMetadataLen when it is zero, also bounds the archive's pack metadata,
 	// so a reader with the same budget, the next merge included, accepts the archive.
 	Reader ReaderOptions
-	// Writer is the archive's writer tag, the implementation and version that writes it; required.
-	Writer string
+	// WriterTag is the archive's writer tag, the implementation and version that writes it; required.
+	WriterTag string
 	// ScopeGeneration is the archive's scope_generation (the tracepack storage specification §2); at least 1.
 	// Merge writes it as given: the caller numbers the scope's generations, and Merge compares it with no input's.
 	ScopeGeneration uint64
@@ -450,7 +450,7 @@ type mergeCluster = seqCluster[mergeBlock]
 // and the redaction entries of the inputs, the entries of each seq once, in ascending seq, each seq's in stored order,
 // so in seq then first masked offset order;
 // for inputs without it, every distinct classifier and max_frame_len value of the inputs, sorted;
-// opts.Writer as writer; and seq_start at the archive's first record, or without records the largest input seq_start.
+// opts.WriterTag as writer; and seq_start at the archive's first record, or without records the largest input seq_start.
 // No other tag of an input is carried.
 //
 // Merge then writes the archive to dst: its file header and pack metadata,
@@ -524,7 +524,7 @@ type mergeCluster = seqCluster[mergeBlock]
 //
 // Returns:
 //   - MergeReport: what the archive holds; on error, only the conflicts found (see MergeReport).
-//   - error: an empty opts.Writer, a nil opts.OnConflict, an opts.ScopeGeneration of 0,
+//   - error: an empty opts.WriterTag, a nil opts.OnConflict, an opts.ScopeGeneration of 0,
 //     an opts.ScopeGeneration or opts.PublisherEpoch above 2^63-1,
 //     a negative or oversized opts.BlockThreshold, a negative opts.MaxOpenBlocks, opts.MaxParallelOpens or opts.MaxFooterLen,
 //     no inputs, an input without a ReaderAt, or a negative budget field of opts.Reader;
@@ -636,8 +636,8 @@ func checkMergeOptions(inputs []MergeInput, opts *MergeOptions) error {
 		return err
 	}
 	switch {
-	case opts.Writer == "":
-		return errors.New("tracepack: MergeOptions.Writer is empty")
+	case opts.WriterTag == "":
+		return errors.New("tracepack: MergeOptions.WriterTag is empty")
 	case opts.OnConflict == nil:
 		return errors.New("tracepack: MergeOptions.OnConflict is nil, so a conflict could not be reported")
 	case opts.ScopeGeneration == 0:
@@ -1054,7 +1054,7 @@ func (p *mergePlan) checkMinors() error {
 			continue
 		}
 		for j := range r.footer.blocks {
-			if r.footer.blocks[j].qualityUnion.Has(QualityUnobserved) {
+			if r.footer.blocks[j].qualityUnion.HasAny(QualityUnobserved) {
 				return inputError(i, p.inputID(i), fmt.Errorf(
 					"block %d holds a record carrying quality bit 7, reserved in format_minor 0, unobserved in the archive's format_minor %d",
 					j, p.minor))
@@ -1118,7 +1118,7 @@ func (p *mergePlan) planMeta(opts *MergeOptions, setID UUID) error {
 		DeviceID: c.DeviceID, HSMSTimers: c.HSMSTimers, SourceTZ: c.SourceTZ, SourceDialect: c.SourceDialect, SourceRefs: c.SourceRefs,
 		Thinning: c.Thinning,
 
-		Writer:      opts.Writer,
+		Writer:      opts.WriterTag,
 		PeriodStart: start, PeriodEnd: end,
 		PackRole:        PackRoleArchive,
 		ScopeGeneration: new(opts.ScopeGeneration), PublisherEpoch: new(opts.PublisherEpoch),

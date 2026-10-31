@@ -506,7 +506,7 @@ func (s *blockSummary) commitmentFacts() (classified, oversized, redacted bool) 
 	}
 	oversized = anyCounted(s.decodeStatusCounts, []DecodeStatus{DecodeStatusOversized})
 
-	return classified, oversized, s.qualityUnion.Has(QualityRedacted)
+	return classified, oversized, s.qualityUnion.HasAny(QualityRedacted)
 }
 
 // checkStoredCommitments rejects the records of a stored pack, as facts describe them,

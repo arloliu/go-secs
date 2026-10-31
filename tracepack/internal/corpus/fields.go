@@ -40,22 +40,22 @@ func FieldsOf(rec *tracepack.Record) (Fields, bool) {
 
 	h := rec.HSMSHeader()
 	out := Fields{Seq: U64(rec.Seq), Available: append([]string{}, h.Available.Names()...)}
-	if h.Available.Has(tracepack.FieldValiditySessionID) {
+	if h.Available.HasAny(tracepack.FieldValiditySessionID) {
 		out.SessionID = new(h.SessionID)
 	}
-	if h.Available.Has(tracepack.FieldValidityStreamAndW) {
+	if h.Available.HasAny(tracepack.FieldValidityStreamAndW) {
 		out.Stream, out.W = new(h.Stream), new(h.W)
 	}
-	if h.Available.Has(tracepack.FieldValidityFunction) {
+	if h.Available.HasAny(tracepack.FieldValidityFunction) {
 		out.Function = new(h.Function)
 	}
-	if h.Available.Has(tracepack.FieldValidityPType) {
+	if h.Available.HasAny(tracepack.FieldValidityPType) {
 		out.PType = new(h.PType)
 	}
-	if h.Available.Has(tracepack.FieldValiditySType) {
+	if h.Available.HasAny(tracepack.FieldValiditySType) {
 		out.SType = new(h.SType)
 	}
-	if h.Available.Has(tracepack.FieldValiditySystemBytes) {
+	if h.Available.HasAny(tracepack.FieldValiditySystemBytes) {
 		out.SystemBytes = append([]byte{}, h.SystemBytes[:]...)
 	}
 

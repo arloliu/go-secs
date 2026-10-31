@@ -298,7 +298,7 @@ func (c *txSafetyCheck) primary() bool {
 		rec.Dir != DirHostToEquipment && rec.Dir != DirEquipmentToHost {
 		c.failf("the primary has no key")
 	}
-	if rec.Quality.Has(QualityCorrelationIncomplete) {
+	if rec.Quality.HasAny(QualityCorrelationIncomplete) {
 		c.failf("the primary carries correlation-incomplete")
 	}
 
@@ -435,7 +435,7 @@ func (c *txSafetyCheck) conditions(e uint64) {
 	c.boundaries(e)
 	for _, seq := range c.d.seqs {
 		for _, v := range c.d.versions[seq] {
-			if v.Epoch == c.k.epoch && v.Quality.Has(QualityOrderingUncertain) {
+			if v.Epoch == c.k.epoch && v.Quality.HasAny(QualityOrderingUncertain) {
 				c.failf("seq %d of the epoch is ordering-uncertain", seq)
 			}
 		}
@@ -532,7 +532,7 @@ func runTxSafety(t testing.TB, tr *txTruth, key TxKey, opts TxOptions, mutate fu
 	require.NoError(t, err)
 	requireStateRecount(t, l)
 
-	return res, tr.violations(key, l.opts.MaxScopes, &res, txLookupRuns(l))
+	return res, tr.violations(key, l.opts.MaxHours, &res, txLookupRuns(l))
 }
 
 // txTruthPack writes recs, already in hour memTestHour + hours, into a finalized pack id of captureLow
@@ -571,7 +571,7 @@ func txSeqRange(first, last uint64) []uint64 {
 }
 
 // TestFindTransactionSafetyCheckCatches shows that the safety check catches a lookup without seq-gap detection.
-// Each source holds txRecord's primary at 12 in memTestHour, read with MaxScopes 1, and the capture wrote 12 to 14.
+// Each source holds txRecord's primary at 12 in memTestHour, read with MaxHours 1, and the capture wrote 12 to 14.
 // Without seq-gap detection, the lookup returns a complete TxNotFound, which the check rejects,
 // for an annotation at 13 that a backward clock step put in the hour before, which is not read,
 // for an annotation at 13 dropped from every pack, and for 13 inside the F-2 range of a block holding 12 and 14 only;
@@ -640,7 +640,7 @@ func TestFindTransactionSafetyCheckCatches(t *testing.T) {
 
 			tr := newTxTruth(txSeqRange(12, tt.last))
 			tt.source(t, tr)
-			opts := TxOptions{MaxScopes: 1}
+			opts := TxOptions{MaxHours: 1}
 
 			res, out := runTxSafety(t, tr, txKeyAt(12), opts, nil)
 			assert.Equal(t, tt.normal, txOutcomeGaps(&res))
@@ -689,7 +689,7 @@ func txOutcomeGaps(res *TxResult) []string {
 
 // TestFindTransactionUnreadEarlierHour pins that the comparison of a record's versions covers the hours a lookup reads
 // (the tracepack semantics specification §7.2):
-// beside txRecord's primary at 12 and a same-key primary at 14 in hour memTestHour + 1, read with MaxScopes 1,
+// beside txRecord's primary at 12 and a same-key primary at 14 in hour memTestHour + 1, read with MaxHours 1,
 // another version of 13 lies in memTestHour, where a backward clock step put it:
 // a valid reply, a smaller same-key primary, or an unrelated record.
 // With an annotation at 13 in the hour read, the lookup returns a complete TxNotFound, as the hours read imply,
@@ -719,7 +719,7 @@ func TestFindTransactionUnreadEarlierHour(t *testing.T) {
 				txTruthPack(t, tr, seg0, 1, nil, recs...)
 				txTruthPack(t, tr, seg1, 0, nil, e.rec)
 				key := TxKey{CaptureID: captureLow, Seq: 12, Hour: memTestHour + 1}
-				opts := TxOptions{MaxScopes: 1}
+				opts := TxOptions{MaxHours: 1}
 
 				res, out := runTxSafety(t, tr, key, opts, nil)
 				assert.Empty(t, out)
@@ -731,7 +731,7 @@ func TestFindTransactionUnreadEarlierHour(t *testing.T) {
 				assert.Equal(t, []string{"12@1 primary", "14@1 same-key-primary"}, recordSeqs(res.Records))
 
 				snap := newTxSnapshot(t, tr.src, captureLow, memTestHour, memTestHour+2)
-				exp, notPrimary := snap.expect(key, opts.MaxScopes)
+				exp, notPrimary := snap.expect(key, opts.MaxHours)
 				requireTxExpected(t, exp, notPrimary, res, nil)
 			})
 		}

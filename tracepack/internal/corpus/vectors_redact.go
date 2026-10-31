@@ -899,7 +899,7 @@ func mergePacks(seed string, inputs [][]byte) ([]byte, error) {
 	var out bytes.Buffer
 	var conflicts []tracepack.Conflict
 	_, err := tracepack.Merge(context.Background(), &out, in, tracepack.MergeOptions{
-		Writer: corpusWriter, ScopeGeneration: 1, PublisherEpoch: 1,
+		WriterTag: corpusWriter, ScopeGeneration: 1, PublisherEpoch: 1,
 		ReplacementSetID: IDFor(roleReplacementSetID, seed), PackID: IDFor(rolePackID, seed), Now: corpusNow, Uncompressed: true,
 		OnConflict: func(c tracepack.Conflict) { conflicts = append(conflicts, c) },
 	})

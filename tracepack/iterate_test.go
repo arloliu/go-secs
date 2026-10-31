@@ -42,7 +42,7 @@ func copyItem(it *Item) iterItem {
 	rec := it.Record
 	rec.Payload = bytes.Clone(rec.Payload)
 
-	return iterItem{rec: rec, extra: bytes.Clone(it.HeaderExtra), pack: it.Pack, block: it.Block, conflict: it.Conflict}
+	return iterItem{rec: rec, extra: bytes.Clone(it.HeaderExtra), pack: it.Input, block: it.Block, conflict: it.Conflict}
 }
 
 // runQuery runs q over r and returns what it yielded.
@@ -365,7 +365,7 @@ func TestIterateClearBitOverPayloadBytes(t *testing.T) {
 
 	h := rec.HSMSHeader()
 	assert.Equal(t, payloadSB, h.SystemBytes, "the placeholder bytes are visible")
-	assert.False(t, h.Available.Has(FieldValiditySystemBytes), "but never available")
+	assert.False(t, h.Available.HasAny(FieldValiditySystemBytes), "but never available")
 }
 
 func TestIterateSetBitBeyondPayload(t *testing.T) {

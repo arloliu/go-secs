@@ -453,8 +453,8 @@ func TestMaskUnobserved(t *testing.T) {
 	masked, entries, err = c.Mask(t.Context(), captureA, r, false, &testKeys{})
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
-	assert.True(t, masked.Quality.Has(tracepack.QualityRedacted))
-	assert.True(t, masked.Quality.Has(tracepack.QualityUnobserved), "the stored bit is kept")
+	assert.True(t, masked.Quality.HasAny(tracepack.QualityRedacted))
+	assert.True(t, masked.Quality.HasAny(tracepack.QualityUnobserved), "the stored bit is kept")
 	assert.NotEqual(t, sensitive, masked.Payload)
 }
 

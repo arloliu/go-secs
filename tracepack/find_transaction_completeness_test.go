@@ -98,7 +98,7 @@ func TestFindTransactionCoverageGaps(t *testing.T) {
 				files[1] = withIDs(t, files[1], seg1, captureHigh)
 			}
 			s := txSource(t, files...)
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: max(tt.scopes, 1)})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: max(tt.scopes, 1)})
 			require.NoError(t, err)
 			if !tt.gap {
 				assert.Equal(t, TxNotFound, res.Outcome)
@@ -132,7 +132,7 @@ func TestFindTransactionCoverageWindowShrinks(t *testing.T) {
 		scopes int
 		gaps   []string
 	}{{scopes: 1, gaps: []string{"seq-gap@15", "coverage"}}, {scopes: 2}} {
-		res, err := findTx(t, t.Context(), txHours(t, [][]byte{first}, [][]byte{later}), txKeyAt(12), TxOptions{MaxScopes: tt.scopes})
+		res, err := findTx(t, t.Context(), txHours(t, [][]byte{first}, [][]byte{later}), txKeyAt(12), TxOptions{MaxHours: tt.scopes})
 		require.NoError(t, err)
 		assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Incomplete)), "%d scopes", tt.scopes)
 	}
@@ -180,7 +180,7 @@ func TestFindTransactionCaptureBoundaries(t *testing.T) {
 			if tt.later != nil {
 				s.addPack(t, memTestHour+1, txPackIn(t, seg1, 1, nil, txBlock(tt.later...)))
 			}
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: max(tt.hours, 1)})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: max(tt.hours, 1)})
 			require.NoError(t, err)
 			assert.Equal(t, TxNotFound, res.Outcome)
 			assert.Equal(t, new(tt.end), res.WindowEnd)
@@ -215,7 +215,7 @@ func TestFindTransactionBoundaryRecordsRead(t *testing.T) {
 		txBlock(txRecord(12, nil), txNote(13, nil)),
 		txBlock(txBoundaryAt(t, 14, txTestEpoch, BoundaryKindGap, new(int64(5)), new(int64(9))), txBoundaryAt(t, 15, txTestEpoch, BoundaryKindStop, nil, nil)),
 	)))
-	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 1})
 	require.NoError(t, err)
 	assert.Equal(t, TxNotFound, res.Outcome)
 	assert.Equal(t, new(uint64(15)), res.WindowEnd)
@@ -279,7 +279,7 @@ func TestFindTransactionOrderingUncertain(t *testing.T) {
 			if tt.other {
 				files = append(files, withIDs(t, txPack(t, seg1, nil, txBlock(txRecord(11, uncertain(txTestEpoch)))), seg1, captureHigh))
 			}
-			res, err := findTx(t, t.Context(), txSource(t, files...), txKeyAt(12), TxOptions{MaxScopes: 1})
+			res, err := findTx(t, t.Context(), txSource(t, files...), txKeyAt(12), TxOptions{MaxHours: 1})
 			require.NoError(t, err)
 			assert.Equal(t, tt.outcome, res.Outcome)
 			assert.Equal(t, new(uint64(14)), res.WindowEnd)
@@ -309,7 +309,7 @@ func TestFindTransactionCompletenessGapOrder(t *testing.T) {
 		txBoundaryAt(t, 14, txTestEpoch, BoundaryKindGap, nil, nil), txRecord(16, nil),
 		txBoundaryAt(t, 100, 2, BoundaryKindStopUnclean, new(blockTestHour+5), new(blockTestHour+6)),
 	)))
-	res, l, err := findTxState(t, s, TxOptions{MaxScopes: 1})
+	res, l, err := findTxState(t, s, TxOptions{MaxHours: 1})
 	require.NoError(t, err)
 	assert.NotSame(t, l.coverage[0].cov, res.Incomplete[1].Coverage, "the gap holds a copy")
 	assert.Equal(t, TxNotFound, res.Outcome)

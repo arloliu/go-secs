@@ -126,6 +126,11 @@ The decision log and the outcome of every proposal are listed in `README.md`.
   The §3 documentation bullet names the Compatibility section of the package documentation and the README, the v1 compatibility promise (G5-280),
   and §7 states that the CLI's flags, exit codes, stdout/stderr split and `dump --jsonl` bytes are contract and the text of the `verify` and `find` reports is not.
   No format rule changed.
+- 2026-10-31: the §3 `Query`, `FindTransaction` and `FindTransactions` bullets follow the Go names that misled a caller (G5-287):
+  an `Item` names its record's reader as `Input`, beside a defect's `Pack`;
+  `TxOptions.MaxHours` is the lookup's hour count, `Searched` holds `TxHour`s, and `TxClass` is tested with `HasAny` and `HasAll`.
+  `MergeOptions.WriterTag`, the archive's writer tag, and the `Has` methods of `Quality` and `FieldValidity`, now `HasAny` beside `HasAll`, are not named in the spec.
+  Scope keeps its meaning of capture and UTC hour; no format rule changed.
 
 ## Changes vs v1 (summary)
 
@@ -1729,7 +1734,7 @@ Review rounds:
 | plan review 3 | copying a large diagnostic result and sorting keys could not be cancelled; error values are shared | the batch's counter counts that work and brackets the sort; error values are shared as immutable |
 | plan review 4 | — | ready |
 
-## Changes v2.38 → v2.39: the v1.0 API freeze (owner decisions G5-279..G5-286, 2026-10-30)
+## Changes v2.38 → v2.39: the v1.0 API freeze (owner decisions G5-279..G5-288, 2026-10-30)
 
 Source: the tracepack maintainers' v1.0 API review and the redaction-entry placement research, with the log service (tracekeep) consulted.
 Format 1.2, the canonical export bytes and the corpus goldens are unchanged.
@@ -1742,8 +1747,9 @@ Summary:
   `BusLayout1`, `classify.Name`, `classify.Frame`, `CaptureID`, the `IncompleteReason` and `VerifyOutcome` names, `DirSinkOptions` and `DefaultMaxOpenBlocks` (G5-283);
   a negative option field is refused (G5-284); `AppendFrame` takes quality bits (G5-285); `ErrRefused` (G5-286);
   the masking bullet states the metadata bound (G5-279), and the documentation bullet names the Compatibility section (G5-280).
+- [GO] §3: `Item.Input`, `MergeOptions.WriterTag`, `HasAny` and `HasAll`, and the transaction lookup's `MaxHours`, `DefaultTxMaxHours` and `TxHour` (G5-287).
 - [GO] §7: the text of the `verify` and `find` reports is not a contract.
-- The overview's list of decisions reaches G5-286.
+- The overview's list of decisions reaches G5-288.
 
 Review rounds:
 

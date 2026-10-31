@@ -121,10 +121,10 @@ func TestFindTransactionMissingPrimary(t *testing.T) {
 			t.Parallel()
 
 			s := txSource(t, tt.file, other)
-			res, err := findTx(t, t.Context(), s, tt.key, TxOptions{MaxScopes: 3})
+			res, err := findTx(t, t.Context(), s, tt.key, TxOptions{MaxHours: 3})
 			require.ErrorIs(t, err, ErrNotPrimary)
 			assert.Equal(t, TxOutcome(0), res.Outcome)
-			assert.Equal(t, []TxScope{{Hour: memTestHour, Packs: []UUID{seg0, seg1}}}, res.Searched)
+			assert.Equal(t, []TxHour{{Hour: memTestHour, Packs: []UUID{seg0, seg1}}}, res.Searched)
 			assert.Equal(t, tt.gaps, nilIfEmpty(gapReasons(res.Incomplete)))
 			assert.Empty(t, res.Records)
 			requireOneScopeRead(t, s)
@@ -139,7 +139,7 @@ func TestFindTransactionMissingPrimary(t *testing.T) {
 		key.Hour++
 		res, err := findTx(t, t.Context(), s, key, TxOptions{})
 		require.ErrorIs(t, err, ErrNotPrimary)
-		assert.Equal(t, []TxScope{{Hour: memTestHour + 1}}, res.Searched)
+		assert.Equal(t, []TxHour{{Hour: memTestHour + 1}}, res.Searched)
 		assert.Empty(t, res.Incomplete)
 		assert.Equal(t, map[int64]int{memTestHour + 1: 1}, s.counts())
 	})
@@ -205,7 +205,7 @@ func TestFindTransactionMissingPrimaryExplained(t *testing.T) {
 				files = [][]byte{tt.file}
 			}
 			s := txSource(t, files...)
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 3})
 			requireOneScopeRead(t, s)
 			if tt.notFound {
 				require.ErrorIs(t, err, ErrNotPrimary)
@@ -292,10 +292,10 @@ func TestFindTransactionNotPrimary(t *testing.T) {
 			t.Parallel()
 
 			s := txSource(t, txPack(t, seg0, nil, txBlock(txRecord(11, nil), tt.rec(t), txRecord(13, nil))))
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 3})
 			require.ErrorIs(t, err, ErrNotPrimary)
 			require.ErrorContains(t, err, tt.why)
-			assert.Equal(t, TxResult{Searched: []TxScope{{Hour: memTestHour, Packs: []UUID{seg0}}}}, res)
+			assert.Equal(t, TxResult{Searched: []TxHour{{Hour: memTestHour, Packs: []UUID{seg0}}}}, res)
 			requireOneScopeRead(t, s)
 		})
 	}
@@ -336,7 +336,7 @@ func TestFindTransactionNoKey(t *testing.T) {
 
 			primary := txRecord(12, tt.edit)
 			s := txSource(t, txPack(t, seg0, nil, txBlock(txRecord(11, nil), primary, txRecord(13, nil))))
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 3})
 			require.NoError(t, err)
 			requireOneScopeRead(t, s)
 
@@ -344,7 +344,7 @@ func TestFindTransactionNoKey(t *testing.T) {
 			want.Outcome, want.Epoch = TxNotFound, txTestEpoch
 			want.Stream, want.Function, want.StreamAvailable, want.W, want.WAvailable = 1, 3, true, true, true
 			want.Records = []TxRecord{{Record: primary, Hour: memTestHour, Pack: seg0, Class: TxPrimary}}
-			want.Searched = []TxScope{{Hour: memTestHour, Packs: []UUID{seg0}}}
+			want.Searched = []TxHour{{Hour: memTestHour, Packs: []UUID{seg0}}}
 			require.Len(t, res.Incomplete, 1)
 			assert.Equal(t, TxGapNoKey, res.Incomplete[0].Reason)
 			assert.Equal(t, new(uint64(12)), res.Incomplete[0].Seq)
@@ -365,7 +365,7 @@ func TestFindTransactionConflictingPrimary(t *testing.T) {
 
 	steps := txBlock(txSeqs(11, 12, 13)...)
 	s := txSource(t, txPack(t, seg0, nil, steps), txPack(t, seg1, nil, changed(steps, 1, 12)))
-	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 3})
 	require.NoError(t, err)
 	requireOneScopeRead(t, s)
 
@@ -421,7 +421,7 @@ func TestFindTransactionPrimaryFlagsApart(t *testing.T) {
 
 			steps := txBlock(slices.Concat(txSeqs(11, 12), tt.after)...)
 			s := txSource(t, txPack(t, seg0, nil, steps), txFlagged(t, txPack(t, seg1, nil, steps), 12))
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 1})
 			require.NoError(t, err)
 			assert.Equal(t, TxNotFound, res.Outcome)
 			assert.Equal(t, []TxGapReason{TxGapConflict, TxGapNoKey}, gapReasons(res.Incomplete))
@@ -465,7 +465,7 @@ func TestFindTransactionKeyed(t *testing.T) {
 
 			primary := txRecord(12, tt.edit)
 			s := txSource(t, txPack(t, seg0, nil, txBlock(txRecord(11, nil), primary, txRecord(13, nil))))
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 1})
 			require.NoError(t, err)
 			assert.Equal(t, tt.outcome, res.Outcome)
 			assert.Equal(t, tt.gaps, nilIfEmpty(gapReasons(res.Incomplete)))
@@ -556,7 +556,7 @@ func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 		t.Parallel()
 
 		s := txSource(t, misindexed, primary)
-		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
+		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxHours: 1})
 		require.NoError(t, err)
 		require.Empty(t, res.FooterErrs, "the footer must stay valid")
 		require.GreaterOrEqual(t, len(res.Incomplete), 2)
@@ -570,7 +570,7 @@ func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 		t.Parallel()
 
 		s := txSource(t, misindexed)
-		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
+		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxHours: 1})
 		require.NoError(t, err)
 		assert.Equal(t, TxNotFound, res.Outcome)
 		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapNoKey}, gapReasons(res.Incomplete))
@@ -615,7 +615,7 @@ func TestFindTransactionSourceErrors(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			tt.setup(s, cancel)
-			res, err := findTx(t, ctx, s, txKeyAt(12), TxOptions{MaxScopes: 3})
+			res, err := findTx(t, ctx, s, txKeyAt(12), TxOptions{MaxHours: 3})
 			require.ErrorIs(t, err, tt.err)
 			assert.Equal(t, TxOutcome(0), res.Outcome)
 			assert.Equal(t, tt.calls, s.counts())
@@ -688,7 +688,7 @@ func TestFindTransactionOwnsRecords(t *testing.T) {
 	}
 	file := widenedFrom(t, txPack(t, seg0, nil, steps), 11)
 	s := txSource(t, file)
-	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 1})
 	require.NoError(t, err)
 	require.Len(t, res.Records, 1)
 
@@ -697,7 +697,7 @@ func TestFindTransactionOwnsRecords(t *testing.T) {
 	assert.Equal(t, seqExtra(12), got.HeaderExtra)
 
 	// Another lookup over the same packs and the caller's own changes leave the first result as it was.
-	again, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+	again, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 1})
 	require.NoError(t, err)
 	again.Records[0].Record.Payload[0] ^= 0xFF
 	again.Records[0].HeaderExtra[0] ^= 0xFF
@@ -711,7 +711,7 @@ func TestKeepVersionCopies(t *testing.T) {
 	t.Parallel()
 
 	payload, extra := slices.Clone(blockTestFrame), seqExtra(12)
-	it := &Item{Record: txRecord(12, nil), HeaderExtra: extra, Pack: 1, Block: 2, Conflict: true}
+	it := &Item{Record: txRecord(12, nil), HeaderExtra: extra, Input: 1, Block: 2, Conflict: true}
 	it.Record.Payload = payload
 	rd := &txScopeRead{hour: memTestHour, packs: []UUID{seg0, seg1}}
 	got := keepVersion(rd, it, TxPrimary)
@@ -737,7 +737,7 @@ func TestFindTransactionNamesPacks(t *testing.T) {
 		t.Parallel()
 
 		corrupt := flipByte(second, mustOpen(t, second, ReaderOptions{}).Blocks()[1].Offset+format.EnvelopeLen+3)
-		res, err := findTx(t, t.Context(), txSource(t, first, corrupt), txKeyAt(11), TxOptions{MaxScopes: 1})
+		res, err := findTx(t, t.Context(), txSource(t, first, corrupt), txKeyAt(11), TxOptions{MaxHours: 1})
 		require.NoError(t, err)
 		assert.Equal(t, TxNotFound, res.Outcome)
 		require.Len(t, res.Incomplete, 1, "the same-key primary at 12 bounds an empty window")
@@ -751,7 +751,7 @@ func TestFindTransactionNamesPacks(t *testing.T) {
 		t.Parallel()
 
 		walked := invalidFooterFile(t, second)
-		res, err := findTx(t, t.Context(), txSource(t, first, walked), txKeyAt(11), TxOptions{MaxScopes: 1})
+		res, err := findTx(t, t.Context(), txSource(t, first, walked), txKeyAt(11), TxOptions{MaxHours: 1})
 		require.NoError(t, err)
 		assert.Equal(t, TxNotFound, res.Outcome)
 		assert.Empty(t, res.Incomplete)
@@ -779,7 +779,7 @@ func TestFindTransactionSplitPrimaryCopies(t *testing.T) {
 		t.Parallel()
 
 		res, err := findTx(t, t.Context(), txSource(t, misindexed, txPack(t, seg1, nil, other)), txKeyAt(15),
-			TxOptions{MaxScopes: 1})
+			TxOptions{MaxHours: 1})
 		require.NoError(t, err)
 		require.Empty(t, res.FooterErrs, "the footer must stay valid")
 		assert.Equal(t, TxNotFound, res.Outcome)
@@ -798,7 +798,7 @@ func TestFindTransactionSplitPrimaryCopies(t *testing.T) {
 		t.Parallel()
 
 		s := txSource(t, misindexed, txPack(t, seg1, nil, changed(other, 1, 15)))
-		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 3})
+		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxHours: 3})
 		require.NoError(t, err)
 		requireOneScopeRead(t, s)
 		assert.Equal(t, TxNotFound, res.Outcome)
@@ -818,7 +818,7 @@ func TestFindTransactionSplitPrimaryCopies(t *testing.T) {
 
 		// The decoded copies are equal; their stored headers are not.
 		s := txSource(t, misindexed, txFlagged(t, txPack(t, seg1, nil, other), 15))
-		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 3})
+		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxHours: 3})
 		require.NoError(t, err)
 		assert.Equal(t, TxNotFound, res.Outcome)
 		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapConflict, TxGapNoKey}, gapReasons(res.Incomplete))
@@ -901,7 +901,7 @@ func TestFindTransactionEarlyReturns(t *testing.T) {
 			t.Parallel()
 
 			s := txHours(t, tt.files, [][]byte{later})
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 2})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 2})
 			requireOneScopeRead(t, s)
 			if tt.notPrimary {
 				require.ErrorIs(t, err, ErrNotPrimary)
@@ -923,7 +923,7 @@ func TestFindTransactionEarlyReturns(t *testing.T) {
 		t.Parallel()
 
 		s := txHours(t, [][]byte{txPack(t, seg0, nil, steps)}, [][]byte{txPackIn(t, seg1, 1, nil, changed(txBlock(txSeqs(12)...), 1, 12))})
-		res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 2})
+		res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 2})
 		require.NoError(t, err)
 		assert.Equal(t, map[int64]int{memTestHour: 1, memTestHour + 1: 1}, s.counts(), "every hour read")
 		assert.Equal(t, []string{"conflict@12", "no-key@12"}, gapSeqs(res.Incomplete))
@@ -953,7 +953,7 @@ func TestFindTransactionDetectedDisagreement(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			res, err := findTx(t, t.Context(), txHours(t, tt.hours...), txKeyAt(15), TxOptions{MaxScopes: len(tt.hours)})
+			res, err := findTx(t, t.Context(), txHours(t, tt.hours...), txKeyAt(15), TxOptions{MaxHours: len(tt.hours)})
 			require.NoError(t, err)
 			i := slices.IndexFunc(res.Incomplete, func(g TxGap) bool { return g.Reason == TxGapIndex && g.Pack != nil })
 			require.GreaterOrEqual(t, i, 0, "a TxGapIndex gap naming the block")
@@ -996,7 +996,7 @@ func TestFindTransactionReadGuarantees(t *testing.T) {
 
 			src, err := NewReaderSource([]*Reader{mustOpen(t, primary, ReaderOptions{}), mustOpen(t, tt.file, tt.opts)})
 			require.NoError(t, err)
-			res, err := FindTransaction(t.Context(), src, txKeyAt(12), TxOptions{MaxScopes: 1})
+			res, err := FindTransaction(t.Context(), src, txKeyAt(12), TxOptions{MaxHours: 1})
 			require.NoError(t, err)
 			assert.Equal(t, TxMatched, res.Outcome, "the validated block's reply")
 			assert.Equal(t, []string{"12@0 primary", "13@0 candidate in eligible decidable valid", "14@0 closing bound"}, recordFlags(res.Records))
@@ -1024,7 +1024,7 @@ func TestFindTransactionOtherCaptures(t *testing.T) {
 	otherVersion := withIDs(t, txPack(t, seg2, nil, changed(txBlock(txNote(20, []byte{1})), 1, 20)), seg2, captureHigh)
 	breach := withIDs(t, txBreachPack(t, seg3, 0, false, inHours(1, txBlock(txNote(30, nil)))), seg3, captureHigh)
 	unevaluated := withIDs(t, writeRepairPack(t, CodecZstd, nil, false, txBlock(txNote(40, nil))).file, memA, captureHigh)
-	res, err := findTx(t, t.Context(), txSource(t, own, other, otherVersion, breach, unevaluated), txKeyAt(12), TxOptions{MaxScopes: 1})
+	res, err := findTx(t, t.Context(), txSource(t, own, other, otherVersion, breach, unevaluated), txKeyAt(12), TxOptions{MaxHours: 1})
 	require.NoError(t, err)
 	assert.Equal(t, TxNotFound, res.Outcome)
 	assert.Equal(t, []string{"scope-breach@30", "unevaluated", "seq-gap@13"}, gapSeqs(res.Incomplete),
@@ -1033,6 +1033,6 @@ func TestFindTransactionOtherCaptures(t *testing.T) {
 	assert.Equal(t, new(memA), res.Incomplete[1].Pack)
 	assert.Equal(t, []string{"12@0 primary", "14@0 same-key-primary bound"}, recordFlags(res.Records))
 	assert.Equal(t, []Conflict{{CaptureID: captureHigh, Seq: 20, Versions: [][]UUID{{seg1}, {seg2}}}}, res.Conflicts)
-	assert.Equal(t, []TxScope{{Hour: memTestHour, Packs: []UUID{seg0, seg1, seg2, seg3, memA}}}, res.Searched)
+	assert.Equal(t, []TxHour{{Hour: memTestHour, Packs: []UUID{seg0, seg1, seg2, seg3, memA}}}, res.Searched)
 	assert.Equal(t, DirHostToEquipment, res.Dir, "the key of the primary's own capture")
 }

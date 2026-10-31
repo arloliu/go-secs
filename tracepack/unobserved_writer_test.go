@@ -163,18 +163,18 @@ func TestUnobservedRecordBytes(t *testing.T) {
 
 		r, blocks := readSourceBlocks(t, file)
 		require.Len(t, blocks, 1)
-		assert.True(t, blocks[0].sum.qualityUnion.Has(QualityUnobserved), "the block's records, decoded from its bytes")
+		assert.True(t, blocks[0].sum.qualityUnion.HasAny(QualityUnobserved), "the block's records, decoded from its bytes")
 		assert.Equal(t, uint16(1), r.Header().FormatMinor)
 
 		tr, decoded, blocksStart := splitPack(t, file)
 		idx, err := parseFooter(decoded, &tr, blocksStart, DefaultMaxFooterLen, false)
 		require.NoError(t, err)
-		assert.True(t, idx.blocks[0].qualityUnion.Has(QualityUnobserved), "F-3 quality_union")
-		assert.True(t, footerStats(t, decoded).qualityUnion.Has(QualityUnobserved), "F-5 quality_union")
+		assert.True(t, idx.blocks[0].qualityUnion.HasAny(QualityUnobserved), "F-3 quality_union")
+		assert.True(t, footerStats(t, decoded).qualityUnion.HasAny(QualityUnobserved), "F-5 quality_union")
 
 		var got []bool
 		_, err = r.Iterate(t.Context(), Query{}, func(it *Item) error {
-			assert.Equal(t, it.Record.Quality.Has(QualityUnobserved), r.Unobserved(&it.Record))
+			assert.Equal(t, it.Record.Quality.HasAny(QualityUnobserved), r.Unobserved(&it.Record))
 			got = append(got, r.Unobserved(&it.Record))
 
 			return nil
@@ -218,7 +218,7 @@ func TestUnobservedDistinguishable(t *testing.T) {
 		require.NoError(t, err)
 		readers := []*Reader{r}
 		_, err = MergeIterate(t.Context(), readers, q, MergeIterateOptions{Order: OrderCapture}, func(it *Item) error {
-			rd := readers[it.Pack]
+			rd := readers[it.Input]
 			fromMerge = append(fromMerge, seen{it.Record.Seq, rd.Unobserved(&it.Record), len(it.Record.Payload), it.Record.DecodeStatus})
 			return nil
 		})

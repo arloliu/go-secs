@@ -41,14 +41,14 @@ func TestFindTransactionArguments(t *testing.T) {
 		{name: "hour above MaxTxHour", key: at(MaxTxHour + 1), invalid: "outside"},
 		{name: "hour at math.MinInt64", key: at(math.MinInt64), invalid: "outside"},
 		{name: "default scopes past MaxTxHour", key: at(MaxTxHour), invalid: "2 scopes from hour"},
-		{name: "scopes past MaxTxHour", key: at(MaxTxHour - 1), opts: TxOptions{MaxScopes: 3}, invalid: "3 scopes from hour"},
-		{name: "scopes far past MaxTxHour", key: at(0), opts: TxOptions{MaxScopes: math.MaxInt}, invalid: "scopes from hour"},
+		{name: "scopes past MaxTxHour", key: at(MaxTxHour - 1), opts: TxOptions{MaxHours: 3}, invalid: "3 scopes from hour"},
+		{name: "scopes far past MaxTxHour", key: at(0), opts: TxOptions{MaxHours: math.MaxInt}, invalid: "scopes from hour"},
 		{name: "the format's largest seq", key: TxKey{CaptureID: captureLow, Seq: 1<<63 - 1, Hour: memTestHour}},
 		{name: "hour 0", key: at(0)},
 		{name: "negative hour", key: at(-1)},
-		{name: "MinTxHour", key: at(MinTxHour), opts: TxOptions{MaxScopes: 1}},
-		{name: "MaxTxHour, one scope", key: at(MaxTxHour), opts: TxOptions{MaxScopes: 1}},
-		{name: "last hour MaxTxHour", key: at(MaxTxHour - 2), opts: TxOptions{MaxScopes: 3}},
+		{name: "MinTxHour", key: at(MinTxHour), opts: TxOptions{MaxHours: 1}},
+		{name: "MaxTxHour, one scope", key: at(MaxTxHour), opts: TxOptions{MaxHours: 1}},
+		{name: "last hour MaxTxHour", key: at(MaxTxHour - 2), opts: TxOptions{MaxHours: 3}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestFindTransactionArguments(t *testing.T) {
 			require.ErrorIs(t, err, ErrNotPrimary)
 			assert.Zero(t, res.Outcome)
 			assert.Empty(t, res.Incomplete)
-			assert.Equal(t, []TxScope{{Hour: tt.key.Hour}}, res.Searched)
+			assert.Equal(t, []TxHour{{Hour: tt.key.Hour}}, res.Searched)
 			assert.Equal(t, map[int64]int{tt.key.Hour: 1}, s.counts())
 		})
 	}
@@ -100,11 +100,11 @@ func TestCheckFindTransactionDefaults(t *testing.T) {
 	got, err := checkFindTransaction(newMemSource(), key, TxOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, TxOptions{
-		MaxScopes: DefaultTxMaxScopes, MaxHeldBytes: DefaultMaxHeldBytes,
+		MaxHours: DefaultTxMaxHours, MaxHeldBytes: DefaultMaxHeldBytes,
 		MaxConflicts: DefaultMaxConflicts, MaxStateBytes: DefaultTxMaxStateBytes,
 	}, got)
 
-	set := TxOptions{MaxScopes: 5, MaxHeldBytes: 6, MaxConflicts: 7, MaxStateBytes: 8}
+	set := TxOptions{MaxHours: 5, MaxHeldBytes: 6, MaxConflicts: 7, MaxStateBytes: 8}
 	got, err = checkFindTransaction(newMemSource(), key, set)
 	require.NoError(t, err)
 	assert.Equal(t, set, got)
@@ -157,10 +157,32 @@ func TestTxClassNames(t *testing.T) {
 		assert.Equal(t, tt.names, tt.c.Names(), "%#x", uint16(tt.c))
 		assert.Equal(t, tt.str, tt.c.String(), "%#x", uint16(tt.c))
 	}
-	assert.True(t, (TxPossibleReply | TxPossiblePrimary).Has(TxPossiblePrimary))
-	assert.True(t, TxClosing.Has(TxClosing|TxPrimary))
-	assert.False(t, TxClosing.Has(TxPrimary))
-	assert.False(t, TxClass(0).Has(TxPrimary))
+}
+
+// TestTxClassHasAnyHasAll checks both methods, the zero argument and the zero receiver included.
+func TestTxClassHasAnyHasAll(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		c, bits  TxClass
+		any, all bool
+	}{
+		{"zero argument", TxClosing, 0, false, true},
+		{"zero receiver", 0, TxPrimary, false, false},
+		{"zero both", 0, 0, false, true},
+		{"one set", TxPossibleReply | TxPossiblePrimary, TxPossiblePrimary, true, true},
+		{"one clear", TxClosing, TxPrimary, false, false},
+		{"both set", TxPossibleReply | TxPossiblePrimary, TxPossibleReply | TxPossiblePrimary, true, true},
+		{"one set, one clear", TxClosing, TxClosing | TxPrimary, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.any, tt.c.HasAny(tt.bits))
+			assert.Equal(t, tt.all, tt.c.HasAll(tt.bits))
+		})
+	}
 }
 
 // TestTxEnumStrings formats every TxOutcome and TxGapReason value, and one undefined value of each,

@@ -166,7 +166,7 @@ func TestFindTransactionScopeChargedFirst(t *testing.T) {
 			t.Parallel()
 
 			s := &txReadersSource{readers: tt.readers}
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1, MaxStateBytes: tt.max})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 1, MaxStateBytes: tt.max})
 			require.ErrorContains(t, err, tt.text)
 			if tt.err != nil {
 				require.ErrorIs(t, err, tt.err)
@@ -317,11 +317,11 @@ func TestFindTransactionStateBudget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			res, l, err := findTxState(t, tt.source(t), TxOptions{MaxScopes: 1})
+			res, l, err := findTxState(t, tt.source(t), TxOptions{MaxHours: 1})
 			require.NoError(t, err)
 			require.Equal(t, tt.want, l.state.used, "the charge of %d records, %d gaps, %d conflicts",
 				len(res.Records), len(res.Incomplete), len(res.Conflicts))
-			requireStateLimit(t, tt.source, TxOptions{MaxScopes: 1}, tt.want)
+			requireStateLimit(t, tt.source, TxOptions{MaxHours: 1}, tt.want)
 		})
 	}
 }
@@ -353,13 +353,13 @@ func TestFindTransactionStateBudgetReleases(t *testing.T) {
 	evaluated := gapCost(&TxGap{})
 	require.LessOrEqual(t, base+kept+listed+evaluated, base+group, "the reply, the conflict and the open window fit once the group is released")
 
-	res, l, err := findTxState(t, source(t), TxOptions{MaxScopes: 1})
+	res, l, err := findTxState(t, source(t), TxOptions{MaxHours: 1})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"12@0 primary", "14@0 candidate"}, recordSeqs(res.Records))
 	require.Equal(t, base+kept+listed+evaluated, l.state.used)
 
 	// The peak is reached when the group's second version is cloned.
-	requireStateLimit(t, source, TxOptions{MaxScopes: 1}, base+group)
+	requireStateLimit(t, source, TxOptions{MaxHours: 1}, base+group)
 }
 
 // TestFindTransactionCancelSteps cancels a lookup at each step:
@@ -599,7 +599,7 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 				key = txKeyAt(tt.seq)
 			}
 			var lk *txLookup
-			res, err := findTransactionWith(ctx, s, key, TxOptions{MaxScopes: 2}, func(l *txLookup) {
+			res, err := findTransactionWith(ctx, s, key, TxOptions{MaxHours: 2}, func(l *txLookup) {
 				lk = l
 				if tt.prep != nil {
 					tt.prep(t, l, cancel)
@@ -645,7 +645,7 @@ func TestFindTransactionCancelDroppingGroup(t *testing.T) {
 	defer cancel()
 	var lk *txLookup
 	ticks := 0
-	res, err := findTransactionWith(ctx, s, txKeyAt(12), TxOptions{MaxScopes: 1}, func(l *txLookup) {
+	res, err := findTransactionWith(ctx, s, txKeyAt(12), TxOptions{MaxHours: 1}, func(l *txLookup) {
 		lk = l
 		l.ticks.step = 1
 		l.onTick = func() {
@@ -676,7 +676,7 @@ func TestFindTransactionStateBudgetEarly(t *testing.T) {
 	unkeyed := txPack(t, seg1, nil, txBlock(txRecord(15, func(r *Record) { r.FieldValidity &^= FieldValiditySessionID }), txRecord(17, nil)))
 	for _, second := range [][]byte{later, unkeyed} {
 		var l *txLookup
-		res, err := findTransactionWith(t.Context(), txSource(t, txMisindexedAt(t, big), second), txKeyAt(15), TxOptions{MaxScopes: 1},
+		res, err := findTransactionWith(t.Context(), txSource(t, txMisindexedAt(t, big), second), txKeyAt(15), TxOptions{MaxHours: 1},
 			func(lk *txLookup) { l = lk })
 		require.NoError(t, err)
 		require.NotNil(t, l)
@@ -722,7 +722,7 @@ func TestFindTransactionTicksEmptyScopes(t *testing.T) {
 		nil, nil,
 		[][]byte{txPackIn(t, seg1, 3, nil, txBlock(txSeqs(14)...))})
 	ticks := map[string]int{}
-	res, err := findTransactionWith(t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 4}, func(l *txLookup) {
+	res, err := findTransactionWith(t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 4}, func(l *txLookup) {
 		l.ticks.step = 1
 		l.onTick = func() { ticks[tickCaller()]++ }
 	})
@@ -846,7 +846,7 @@ func TestFindTransactionStateBudgetCrossConflict(t *testing.T) {
 			[][]byte{txPackIn(t, seg0, 0, nil, txBlock(txSeqs(12, 13)...))},
 			[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txSeqs(13)...))})
 	}
-	res, l, err := findTxState(t, source(t), TxOptions{MaxScopes: 2})
+	res, l, err := findTxState(t, source(t), TxOptions{MaxHours: 2})
 	require.NoError(t, err)
 	require.Equal(t, []string{"12@0 primary", "13@0 same-key-primary!", "13@1 same-key-primary!"}, recordSeqs(res.Records))
 	// The version of 13 in the second hour is the last charge, after the conflict's.
@@ -858,7 +858,7 @@ func TestFindTransactionStateBudgetCrossConflict(t *testing.T) {
 		cross bool
 	}{{limit: atCross - 1}, {limit: atCross, cross: true}} {
 		var lk *txLookup
-		_, err := findTransactionWith(t.Context(), source(t), txKeyAt(12), TxOptions{MaxScopes: 2, MaxStateBytes: tt.limit},
+		_, err := findTransactionWith(t.Context(), source(t), txKeyAt(12), TxOptions{MaxHours: 2, MaxStateBytes: tt.limit},
 			func(l *txLookup) { lk = l })
 		require.ErrorIs(t, err, ErrReadLimit, "limit %d", tt.limit)
 		requireStateRecount(t, lk)

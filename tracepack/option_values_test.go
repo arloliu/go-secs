@@ -46,7 +46,7 @@ var readerBudgetCases = []optionCase[ReaderOptions]{
 
 // txBudgetCases lists every budget field of TxOptions.
 var txBudgetCases = []optionCase[TxOptions]{
-	{"MaxScopes", func(o *TxOptions) { o.MaxScopes = -1 }},
+	{"MaxHours", func(o *TxOptions) { o.MaxHours = -1 }},
 	{"MaxHeldBytes", func(o *TxOptions) { o.MaxHeldBytes = -1 }},
 	{"MaxConflicts", func(o *TxOptions) { o.MaxConflicts = -1 }},
 	{"MaxStateBytes", func(o *TxOptions) { o.MaxStateBytes = -1 }},
@@ -284,7 +284,7 @@ func TestFindTransactionNegativeOption(t *testing.T) {
 		s := newMemSource()
 		res, err := FindTransaction(t.Context(), s, key, TxOptions{})
 		require.ErrorIs(t, err, ErrNotPrimary)
-		assert.Equal(t, []TxScope{{Hour: key.Hour}}, res.Searched)
+		assert.Equal(t, []TxHour{{Hour: key.Hour}}, res.Searched)
 		assert.Equal(t, map[int64]int{key.Hour: 1}, s.counts())
 	})
 
@@ -292,7 +292,7 @@ func TestFindTransactionNegativeOption(t *testing.T) {
 		t.Parallel()
 
 		s := newMemSource()
-		_, err := FindTransaction(t.Context(), s, TxKey{Seq: 1, Hour: memTestHour}, TxOptions{MaxScopes: -1})
+		_, err := FindTransaction(t.Context(), s, TxKey{Seq: 1, Hour: memTestHour}, TxOptions{MaxHours: -1})
 		require.ErrorIs(t, err, ErrInvalidQuery)
 		require.ErrorContains(t, err, "capture_id is zero")
 		assert.Empty(t, s.counts(), "no source call")

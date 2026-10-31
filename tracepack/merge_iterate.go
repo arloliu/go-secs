@@ -103,7 +103,7 @@ var _ error = PackError{}
 // Identical copies are one record, yielded once.
 // Each distinct version has a representative, the first block holding it in cluster order
 // (ascending first seq, then the order of readers, then file order),
-// from which it is yielded, and which Item.Pack and Item.Block name.
+// from which it is yielded, and which Item.Input and Item.Block name.
 // When a seq has more than one version, it is a conflict:
 // each version the filter selects is yielded with Item.Conflict set,
 // and the conflict is added to Result.Conflicts, whether or not the filter selected a version.

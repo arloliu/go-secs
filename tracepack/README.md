@@ -313,7 +313,7 @@ For readers and troubleshooters working on local files:
 - `FindTransactions(ctx, src, r, opts, fn)` pairs every primary of one capture whose timestamp lies in `[r.From, r.To)`, reading each hour once,
   where a `FindTransaction` per primary reads its hours again for every primary.
   Each `TxPairing` passed to `fn`, in ascending hour, then seq, holds the primary's key and the result `FindTransaction` gives it, as your own copy.
-  It holds at most `MaxScopes` hours at once, bounded by `TxRangeOptions.MaxCachedBytes`;
+  It holds at most `MaxHours` hours at once, bounded by `TxRangeOptions.MaxCachedBytes`;
   a primary near the end of the hours read can report an open window when a later hour is not written yet.
   It may run an hour's lookups on several goroutines, currently up to `GOMAXPROCS`, and calls `fn` from yours, one pairing at a time;
   today a `GOMAXPROCS` of 1 runs them on your goroutine alone.

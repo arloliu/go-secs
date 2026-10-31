@@ -141,7 +141,7 @@ func FuzzCheckBusMessage(f *testing.F) {
 		}
 
 		enc, err := EncodeBusBody(&br)
-		if br.Record.Quality.Has(QualityRedacted) {
+		if br.Record.Quality.HasAny(QualityRedacted) {
 			require.ErrorIs(t, err, ErrBusMalformed, "the producer never sets redacted")
 
 			return

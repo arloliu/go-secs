@@ -75,9 +75,9 @@ func cloneTxResult(res *TxResult) TxResult {
 		}
 	}
 	if res.Searched != nil {
-		c.Searched = make([]TxScope, len(res.Searched))
+		c.Searched = make([]TxHour, len(res.Searched))
 		for i, s := range res.Searched {
-			c.Searched[i] = TxScope{Hour: s.Hour, Packs: slices.Clone(s.Packs)}
+			c.Searched[i] = TxHour{Hour: s.Hour, Packs: slices.Clone(s.Packs)}
 		}
 	}
 	if res.Conflicts != nil {
@@ -304,7 +304,7 @@ func (l *txEventLog) read(ctx context.Context, hour int64, readers []*Reader, ma
 		flags, header,
 		func(it *Item) error {
 			err := fn(it)
-			l.addf("item %d/%d seq %d flags %d conflict %t: %s", it.Pack, it.Block, it.Record.Seq, *flags, it.Conflict, errText(err))
+			l.addf("item %d/%d seq %d flags %d conflict %t: %s", it.Input, it.Block, it.Record.Seq, *flags, it.Conflict, errText(err))
 
 			return err
 		})
@@ -557,9 +557,9 @@ func checkTxRangeWith(t *testing.T, g *txGen, exp *txRangeWant, fromNs, toNs int
 			return nil
 		}, txWorkers(workers))
 
-	m := opts.MaxScopes
+	m := opts.MaxHours
 	if m <= 0 {
-		m = DefaultTxMaxScopes
+		m = DefaultTxMaxHours
 	}
 	for h, n := range g.src.counts() {
 		require.LessOrEqual(t, n-before[h], 1, "workers %d: hour %d read once", workers, h)
@@ -605,18 +605,18 @@ func TestFindTransactionsGenerated(t *testing.T) {
 			from, to := g.first*hourNs, (g.first+int64(g.hours))*hourNs
 
 			t.Run("whole hours", func(t *testing.T) {
-				checkTxRange(t, g, snap, from, to, TxOptions{MaxScopes: g.maxScopes})
+				checkTxRange(t, g, snap, from, to, TxOptions{MaxHours: g.maxScopes})
 			})
 			t.Run("cut hours", func(t *testing.T) {
 				a := from + rng.Int64N(to-from)
 				b := a + 1 + rng.Int64N(to-a)
-				checkTxRange(t, g, snap, a, b, TxOptions{MaxScopes: g.maxScopes})
+				checkTxRange(t, g, snap, a, b, TxOptions{MaxHours: g.maxScopes})
 			})
 			t.Run("small budgets", func(t *testing.T) {
-				checkTxRange(t, g, snap, from, to, TxOptions{MaxScopes: g.maxScopes, MaxConflicts: 1, MaxStateBytes: 4 << 10})
+				checkTxRange(t, g, snap, from, to, TxOptions{MaxHours: g.maxScopes, MaxConflicts: 1, MaxStateBytes: 4 << 10})
 			})
 			t.Run("one scope", func(t *testing.T) {
-				checkTxRange(t, g, snap, from, to, TxOptions{MaxScopes: 1})
+				checkTxRange(t, g, snap, from, to, TxOptions{MaxHours: 1})
 			})
 		})
 	}
@@ -678,7 +678,7 @@ func TestFindTransactionsArguments(t *testing.T) {
 		"an inverted range":    {src, TxRange{CaptureID: captureLow, From: at.Add(time.Hour), To: at}, TxRangeOptions{}, fn},
 		"a time outside int64": {src, TxRange{CaptureID: captureLow, From: time.Time{}, To: at}, TxRangeOptions{}, fn},
 		"a tail past MaxTxHour": {src, TxRange{CaptureID: captureLow, From: maxStart, To: maxStart.Add(time.Minute)},
-			TxRangeOptions{Lookup: TxOptions{MaxScopes: 2}}, fn},
+			TxRangeOptions{Lookup: TxOptions{MaxHours: 2}}, fn},
 		"an hour below MinTxHour": {src, TxRange{CaptureID: captureLow, From: time.Unix(0, math64Min()), To: time.Unix(0, math64Min()+1)},
 			TxRangeOptions{}, fn},
 	} {
@@ -690,7 +690,7 @@ func TestFindTransactionsArguments(t *testing.T) {
 
 	// The last hour with a tail of one hour is valid.
 	_, err := FindTransactions(t.Context(), src, TxRange{CaptureID: captureLow, From: maxStart, To: maxStart.Add(time.Minute)},
-		TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}}, fn)
+		TxRangeOptions{Lookup: TxOptions{MaxHours: 1}}, fn)
 	require.NoError(t, err)
 }
 
@@ -698,7 +698,7 @@ func math64Min() int64 { return -1 << 63 }
 
 // FuzzFindTransactionsGenerated runs the check of TestFindTransactionsGenerated on the capture genTxCapture generates from a seed,
 // over the range ctl chooses: whole hours, or cut at points drawn from the seed,
-// with MaxScopes 1 to 3 or the capture's own, and small lookup budgets when ctl asks for them.
+// with MaxHours 1 to 3 or the capture's own, and small lookup budgets when ctl asks for them.
 func FuzzFindTransactionsGenerated(f *testing.F) {
 	for i := range uint64(8) {
 		f.Add(i, uint8(i))
@@ -707,9 +707,9 @@ func FuzzFindTransactionsGenerated(f *testing.F) {
 	f.Fuzz(func(t *testing.T, seed uint64, ctl uint8) {
 		g := genTxCapture(t, seed)
 		snap := newTxSnapshot(t, g.src, captureLow, g.first, g.first+int64(g.hours+txGenHours))
-		opts := TxOptions{MaxScopes: g.maxScopes}
+		opts := TxOptions{MaxHours: g.maxScopes}
 		if n := int(ctl % 4); n > 0 {
-			opts.MaxScopes = n
+			opts.MaxHours = n
 		}
 		if ctl&0x10 != 0 {
 			opts.MaxConflicts, opts.MaxStateBytes = 1, 4<<10

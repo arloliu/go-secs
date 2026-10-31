@@ -56,7 +56,7 @@ func txChargeEvents(b *txBatch, rec *txHourRecord) ([]txChargeEvent, int) {
 		n := txAlign(unsafe.Sizeof(Item{})+unsafe.Sizeof(txItemMeta{})) +
 			int64(len(it.Record.Payload)) + int64(len(it.HeaderExtra)) +
 			txRedactionRecount(it.Redaction)
-		capture := UUID(rec.readers[it.Pack].hdr.CaptureID)
+		capture := UUID(rec.readers[it.Input].hdr.CaptureID)
 		if enumerate && txRangePrimary(b.r.CaptureID, capture, &it.Record, rec.hour, b.fromNs, b.toNs) &&
 			(keyed == 0 || last != it.Record.Seq) {
 			n += int64(unsafe.Sizeof(uint64(0)))
@@ -110,7 +110,7 @@ func txCacheRecount(b *txBatch, rec *txHourRecord) int64 {
 	return n - int64(keyed-len(rec.keys))*int64(unsafe.Sizeof(uint64(0)))
 }
 
-// txFill fills the hour memTestHour of src, with MaxScopes 1 and limit as MaxCachedBytes (0 for the default),
+// txFill fills the hour memTestHour of src, with MaxHours 1 and limit as MaxCachedBytes (0 for the default),
 // and returns the batch, the hour's record, as filled or as it stood when the fill failed (nil when the batch never held it),
 // and the error.
 func txFill(t *testing.T, src PackSource, limit int64) (*txBatch, *txHourRecord, error) {
@@ -119,7 +119,7 @@ func txFill(t *testing.T, src PackSource, limit int64) (*txBatch, *txHourRecord,
 	var batch *txBatch
 	var rec *txHourRecord
 	_, err := findTransactionsWith(t.Context(), src, txBatchHour(0),
-		TxRangeOptions{Lookup: TxOptions{MaxScopes: 1}, MaxCachedBytes: limit}, func(*TxPairing) error { return nil },
+		TxRangeOptions{Lookup: TxOptions{MaxHours: 1}, MaxCachedBytes: limit}, func(*TxPairing) error { return nil },
 		func(b *txBatch) {
 			batch = b
 			b.filled = func(r *txHourRecord) {

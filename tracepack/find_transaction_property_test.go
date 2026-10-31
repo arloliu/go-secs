@@ -68,7 +68,7 @@ type txGen struct {
 	// first is the capture's first hour, and hours the number of hours its records lie in.
 	first int64
 	hours int
-	// keys holds the lookups to run, maxScopes their MaxScopes.
+	// keys holds the lookups to run, maxScopes their MaxHours.
 	keys      []TxKey
 	maxScopes int
 	// rough reports a capture whose packs are now and then damaged, unevaluated or covered (txGen.now);
@@ -1245,7 +1245,7 @@ func (s *txSnapshot) expect(key TxKey, maxScopes int) (TxResult, bool) {
 	x.setKey(&prim.rec)
 	x.k = txOracleKeyOf(&prim.rec)
 	x.res.Records = append(x.res.Records, x.version(first, prim, TxPrimary, false))
-	if prim.rec.Quality.Has(QualityCorrelationIncomplete) {
+	if prim.rec.Quality.HasAny(QualityCorrelationIncomplete) {
 		x.keyGap(TxGapCorrelation)
 	}
 	if !x.k.keyed {
@@ -1289,7 +1289,7 @@ func (x *txExpect) read(sc *txOracleScope) {
 	}
 	x.res.Conflicts = append(x.res.Conflicts, sc.conflicts...)
 	x.res.FooterErrs = append(x.res.FooterErrs, sc.footerErrs...)
-	x.res.Searched = append(x.res.Searched, TxScope{Hour: sc.hour, Packs: sc.packs})
+	x.res.Searched = append(x.res.Searched, TxHour{Hour: sc.hour, Packs: sc.packs})
 }
 
 // gap adds g, its Block -1 unless it names a block of its pack, its Offset -1 unless it is a read defect's.
@@ -1435,7 +1435,7 @@ func (x *txExpect) identity() {
 // bounds reports whether the kept version v bounds the window:
 // a same-key primary, or a closing record without a conflict.
 func (x *txExpect) bounds(v *TxRecord) bool {
-	return v.Record.Seq > x.key.Seq && (v.Class.Has(TxSameKeyPrimary) || v.Class.Has(TxClosing) && !v.Conflict)
+	return v.Record.Seq > x.key.Seq && (v.Class.HasAny(TxSameKeyPrimary) || v.Class.HasAny(TxClosing) && !v.Conflict)
 }
 
 // window finds the window's end, the smallest seq of a version that bounds it,
@@ -1451,7 +1451,7 @@ func (x *txExpect) window() {
 	}
 	for i := range x.res.Records {
 		v := &x.res.Records[i]
-		if seq := v.Record.Seq; x.in(seq) && v.Class.Has(TxPossiblePrimary) && (!x.hasPossible || seq < x.possible) {
+		if seq := v.Record.Seq; x.in(seq) && v.Class.HasAny(TxPossiblePrimary) && (!x.hasPossible || seq < x.possible) {
 			x.possible, x.hasPossible = seq, true
 		}
 	}
@@ -1488,8 +1488,8 @@ func (x *txExpect) flags() {
 		rec := &v.Record
 		v.InWindow = x.in(rec.Seq)
 		v.Bound = x.bounded && rec.Seq == x.e && x.bounds(v)
-		if !v.Class.Has(TxCandidate) {
-			if v.InWindow && v.Class.Has(TxPossibleReply) {
+		if !v.Class.HasAny(TxCandidate) {
+			if v.InWindow && v.Class.HasAny(TxPossibleReply) {
 				x.unavailableGap(v)
 			}
 
@@ -1505,7 +1505,7 @@ func (x *txExpect) flags() {
 		if v.Valid {
 			x.valid++
 		}
-		if v.InWindow && (v.Class.Has(TxPossibleReply) || !v.Eligible || !v.Decidable) {
+		if v.InWindow && (v.Class.HasAny(TxPossibleReply) || !v.Eligible || !v.Decidable) {
 			x.unavailableGap(v)
 		}
 	}
@@ -1584,7 +1584,7 @@ func (x *txExpect) captureBoundaries() {
 func (x *txExpect) orderingUncertain() {
 	for _, sc := range x.reads {
 		for _, it := range sc.own(x.key.CaptureID) {
-			if it.rec.Epoch == x.k.epoch && it.rec.Quality.Has(QualityOrderingUncertain) {
+			if it.rec.Epoch == x.k.epoch && it.rec.Quality.HasAny(QualityOrderingUncertain) {
 				x.gap(TxGap{
 					Reason: TxGapOrderingUncertain, Hours: []int64{sc.hour}, Pack: new(sc.packs[it.pack]), Block: it.block,
 					Seq: new(it.rec.Seq),
@@ -1721,10 +1721,10 @@ func TestFindTransactionGeneratedMutations(t *testing.T) {
 
 			rejected := 0
 			for i, g := range gens {
-				opts := TxOptions{MaxScopes: g.maxScopes}
+				opts := TxOptions{MaxHours: g.maxScopes}
 				for _, key := range g.keys {
 					res, err := findTransactionWith(t.Context(), g.src, key, opts, m.mutate)
-					want, notPrimary := snaps[i].expect(key, opts.MaxScopes)
+					want, notPrimary := snaps[i].expect(key, opts.MaxHours)
 					if !txExpected(want, notPrimary, res, err) {
 						rejected++
 					}
@@ -1776,7 +1776,7 @@ func (s *txGenStats) add(key TxKey, res *TxResult, err error) {
 	}
 	for _, v := range res.Records {
 		for bit := TxPrimary; bit <= TxOutcomeRecord; bit <<= 1 {
-			if v.Class.Has(bit) {
+			if v.Class.HasAny(bit) {
 				s.classes[bit]++
 			}
 		}
@@ -1829,7 +1829,7 @@ func TestFindTransactionGenerated(t *testing.T) {
 			g := genTxCapture(t, seed)
 			var stats txGenStats
 			stats.outcomes, stats.gaps, stats.classes = map[TxOutcome]int{}, map[TxGapReason]int{}, map[TxClass]int{}
-			checkGeneratedTx(t, g, TxOptions{MaxScopes: g.maxScopes}, &stats)
+			checkGeneratedTx(t, g, TxOptions{MaxHours: g.maxScopes}, &stats)
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -1932,15 +1932,15 @@ func checkGeneratedTx(t *testing.T, g *txGen, opts TxOptions, stats *txGenStats)
 		var l *txLookup
 		res, err := findTransactionWith(t.Context(), g.src, key, opts, func(lk *txLookup) { l = lk })
 		requireStateRecount(t, l)
-		want, notPrimary := snap.expect(key, opts.MaxScopes)
+		want, notPrimary := snap.expect(key, opts.MaxHours)
 		requireTxExpected(t, want, notPrimary, res, err)
-		require.Empty(t, tr.violations(key, opts.MaxScopes, &res, txLookupRuns(l)), "the safety check")
+		require.Empty(t, tr.violations(key, opts.MaxHours, &res, txLookupRuns(l)), "the safety check")
 		stats.add(key, &res, err)
 	}
 }
 
 // FuzzFindTransactionGenerated looks up every record of the capture genTxCapture generates from a seed,
-// with MaxScopes 1 to 3 as the control byte chooses, or the capture's own for 0,
+// with MaxHours 1 to 3 as the control byte chooses, or the capture's own for 0,
 // so that mutations explore valid captures, and requires every lookup to pass both checks (checkGeneratedTx).
 func FuzzFindTransactionGenerated(f *testing.F) {
 	for i := range uint64(8) {
@@ -1949,9 +1949,9 @@ func FuzzFindTransactionGenerated(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, seed uint64, ctl uint8) {
 		g := genTxCapture(t, seed)
-		opts := TxOptions{MaxScopes: g.maxScopes}
+		opts := TxOptions{MaxHours: g.maxScopes}
 		if n := int(ctl % 4); n > 0 {
-			opts.MaxScopes = n
+			opts.MaxHours = n
 		}
 		stats := txGenStats{outcomes: map[TxOutcome]int{}, gaps: map[TxGapReason]int{}, classes: map[TxClass]int{}}
 		checkGeneratedTx(t, g, opts, &stats)
@@ -1960,7 +1960,7 @@ func FuzzFindTransactionGenerated(f *testing.F) {
 
 // Bits of the control byte of FuzzFindTransaction.
 const (
-	// fuzzTxScopesShift places the two bits that choose MaxScopes, 1 to 3, or 2 for 3.
+	// fuzzTxScopesShift places the two bits that choose MaxHours, 1 to 3, or 2 for 3.
 	fuzzTxScopesShift = 3
 	// fuzzTxSmallState sets MaxStateBytes to 4 KiB, and fuzzTxOneConflict MaxConflicts to 1.
 	fuzzTxSmallState  = 1 << 5
@@ -1992,7 +1992,7 @@ func fuzzTxSeeds(t testing.TB) []fuzzTxInput {
 		in.ctl = uint8(seed) << fuzzTxScopesShift
 		out = append(out, in)
 	}
-	// MaxScopes 2.
+	// MaxHours 2.
 	ctl := uint8(1 << fuzzTxScopesShift)
 	breach := txBreachPack(t, seg0, 0, false, inHours(1, txBlock(txRecord(12, nil), txReply(13, nil))))
 	answered := txPack(t, seg0, nil, txBlock(txRecord(13, nil), txReply(14, nil)))
@@ -2053,7 +2053,7 @@ func FuzzFindTransaction(f *testing.F) {
 		if len(ids) == 0 {
 			return
 		}
-		opts := TxOptions{MaxScopes: 1 + int(ctl>>fuzzTxScopesShift&3)%3}
+		opts := TxOptions{MaxHours: 1 + int(ctl>>fuzzTxScopesShift&3)%3}
 		if ctl&fuzzTxSmallState != 0 {
 			opts.MaxStateBytes = 4 << 10
 		}
@@ -2106,7 +2106,7 @@ func requireTxInvariants(t *testing.T, s *memSource, key TxKey, opts TxOptions) 
 	res, err := findTransactionWith(t.Context(), s, key, opts, func(lk *txLookup) { l = lk })
 	for h, n := range s.counts() {
 		require.LessOrEqual(t, n-calls0[h], 1, "hour %d read at most once", h)
-		require.True(t, h >= key.Hour && h < key.Hour+int64(max(opts.MaxScopes, 1)), "hour %d read", h)
+		require.True(t, h >= key.Hour && h < key.Hour+int64(max(opts.MaxHours, 1)), "hour %d read", h)
 	}
 	if l != nil {
 		requireStateRecount(t, l)
@@ -2131,7 +2131,7 @@ func requireTxInvariants(t *testing.T, s *memSource, key TxKey, opts TxOptions) 
 		in := seq > key.Seq && (res.WindowEnd == nil || seq < *res.WindowEnd)
 		require.Equal(t, in, v.InWindow, "record %d in the window", i)
 		require.False(t, v.Bound && (res.WindowEnd == nil || seq != *res.WindowEnd), "record %d bounds the window at its end only", i)
-		require.False(t, !v.Class.Has(TxCandidate) && (v.Decidable || v.Eligible || v.Valid), "record %d has flags of a candidate", i)
+		require.False(t, !v.Class.HasAny(TxCandidate) && (v.Decidable || v.Eligible || v.Valid), "record %d has flags of a candidate", i)
 		require.False(t, v.Valid && (!v.Eligible || !v.Decidable), "record %d valid but not eligible and decidable", i)
 		require.False(t, v.Eligible && !v.InWindow, "record %d eligible outside the window", i)
 	}

@@ -783,7 +783,7 @@ func TestMergeProperties(t *testing.T) {
 				t.Parallel()
 
 				opts := tt.opts
-				if opts.Writer == "" {
+				if opts.WriterTag == "" {
 					opts = mergeOpts()
 				}
 				opts.Uncompressed, opts.NoCoalesce, opts.BlockThreshold = o.codec == CodecNone, o.noCoalesce, o.threshold
@@ -1386,7 +1386,7 @@ func FuzzMerge(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, a, b []byte, ctl uint8) {
-		opts := fuzzOptions(MergeOptions{Reader: fuzzMergeReader, Writer: "fuzz", ScopeGeneration: 1, PublisherEpoch: 1}, ctl)
+		opts := fuzzOptions(MergeOptions{Reader: fuzzMergeReader, WriterTag: "fuzz", ScopeGeneration: 1, PublisherEpoch: 1}, ctl)
 		// Inputs that fail Open too: the inputs are opened as one after another would open them.
 		var raw [][]byte
 		for _, data := range [][]byte{a, b} {

@@ -75,9 +75,16 @@ const (
 	recordFlagMonoPresent recordFlagSet = 1 << 1
 )
 
-// Has reports whether any bit set in bit is also set in q.
-func (q Quality) Has(bit Quality) bool {
-	return q&bit != 0
+// HasAny reports whether any bit set in bits is also set in q.
+// HasAny(0) is false.
+func (q Quality) HasAny(bits Quality) bool {
+	return q&bits != 0
+}
+
+// HasAll reports whether every bit set in bits is also set in q.
+// HasAll(0) is true.
+func (q Quality) HasAll(bits Quality) bool {
+	return q&bits == bits
 }
 
 // Names returns the tracepack format specification's names for q's set bits, in ascending bit order.
@@ -97,7 +104,7 @@ func (q Quality) Names() []string {
 		{QualityRedacted, "redacted"},
 		{QualityUnobserved, "unobserved"},
 	} {
-		if q.Has(b.bit) {
+		if q.HasAny(b.bit) {
 			names = append(names, b.name)
 		}
 	}
@@ -110,9 +117,16 @@ func (q Quality) String() string {
 	return strings.Join(q.Names(), "|")
 }
 
-// Has reports whether any bit set in bit is also set in v.
-func (v FieldValidity) Has(bit FieldValidity) bool {
-	return v&bit != 0
+// HasAny reports whether any bit set in bits is also set in v.
+// HasAny(0) is false.
+func (v FieldValidity) HasAny(bits FieldValidity) bool {
+	return v&bits != 0
+}
+
+// HasAll reports whether every bit set in bits is also set in v.
+// HasAll(0) is true.
+func (v FieldValidity) HasAll(bits FieldValidity) bool {
+	return v&bits == bits
 }
 
 // Names returns the tracepack format specification's names for v's set bits, in ascending bit order.
@@ -132,7 +146,7 @@ func (v FieldValidity) Names() []string {
 		{FieldValiditySType, "stype"},
 		{FieldValiditySystemBytes, "system_bytes"},
 	} {
-		if v.Has(b.bit) {
+		if v.HasAny(b.bit) {
 			names = append(names, b.name)
 		}
 	}

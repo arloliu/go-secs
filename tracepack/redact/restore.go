@@ -98,7 +98,7 @@ func checkRestorable(r *tracepack.Record, rr *tracepack.RecordRedaction) error {
 		return fmt.Errorf("%w: seq %d is wholly masked: %w", tracepack.ErrRedactionDefect, r.Seq, rr.Defects[0].Err)
 	case rr.WhollyMasked:
 		return fmt.Errorf("%w: seq %d is wholly masked", tracepack.ErrRedactionDefect, r.Seq)
-	case len(rr.Entries) == 0 && !r.Quality.Has(tracepack.QualityRedacted):
+	case len(rr.Entries) == 0 && !r.Quality.HasAny(tracepack.QualityRedacted):
 		return fmt.Errorf("%w: seq %d is not masked", ErrNotRestorable, r.Seq)
 	}
 
@@ -162,5 +162,5 @@ func markingRecord(r *tracepack.Record) marking.Record {
 		kind = marking.KindAnnotation
 	}
 
-	return marking.Record{Seq: r.Seq, Kind: kind, Redacted: r.Quality.Has(tracepack.QualityRedacted), Payload: r.Payload}
+	return marking.Record{Seq: r.Seq, Kind: kind, Redacted: r.Quality.HasAny(tracepack.QualityRedacted), Payload: r.Payload}
 }

@@ -116,7 +116,7 @@ func (c *candidate) item(q *Query, it *Item) uint8 {
 	if !q.Payloads {
 		rec.Payload = nil
 	}
-	it.HeaderExtra, it.Pack, it.Block, it.Conflict, it.Redaction = h.Extra, c.h.pack, c.h.block, c.conflict, nil
+	it.HeaderExtra, it.Input, it.Block, it.Conflict, it.Redaction = h.Extra, c.h.pack, c.h.block, c.conflict, nil
 
 	return h.RecordFlags
 }

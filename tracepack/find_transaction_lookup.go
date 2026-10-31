@@ -233,7 +233,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64) (*txScopeRead, err
 
 // captureOf returns the capture_id of the pack of item it, which the read rd yielded.
 func captureOf(rd *txScopeRead, it *Item) UUID {
-	return UUID(rd.readers[it.Pack].hdr.CaptureID)
+	return UUID(rd.readers[it.Input].hdr.CaptureID)
 }
 
 // reserveConflict reserves one conflict of the lookup against opts.MaxConflicts.
@@ -296,7 +296,7 @@ func (l *txLookup) mapScope(ctx context.Context, rd *txScopeRead, completed bool
 		l.res.Conflicts = append(l.res.Conflicts, cloneConflict(&rd.res.Conflicts[i]))
 	}
 	if completed {
-		l.res.Searched = append(l.res.Searched, TxScope{Hour: rd.hour, Packs: rd.packs})
+		l.res.Searched = append(l.res.Searched, TxHour{Hour: rd.hour, Packs: rd.packs})
 	}
 
 	return nil
@@ -469,7 +469,7 @@ func keepVersion(rd *txScopeRead, it *Item, class TxClass) TxRecord {
 	rec.Payload = bytes.Clone(rec.Payload)
 
 	return TxRecord{
-		Record: rec, HeaderExtra: bytes.Clone(it.HeaderExtra), Hour: rd.hour, Pack: rd.packs[it.Pack], Block: it.Block,
+		Record: rec, HeaderExtra: bytes.Clone(it.HeaderExtra), Hour: rd.hour, Pack: rd.packs[it.Input], Block: it.Block,
 		Conflict: it.Conflict, Class: class,
 	}
 }

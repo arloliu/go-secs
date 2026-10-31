@@ -361,7 +361,7 @@ func TestFindTransactionReusesPooledBuffers(t *testing.T) {
 				}
 				lookup := func(pool *loanBufs, key TxKey, limit int64) (txStrictForm, []string) {
 					res, err := FindTransaction(t.Context(), optsSource{src: g.src, opts: ropts, pool: pool}, key,
-						TxOptions{MaxScopes: g.maxScopes, MaxHeldBytes: limit})
+						TxOptions{MaxHours: g.maxScopes, MaxHeldBytes: limit})
 					pool.requireSettled(t, -1)
 
 					return strictForm(&res), txErrSnapshot(&res, err)
@@ -370,7 +370,7 @@ func TestFindTransactionReusesPooledBuffers(t *testing.T) {
 				least := func(key TxKey) int64 {
 					refused := func(limit int64) bool {
 						_, err := FindTransaction(t.Context(), optsSource{src: g.src, opts: ropts, pool: &loanBufs{}}, key,
-							TxOptions{MaxScopes: g.maxScopes, MaxHeldBytes: limit})
+							TxOptions{MaxHours: g.maxScopes, MaxHeldBytes: limit})
 
 						return errors.Is(err, ErrReadLimit)
 					}
@@ -695,7 +695,7 @@ func TestFindTransactionsCacheOwnsItsRecords(t *testing.T) {
 
 			g := genTxCapture(t, seed)
 			rng := TxRange{CaptureID: captureLow, From: time.Unix(0, g.first*hourNs), To: time.Unix(0, (g.first+int64(g.hours))*hourNs)}
-			opts := TxRangeOptions{Lookup: TxOptions{MaxScopes: g.maxScopes}}
+			opts := TxRangeOptions{Lookup: TxOptions{MaxHours: g.maxScopes}}
 			run := func(pool *loanBufs, poison bool) ([]TxPairing, TxRangeResult, string) {
 				var got []TxPairing
 				res, err := FindTransactions(t.Context(), poolSource{PackSource: g.src, pool: pool}, rng, opts, func(p *TxPairing) error {

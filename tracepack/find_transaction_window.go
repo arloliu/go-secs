@@ -311,7 +311,7 @@ func (s *txRuns) contains(seq uint64) bool {
 // Returns:
 //   - error: the error of a read, wrapped with its hour; ctx's error, wrapped; the error of the evaluation.
 func (l *txLookup) searchWindow(ctx context.Context) error {
-	for i := 1; i < l.opts.MaxScopes; i++ {
+	for i := 1; i < l.opts.MaxHours; i++ {
 		rd, err := l.readScope(ctx, l.key.Hour+int64(i))
 		if rd != nil {
 			if cerr := l.commitRead(ctx, rd); cerr != nil && err == nil {
@@ -414,7 +414,7 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 func (l *txLookup) noteBreach(ctx context.Context, rd *txScopeRead, it *Item) error {
 	rec := &it.Record
 	if err := l.addGap(ctx, TxGap{
-		Reason: TxGapScopeBreach, Hours: []int64{rd.hour}, Pack: new(rd.packs[it.Pack]), Block: it.Block, Offset: -1,
+		Reason: TxGapScopeBreach, Hours: []int64{rd.hour}, Pack: new(rd.packs[it.Input]), Block: it.Block, Offset: -1,
 		Seq: new(rec.Seq), Err: fmt.Errorf("the record of seq %d of capture %s lies in hour %d, outside the hour read",
 			rec.Seq, captureOf(rd, it), hourOf(rec.TSUTCNs)),
 	}); err != nil {
@@ -448,7 +448,7 @@ func (l *txLookup) noteOrderingUncertain(rd *txScopeRead, it *Item) error {
 
 // seenAt returns where the read rd yielded it.
 func seenAt(rd *txScopeRead, it *Item) txSeen {
-	return txSeen{hour: rd.hour, seq: it.Record.Seq, pack: rd.packs[it.Pack], block: it.Block}
+	return txSeen{hour: rd.hour, seq: it.Record.Seq, pack: rd.packs[it.Input], block: it.Block}
 }
 
 // beginGroup starts the seq group of it, the first version of its seq in this stretch of the read rd:

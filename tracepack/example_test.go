@@ -323,7 +323,7 @@ func ExampleFindTransactions() {
 	res, err := tracepack.FindTransactions(ctx, src, tracepack.TxRange{CaptureID: capture, From: from, To: from.Add(time.Hour)},
 		tracepack.TxRangeOptions{}, func(p *tracepack.TxPairing) error {
 			for _, v := range p.Result.Records {
-				if v.Class.Has(tracepack.TxPrimary) {
+				if v.Class.HasAny(tracepack.TxPrimary) {
 					hdr := v.Record.HSMSHeader()
 					fmt.Printf("S%dF%d: %v\n", hdr.Stream, hdr.Function, p.Result.Outcome)
 
@@ -368,7 +368,7 @@ func ExampleMergeIterate() {
 	res, err := tracepack.MergeIterate(ctx, readers, tracepack.Query{}, opts, func(it *tracepack.Item) error {
 		rec := &it.Record
 		at := time.Unix(0, rec.TSUTCNs).UTC().Format(time.TimeOnly)
-		fmt.Println(at, "seq", rec.Seq, rec.Kind, "from segment", it.Pack)
+		fmt.Println(at, "seq", rec.Seq, rec.Kind, "from segment", it.Input)
 
 		return nil
 	})

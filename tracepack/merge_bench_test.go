@@ -66,7 +66,7 @@ func BenchmarkMergeCoalesce(b *testing.B) {
 		}{{"coalesce", false}, {"nocoalesce", true}} {
 			b.Run(profile.name+"/"+mode.name, func(b *testing.B) {
 				opts := MergeOptions{
-					Writer: "bench", ScopeGeneration: 1, PublisherEpoch: 1, NoCoalesce: mode.noCoalesce,
+					WriterTag: "bench", ScopeGeneration: 1, PublisherEpoch: 1, NoCoalesce: mode.noCoalesce,
 					OnConflict: func(Conflict) {},
 				}
 				b.SetBytes(perfContentBytes(recs))

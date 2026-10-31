@@ -68,7 +68,7 @@ func TestFindTransactionCrashGaps(t *testing.T) {
 			s := txSource(t,
 				txPack(t, seg0, nil, txBlock(txRecord(12, edit), txReply(13, nil), txSocketClose(t, 14))),
 				txCrashPack(t, seg2, 0, tt.from, tt.to, tt.walked))
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 2})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 2})
 			require.NoError(t, err)
 			var want []string
 			switch {
@@ -110,7 +110,7 @@ func TestFindTransactionCrashGapsOnce(t *testing.T) {
 	s := txHours(t,
 		[][]byte{answered, txCrashPack(t, seg2, 0, new(h+100), new(h+200), false)},
 		[][]byte{txCrashPack(t, seg3, 1, new(h+100), new(h+200), false)})
-	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 2})
+	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 2})
 	require.NoError(t, err)
 	assert.Equal(t, TxMatched, res.Outcome)
 	assert.Equal(t, []TxGapReason{TxGapScopeBreach, TxGapCrashGap}, gapReasons(res.Incomplete),
@@ -121,7 +121,7 @@ func TestFindTransactionCrashGapsOnce(t *testing.T) {
 	s = txSource(t, answered,
 		txCrashPack(t, seg2, 0, new(h+100), new(h+200), false),
 		txCrashPack(t, seg3, 0, new(h+100), new(h+300), false))
-	res, err = findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+	res, err = findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 1})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"crash-gap", "crash-gap"}, gapSeqs(res.Incomplete))
 	assert.Equal(t, new(h+200), res.Incomplete[0].Boundary.GapEnd)
@@ -153,7 +153,7 @@ func TestFindTransactionCrashGapExplainsMissingPrimary(t *testing.T) {
 			t.Parallel()
 
 			s := txSource(t, txPack(t, seg0, nil, txBlock(txSeqs(11, 13)...)), tt.crash)
-			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 2})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxHours: 2})
 			requireOneScopeRead(t, s)
 			if !tt.explained {
 				require.ErrorIs(t, err, ErrNotPrimary)

@@ -548,7 +548,7 @@ func (r *Reader) Header() *PackHeader {
 // Returns:
 //   - bool: true when rec carries bit 7 in a pack of minor 1 or later; false for a nil rec.
 func (r *Reader) Unobserved(rec *Record) bool {
-	return rec != nil && r.hdr.FormatMinor >= 1 && rec.Quality.Has(QualityUnobserved)
+	return rec != nil && r.hdr.FormatMinor >= 1 && rec.Quality.HasAny(QualityUnobserved)
 }
 
 // Blocks returns a copy of the pack's block index, in file order.

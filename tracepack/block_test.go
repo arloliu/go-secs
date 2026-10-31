@@ -324,7 +324,7 @@ func TestBoundaryBitMakesNoBoundaryRecord(t *testing.T) {
 	raw, sum, err := encodeRawBlock(&encodeBuf{}, CodecZstd, CompressionDefault, format.RecordHeaderLen, rows, payloads)
 	require.NoError(t, err)
 	assert.Empty(t, sum.boundaries)
-	assert.True(t, sum.qualityUnion.Has(QualityCaptureBoundary))
+	assert.True(t, sum.qualityUnion.HasAny(QualityCaptureBoundary))
 	require.Len(t, sum.epochs, 2)
 	assert.Equal(t, epochSummary{
 		epoch: 1, recordCount: 2, seqFirst: 0, seqLast: 1, tsMin: blockTestHour, tsMax: blockTestHour + 1,
@@ -350,10 +350,10 @@ func TestBoundaryBitMakesNoBoundaryRecord(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, idx.blocks, 1)
 	assert.Empty(t, idx.blocks[0].boundaries, "F-3 boundary entries")
-	assert.True(t, idx.blocks[0].qualityUnion.Has(QualityCaptureBoundary), "F-3 quality_union")
+	assert.True(t, idx.blocks[0].qualityUnion.HasAny(QualityCaptureBoundary), "F-3 quality_union")
 	st := footerStats(t, decoded)
 	assert.Empty(t, st.boundaries, "F-5 boundary entries")
-	assert.True(t, st.qualityUnion.Has(QualityCaptureBoundary), "F-5 quality_union")
+	assert.True(t, st.qualityUnion.HasAny(QualityCaptureBoundary), "F-5 quality_union")
 }
 
 func TestWriterRecordsBlockSummaries(t *testing.T) {

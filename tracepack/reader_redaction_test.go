@@ -162,7 +162,7 @@ func mergeMarkings(t *testing.T, readers []*Reader, payloads bool) map[uint64]me
 	for _, order := range orders {
 		got := map[uint64]mergedRedaction{}
 		res, err := MergeIterate(t.Context(), readers, Query{Payloads: payloads}, MergeIterateOptions{Order: order}, func(it *Item) error {
-			got[it.Record.Seq] = mergedRedaction{pack: it.Pack, redaction: it.Redaction}
+			got[it.Record.Seq] = mergedRedaction{pack: it.Input, redaction: it.Redaction}
 
 			return nil
 		})

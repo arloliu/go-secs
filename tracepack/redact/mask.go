@@ -100,13 +100,13 @@ func (c *Compiled) Mask(
 	ctx context.Context, capture tracepack.UUID, r *tracepack.Record, unobserved bool, keys Keys,
 ) (tracepack.Record, []tracepack.RedactionEntry, error) {
 	if unobserved {
-		if !r.Quality.Has(tracepack.QualityUnobserved) {
+		if !r.Quality.HasAny(tracepack.QualityUnobserved) {
 			return tracepack.Record{}, nil, fmt.Errorf("seq %d: %w", r.Seq, ErrNotUnobserved)
 		}
 
 		return *r, nil, nil
 	}
-	if r.Quality.Has(tracepack.QualityRedacted) {
+	if r.Quality.HasAny(tracepack.QualityRedacted) {
 		return tracepack.Record{}, nil, fmt.Errorf("seq %d: %w", r.Seq, ErrRedacted)
 	}
 

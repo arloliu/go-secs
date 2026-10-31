@@ -99,7 +99,7 @@ func TestMergeIterateConsecutiveVersions(t *testing.T) {
 }
 
 // TestMergeIteratePackIndexesReaders reads packs given out of pack_id order, one with a corrupt block:
-// Item.Pack and Defect.Pack index the readers given,
+// Item.Input and Defect.Pack index the readers given,
 // so readers[i].Header().PackID is the pack_id of the pack holding a record or a defect.
 func TestMergeIteratePackIndexesReaders(t *testing.T) {
 	t.Parallel()

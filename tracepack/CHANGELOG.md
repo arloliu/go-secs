@@ -10,6 +10,8 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - `MergeOptions.MaxParallelOpens`, with `DefaultMaxParallelOpens` (16), bounds how many inputs `Merge` opens at once (G5-278);
   1 opens them one after another, as earlier versions did.
 - `DefaultMaxOpenBlocks` (64) names the `MergeOptions.MaxOpenBlocks` that zero selects (G5-283); the default is unchanged.
+- `Quality.HasAll`, `FieldValidity.HasAll` and `TxClass.HasAll` report whether every bit of the argument is set (G5-287);
+  `HasAll(0)` is true, and `HasAny(0)` false.
 - `ErrRefused` marks an error that a writing call's own arguments, options or records determine (G5-286),
   so the same call with the same input fails the same way:
   `NewWriter`, `Writer.Append`, `Flush` and `Close`, `WriteClose`, `NewSegmentWriter`,
@@ -104,6 +106,22 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   0 writes the record earlier versions wrote.
   Migration: append `, 0` to every `AppendFrame` call, such as tracekeep's in `internal/sim/replay_test.go`;
   veq does not call it.
+- **Breaking:** Go names that read as something else at a call site are renamed (G5-287).
+  `String()` values, JSONL names, the corpus and every other error text are unchanged.
+  `Item.Pack`, the index of the record's reader, becomes `Item.Input`,
+  so it no longer shares a name with `TxRecord.Pack`, a pack_id;
+  `Defect.Pack` and `PackError.Pack` keep their names.
+  `MergeOptions.Writer`, the archive's writer tag, becomes `MergeOptions.WriterTag`,
+  and the error for an empty one reads `MergeOptions.WriterTag is empty`.
+  `Quality.Has`, `FieldValidity.Has` and `TxClass.Has`, which report whether any bit of the argument is set, become `HasAny`, with the same result.
+  The transaction lookup names its unit as the hour it is:
+  `TxOptions.MaxScopes` becomes `MaxHours`, `DefaultTxMaxScopes` becomes `DefaultTxMaxHours`,
+  and `TxScope`, the type of `TxResult.Searched`, becomes `TxHour`;
+  the error refusing a negative `MaxHours` names the field by its new name.
+  Migration: rename as listed;
+  tracekeep writes `WriterTag:` in the `MergeOptions` of `internal/compact/merge.go`
+  and `Quality.HasAny` wherever it called `Quality.Has`;
+  veq uses none of these names.
 - A `ReadAt` that panics in one of `Open`'s concurrent bootstrap reads makes `Open` panic on its caller with that value, once the round's calls returned;
   it used to end the process from a goroutine of its own.
 

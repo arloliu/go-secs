@@ -13,8 +13,8 @@ import (
 
 // Default TxOptions values, which a zero field takes.
 const (
-	// DefaultTxMaxScopes is the default TxOptions.MaxScopes: the primary's hour and the next.
-	DefaultTxMaxScopes = 2
+	// DefaultTxMaxHours is the default TxOptions.MaxHours: the primary's hour and the next.
+	DefaultTxMaxHours = 2
 	// DefaultTxMaxStateBytes is the default TxOptions.MaxStateBytes: 64 MiB.
 	DefaultTxMaxStateBytes = 64 << 20
 )
@@ -140,9 +140,9 @@ func TxKeyOf(captureID UUID, seq uint64, ts time.Time) TxKey {
 
 // TxOptions configures FindTransaction.
 type TxOptions struct {
-	// MaxScopes is the number of hours scheduled from TxKey.Hour on, empty hours included, each read once;
-	// zero means DefaultTxMaxScopes; a negative value is refused.
-	MaxScopes int
+	// MaxHours is the number of hours scheduled from TxKey.Hour on, empty hours included, each read once;
+	// zero means DefaultTxMaxHours; a negative value is refused.
+	MaxHours int
 	// MaxHeldBytes bounds the block buffers each hour's read holds at once, as MergeIterateOptions.MaxHeldBytes does,
 	// outside of which the bootstrap bytes each Reader retains lie;
 	// zero means DefaultMaxHeldBytes; a negative value is refused.
@@ -253,8 +253,8 @@ type TxGap struct {
 	Err error
 }
 
-// TxScope is one hour a transaction lookup read to its end.
-type TxScope struct {
+// TxHour is one hour a transaction lookup read to its end.
+type TxHour struct {
 	// Hour is the UTC hour.
 	Hour int64
 	// Packs holds the pack_ids of the packs the source gave for the hour, of any capture, in the order given.
@@ -305,7 +305,7 @@ type TxResult struct {
 	// the lookup is complete when it is empty.
 	Incomplete []TxGap
 	// Searched holds the hours read to their end, in the order read.
-	Searched []TxScope
+	Searched []TxHour
 	// Conflicts holds the conflicts each hour's read listed, of any capture, in read order;
 	// only those on a seq of the primary's capture at or above the primary's make the lookup incomplete.
 	Conflicts []Conflict
@@ -318,7 +318,7 @@ type TxResult struct {
 // TxMatched, TxAmbiguous or TxNotFound,
 // with the records it kept, the conflicts, and every reason it is incomplete, beside the hours it searched.
 //
-// It reads hour key.Hour and each following hour of [key.Hour, key.Hour + MaxScopes), the hours scheduled, once each,
+// It reads hour key.Hour and each following hour of [key.Hour, key.Hour + MaxHours), the hours scheduled, once each,
 // every one of them even after the window is closed,
 // since a later hour can hold another version of a window seq or a smaller bound.
 // Each hour's read is one MergeIterate in capture order, without a filter, over every pack src gives for the hour, of any capture.
@@ -365,7 +365,7 @@ type TxResult struct {
 //     Searched lists only hours read to their end.
 //   - error: an error wrapping ErrInvalidQuery, before anything is read:
 //     for a nil src, a zero key.CaptureID, a key.Seq above 2^63-1, a key.Hour outside [MinTxHour, MaxTxHour],
-//     a negative field of opts, or a last hour key.Hour + MaxScopes - 1 above MaxTxHour;
+//     a negative field of opts, or a last hour key.Hour + MaxHours - 1 above MaxTxHour;
 //     ErrNotPrimary;
 //     an error of src, wrapped with the hour; an error for a nil reader src gives;
 //     the error of an hour's MergeIterate, an error wrapping ErrInvalidQuery for a Reader or pack_id src gives twice among them;
@@ -414,8 +414,8 @@ func lookupHours(ctx context.Context, hours txHourSource, key TxKey, opts TxOpti
 //
 // It checks, in this order: src is not nil; key.CaptureID is not zero; key.Seq is a seq the format allows;
 // key.Hour lies in [MinTxHour, MaxTxHour]; no field of opts is negative;
-// then, MaxScopes defaulted, the last hour scheduled, key.Hour + MaxScopes - 1, is not above MaxTxHour,
-// compared without overflow as MaxScopes - 1 > MaxTxHour - key.Hour.
+// then, MaxHours defaulted, the last hour scheduled, key.Hour + MaxHours - 1, is not above MaxTxHour,
+// compared without overflow as MaxHours - 1 > MaxTxHour - key.Hour.
 //
 // Returns:
 //   - TxOptions: opts with every zero field defaulted, MaxHeldBytes and MaxConflicts as MergeIterate defaults them.
@@ -436,12 +436,12 @@ func checkFindTransaction(src PackSource, key TxKey, opts TxOptions) (TxOptions,
 	if msg := negativeOption("TxOptions", opts.budgets()...); msg != "" {
 		return opts, fmt.Errorf("%w: %s", ErrInvalidQuery, msg)
 	}
-	if opts.MaxScopes <= 0 {
-		opts.MaxScopes = DefaultTxMaxScopes
+	if opts.MaxHours <= 0 {
+		opts.MaxHours = DefaultTxMaxHours
 	}
-	// key.Hour <= MaxTxHour, so MaxTxHour - key.Hour cannot overflow, and MaxScopes - 1 >= 0 fits an int64.
-	if int64(opts.MaxScopes-1) > MaxTxHour-key.Hour {
-		return opts, fmt.Errorf("%w: %d scopes from hour %d pass hour %d", ErrInvalidQuery, opts.MaxScopes, key.Hour, MaxTxHour)
+	// key.Hour <= MaxTxHour, so MaxTxHour - key.Hour cannot overflow, and MaxHours - 1 >= 0 fits an int64.
+	if int64(opts.MaxHours-1) > MaxTxHour-key.Hour {
+		return opts, fmt.Errorf("%w: %d scopes from hour %d pass hour %d", ErrInvalidQuery, opts.MaxHours, key.Hour, MaxTxHour)
 	}
 	if opts.MaxHeldBytes <= 0 {
 		opts.MaxHeldBytes = DefaultMaxHeldBytes
@@ -473,9 +473,16 @@ func (o TxOutcome) String() string {
 	}
 }
 
-// Has reports whether any bit set in bit is also set in c.
-func (c TxClass) Has(bit TxClass) bool {
-	return c&bit != 0
+// HasAny reports whether any bit set in bits is also set in c.
+// HasAny(0) is false.
+func (c TxClass) HasAny(bits TxClass) bool {
+	return c&bits != 0
+}
+
+// HasAll reports whether every bit set in bits is also set in c.
+// HasAll(0) is true.
+func (c TxClass) HasAll(bits TxClass) bool {
+	return c&bits == bits
 }
 
 // Names returns the names of c's defined bits, in ascending bit order:
@@ -565,7 +572,7 @@ func (e TxPackError) Unwrap() error {
 // budgets returns the budget fields of o, each refused when negative, in declaration order.
 func (o TxOptions) budgets() []optionField {
 	return []optionField{
-		{"MaxScopes", int64(o.MaxScopes)},
+		{"MaxHours", int64(o.MaxHours)},
 		{"MaxHeldBytes", o.MaxHeldBytes},
 		{"MaxConflicts", int64(o.MaxConflicts)},
 		{"MaxStateBytes", o.MaxStateBytes},
