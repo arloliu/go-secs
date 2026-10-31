@@ -1,10 +1,13 @@
 package tracepack
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"math"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -252,10 +255,8 @@ func TestSegmentWriterRepresentableNow(t *testing.T) {
 				assert.Equal(t, 1, sink.aborts(), "the open segment aborted")
 				assert.Empty(t, sink.keys, "nothing published")
 				calls := sink.calls
-				again := w.Close(t.Context())
-				require.ErrorIs(t, again, ErrInvalidRecord)
-				assert.Equal(t, err.Error(), again.Error(), "a second Close returns the same failure")
-				assert.Equal(t, calls, sink.calls)
+				requireFailedClose(t, w, err)
+				assert.Equal(t, calls, sink.calls, "a second Close makes no sink call")
 				sink.noMisuse(t)
 
 				return
@@ -460,9 +461,7 @@ func TestSegmentWriterSeqCapacity(t *testing.T) {
 
 	err := w.Close(t.Context())
 	require.ErrorIs(t, err, ErrSeqOrder, "no seq left for stop")
-	again := w.Close(t.Context())
-	assert.Equal(t, err.Error(), again.Error(), "a second Close returns the same failure")
-	assert.NotErrorIs(t, again, ErrRefused, "a second Close reports the prior state")
+	requireFailedClose(t, w, err, ErrSeqOrder)
 	require.ErrorIs(t, w.Rotate(t.Context()), ErrWriterFailed)
 	sink.noMisuse(t)
 	assert.Zero(t, sink.aborts())
@@ -577,7 +576,7 @@ func TestSegmentWriterCancellation(t *testing.T) {
 
 			calls := sink.calls
 			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0), ErrWriterFailed)
-			assert.Equal(t, err, w.Close(t.Context()), "Close returns the failure")
+			requireFailedClose(t, w, err)
 			assert.Equal(t, calls, sink.calls, "no sink call after the failure")
 		})
 	}
@@ -620,7 +619,7 @@ func TestSegmentWriterCancellationWithinSegment(t *testing.T) {
 
 			before := sink.calls
 			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(2*time.Second), DirHostToEquipment, 1, blockTestFrame, 0), ErrWriterFailed)
-			assert.Equal(t, err, w.Close(t.Context()), "Close returns the failure")
+			requireFailedClose(t, w, err)
 			assert.Equal(t, before, sink.calls, "no sink call after the failure")
 		})
 	}
@@ -762,8 +761,8 @@ func TestSegmentWriterSinkFailures(t *testing.T) {
 			calls := sink.calls
 			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0), ErrWriterFailed)
 			require.ErrorIs(t, w.Tick(t.Context(), segAt(2*time.Hour)), ErrWriterFailed)
-			assert.Equal(t, err, w.Close(t.Context()), "Close returns the failure")
-			assert.Equal(t, err, w.Close(t.Context()), "and again")
+			requireFailedClose(t, w, err)
+			requireFailedClose(t, w, err)
 			assert.Equal(t, calls, sink.calls, "no sink call after the failure")
 		})
 	}
@@ -782,11 +781,8 @@ func TestSegmentWriterWriterFailure(t *testing.T) {
 	require.ErrorIs(t, err, ErrRefused, "the block's records determine the failure")
 	assert.Equal(t, 1, sink.aborts())
 	assert.Empty(t, sink.keys)
-	// Close returns the stored failure, the SegmentWriter's prior state, without the marker.
-	cerr := w.Close(t.Context())
-	require.EqualError(t, cerr, err.Error())
-	require.ErrorIs(t, cerr, ErrValidation)
-	require.NotErrorIs(t, cerr, ErrRefused)
+	// Close reports the stored failure, the SegmentWriter's prior state, without the marker.
+	requireFailedClose(t, w, err, ErrValidation)
 	sink.noMisuse(t)
 
 	// With SkipValidation the segment's Writer writes the damaged block, so the segment is published.
@@ -795,6 +791,79 @@ func TestSegmentWriterWriterFailure(t *testing.T) {
 	require.NoError(t, w.Rotate(t.Context()))
 	assert.Len(t, sink.keys, 1)
 	assert.Zero(t, sink.aborts())
+}
+
+// TestSegmentWriterShortWrite has the segment file take only part of a write, with a nil error:
+// of the head of a segment, of a block, and of the footer and trailer.
+// The call fails with io.ErrShortWrite, never marked ErrRefused, and the SegmentWriter fails:
+// the segment is aborted once and not committed, and a later call reports the failure.
+func TestSegmentWriterShortWrite(t *testing.T) {
+	t.Parallel()
+
+	// first cuts the first write the call makes; trailer cuts the write that ends with the trailer.
+	first := func(int, []byte) bool { return true }
+	trailer := func(_ int, p []byte) bool { return bytes.HasSuffix(p, []byte(format.TrailerMagic)) }
+	tests := []struct {
+		name string
+		// call makes the call whose write is cut short, after arm set which write is:
+		// with BlockThreshold 1 every record writes its block at once.
+		call func(ctx context.Context, w *SegmentWriter, arm func(cut func(n int, p []byte) bool)) error
+		// magic starts the write cut short; empty for the trailer's, which cut found by its end.
+		magic string
+	}{
+		{"the head of a segment", func(ctx context.Context, w *SegmentWriter, arm func(func(int, []byte) bool)) error {
+			if err := w.Rotate(ctx); err != nil {
+				return err
+			}
+			arm(first) // the frame opens the next segment, whose head is its first write
+
+			return w.AppendFrame(ctx, segAt(2*time.Second), DirHostToEquipment, 1, blockTestFrame, 0)
+		}, format.FileHeaderMagic},
+		{"a block", func(ctx context.Context, w *SegmentWriter, arm func(func(int, []byte) bool)) error {
+			arm(first)
+			return w.AppendFrame(ctx, segAt(2*time.Second), DirHostToEquipment, 1, blockTestFrame, 0)
+		}, format.EnvelopeMagic},
+		{"the footer and trailer", func(ctx context.Context, w *SegmentWriter, arm func(func(int, []byte) bool)) error {
+			arm(trailer)
+			return w.Close(ctx)
+		}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			w, sink := newSeg(t, func(o *SegmentWriterOptions) { o.BlockThreshold = 1 })
+			segFrame(t, w, time.Second)
+			var commits, aborts, at int
+			var cutHead []byte
+			arm := func(cut func(int, []byte) bool) {
+				commits, aborts, at = sink.calls[sinkCommit], sink.aborts(), -1
+				sink.short = func(n int, p []byte) bool {
+					if at >= 0 || !cut(n, p) {
+						return false
+					}
+					at, cutHead = n, bytes.Clone(p[:min(len(p), 8)])
+
+					return true
+				}
+			}
+
+			err := tt.call(t.Context(), w, arm)
+			require.ErrorIs(t, err, io.ErrShortWrite)
+			requireNotRefused(t, err)
+			require.GreaterOrEqual(t, at, 0, "a write was cut short")
+			assert.Equal(t, at+1, sink.calls[sinkWrite], "no write after the short one")
+			assert.True(t, strings.HasPrefix(string(cutHead), tt.magic), "the write cut short starts with %q", tt.magic)
+			assert.Equal(t, aborts+1, sink.aborts(), "the segment aborted once")
+			assert.Equal(t, commits, sink.calls[sinkCommit], "the segment not committed")
+			sink.noMisuse(t)
+
+			calls := sink.calls
+			require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(3*time.Second), DirHostToEquipment, 1, blockTestFrame, 0), ErrWriterFailed)
+			requireFailedClose(t, w, err, io.ErrShortWrite)
+			assert.Equal(t, calls, sink.calls, "no sink call after the failure")
+		})
+	}
 }
 
 func TestSegmentWriterCloseFailures(t *testing.T) {
@@ -827,7 +896,7 @@ func TestSegmentWriterCloseFailures(t *testing.T) {
 			sink.noMisuse(t)
 
 			calls := sink.calls
-			assert.Equal(t, err, w.Close(t.Context()), "a second Close returns the same failure")
+			requireFailedClose(t, w, err)
 			assert.Equal(t, calls, sink.calls, "no sink call after the failure")
 		})
 	}
@@ -857,7 +926,7 @@ func TestSegmentWriterCloseFailures(t *testing.T) {
 		sink.noMisuse(t)
 
 		calls := sink.calls
-		assert.Equal(t, err, w.Close(t.Context()), "a second Close returns the same failure")
+		requireFailedClose(t, w, err)
 		assert.Equal(t, calls, sink.calls, "no sink call after the failure")
 	})
 }

@@ -38,6 +38,9 @@ type memSink struct {
 	// with n the number of earlier calls of op on the sink; a non-nil error fails the operation.
 	// A sinkPublished error is returned wrapping ErrPublishUncertain.
 	fault func(op sinkOp, n int) error
+	// short, when set, runs at each Write that no fault failed, with n the number of earlier Writes on the sink;
+	// when it returns true the Write stores only the first half of p and returns that count with a nil error, a short write.
+	short func(n int, p []byte) bool
 	// afterCommit, when set, runs when a Commit is about to return nil, so a test can cancel a context there.
 	afterCommit func()
 	// calls counts each operation, sinkPublished counting the Commits that published.
@@ -178,8 +181,12 @@ func (f *memFile) Write(p []byte) (int, error) {
 	if f.done() {
 		f.misused("write after commit or abort")
 	}
+	n := f.sink.calls[sinkWrite]
 	if err := f.sink.inject(sinkWrite); err != nil {
 		return 0, err
+	}
+	if f.sink.short != nil && f.sink.short(n, p) {
+		return f.buf.Write(p[:len(p)/2])
 	}
 
 	return f.buf.Write(p)
@@ -233,4 +240,25 @@ func (f *memFile) Abort() error {
 	}
 
 	return f.sink.inject(sinkAbort)
+}
+
+// requireFailedClose requires w to have failed with err, as the failing call returned it, marked or not,
+// and a later Close to report that failure: an error wrapping ErrWriterFailed, the failure and each of wants, without ErrRefused.
+func requireFailedClose(t testing.TB, w *SegmentWriter, err error, wants ...error) {
+	t.Helper()
+
+	require.Error(t, w.failure, "the SegmentWriter failed")
+	if r, ok := err.(*refusedError); ok { //nolint:errorlint // only the outermost marker, which the call added, is stripped
+		err = r.err
+	}
+	require.Equal(t, w.failure, err, "the failure is what the failing call returned")
+
+	again := w.Close(t.Context())
+	require.ErrorIs(t, again, ErrWriterFailed)
+	require.ErrorIs(t, again, w.failure)
+	require.NotErrorIs(t, again, ErrRefused, "a later Close reports the prior state")
+	require.NotErrorIs(t, again, ErrClosed, "a failed Close is reported as failed")
+	for _, want := range wants {
+		require.ErrorIs(t, again, want, "the failure's sentinels stay in the chain")
+	}
 }

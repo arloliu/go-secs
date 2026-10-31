@@ -77,6 +77,13 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - **Breaking:** `SegmentWriter.Close` with a `Now()` that is not representable wraps `ErrInvalidRecord` and is marked `ErrRefused`, as the same fault of an append is (G5-296);
   it was a plain error. The `SegmentWriter` still fails and aborts its open segment.
   For tracekeep: a flush that receives it parks the capture instead of retrying it.
+- **Breaking:** a later `SegmentWriter.Close` reports the writer's state, as every other later call does (G5-297):
+  on a `SegmentWriter` that has failed, an earlier `Close` included, it returns an error wrapping `ErrWriterFailed` and the failure, never marked `ErrRefused`;
+  after a `Close` that completed without error, it returns `ErrClosed`; neither makes a sink call.
+  It returned the earlier result bare: nil after a successful `Close`, and the failure unmarked, which a caller retrying unmarked errors retried without end.
+  A `Close` refused because `ctx` was done before any sink call still leaves the writer usable.
+  For tracekeep and veq: a caller that closed twice and expected nil the second time gets `ErrClosed`;
+  test `ErrClosed` and `ErrWriterFailed` before `ErrRefused` or any sink sentinel, and stop using the writer on either.
 - **Breaking:** `redact.Compile` refuses, with `redact.ErrInvalidPolicy`, a policy whose `PackPolicy` the pack metadata cannot hold:
   an `ID`, `DigestKeyID` or `Encryption.KeyID` that is not valid UTF-8, or a `Version` above 2^63 − 1.
   `NewWriter` refused every such policy's pack metadata, at each flush; it now fails once, at configuration.
@@ -90,6 +97,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - `DirSink` with `NoReplace` syncs the key's directories even when removing the temporary file after the link failed,
   and returns that error, still wrapping `ErrPublishUncertain`, joined with any sync error (G5-296);
   it skipped the syncs, leaving the published link's durability to a later commit.
+- A `SegmentWriter` marks every error of its `ctx` as the caller's, as it does a sink's, so a `ctx` whose `Err` wraps a refusal sentinel is never marked `ErrRefused` (G5-296).
 - A block's F-3 entry list too long for the footer's u32 `summary_len`, and a block count over the u32 `block_count`, which the records written determine,
   do not wrap `ErrInvalidArgument`, from the writing calls, which still mark them `ErrRefused`, or from `Merge` (G5-296).
 - `Open` caps `ReaderOptions.MaxPackMetadataLen` at the largest pack metadata a 32-bit platform can address,

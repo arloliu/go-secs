@@ -28,10 +28,14 @@ var (
 	// or a seq above the 2^63-1 limit of the tracepack format specification §2.
 	// A writer never renumbers a seq it received (the tracepack format specification I-12),
 	// so a caller holding an earlier record opens another Writer for it.
+	//
+	// From an append, of a Writer or a SegmentWriter, the record was not added and the writer is still usable;
+	// from SegmentWriter.Close, which found no seq left for the stop boundary, the SegmentWriter has failed.
 	ErrSeqOrder = errors.New("tracepack: record seq out of order")
 	// ErrPayloadTooLarge reports a record payload too large for any block:
 	// a block's uncompressed_len, 44 header bytes plus the payload for a record alone,
 	// must not exceed 2^31-1 (the tracepack format specification §2).
+	// From an append, of a Writer or a SegmentWriter, the record was not added and the writer is still usable.
 	ErrPayloadTooLarge = errors.New("tracepack: record payload too large")
 	// ErrFieldValidity reports a data or control record whose field_validity marks an HSMS header field
 	// whose bytes its payload lacks, a writer defect every writer rejects when the record is appended
@@ -74,15 +78,23 @@ var (
 	// (the tracepack format specification §12: the decoded body against I-2);
 	// the block was not written and the Writer has failed.
 	ErrValidation = errors.New("tracepack: block failed validation")
-	// ErrWriterFailed reports a call on a Writer that an earlier failure left unusable:
-	// any failed write, short write included, sync, validation or block encoding,
-	// and any error of Close's finalize, a refusal included.
+	// ErrWriterFailed reports a call on a Writer or a SegmentWriter that an earlier failure left unusable.
+	// The error wraps the failure that caused it beside ErrWriterFailed,
+	// so it also matches that failure's sentinels, such as ErrValidation or ErrPublishUncertain:
+	// a caller tests ErrClosed and ErrWriterFailed before any sentinel of a record or of the sink.
+	// It is never marked ErrRefused, since it reports the writer's prior state, not the call's input.
+	//
+	// A Writer fails on any failed write, short write included, sync, validation or block encoding,
+	// and on any error of Close's finalize, a refusal included.
 	// A failure before Close writes the footer leaves the pack unfinalized;
 	// a failure of the footer-and-trailer write or of the sync after it may leave a finalized pack,
 	// which the Writer still reports as failed, since it cannot vouch for it.
 	// Either way the caller discards the output and starts a new pack.
+	// A SegmentWriter fails as SegmentWriter describes; the segments it committed before stay published.
 	ErrWriterFailed = errors.New("tracepack: writer failed")
-	// ErrClosed reports a call on a Writer after Close.
+	// ErrClosed reports a call on a Writer or a SegmentWriter after a Close that completed without error:
+	// the output is complete and kept, a finalized pack or the committed segments.
+	// It is never marked ErrRefused.
 	ErrClosed = errors.New("tracepack: writer closed")
 	// ErrScopeBreach reports a pack period or a record outside the one scope a pack holds
 	// (the tracepack storage specification §2): every pack but an extract holds the records of one UTC hour,
@@ -96,8 +108,9 @@ var (
 	// (the tracepack storage specification §4, Merge).
 	// The record was not added and the Writer is still usable.
 	ErrScopeBreach = errors.New("tracepack: record outside its pack's scope")
-	// ErrRefused marks an error that the call's own arguments, options or records determine,
-	// so the same call with the same input fails the same way.
+	// ErrRefused marks an error that the call's own arguments or options, or the records written, determine,
+	// so the same sequence of calls with the same input fails the same way.
+	// ErrValidation, for one, is determined by every record of the block it closed, not only the call's own record.
 	// It is added beside the error's own sentinel, such as ErrSeqOrder or ErrValidation, and does not change the error's text;
 	// it says nothing about whether the Writer is still usable, which the sentinel beside it says.
 	//
@@ -115,7 +128,8 @@ var (
 	// nor to an error that holds one of those beside a refusal.
 	// An error from the caller's own io.Writer, Syncer, SegmentSink or SegmentFile is returned wrapped, its chain intact,
 	// with no marker added, so one that wraps ErrRefused itself still matches it.
-	// An unmarked error may be transient: a caller that retries a failed write retries it.
+	// An unmarked error other than ErrWriterFailed and ErrClosed, which a caller tests first, may be transient:
+	// a caller that retries a failed write retries it, with a new writer once the old one failed.
 	ErrRefused = errors.New("tracepack: refused for the call's input")
 )
 
@@ -684,8 +698,10 @@ func idOrNew(id UUID, now func() time.Time) (UUID, error) {
 	return UUID(u), nil
 }
 
-// newUUIDv7 returns a new UUIDv7 whose time part is now's, a nil now meaning time.Now,
-// and marks an error of the random source as external (externalError): it is an I/O failure, never a refusal.
+// newUUIDv7 returns a new UUIDv7 whose time part is now's, a nil now meaning time.Now.
+// crypto/rand's Reader uses operating system calls documented never to fail, on all but Linux before 3.17,
+// so the writing calls document no error of it;
+// the error is still checked and marked external (externalError), so a failing Reader is an I/O failure, never a refusal.
 func newUUIDv7(now func() time.Time) (format.UUID, error) {
 	u, err := format.GenerateUUIDv7(clockOr(now), rand.Reader)
 
@@ -879,9 +895,9 @@ func clockDrift(r *Record, ev *TransportEvent, a clockAnchor, tolerance uint64) 
 //     an error wrapping ErrInvalidRecord for a record carrying quality.unobserved whose own fields break the rule above,
 //     or for a transport-event or annotation record whose payload does not decode, wrapping the decode error too,
 //     or an error wrapping ErrScopeBreach, with r not added, no seq taken and the Writer still usable;
-//     an error wrapping ErrValidation or a write or sync error, after which the Writer has failed;
-//     ErrWriterFailed or ErrClosed on a failed or closed Writer.
-//     An error r determines also wraps ErrRefused.
+//     an error wrapping ErrValidation, an error encoding the block, or a write or sync error, after which the Writer has failed;
+//     ErrWriterFailed, wrapping the failure, on a failed Writer, or ErrClosed on a closed one.
+//     An error r, or a record before it in the block, determines also wraps ErrRefused.
 func (w *Writer) Append(r *Record) error {
 	return refuse(w.addRecord(r, true))
 }
@@ -966,7 +982,8 @@ func (w *Writer) checkRecord(r *Record, checkEvent bool) (*TransportEvent, error
 // Flush closes the open block, writing it and, with a Syncer, syncing it; it does nothing when no record is pending.
 //
 // Returns:
-//   - error: as for Append's block close; ErrWriterFailed or ErrClosed on a failed or closed Writer.
+//   - error: as for Append's block close, an error wrapping ErrValidation, an error encoding the block, or a write or sync error,
+//     after which the Writer has failed; ErrWriterFailed, wrapping the failure, on a failed Writer, or ErrClosed on a closed one.
 func (w *Writer) Flush() error {
 	return refuse(w.flushBlock())
 }
@@ -1021,7 +1038,7 @@ func (c Continuation) Next() (seq uint64, ok bool) {
 //     a *FieldError wrapping ErrMetadataCommitment, also leaving the Writer failed and writing neither footer nor trailer,
 //     when the file header set redaction-present but no written record carries quality.redacted ("redaction-present"),
 //     or, in a pack masked at write, when a redaction entry names a seq no appended record carried ("redaction");
-//     ErrWriterFailed on a failed Writer, and ErrClosed when already closed.
+//     ErrWriterFailed, wrapping the failure, on a failed Writer, and ErrClosed when already closed.
 //     An error the pack's records determine also wraps ErrRefused.
 func (w *Writer) Close() (Continuation, error) {
 	c, err := w.closePack()

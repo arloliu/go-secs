@@ -107,7 +107,10 @@ unless an earlier row of the decision table matches.
   A call that would touch the sink while its `ctx` is done returns `ctx`'s error before it does, and the writer stays usable too;
   a `Close` refused so can be retried.
   Any other error fails the writer, a `ctx` done during the call's sink calls included:
-  it aborts the open segment, every later call returns an error wrapping `ErrWriterFailed`, and `Close` returns the failure.
+  it aborts the open segment, and every later call, `Close` included, returns an error wrapping `ErrWriterFailed` and the failure, with no sink call.
+  After a `Close` that completed without error, every later call, `Close` included, returns `ErrClosed`.
+  Neither is marked `ErrRefused`, and `ErrWriterFailed` keeps the failure's sentinels in its chain,
+  so test `ErrClosed` and `ErrWriterFailed` first, before the sentinels of a record or of the sink.
   `Close` also fails it when no seq is left for the `stop` boundary:
   it commits the open segment, if any, without `stop`, then returns an error wrapping `ErrSeqOrder`.
   A `Now()` at `Close` that is not representable fails it as well, a refusal wrapping `ErrInvalidRecord`:
@@ -212,16 +215,18 @@ and `ok` is false after a pack whose last record has seq 2^63 − 1, the last se
 The writing calls mark an error their own input determines with `ErrRefused`:
 `NewWriter`, the `Writer`'s `Append`, `Flush` and `Close`, `WriteClose`, `NewSegmentWriter`,
 and the `SegmentWriter`'s appends, `Tick`, `Rotate` and `Close`.
-`errors.Is(err, ErrRefused)` means the same call with the same arguments, options or records fails the same way,
+`errors.Is(err, ErrRefused)` means the same sequence of calls with the same arguments, options and records fails the same way,
 so a service retrying a flush parks that batch instead;
-the sentinel beside it, such as `ErrSeqOrder` or `ErrValidation`, says what was refused and whether the writer is still usable.
+an error such as `ErrValidation` comes from every record of the block, not only the call's own.
+The sentinel beside it, such as `ErrSeqOrder` or `ErrValidation`, says what was refused and whether the writer is still usable.
 An error of checking or encoding the options of `NewWriter`, `WriteClose` or `NewSegmentWriter`, or an `AppendEvent` event, wraps `ErrInvalidArgument`:
 beside its own sentinel, such as `ErrRequiredTag` or `ErrScopeBreach`, or alone for one with none, such as a nil `WriterOptions.Meta`.
-An error of a record never does.
-An error without the marker may be transient, and is the one to retry:
-never marked are your `io.Writer`'s, `Syncer`'s, `SegmentSink`'s or `SegmentFile`'s error,
+An error of a record never does, nor one for a format limit the records reach, such as a block's F-3 list too long for the footer.
+Never marked are your `io.Writer`'s, `Syncer`'s, `SegmentSink`'s or `SegmentFile`'s error,
 which is returned wrapped with its chain intact,
 `ctx`'s, `Merge`'s, and the `ErrWriterFailed` or `ErrClosed` of a later call on a failed or closed writer.
+So test `ErrClosed` and `ErrWriterFailed` first, which say to stop using the writer;
+an error without the marker otherwise may be transient, and is the one to retry.
 The marker leaves the error's text unchanged.
 
 Some sentinels belong to a family, and also match its parent under `errors.Is`:

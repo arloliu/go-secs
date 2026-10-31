@@ -50,7 +50,7 @@ func requireDirSegFailed(t testing.TB, w *SegmentWriter, fsys *recordFS, err err
 	n := len(fsys.calls)
 	require.ErrorIs(t, w.AppendFrame(t.Context(), segAt(time.Hour), DirHostToEquipment, 1, blockTestFrame, 0), ErrWriterFailed)
 	require.ErrorIs(t, w.Rotate(t.Context()), ErrWriterFailed)
-	assert.Equal(t, err, w.Close(t.Context()), "Close returns the failure")
+	requireFailedClose(t, w, err)
 	assert.Equal(t, fsys.calls[:n], fsys.calls, "no file-system call after the failure")
 }
 

@@ -737,11 +737,12 @@ func TestErrRefusedPriorState(t *testing.T) {
 			require.ErrorIs(t, err, ErrValidation)
 			requireNotRefused(t, err)
 			err = w.Close(t.Context())
+			require.ErrorIs(t, err, ErrWriterFailed)
 			require.ErrorIs(t, err, ErrValidation)
 			requireNotRefused(t, err)
 		})
 	}
-	// A Close that fails is marked as any call is; a later Close returns its result as the prior state, unmarked.
+	// A Close that fails is marked as any call is; a later Close reports the failure as the prior state, unmarked.
 	t.Run("SegmentWriter Close", func(t *testing.T) {
 		t.Parallel()
 
@@ -749,15 +750,14 @@ func TestErrRefusedPriorState(t *testing.T) {
 		r := segMonoRecord(time.Second, time.Second)
 		require.NoError(t, w.Append(t.Context(), &r))
 		w.seg.w.encodedHook = truncateBlock
-		requireRefused(t, w.Close(t.Context()), ErrValidation)
-
 		err := w.Close(t.Context())
-		require.ErrorIs(t, err, ErrValidation)
-		requireNotRefused(t, err)
+		requireRefused(t, err, ErrValidation)
+
+		requireFailedClose(t, w, err, ErrValidation)
 	})
 }
 
-// externalCallHelpers names, for each call on a supplied implementation or the random source,
+// externalCallHelpers names, for each call on a supplied implementation, a ctx included, or on the random source,
 // the functions that may make it: each marks the error as external, or passes it to one that does.
 var externalCallHelpers = map[string][]string{
 	"Write":          {"writeFull", "segmentOutput.Write"},
@@ -765,12 +765,13 @@ var externalCallHelpers = map[string][]string{
 	"Create":         {"SegmentWriter.createSegment"},
 	"Commit":         {"commitSegment"},
 	"Abort":          {"abortSegment"},
+	"Err":            {"ctxErr"},
 	"GenerateUUIDv7": {"newUUIDv7"},
 	"rand":           {"newUUIDv7"},
 }
 
 // TestErrRefusedExternalCallSites parses the writing calls' sources and requires every call on a destination, a Syncer,
-// a sink, a segment file or the random source to be made by externalCallHelpers, so a new call cannot bypass the external marker;
+// a sink, a segment file, a ctx or the random source to be made by externalCallHelpers, so a new call cannot bypass the external marker;
 // and each helper that is not a passthrough to calls external.
 func TestErrRefusedExternalCallSites(t *testing.T) {
 	t.Parallel()
