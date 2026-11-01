@@ -234,7 +234,10 @@ The query service, its catalog database and the live-tail interface are designed
   `ErrInvalidArgument` marks an argument or option the call cannot take, and `ErrInvalidQuery` and `ErrInvalidKey` also match it.
   Each parent is reached through the sentinel's `Unwrap`, so the sentinels stay comparable values with their text unchanged.
   Every read path (`Open`, `Iterate`'s `Defect.Err`, `Verify`, `MergeIterate`, the transaction lookups, `ExportJSONL`, `Merge` beside `ErrMergeInput`) gives a fault the same sentinel,
-  and returns a caller's `ReadAt` error as it is, never as corrupt.
+  and returns a caller's `ReadAt` error with its chain, never as corrupt.
+  `ErrSourceRead` (G5-301) marks, without changing the text, an error a `ReadAt` returned other than `io.EOF`, and a `ReadAt` that did not return;
+  a short read, fewer bytes with `io.EOF` or no error, is `io.ErrUnexpectedEOF` alone, which `Merge` refuses as `ErrMergeInput` while opening an input.
+  The module adds no class of its own to a failed read, so the read and `Merge` tables test it right after ctx's error.
   A public encode or decode of a TLV body reports an entry's fault as a `*FieldError` naming the field, dotted for a nested tag, with `ErrRequiredTag`, `ErrFieldLength` or `ErrFieldValue`;
   a decode also wraps `ErrCorrupt`, an encode never, and a writing call marks such an error `ErrRefused`.
   The option errors of `Open`, `Verify` and `Merge`, `EncodeDescriptor(nil)` and `ParseUUID` wrap `ErrInvalidArgument`, and a nil reader from a `PackSource` `ErrInvalidQuery`.

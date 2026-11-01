@@ -14,6 +14,16 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 - bus: `RecordHeaderLen`, the untyped 44 a layout-1 body starts with;
   `PeekHeader(body)`, that header's fields as stored, checking only the length and allocating nothing;
   and `ParsePayloadDigest`, the inverse of `PayloadDigest`, its error wrapping `ErrMalformed` (G5-300).
+- `ErrSourceRead` marks, without changing the text, an error your `ReaderAt` returned other than `io.EOF`,
+  and a `ReadAt` the module called on a goroutine of its own that did not return (G5-301).
+  A short read, fewer bytes with `io.EOF` or no error, stays `io.ErrUnexpectedEOF` alone, and `Merge` still refuses it as `ErrMergeInput` while opening an input.
+  The reading calls' and `Merge`'s decision tables test it right after ctx's error.
+
+### Changed
+
+- An error of your `ReaderAt`, and the error of a `ReadAt` that did not return, now also match `ErrSourceRead` (G5-301).
+  Migration: none, a match is added and none removed;
+  a caller that treated "anything else" as a failed read of its source may test `ErrSourceRead` instead.
 
 ## [0.13.0] - 2026-11-01
 
