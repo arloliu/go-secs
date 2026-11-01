@@ -5,6 +5,12 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-01
+
+This release adds the helpers tracekeep asked for (G5-298, G5-299, G5-300, G5-301): spec v2.41, format 1.2.
+Every change is additive: packs, JSONL exports and the corpus are byte-identical to tracepack/v0.13.0's,
+no sentinel stops matching, and no caller needs to migrate.
+
 ### Added
 
 - `(*Reader).Verify(ctx)` returns the report `Verify` gives for a `Reader` already open, under its options, and leaves it usable,
