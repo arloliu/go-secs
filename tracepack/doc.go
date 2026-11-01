@@ -156,10 +156,10 @@
 // Each family of calls has a decision table, the first row an error matches deciding, before any cause it wraps:
 //   - writing calls: ErrClosed, ErrWriterFailed, ErrPublishUncertain, ErrSegmentExists, ErrSegmentConflict, ctx's error,
 //     ErrRefused for an error the call's input determines, then any other error, which may be transient;
-//   - reading calls: ctx's error, ErrInvalidArgument, ErrNotPrimary, ErrNotTracepack, ErrUnsupportedFormat, ErrReadLimit,
-//     ErrNotFinalized before ErrCorrupt, since a damaged trailer carries both, then any other error, such as a ReadAt error;
-//   - Merge: ctx's error, ErrInvalidArgument, ErrMergeLimit or ErrReadLimit, ErrMergeConflict,
-//     ErrMergeInput for an input it refuses, beside the cause, then any other error, a failed read of an input included;
+//   - reading calls: ctx's error, ErrSourceRead for a failed ReadAt, ErrInvalidArgument, ErrNotPrimary, ErrNotTracepack, ErrUnsupportedFormat, ErrReadLimit,
+//     ErrNotFinalized before ErrCorrupt, since a damaged trailer carries both, then any other error, such as a short read;
+//   - Merge: ctx's error, ErrSourceRead for a failed read of an input, ErrInvalidArgument, ErrMergeLimit or ErrReadLimit, ErrMergeConflict,
+//     ErrMergeInput for an input it refuses, beside the cause, then any other error;
 //   - the bus codec, the package redact, the codecs and the key builders, each by its own sentinels.
 //
 // The README of the module gives every table with the action of each row.
@@ -168,8 +168,8 @@
 // a WriterDefect whose Godoc names no sentinel for its Kind, by Kind;
 // an error of a block Merge builds itself, which reports a defect of this package;
 // a DirSink's fault of its environment, which retrying does not cure;
-// an error of a caller's implementation, returned wrapped with its chain intact;
-// and a ReadAt that ends its goroutine instead of returning, reported as an error of that ReadAt.
+// and an error of a caller's implementation other than a ReaderAt, returned wrapped with its chain intact;
+// a ReaderAt's error, and a ReadAt that ends its goroutine instead of returning, match ErrSourceRead.
 //
 // # Compatibility
 //

@@ -66,7 +66,7 @@ var (
 	// wrapping ErrInvalidRecord as the Writer refuses it,
 	// or whose stream and function the input's thinning does not declare, wrapping ErrMetadataCommitment.
 	// A failed read of an input, and an input over a reader budget of MergeOptions.Reader, are not refused this way:
-	// the error wraps the ReaderAt's error, or ErrReadLimit, naming the input,
+	// the error wraps ErrSourceRead beside the ReaderAt's error, or ErrReadLimit, naming the input,
 	// so a caller retries the read or raises the budget instead of repairing a sound pack.
 	// A block read cut short after the input was opened, its ReaderAt reporting io.EOF before the block ends,
 	// is such a read error too, wrapping io.ErrUnexpectedEOF:
@@ -150,7 +150,7 @@ var captureTags = [...]struct {
 type MergeInput struct {
 	// ReaderAt reads the pack; Merge may issue several ReadAt calls in parallel,
 	// on one input and on up to MergeOptions.MaxParallelOpens inputs at once.
-	// An error it returns, other than io.EOF, is a failed read, which Merge returns naming the input, never as ErrMergeInput.
+	// An error it returns, other than io.EOF, is a failed read, which Merge returns wrapping ErrSourceRead and naming the input, never as ErrMergeInput.
 	// io.EOF before the end of a read is an object shorter than Size while Merge opens the input, which ErrMergeInput refuses,
 	// and a failed read, wrapping io.ErrUnexpectedEOF, when it cuts a block read short after that.
 	ReaderAt io.ReaderAt
@@ -551,8 +551,8 @@ type mergeCluster = seqCluster[mergeBlock]
 //     no inputs, an input without a ReaderAt, or a negative budget field of opts.Reader;
 //     an error wrapping ErrInvalidArgument for an opts.ReplacementSetID equal to an archive input's replacement_set_id,
 //     or an opts.PackID that names an input or a pack of an input's compacted_from or supersedes;
-//     an error wrapping ErrMergeInput; an error wrapping an input's ReaderAt error, or ErrReadLimit, naming the input,
-//     or saying the input's ReadAt did not return;
+//     an error wrapping ErrMergeInput; an error wrapping ErrSourceRead and an input's ReaderAt error, or ErrReadLimit, naming the input,
+//     or wrapping ErrSourceRead and saying the input's ReadAt did not return;
 //     a *FieldError validating the archive's pack metadata;
 //     an error wrapping ErrMergeLimit for archive pack metadata longer than opts.Reader.MaxPackMetadataLen,
 //     for an archive footer, or the block summaries kept for it, over opts.MaxFooterLen,

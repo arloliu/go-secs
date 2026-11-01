@@ -217,7 +217,7 @@ func classifyOutcome(finalized bool, failed []bool, walkStopped, inconsistent bo
 //     an error wrapping ErrReadLimit for a block over MaxBlockLen,
 //     for the footer of a finalized pack over MaxFooterLen, on disk or decoded, or for its blocks' F-3 lists over it,
 //     or for a forward walk that reached MaxWalkedBlocks;
-//     ctx's error, wrapped; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read.
+//     ctx's error, wrapped; a ReadAt error, wrapping ErrSourceRead, or io.ErrUnexpectedEOF alone for a short read.
 func Verify(ctx context.Context, ra io.ReaderAt, size int64, opts VerifyOptions) (VerifyReport, error) {
 	r, err := Open(ctx, ra, size, opts.Reader)
 	if err != nil {
@@ -240,7 +240,7 @@ func Verify(ctx context.Context, ra io.ReaderAt, size int64, opts VerifyOptions)
 //   - error: an error wrapping ErrReadLimit for a block over MaxBlockLen,
 //     for the footer of a finalized pack over MaxFooterLen, on disk or decoded, or for its blocks' F-3 lists over it,
 //     or for a forward walk that reached MaxWalkedBlocks;
-//     ctx's error, wrapped; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read.
+//     ctx's error, wrapped; a ReadAt error, wrapping ErrSourceRead, or io.ErrUnexpectedEOF alone for a short read.
 func (r *Reader) Verify(ctx context.Context) (VerifyReport, error) {
 	return r.analyze(ctx)
 }

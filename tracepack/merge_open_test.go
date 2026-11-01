@@ -69,7 +69,7 @@ var mergeSentinels = map[string]error{
 	"ErrNotTracepack": ErrNotTracepack, "ErrPayloadTooLarge": ErrPayloadTooLarge, "ErrPublishUncertain": ErrPublishUncertain,
 	"ErrReadLimit": ErrReadLimit, "ErrRedactionDefect": ErrRedactionDefect, "ErrRefused": ErrRefused, "ErrRequiredTag": ErrRequiredTag,
 	"ErrReservedTag": ErrReservedTag, "ErrScopeBreach": ErrScopeBreach, "ErrSegmentConflict": ErrSegmentConflict,
-	"ErrSegmentExists": ErrSegmentExists, "ErrSeqOrder": ErrSeqOrder, "ErrUnsupportedFormat": ErrUnsupportedFormat,
+	"ErrSegmentExists": ErrSegmentExists, "ErrSeqOrder": ErrSeqOrder, "ErrSourceRead": ErrSourceRead, "ErrUnsupportedFormat": ErrUnsupportedFormat,
 	"ErrValidation": ErrValidation, "ErrWriterFailed": ErrWriterFailed,
 	"io.EOF": io.EOF, "io.ErrUnexpectedEOF": io.ErrUnexpectedEOF,
 	"context.Canceled": context.Canceled, "context.DeadlineExceeded": context.DeadlineExceeded,
@@ -497,6 +497,7 @@ func TestMergeOpenGoexit(t *testing.T) {
 			err, ok := (<-got).(error)
 			require.True(t, ok, "Merge returned an error")
 			require.EqualError(t, err, "tracepack: merge: input 1: ReadAt did not return")
+			require.ErrorIs(t, err, ErrSourceRead)
 			require.NotErrorIs(t, err, ErrMergeInput)
 		})
 	})
@@ -513,6 +514,7 @@ func TestMergeOpenGoexit(t *testing.T) {
 		_, _, err := mergeBytes(t.Context(), in, opts)
 		require.EqualError(t, err,
 			fmt.Sprintf("tracepack: merge: input 0: read %d bytes at offset %d: ReadAt did not return", format.TrailerLen, tail))
+		require.ErrorIs(t, err, ErrSourceRead)
 		require.NotErrorIs(t, err, ErrMergeInput)
 	})
 }

@@ -23,7 +23,7 @@ const readFaultCorpusPack = "testdata/corpus/basic-codec-zstd/pack.tpk"
 // the read faults' own, and the classes a read fault must never match, a caller's mistake and a writing call's refusal.
 var faultSentinels = []error{
 	ErrCorrupt, ErrChecksum, ErrInvalidFooter, ErrNotFinalized, ErrNotTracepack, ErrUnsupportedFormat, ErrReadLimit, io.ErrUnexpectedEOF,
-	ErrInvalidArgument, ErrRefused,
+	ErrInvalidArgument, ErrRefused, ErrSourceRead,
 }
 
 // pathErr is one error a read path reported for a fault, named by the path.
@@ -380,6 +380,7 @@ func TestReadFaultNeverRelabelsReadErrors(t *testing.T) {
 		g.fail = func(int64, int) bool { return true }
 		_, err := Open(t.Context(), g, int64(len(file)), ReaderOptions{})
 		require.ErrorIs(t, err, errInjected)
+		require.ErrorIs(t, err, ErrSourceRead)
 		requireNotCorrupt(t, err)
 	})
 
@@ -388,6 +389,7 @@ func TestReadFaultNeverRelabelsReadErrors(t *testing.T) {
 
 		_, err := Open(t.Context(), &shortReaderAt{data: file}, int64(len(file)), ReaderOptions{})
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+		require.NotErrorIs(t, err, ErrSourceRead, "a short read is no failed read of the source")
 		requireNotCorrupt(t, err)
 	})
 
@@ -419,6 +421,7 @@ func TestReadFaultNeverRelabelsReadErrors(t *testing.T) {
 			require.NoError(t, err)
 			err = read(r)
 			require.ErrorIs(t, err, errInjected)
+			require.ErrorIs(t, err, ErrSourceRead)
 			requireNotCorrupt(t, err)
 		})
 	}
@@ -432,6 +435,7 @@ func TestReadFaultNeverRelabelsReadErrors(t *testing.T) {
 		inputs[0].ReaderAt = g
 		_, err := Merge(t.Context(), io.Discard, inputs, uncachedMergeOpts())
 		require.ErrorIs(t, err, errInjected)
+		require.ErrorIs(t, err, ErrSourceRead)
 		requireNotCorrupt(t, err)
 	})
 
