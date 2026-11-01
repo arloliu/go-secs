@@ -1124,6 +1124,8 @@ func TestOpenFooterOverBudget(t *testing.T) {
 		g.fail = func(off int64, _ int) bool { return off == fo+chunk }
 		_, err := Open(t.Context(), g, l.size, opts)
 		require.ErrorIs(t, err, errInjected)
+		require.ErrorIs(t, err, ErrSourceRead)
+		requireNotCorrupt(t, err)
 	})
 
 	t.Run("CRC broken", func(t *testing.T) {

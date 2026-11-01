@@ -119,7 +119,7 @@ type TxRangeResult struct {
 // Returns:
 //   - TxRangeResult: the hours read and the pairings passed to fn, also beside an error.
 //   - error: an error wrapping ErrInvalidQuery, before src is called;
-//     the error of src, as it is, or of an hour's read, a ReadAt error wrapping ErrSourceRead included, wrapped with the hour;
+//     the error of src, as it is, or of an hour's read, a ReadAt error, wrapping ErrSourceRead, or io.ErrUnexpectedEOF alone for a short read included, wrapped with the hour;
 //     an error wrapping ErrInvalidQuery, wrapped with the hour, for a nil reader src gives,
 //     or for a Reader or pack_id src gives twice for one hour;
 //     an error wrapping ErrReadLimit from MaxCachedBytes or MaxHeldBytes, wrapped with the hour,

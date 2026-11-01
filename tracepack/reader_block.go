@@ -316,7 +316,7 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 //     IncompleteReasonCorruptBlock for any other failed check, all three with a nil block;
 //     IncompleteReasonIndexMismatch, with the block, for an indexed block whose records disagree with its F-2 entry;
 //     all but the first wrap ErrChecksum or ErrCorrupt (blockDefect).
-//   - error: the ReadAt error, as it is, wrapping io.ErrUnexpectedEOF for a short read; never one for a block from kept bytes.
+//   - error: the ReadAt error, wrapping ErrSourceRead, or io.ErrUnexpectedEOF alone for a short read; never one for a block from kept bytes.
 func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error) {
 	info := &r.blocks[i]
 	if err := r.checkBlockBudget(info); err != nil {

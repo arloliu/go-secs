@@ -207,7 +207,7 @@ var _ error = PackError{}
 //     or a negative MaxHeldBytes or MaxConflicts;
 //     ctx's error, wrapped;
 //     an error wrapping ErrReadLimit when a reservation would exceed MaxHeldBytes or one more conflict would exceed MaxConflicts;
-//     a ReadAt error, or the error saying a ReadAt read ahead did not return, each wrapping ErrSourceRead, wrapped with the reader and block index;
+//     a ReadAt error, wrapping ErrSourceRead, or io.ErrUnexpectedEOF alone for a short read, or the error saying a ReadAt read ahead did not return, which wraps ErrSourceRead, each wrapped with the reader and block index;
 //     or the error fn returned, as is.
 func MergeIterate(ctx context.Context, readers []*Reader, q Query, opts MergeIterateOptions, fn func(*Item) error) (Result, error) {
 	return mergeIterateWith(ctx, readers, q, opts, mergeIterateOptions{}, fn)

@@ -553,6 +553,7 @@ type mergeCluster = seqCluster[mergeBlock]
 //     or an opts.PackID that names an input or a pack of an input's compacted_from or supersedes;
 //     an error wrapping ErrMergeInput; an error wrapping ErrSourceRead and an input's ReaderAt error, or ErrReadLimit, naming the input,
 //     or wrapping ErrSourceRead and saying the input's ReadAt did not return;
+//     io.ErrUnexpectedEOF alone, naming the input, for a block read cut short after the input was opened;
 //     a *FieldError validating the archive's pack metadata;
 //     an error wrapping ErrMergeLimit for archive pack metadata longer than opts.Reader.MaxPackMetadataLen,
 //     for an archive footer, or the block summaries kept for it, over opts.MaxFooterLen,
