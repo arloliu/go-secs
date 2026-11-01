@@ -47,12 +47,22 @@ func FuzzCheckMessage(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, layout, msgID, descriptor, ref, digest string, body []byte) {
 		env := Envelope{Layout: layout, MsgID: msgID, Descriptor: descriptor, PayloadRef: ref, PayloadDigest: digest}
+		peek, peeked := PeekHeader(body)
+		assert.Equal(t, len(body) >= RecordHeaderLen, peeked)
+		assert.Nil(t, peek.Payload)
 		br, err := CheckMessage(env, body)
 		if err != nil {
 			assert.Equal(t, Record{}, br)
 
 			return
 		}
+
+		// PeekHeader keeps the header as stored: normalized as CheckMessage normalizes, it gives CheckMessage's record header.
+		require.True(t, peeked)
+		peek.DecodeStatus, peek.TrailingBytes, peek.FieldValidity = 0, 0, 0
+		peek.Quality &= qualityMask
+		peek.Payload = br.Record.Payload
+		assert.Equal(t, br.Record, peek)
 
 		enc, err := EncodeBody(&br)
 		if br.Record.Quality.HasAny(tracepack.QualityRedacted) {
