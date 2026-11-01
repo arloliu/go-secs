@@ -25,6 +25,10 @@
 // classified by a [tracepack.Classifier] before any masking.
 // The consumer then writes the records with the tracepack Writer.
 //
+// A consumer that resolves a message before checking it checks its Tpk-Layout first,
+// then reads the record header as stored with PeekHeader, which checks only the body's length and allocates nothing,
+// and decodes a claim-check digest with ParsePayloadDigest; CheckMessage still decides whether the message is written.
+//
 // # Errors
 //
 // A consumer acts on the first of these an error matches:
