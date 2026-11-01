@@ -5,6 +5,16 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+### Added
+
+- `(*Reader).Verify(ctx)` returns the report `Verify` gives for a `Reader` already open, under its options, and leaves it usable,
+  so a pack verified and then read is opened once; `Verify` is now `Open` followed by it (G5-298).
+- `(*Record).CaptureBoundary()` returns the boundary kind and true for a transport-event record whose payload decodes to a capture-boundary event,
+  `BoundaryKindUnknown` for one without a `boundary_kind`, and false, never an error, for any other record (G5-299).
+- bus: `RecordHeaderLen`, the untyped 44 a layout-1 body starts with;
+  `PeekHeader(body)`, that header's fields as stored, checking only the length and allocating nothing;
+  and `ParsePayloadDigest`, the inverse of `PayloadDigest`, its error wrapping `ErrMalformed` (G5-300).
+
 ## [0.13.0] - 2026-11-01
 
 This release gives the module a public error taxonomy (G5-295, G5-296, G5-297): spec v2.40, format 1.2.

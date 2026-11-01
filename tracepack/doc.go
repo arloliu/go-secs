@@ -126,7 +126,9 @@
 // a footer not used in a finalized pack whose walk accounts for every block adds only an entry to FooterErrs.
 // A reader budget that keeps part of the pack out fails the export with an error wrapping ErrReadLimit instead.
 // A line may be written in several pieces, currently of at most 64 KiB each, so one line may take several Write calls.
-// Verify reads every block of a pack and reports its outcome, from finalized-consistent to corrupt.
+// Verify reads every block of a pack and reports its outcome, from finalized-consistent to corrupt;
+// Reader.Verify does the same for a Reader already open and leaves it usable.
+// Record.CaptureBoundary returns the boundary kind of a capture-boundary transport event.
 //
 // # Merging and storage
 //

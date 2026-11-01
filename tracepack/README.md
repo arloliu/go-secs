@@ -253,6 +253,10 @@ For the log service, the consumer that writes a durable-bus capture's packs:
   For a claim-check record, fetch the object and check it with `bus.CheckPayload`.
   `DecodeDescriptor` gives the producer's values from a `start`, to which you add the values you own.
   Act on its errors by the table under [Errors](#bus-messages).
+- To resolve a message before checking it, check its `Tpk-Layout` first, then read its record header with `bus.PeekHeader(body)`:
+  the fields as stored, `Payload` nil, false only for a body shorter than `bus.RecordHeaderLen` (44, untyped, so `[bus.RecordHeaderLen]byte` holds a header).
+  It checks nothing else and allocates nothing, so it answers for a body `bus.CheckMessage` may then refuse.
+  `bus.ParsePayloadDigest` decodes a `Tpk-Payload-Digest` value, the inverse of `bus.PayloadDigest`, its error wrapping `bus.ErrMalformed`.
 - `bus.DeriveRecord(&br.Record, cls)` sets the values you derive by kind:
   `field_validity`, and `decode_status` and `trailing_bytes` from the capture's classifier, or `not-attempted` for an unobserved record.
   Its `ErrInvalidRecord` for a kind outside the four is never reached by a record `bus.CheckMessage` accepted;
@@ -361,6 +365,9 @@ For readers and troubleshooters working on local files:
   A line may be written in several pieces, currently of at most 64 KiB each, so one line may take several `Write` calls.
   See `ExampleExportJSONL`.
 - `Verify` reads every block of a pack and reports its outcome, from finalized-consistent to corrupt.
+  `Reader.Verify` does the same for a `Reader` already open, under its options, and leaves it usable,
+  so a pack you verify and then read is opened once.
+- `Record.CaptureBoundary` returns the kind of a capture's start, stop or gap from a transport-event record, and false for any other record.
 
 ### A lookup over local files
 
@@ -533,7 +540,7 @@ The marker leaves the error's text unchanged.
 
 ### Reading calls
 
-`Open`, `Reader.Iterate`, `Verify`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `NewReaderSource` and `ExportJSONL`.
+`Open`, `Reader.Iterate`, `Verify`, `Reader.Verify`, `MergeIterate`, `FindTransaction`, `FindTransactions`, `NewReaderSource` and `ExportJSONL`.
 The table applies to the error a call returns, and to the errors of its diagnostics:
 `PackHeader.FooterErr`, a `FooterErrs` element's `Err`, `Defect.Err`, and a `TxGap`'s `Err`.
 
