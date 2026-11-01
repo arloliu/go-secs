@@ -87,6 +87,41 @@ func TestReaderVerifyErrors(t *testing.T) {
 	})
 }
 
+// TestReaderVerifyCancelDuring cancels ctx while (*Reader).Verify reads a block:
+// it returns ctx's error before reading the next block, and the Reader stays usable.
+func TestReaderVerifyCancelDuring(t *testing.T) {
+	t.Parallel()
+
+	p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, hourRecords(3, 40))
+	rr := newRoundReader(p.file)
+	r, err := Open(t.Context(), rr, int64(len(p.file)), uncachedWindows())
+	require.NoError(t, err)
+
+	first, second := rr.at(int64(p.blocks[0].offset)), rr.at(int64(p.blocks[1].offset))
+	release := make(chan struct{})
+	first.after = release
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		<-first.entered
+		cancel()
+		close(release)
+	}()
+	_, err = r.Verify(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	select {
+	case <-second.entered:
+		t.Fatal("the next block was read after ctx was done")
+	default:
+	}
+
+	// The acts fire once; the next calls at those offsets read normally.
+	delete(rr.acts, int64(p.blocks[0].offset))
+	delete(rr.acts, int64(p.blocks[1].offset))
+	rep, err := r.Verify(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, VerifyOutcomeFinalizedConsistent, rep.Outcome)
+}
+
 // TestReaderVerifyOneRead requires Open followed by (*Reader).Verify of a pack within WholeReadThreshold to make one ReadAt:
 // the blocks are verified from the bytes Open kept.
 func TestReaderVerifyOneRead(t *testing.T) {
