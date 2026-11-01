@@ -224,6 +224,24 @@ func Verify(ctx context.Context, ra io.ReaderAt, size int64, opts VerifyOptions)
 		return VerifyReport{}, err
 	}
 
+	return r.Verify(ctx)
+}
+
+// Verify checks the pack r reads as the package-level Verify does, with r's ReaderOptions in place of VerifyOptions.Reader,
+// so a caller that has opened a pack verifies it without opening it again.
+// It reads every located block in full, one at a time, and leaves r usable.
+// It is safe for concurrent use, as r is.
+//
+// Parameters:
+//   - ctx: cancels the verification between blocks.
+//
+// Returns:
+//   - VerifyReport: the outcome and its evidence; the zero VerifyReport on an error.
+//   - error: an error wrapping ErrReadLimit for a block over MaxBlockLen,
+//     for the footer of a finalized pack over MaxFooterLen, on disk or decoded, or for its blocks' F-3 lists over it,
+//     or for a forward walk that reached MaxWalkedBlocks;
+//     ctx's error, wrapped; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read.
+func (r *Reader) Verify(ctx context.Context) (VerifyReport, error) {
 	return r.analyze(ctx)
 }
 
