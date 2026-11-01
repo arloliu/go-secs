@@ -547,6 +547,7 @@ The table applies to the error a call returns, and to the errors of its diagnost
 | Error | Meaning | Action |
 |---|---|---|
 | `ctx`'s error | | stop |
+| `ErrSourceRead` | your `ReaderAt` returned an error, or a `ReadAt` did not return; nothing is known of the pack's bytes | may be transient: retry by your source's policy |
 | `ErrInvalidArgument`, `ErrInvalidQuery` among it | an argument or option the call cannot take, such as a negative budget or a nil reader | fix the call |
 | `ErrNotPrimary` | `FindTransaction`'s key names no primary | look up the primary instead |
 | `ErrNotTracepack` | an object that is not a pack | skip it |
@@ -554,7 +555,10 @@ The table applies to the error a call returns, and to the errors of its diagnost
 | `ErrReadLimit` | a structure, or a read, over a budget of the options | raise the budget, or skip |
 | `ErrNotFinalized` | a pack with no valid trailer: still being written, cut short, or its trailer damaged | retry later |
 | `ErrCorrupt`, `ErrChecksum` and `ErrInvalidFooter` among it | damaged bytes | report the pack and skip it |
-| anything else | your `ReaderAt`'s error, `io.ErrUnexpectedEOF` of a short read included, or the error of `ExportJSONL`'s `w` | may be transient |
+| anything else | `io.ErrUnexpectedEOF` of a short read, an object shorter than the size you passed, or the error of `ExportJSONL`'s `w` | may be transient |
+
+`ErrSourceRead` comes second because the module adds no class of its own to a failed read,
+but your `ReaderAt`'s error keeps its chain and matches whatever it matches, `ctx`'s error or even `ErrCorrupt`.
 
 Every read path reports each fault of a pack with the same sentinel, the cause kept beside it,
 and `Merge` reports a fault of an input's bytes beside `ErrMergeInput`:
@@ -567,7 +571,8 @@ and `Merge` reports a fault of an input's bytes beside `ErrMergeInput`:
 | a trailer present but damaged | `ErrNotFinalized`, beside `ErrChecksum` or `ErrCorrupt` |
 | a footer that fails its checks | `ErrInvalidFooter`, which matches `ErrCorrupt` |
 | a structure over a reader budget | `ErrReadLimit` |
-| your `ReaderAt`'s error, `io.ErrUnexpectedEOF` of a short read included | returned as it is, never `ErrCorrupt` |
+| your `ReaderAt`'s error, or a `ReadAt` that did not return | `ErrSourceRead`, beside your error; never `ErrCorrupt` |
+| a short read: fewer bytes than asked, with `io.EOF` or no error | `io.ErrUnexpectedEOF` alone, never `ErrCorrupt` |
 
 Only a fault of the file header or the pack metadata fails `Open`.
 A trailer or footer that cannot be used is reported by `PackHeader.FooterErr`, and by the read's `FooterErrs`, as `PackError.Err` or `TxPackError.Err`;
@@ -595,13 +600,15 @@ the other kinds are descriptive, `Kind` classifying them, and none is `ErrCorrup
 | Error | Meaning | Action |
 |---|---|---|
 | `ctx`'s error | | stop |
+| `ErrSourceRead` | a failed read of an input, whether `Merge` was opening it or reading a block: its `ReaderAt` returned an error, or a `ReadAt` did not return | may be transient: retry by your source's policy |
 | `ErrInvalidArgument` | an option `Merge` cannot take, a `WriterTag` that is not valid UTF-8 beside a `*FieldError` naming `writer`, or a `ReplacementSetID` or `PackID` an input already uses | fix the options |
 | `ErrMergeLimit`, `ErrReadLimit` | the archive over a budget of `MergeOptions` or a limit of the format, or an input over a budget of `MergeOptions.Reader` | raise the budget, or an operator decision (format limit) |
 | `ErrMergeConflict` | records, or redaction entries, that differ | as `OnConflict` decided |
 | `ErrMergeInput` | an input `Merge` refuses: the cause beside it, such as `ErrNotFinalized`, `ErrCorrupt`, `ErrNotTracepack`, `ErrUnsupportedFormat`, or the check it fails, says why | the input is unusable as it is: leave it out, or act on its cause by the reading calls' table |
-| anything else | a failed read of an input, whether `Merge` was opening it or reading a block, or an error writing or syncing `dst` | may be transient |
+| anything else | a block read of an input cut short after it was opened, or an error writing or syncing `dst` | may be transient |
 
 A failed read is never `ErrMergeInput`, so a sound pack is not taken for a defective one;
+`Merge` adds no class of its own to it, but your `ReaderAt`'s error keeps its chain, so test `ErrSourceRead` first.
 an object shorter than its `MergeInput.Size`, whose `ReaderAt` reports the end with `io.EOF`, is `ErrMergeInput`.
 After any error, discard what was written to `dst`.
 
@@ -675,12 +682,11 @@ Some errors are descriptive: no sentinel classifies them, and the field or the s
   reports a defect of this package, never one of an input: report it.
 - The faults of a `DirSink`'s environment, under [Storing segments in a directory](#storing-segments-in-a-directory),
   are plain errors: retrying does not cure them.
-- An error of your own implementation, an `io.Writer`, `Syncer`, `SegmentSink`, `SegmentFile`, `ReaderAt`, `PackSource` or `redact.Keys`,
+- An error of your own implementation, an `io.Writer`, `Syncer`, `SegmentSink`, `SegmentFile`, `PackSource` or `redact.Keys`,
   is returned wrapped with its chain intact, its sentinels its own.
-- A `ReadAt` the module calls on a goroutine of its own that ends the goroutine instead of returning, through `runtime.Goexit` as `t.FailNow` does,
-  fails the call with an error saying the `ReadAt` did not return, never read as the pack's bytes;
-  under `Merge` it is a failed read of that input, not `ErrMergeInput`.
-  It matches no sentinel of the module: treat it as an error of your `ReaderAt`.
+  A `ReaderAt`'s error is wrapped the same way and also matches `ErrSourceRead`, under [Reading calls](#reading-calls).
+  So does a `ReadAt` the module calls on a goroutine of its own that ends the goroutine instead of returning, through `runtime.Goexit` as `t.FailNow` does:
+  its bytes are never read as the pack's, and under `Merge` it is a failed read of that input, not `ErrMergeInput`.
 
 ## Compatibility
 

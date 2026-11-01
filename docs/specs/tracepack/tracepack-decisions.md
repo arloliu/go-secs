@@ -2207,3 +2207,15 @@ A positive sentinel for `ReaderAt` failures is deferred: tracekeep needs it for 
   Rationale *(editorial)*: a consumer resolves a message by its stored header and timestamp before `bus.CheckMessage`, even for a body that check may refuse, and hard-coded the offsets, the length and the digest prefix.
   Rejected *(editorial)*: a separate header type, since `tracepack.Record` holds every field; normalizing as `bus.CheckMessage` does, which would hide the stored values a consumer keeps.
   Spec: `tracepack-go.md` §3, v2.41.
+- G5-301 `ErrSourceRead` (2026-11-01, Go mapping):
+  this reverses the deferral stated at the head of this section, at the owner's request for one release.
+  `ErrSourceRead` marks, without changing the error's text, every error an `io.ReaderAt` returned to a read of the module other than `io.EOF`,
+  and a `ReadAt` the module called on a goroutine of its own that ended the goroutine instead of returning:
+  the errors `Merge` already counted as a failed read of an input.
+  A short read, fewer bytes than asked with `io.EOF` or no error, is not marked: the object is shorter than the size the caller passed,
+  it fails with `io.ErrUnexpectedEOF` alone, and `Merge` keeps refusing it as `ErrMergeInput` while opening an input.
+  The module adds no class of its own to a failed read, never `ErrCorrupt`, `ErrNotFinalized`, `ErrReadLimit`, `ErrInvalidArgument` or `ErrMergeInput`,
+  but the `ReadAt`'s error keeps its chain, so the reading calls' and `Merge`'s tables test `ErrSourceRead` right after ctx's error.
+  Rationale *(editorial)*: a consumer told a failed read of its store from a damaged pack by elimination, and the narrowed marking leaves every existing classification as it was.
+  Rejected *(editorial)*: marking a short read, which would add a second class to what `Merge` refuses as `ErrMergeInput`; a sentinel per read site.
+  Spec: `tracepack-go.md` §3, v2.41.
