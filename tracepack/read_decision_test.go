@@ -217,6 +217,22 @@ func TestReadDecision(t *testing.T) {
 				return err
 			},
 		},
+		{
+			name: "FindTransaction: a ReadAt error that wraps ErrCorrupt itself", want: decideReadSource, also: []error{ErrCorrupt},
+			err: func(t *testing.T) error {
+				g := newGatedReader(file)
+				g.fail = func(off int64, _ int) bool { return off == int64(block.Offset) }
+				g.failErr = fmt.Errorf("the source's own check: %w", ErrCorrupt)
+				r, err := Open(t.Context(), g, int64(len(file)), uncachedWindows())
+				require.NoError(t, err)
+				src, err := NewReaderSource([]*Reader{r})
+				require.NoError(t, err)
+				key := TxKeyOf(UUID(clean.hdr.CaptureID), block.FirstSeq+1, time.Unix(0, block.TSMin))
+				_, err = FindTransaction(t.Context(), src, key, TxOptions{MaxHours: 1})
+
+				return err
+			},
+		},
 		{name: "Open: a caller's short read", want: decideReadTransient, also: []error{io.ErrUnexpectedEOF}, err: func(t *testing.T) error {
 			_, err := Open(t.Context(), &shortReaderAt{data: file}, int64(len(file)), ReaderOptions{})
 			return err

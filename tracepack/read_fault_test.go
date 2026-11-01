@@ -393,6 +393,18 @@ func TestReadFaultNeverRelabelsReadErrors(t *testing.T) {
 		requireNotCorrupt(t, err)
 	})
 
+	t.Run("forward walk envelope read", func(t *testing.T) {
+		t.Parallel()
+
+		walked := invalidFooterFile(t, file)
+		g := newGatedReader(walked)
+		g.fail = func(off int64, n int) bool { return off == int64(block.Offset) && n == format.EnvelopeLen }
+		_, err := Open(t.Context(), g, int64(len(walked)), uncachedWindows())
+		require.ErrorIs(t, err, errInjected)
+		require.ErrorIs(t, err, ErrSourceRead)
+		requireNotCorrupt(t, err)
+	})
+
 	reads := map[string]func(r *Reader) error{
 		"Iterate": func(r *Reader) error {
 			_, err := r.Iterate(t.Context(), Query{}, func(*Item) error { return nil })
