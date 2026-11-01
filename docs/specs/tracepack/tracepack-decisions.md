@@ -1,6 +1,6 @@
 # tracepack — decision log
 
-Status: current (2026-10-31)
+Status: current (2026-11-01)
 Owner decisions for tracepack; append-only under `.agents/rules/450-doc-lifecycle.md`.
 Entries up to G5-79 were recorded in the design notes before the repository became the source of truth;
 they are copied here verbatim under their original headings, and later entries are added only here.
@@ -2173,3 +2173,37 @@ Consumers keep matching what they match today, so these keep their identity, and
   Rejected *(editorial)*: nil for a repeated successful `Close`, which neither consumer needs, since `ErrClosed` already says to stop using the writer and keep its committed segments;
   the stored result returned bare, as before.
   Spec: `tracepack-go.md` §3, v2.40.
+
+## 2026-11-01 consumer helpers (owner's choice, tracekeep's wish list)
+
+Source: tracekeep's wish list for the release after v0.13.0, sent at the owner's request and triaged with tracekeep;
+the owner approved the plan ("好, 開始實作") after two Codex plan reviews.
+Three asks need no change: a writer can learn its pack metadata's exact length as `len(PackMeta.MarshalBinary())` before `NewWriter`, which encodes the metadata once;
+`Merge` already refuses archive metadata over `MaxPackMetadataLen` before it touches `dst`;
+and v0.13.0 already keeps a `ReaderAt` failure apart from `ErrCorrupt` and `ErrNotFinalized`.
+A positive sentinel for `ReaderAt` failures is deferred: tracekeep needs it for logs only, and it would change what `Merge` reports for a short read while opening an input.
+
+- G5-298 `(*Reader).Verify` (2026-11-01, Go mapping):
+  `(*Reader).Verify(ctx) (VerifyReport, error)` returns the report `Verify` gives for the object the Reader was opened on, with the Reader's `ReaderOptions` as `VerifyOptions.Reader`;
+  it reads every located block in full, leaves the Reader usable and is safe for concurrent use, as the Reader is.
+  Its errors are those `Verify` returns after opening the pack, under the read calls' decision table.
+  `Verify` is `Open` followed by `(*Reader).Verify`.
+  Rationale *(editorial)*: a caller that verifies a pack and then reads it opened it twice; a pack within `WholeReadThreshold` now costs one request for both.
+  Rejected *(editorial)*: an `Open` option that verifies, more option surface for the same effect; `Verify` returning its Reader, which changes a signature frozen for v1.
+  Spec: `tracepack-go.md` §3, v2.41.
+- G5-299 `(*Record).CaptureBoundary` (2026-11-01, Go mapping):
+  `(*Record).CaptureBoundary() (BoundaryKind, bool)` returns the boundary kind and true for a transport-event record whose payload decodes to a `capture-boundary` event,
+  `BoundaryKindUnknown` when the event carries no `boundary_kind`, as the footer's boundary summary counts it;
+  and `BoundaryKindUnknown` and false for any other record, a payload that does not decode included, never an error.
+  It decodes the payload on every call.
+  Rationale *(editorial)*: every caller that looks for a capture's start or stop decoded the transport event itself.
+  Spec: `tracepack-go.md` §3, v2.41.
+- G5-300 Bus body helpers (2026-11-01, Go mapping):
+  `bus.RecordHeaderLen` is the untyped constant 44, the record header every layout-1 body starts with, usable as an array length.
+  `bus.PeekHeader(body) (tracepack.Record, bool)` returns the record header fields of a layout-1 body as stored, `Payload` nil, and false only for a body shorter than `bus.RecordHeaderLen`;
+  it checks nothing else and allocates nothing, and unlike `bus.CheckMessage` keeps `decode_status`, `trailing_bytes`, `field_validity` and reserved `quality` bits as stored.
+  The caller checks `Tpk-Layout` first.
+  `bus.ParsePayloadDigest(s) ([32]byte, error)` is the inverse of `bus.PayloadDigest`, its error wrapping `bus.ErrMalformed`, accepting the one spelling `bus.CheckMessage` accepts.
+  Rationale *(editorial)*: a consumer resolves a message by its stored header and timestamp before `bus.CheckMessage`, even for a body that check may refuse, and hard-coded the offsets, the length and the digest prefix.
+  Rejected *(editorial)*: a separate header type, since `tracepack.Record` holds every field; normalizing as `bus.CheckMessage` does, which would hide the stored values a consumer keeps.
+  Spec: `tracepack-go.md` §3, v2.41.
