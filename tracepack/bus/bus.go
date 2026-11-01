@@ -34,6 +34,10 @@ const (
 	// MinMaxPayload is the smallest max_payload a deployment may configure:
 	// HeaderBlockLimit plus the 44-byte body of a header-only message, so every header-only message fits.
 	MinMaxPayload = 4140
+	// RecordHeaderLen is the length of the record header every layout-1 body starts with, in bytes;
+	// a claim-check body is exactly this long, and an inline body holds the payload after it.
+	// It is untyped, so it serves as an array length.
+	RecordHeaderLen = 44
 )
 
 // Sentinel errors of the bus codec.
@@ -429,6 +433,25 @@ func CheckMessage(env Envelope, body []byte) (Record, error) {
 	return br, nil
 }
 
+// PeekHeader returns the record header fields of a layout-1 body as stored, for a consumer that resolves a message before CheckMessage checks it.
+// The caller checks the message's Tpk-Layout first, since only layout 1 starts its body with this header.
+//
+// It checks nothing but the body's length and allocates nothing.
+// Unlike CheckMessage, it keeps decode_status, trailing_bytes, field_validity and reserved quality bits as stored,
+// and a seq, payload_len or kind that CheckMessage refuses.
+//
+// Returns:
+//   - tracepack.Record: the header's fields, with MonoPresent from record_flags and a nil Payload; the zero Record when false.
+//   - bool: false for a body shorter than RecordHeaderLen.
+func PeekHeader(body []byte) (tracepack.Record, bool) {
+	if len(body) < RecordHeaderLen {
+		return tracepack.Record{}, false
+	}
+	h := format.DecodeRecordHeader(body)
+
+	return storedRecord(&h, nil), true
+}
+
 // checkBody checks that a body of bodyLen bytes has the layout's length for br.PayloadLen,
 // and, for a claim-check message, its claim-check headers in env, setting br.Bucket and br.Digest from them.
 func (br *Record) checkBody(env Envelope, bodyLen int) error {
@@ -450,7 +473,7 @@ func (br *Record) checkBody(env Envelope, bodyLen int) error {
 	if !found || bucket == "" || object != env.MsgID {
 		return wrapf("%w: %s %q does not name the object %s/%s", ErrMalformed, HeaderPayloadRef, env.PayloadRef, "<bucket>", env.MsgID)
 	}
-	digest, err := parsePayloadDigest(env.PayloadDigest)
+	digest, err := ParsePayloadDigest(env.PayloadDigest)
 	if err != nil {
 		return err
 	}
@@ -459,8 +482,13 @@ func (br *Record) checkBody(env Envelope, bodyLen int) error {
 	return nil
 }
 
-// parsePayloadDigest decodes a Tpk-Payload-Digest value: "SHA-256=" and the padded base64url encoding of 32 bytes.
-func parsePayloadDigest(s string) ([32]byte, error) {
+// ParsePayloadDigest decodes a Tpk-Payload-Digest value, the inverse of PayloadDigest:
+// "SHA-256=" and the padded base64url encoding of 32 bytes, the one spelling CheckMessage accepts.
+//
+// Returns:
+//   - [32]byte: the SHA-256 digest; zero on error.
+//   - error: an error wrapping ErrMalformed for any other spelling.
+func ParsePayloadDigest(s string) ([32]byte, error) {
 	enc, ok := strings.CutPrefix(s, payloadDigestPrefix)
 	// base64 decoding skips line breaks, which the one spelling of a digest never holds.
 	if !ok || strings.ContainsAny(enc, "\r\n") {
