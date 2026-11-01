@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-31)
-Implements tracepack v2.40 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Status: current (2026-11-01)
+Implements tracepack v2.41 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -74,6 +74,8 @@ The query service, its catalog database and the live-tail interface are designed
   it reports a field unavailable when its `field_validity` bit is clear, when the payload lacks that field's bytes, and for kinds without an HSMS frame,
   so a short frame still yields the fields it holds.
   A second helper computes the `field_validity` of a raw frame from its length, for writers of raw captures.
+  `(*Record).CaptureBoundary() (BoundaryKind, bool)` decodes a transport-event record's payload and returns its boundary kind and true for a `capture-boundary` event,
+  `BoundaryKindUnknown` when the event carries no `boundary_kind`; any other record, or a payload that does not decode, gives `BoundaryKindUnknown` and false, never an error (G5-299).
   `DecodeStatus.Malformed` is true only for known malformed values, and `DecodeStatus.Clean` only for known values outside the malformed set;
   an unknown value is neither, so `!Malformed()` never proves a clean decode ([SEM §6]).
 - `Writer`: `NewWriter(w io.Writer, WriterOptions)`, the layer under `SegmentWriter` and `Merge`;
@@ -119,7 +121,11 @@ The query service, its catalog database and the live-tail interface are designed
   The layout number, the header names, the 4096-byte bound of a header block and the smallest `max_payload` are constants:
   `bus.Layout1`, `bus.HeaderLayout`, `bus.HeaderMsgID`, `bus.HeaderDescriptor`, `bus.HeaderPayloadRef`, `bus.HeaderPayloadDigest`, `bus.HeaderBlockLimit` and `bus.MinMaxPayload`.
   `bus.Layout1` is the untyped string `"1"`, the `Tpk-Layout` value itself, so `bus.Envelope.Layout` is compared with it directly (G5-283).
-  `bus.ToolToken`, `bus.ParseToolToken` and `bus.Subject` spell the subject, `bus.MsgID` and `bus.ParseMsgID` the `Nats-Msg-Id`, and `bus.PayloadDigest` the claim-check digest.
+  `bus.ToolToken`, `bus.ParseToolToken` and `bus.Subject` spell the subject, `bus.MsgID` and `bus.ParseMsgID` the `Nats-Msg-Id`,
+  and `bus.PayloadDigest` the claim-check digest, which `bus.ParsePayloadDigest` decodes, its error wrapping `bus.ErrMalformed` (G5-300).
+  `bus.RecordHeaderLen` is the untyped constant 44, the record header a layout-1 body starts with;
+  `bus.PeekHeader(body) (tracepack.Record, bool)` returns that header's fields as stored, `Payload` nil, false only for a body shorter than it,
+  with no other check and no allocation, for a consumer that resolves a message before `bus.CheckMessage`, after checking `Tpk-Layout` (G5-300).
   A producer builds a `bus.Record` with `bus.NewRecord(*tracepack.Record)` and encodes it with `bus.EncodeBody(*bus.Record) ([]byte, error)`:
   the 44-byte record header with `decode_status`, `trailing_bytes` and `field_validity` zero, then the payload,
   or nothing for a claim-check record, which keeps its `PayloadLen` with no payload in memory.
@@ -560,6 +566,8 @@ The query service, its catalog database and the live-tail interface are designed
   It writes the largest input `format_minor`, so a featureless minor-1 input merges to minor 1 ([FMT §14]).
 - `Verify(ctx, ra, size, opts) (VerifyReport, error)`: the outcome, failed blocks, disagreements, writer defects and validated prefix of [FMT §13];
   a file header or pack metadata that cannot be read is an error, as for `Open`.
+  `(*Reader).Verify(ctx) (VerifyReport, error)` gives the same report for a Reader already open, with its `ReaderOptions`, and leaves it usable;
+  `Verify` is `Open` followed by it (G5-298).
 - `ExportJSONL(ctx, r *Reader, w io.Writer) (Result, error)`: writes the canonical export of the pack `r` reads ([FMT §15], [JSONL]), a function of package `tracepack` (G5-168),
   schema `tracepack-jsonl/1` for a pack of minor 0, so every format 1.0 export is unchanged, `tracepack-jsonl/2` for minor 1, and `tracepack-jsonl/3` otherwise ([JSONL §5]).
   It exports the records `r.Iterate(ctx, Query{Payloads: true}, …)` yields, in the same order, and returns the `Result` that call returns:

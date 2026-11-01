@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-31) — spec v2.40.
+Status: current (2026-11-01) — spec v2.41.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -195,6 +195,9 @@ The decision log and the outcome of every proposal are listed in `README.md`.
 - 2026-10-31: the §3 `SegmentWriter` bullet states what a later `Close` returns (G5-297):
   an error wrapping `ErrWriterFailed` and the failure after a failure, an earlier `Close`'s included, and `ErrClosed` after a `Close` that succeeded, with no sink call;
   a `Close` refused because `ctx` was done before any sink call still leaves the writer usable.
+  No format rule changed.
+- 2026-11-01: §3 gains `(*Reader).Verify` (G5-298), `(*Record).CaptureBoundary` (G5-299),
+  and the bus helpers `bus.RecordHeaderLen`, `bus.PeekHeader` and `bus.ParsePayloadDigest` (G5-300).
   No format rule changed.
 
 ## Changes vs v1 (summary)
@@ -1861,3 +1864,23 @@ Review rounds:
 | plan review 2 | the lifecycle table conflated an unusable object with disposable output; deterministic read and merge failures reached the transient fallback; the prefix helper contradicted keeping a caller's text; two plain `DirSink` errors were outside the inventory | usability and disposition decided apart; `ErrNotPrimary` and the writer tag's `ErrInvalidArgument` placed, Merge's failures inventoried; caller text relaxed in one respect, the error value unchanged; both documented as environment faults |
 | plan review 3 | the text-adapter recipe contradicted the helper's rendering contract | the text is fmt's rendering with the original operands, later namespaces removed per line |
 | plan review 4 | a whole-error count contradicted per-line joins; one sentinel-chain example prescribed an output its texts cannot give | the count is per line, joined fixtures assert their exact text; each example's output follows from unchanged sentinel texts; no redesign needed, ready |
+
+## Changes v2.40 → v2.41: consumer helpers (owner decisions G5-298..G5-300, 2026-11-01)
+
+Source: tracekeep's wish list for the release after v0.13.0, triaged with tracekeep; the owner approved the plan.
+Format 1.2, the canonical export bytes and the corpus goldens are unchanged.
+Implemented by the tracepack release after v0.13.0.
+
+Summary:
+- [GO] §3: `(*Reader).Verify`, the report of `Verify` for a Reader already open (G5-298).
+- [GO] §3: `(*Record).CaptureBoundary`, the boundary kind of a capture-boundary transport event (G5-299).
+- [GO] §3: `bus.RecordHeaderLen`, `bus.PeekHeader` and `bus.ParsePayloadDigest`, for a consumer that resolves a message before checking it (G5-300).
+- A positive sentinel for `ReaderAt` failures is deferred: the consumer needs it for logs only, and it would change what `Merge` reports for a short read while opening an input.
+- The overview's list of decisions reaches G5-300.
+
+Review rounds:
+
+| Round | Finding | Resolution |
+|---|---|---|
+| plan review 1 | the `ReaderAt` sentinel missed `Merge`'s open-worker Goexit, would add a second classification to a short read that `Merge` reports as `ErrMergeInput`, and could not exclude sentinels a caller's own error carries; the header peek's contract and its test disagreed on normalization; test and document inventories were incomplete | the sentinel deferred; the peek returns the header as stored and its test normalizes a copy before comparing; inventories completed |
+| plan review 2 | the gates named the wrong working directory for the `make` targets | Go commands from `tracepack/`, `make` targets from the repository root; ready |
