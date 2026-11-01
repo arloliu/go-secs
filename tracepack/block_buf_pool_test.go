@@ -356,7 +356,7 @@ func readResult(t *testing.T, v any) Result {
 // readSentinels are the sentinels a read's errors may wrap, which errorChains tests each error against with errors.Is.
 // The public sentinels come first; the internal ones a cause wraps beside them are checked too.
 var readSentinels = []error{
-	ErrCorrupt, ErrChecksum, ErrNotFinalized, ErrInvalidFooter, ErrReadLimit, ErrNotTracepack, ErrUnsupportedFormat,
+	ErrCorrupt, ErrChecksum, ErrNotFinalized, ErrInvalidFooter, ErrReadLimit, ErrNotTracepack, ErrUnsupportedFormat, ErrSourceRead,
 	ErrInvalidRecord, ErrFieldValidity, ErrRequiredTag, ErrFieldValue, ErrFieldLength, ErrReservedTag, ErrRedactionDefect,
 	format.ErrBadMagic, format.ErrCRC, format.ErrLimit, format.ErrSchema, format.ErrShort, format.ErrCorrupt,
 }

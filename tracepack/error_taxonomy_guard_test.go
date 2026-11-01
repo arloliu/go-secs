@@ -29,7 +29,7 @@ var taxonomyFamilies = []error{
 	ErrCorrupt, ErrChecksum, ErrInvalidFooter, ErrNotFinalized, ErrNotTracepack, ErrUnsupportedFormat, ErrReadLimit,
 	ErrInvalidArgument, ErrInvalidQuery, ErrInvalidKey, ErrNotPrimary,
 	ErrRefused, ErrInvalidRecord, ErrWriterFailed, ErrClosed, ErrPublishUncertain, ErrSegmentExists, ErrSegmentConflict,
-	ErrMergeInput, ErrMergeLimit, ErrMergeConflict, ErrRedactionDefect,
+	ErrMergeInput, ErrMergeLimit, ErrMergeConflict, ErrRedactionDefect, ErrSourceRead,
 }
 
 // guardRow is one fault a public call reports: the call, and the errors its error must match.
@@ -205,14 +205,14 @@ func TestTaxonomyNoCrossClass(t *testing.T) {
 
 			return w.Append(&bad)
 		}},
-		{name: "FindTransaction: a caller's ReadAt error", want: []error{errInjected}, err: func(t *testing.T) error {
+		{name: "FindTransaction: a caller's ReadAt error", want: []error{errInjected, ErrSourceRead}, err: func(t *testing.T) error {
 			src, err := NewReaderSource([]*Reader{openFailing(t)})
 			require.NoError(t, err)
 			_, err = FindTransaction(t.Context(), src, key, TxOptions{MaxHours: 1})
 
 			return err
 		}},
-		{name: "FindTransactions: a caller's ReadAt error", want: []error{errInjected}, err: func(t *testing.T) error {
+		{name: "FindTransactions: a caller's ReadAt error", want: []error{errInjected, ErrSourceRead}, err: func(t *testing.T) error {
 			src, err := NewReaderSource([]*Reader{openFailing(t)})
 			require.NoError(t, err)
 			at := time.Unix(0, block.TSMin)
@@ -221,7 +221,7 @@ func TestTaxonomyNoCrossClass(t *testing.T) {
 
 			return err
 		}},
-		{name: "Merge: a caller's ReadAt error on a block", want: []error{errInjected}, err: func(t *testing.T) error {
+		{name: "Merge: a caller's ReadAt error on a block", want: []error{errInjected, ErrSourceRead}, err: func(t *testing.T) error {
 			inputs := inputsOf(file)
 			inputs[0].ReaderAt = failing()
 			_, err := Merge(t.Context(), io.Discard, inputs, uncachedMergeOpts())
@@ -232,8 +232,9 @@ func TestTaxonomyNoCrossClass(t *testing.T) {
 }
 
 // TestTaxonomyDescriptiveErrors drives the errors the package documents as descriptive:
-// those whose classifier is a field beside Err, and those that report a fault of the caller's ReadAt or of the package itself;
+// those whose classifier is a field beside Err, and those that report a fault of the package itself;
 // each matches none of the families, and its classifier says what it is.
+// A caller's ReadAt that ends its goroutine is driven here too: it matches ErrSourceRead alone.
 func TestTaxonomyDescriptiveErrors(t *testing.T) {
 	t.Parallel()
 
@@ -310,13 +311,14 @@ func TestTaxonomyDescriptiveErrors(t *testing.T) {
 	t.Run("ReadAt ending its goroutine", func(t *testing.T) {
 		t.Parallel()
 
-		// A misbehaving ReadAt of the caller's, treated as its read failing: no class of a pack, nor a refused merge input.
+		// A misbehaving ReadAt of the caller's, treated as its read failing: a failed read of the source,
+		// no class of a pack, nor a refused merge input.
 		file, first, _ := roundPack(t)
 		r := newRoundReader(file)
 		r.at(first[1]).goexit = true
 		r.at(first[0])
 		_, err := Open(t.Context(), r, int64(len(file)), roundOptions)
-		requireFamilies(t, err)
+		requireFamilies(t, err, ErrSourceRead)
 
 		files := openTestFiles(t, 2)
 		rs, in := gatedInputs(files)
@@ -325,7 +327,7 @@ func TestTaxonomyDescriptiveErrors(t *testing.T) {
 		opts.Reader = roundOptions
 		opts.MaxParallelOpens = 1
 		_, _, err = mergeBytes(t.Context(), in, opts)
-		requireFamilies(t, err)
+		requireFamilies(t, err, ErrSourceRead)
 	})
 }
 

@@ -393,7 +393,7 @@ type TxResult struct {
 //     ErrNotPrimary;
 //     an error of src, wrapped with the hour; an error wrapping ErrInvalidQuery, wrapped with the hour, for a nil reader src gives;
 //     the error of an hour's MergeIterate, an error wrapping ErrInvalidQuery for a Reader or pack_id src gives twice among them;
-//     a ReadAt error; an error wrapping ErrReadLimit from MaxHeldBytes, MaxConflicts or MaxStateBytes;
+//     a ReadAt error, wrapping ErrSourceRead; an error wrapping ErrReadLimit from MaxHeldBytes, MaxConflicts or MaxStateBytes;
 //     ctx's error, wrapped.
 //     A block over its Reader's MaxBlockLen is not an error: it is a TxGapRead gap.
 func FindTransaction(ctx context.Context, src PackSource, key TxKey, opts TxOptions) (TxResult, error) {

@@ -70,10 +70,24 @@ var (
 // It stands alone.
 var ErrReadLimit = errors.New("tracepack: structure exceeds a reader budget")
 
+// ErrSourceRead reports a failed read of the source, the io.ReaderAt a pack is read through:
+// every reading call, Verify and Merge wrap it, beside the ReadAt's own error, when a ReadAt returned an error other than io.EOF,
+// and when a ReadAt the module called on a goroutine of its own ended that goroutine instead of returning, as runtime.Goexit does.
+// It says nothing about the pack's bytes: retry by your source's policy.
+// A short read is not marked: a ReadAt that returns fewer bytes than asked with io.EOF or no error,
+// the object being shorter than the size the caller passed, fails with io.ErrUnexpectedEOF alone,
+// which Merge reports as ErrMergeInput for an input it is opening.
+// The module adds no classification of its own to a failed read, never ErrCorrupt, ErrNotFinalized, ErrReadLimit, ErrInvalidArgument or ErrMergeInput,
+// but the ReadAt's error keeps its chain and matches whatever it matches, a context error included,
+// so a caller tests ctx's error first and ErrSourceRead next.
+// It stands alone, and the error text is the ReadAt's, wrapped with the read.
+var ErrSourceRead = errors.New("tracepack: read of the source failed")
+
 // errNoReturn is the cause of the error that reports a ReadAt call on a goroutine of this package
 // that ended the goroutine, as runtime.Goexit does, instead of returning or panicking;
 // Merge counts it as a failed read of its input, not as a pack it refuses.
-var errNoReturn = errors.New("ReadAt did not return")
+// It matches ErrSourceRead.
+var errNoReturn = newChildSentinel("ReadAt did not return", ErrSourceRead)
 
 // ReaderOptions configures Open.
 //
@@ -322,8 +336,8 @@ type optionField struct {
 //
 // Returns:
 //   - *Reader: the Reader; nil on error.
-//   - error: ctx's error; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read;
-//     an error saying a ReadAt did not return, naming its offset;
+//   - error: ctx's error; a ReadAt error, wrapping ErrSourceRead, or io.ErrUnexpectedEOF alone for a short read;
+//     an error wrapping ErrSourceRead saying a ReadAt did not return, naming its offset;
 //     ErrNotTracepack for a size below 80 or a bad file header magic;
 //     an error wrapping ErrInvalidArgument naming a negative field of opts, after the size check and before any read;
 //     ErrCorrupt beside io.ErrUnexpectedEOF for a pack metadata past the end of the object;
@@ -332,7 +346,7 @@ type optionField struct {
 //     ErrReadLimit for a pack metadata over MaxPackMetadataLen;
 //     the error of UnmarshalPackMetaMinor for pack metadata that does not decode or validate,
 //     wrapping ErrCorrupt, beside a *FieldError when an entry is at fault.
-//     A ReadAt error is returned as it is, never as ErrCorrupt.
+//     A ReadAt error keeps its chain and is never reported as ErrCorrupt (see ErrSourceRead).
 func Open(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
 	return openReader(ctx, ra, size, opts, false)
 }
@@ -435,11 +449,25 @@ func readAt(ra io.ReaderAt, buf []byte, off int64) error {
 		return nil
 	}
 	if err == nil || errors.Is(err, io.EOF) {
-		err = io.ErrUnexpectedEOF
+		return wrapf("tracepack: read %d bytes at offset %d: %w", len(buf), off, io.ErrUnexpectedEOF)
 	}
 
-	return wrapf("tracepack: read %d bytes at offset %d: %w", len(buf), off, err)
+	return &sourceError{err: wrapf("tracepack: read %d bytes at offset %d: %w", len(buf), off, err)}
 }
+
+// sourceError marks err as a failed read of the source, without changing its text: it matches ErrSourceRead.
+type sourceError struct {
+	err error
+}
+
+// Error returns the text of the error it marks.
+func (e *sourceError) Error() string { return e.err.Error() }
+
+// Unwrap returns the error it marks.
+func (e *sourceError) Unwrap() error { return e.err }
+
+// Is reports whether target is ErrSourceRead.
+func (e *sourceError) Is(target error) bool { return target == ErrSourceRead }
 
 // noReturnError returns the error of a ReadAt call of n bytes at offset off, made on a goroutine of this package,
 // that ended the goroutine, as runtime.Goexit does, instead of returning or panicking:

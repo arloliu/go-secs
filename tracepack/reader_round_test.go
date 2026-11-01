@@ -135,6 +135,7 @@ func TestReadRoundErrorOrder(t *testing.T) {
 
 			_, err := Open(t.Context(), r, int64(len(file)), roundOptions)
 			require.ErrorIs(t, err, errLowRequest)
+			require.ErrorIs(t, err, ErrSourceRead)
 			require.NotErrorIs(t, err, errHighRequest)
 			assert.EqualError(t, err, fmt.Sprintf("tracepack: read %d bytes at offset %d: %v", low.n, tt.offs[0], errLowRequest))
 			assert.True(t, r.returned(tt.offs[0]) && r.returned(tt.offs[1]), "both calls returned before Open")
@@ -228,6 +229,7 @@ func TestReadRoundGoexit(t *testing.T) {
 				r.at(round[1-k]) // the other call of the round, which reads normally
 				_, err := Open(t.Context(), r, int64(len(file)), roundOptions)
 				require.EqualError(t, err, fmt.Sprintf("tracepack: read %d bytes at offset %d: ReadAt did not return", exiting.n, off))
+				require.ErrorIs(t, err, ErrSourceRead)
 				for _, class := range []error{ErrCorrupt, ErrNotTracepack, ErrNotFinalized, ErrReadLimit, ErrInvalidArgument} {
 					require.NotErrorIs(t, err, class)
 				}

@@ -19,7 +19,7 @@ var (
 	// so do Verify's VerifyReport.Failed and VerifyReport.Disagreements,
 	// MergeIterate's and the transaction lookups' defects and FooterErrs, ExportJSONL's Result,
 	// and Merge's error for an unusable input, beside ErrMergeInput.
-	// A ReadAt error is never reported as ErrCorrupt, io.ErrUnexpectedEOF for a short read included.
+	// The module never reports a ReadAt error as ErrCorrupt, io.ErrUnexpectedEOF for a short read included (see ErrSourceRead).
 	// No encode wraps it, and no writing call: a record whose payload does not decode is refused as ErrInvalidRecord.
 	//
 	// It is not reported for an object that is not a pack (ErrNotTracepack),

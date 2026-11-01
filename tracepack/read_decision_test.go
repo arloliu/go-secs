@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 	"time"
@@ -22,6 +23,8 @@ type readDecision string
 const (
 	// decideReadCtx: the call's ctx is done; stop.
 	decideReadCtx readDecision = "ctx"
+	// decideReadSource: the source's ReadAt failed or did not return; retry by the source's policy.
+	decideReadSource readDecision = "source"
 	// decideReadFixCall: an argument or option the call cannot take; fix the call.
 	decideReadFixCall readDecision = "fix the call"
 	// decideReadNotPrimary: the key names no primary; look up the primary instead.
@@ -36,7 +39,7 @@ const (
 	decideReadNotFinalized readDecision = "not finalized"
 	// decideReadCorrupt: the bytes are damaged; report and skip.
 	decideReadCorrupt readDecision = "corrupt"
-	// decideReadTransient: the caller's ReadAt error or another error; it may be transient.
+	// decideReadTransient: a short read or another error; it may be transient.
 	decideReadTransient readDecision = "transient"
 )
 
@@ -45,6 +48,8 @@ func decideRead(err error) readDecision {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return decideReadCtx
+	case errors.Is(err, ErrSourceRead):
+		return decideReadSource
 	case errors.Is(err, ErrInvalidArgument):
 		return decideReadFixCall
 	case errors.Is(err, ErrNotPrimary):
@@ -171,14 +176,14 @@ func TestReadDecision(t *testing.T) {
 			name: "Defect: the end of the walk of a valid trailer whose footer CRC fails", want: decideReadCorrupt,
 			err: truncatedDefect(flipByte(file, l.tr.FooterOffset+5)),
 		},
-		{name: "Open: a caller's ReadAt error", want: decideReadTransient, also: []error{errInjected}, err: func(t *testing.T) error {
+		{name: "Open: a caller's ReadAt error", want: decideReadSource, also: []error{errInjected}, err: func(t *testing.T) error {
 			g := newGatedReader(file)
 			g.fail = func(int64, int) bool { return true }
 			_, err := Open(t.Context(), g, int64(len(file)), ReaderOptions{})
 
 			return err
 		}},
-		{name: "(*Reader).Verify: a caller's ReadAt error on a block", want: decideReadTransient, also: []error{errInjected}, err: func(t *testing.T) error {
+		{name: "(*Reader).Verify: a caller's ReadAt error on a block", want: decideReadSource, also: []error{errInjected}, err: func(t *testing.T) error {
 			g := newGatedReader(file)
 			g.fail = func(off int64, _ int) bool { return off == int64(block.Offset) }
 			r, err := Open(t.Context(), g, int64(len(file)), uncachedWindows())
@@ -187,11 +192,36 @@ func TestReadDecision(t *testing.T) {
 
 			return err
 		}},
+		{
+			name: "Open: a ReadAt returning ctx's error", want: decideReadCtx, also: []error{ErrSourceRead},
+			err: func(t *testing.T) error {
+				g := newGatedReader(file)
+				g.fail = func(int64, int) bool { return true }
+				g.failErr = context.Canceled
+				_, err := Open(t.Context(), g, int64(len(file)), ReaderOptions{})
+
+				return err
+			},
+		},
+		{
+			// The source's own error keeps its chain, a module sentinel in it included; the source row decides first.
+			name: "Iterate: a ReadAt error that wraps ErrCorrupt itself", want: decideReadSource, also: []error{ErrCorrupt},
+			err: func(t *testing.T) error {
+				g := newGatedReader(file)
+				g.fail = func(off int64, _ int) bool { return off == int64(block.Offset) }
+				g.failErr = fmt.Errorf("the source's own check: %w", ErrCorrupt)
+				r, err := Open(t.Context(), g, int64(len(file)), uncachedWindows())
+				require.NoError(t, err)
+				_, err = r.Iterate(t.Context(), Query{}, func(*Item) error { return nil })
+
+				return err
+			},
+		},
 		{name: "Open: a caller's short read", want: decideReadTransient, also: []error{io.ErrUnexpectedEOF}, err: func(t *testing.T) error {
 			_, err := Open(t.Context(), &shortReaderAt{data: file}, int64(len(file)), ReaderOptions{})
 			return err
 		}},
-		{name: "FindTransaction: a caller's ReadAt error on a block", want: decideReadTransient, also: []error{errInjected}, err: func(t *testing.T) error {
+		{name: "FindTransaction: a caller's ReadAt error on a block", want: decideReadSource, also: []error{errInjected}, err: func(t *testing.T) error {
 			g := newGatedReader(file)
 			g.fail = func(off int64, _ int) bool { return off == int64(block.Offset) }
 			r, err := Open(t.Context(), g, int64(len(file)), uncachedWindows())

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 
@@ -19,6 +20,8 @@ type mergeDecision string
 const (
 	// decideMergeCtx: the merge's ctx is done; stop.
 	decideMergeCtx mergeDecision = "ctx"
+	// decideMergeSource: an input's ReadAt failed or did not return, while opening it or reading a block; retry by the source's policy.
+	decideMergeSource mergeDecision = "source"
 	// decideMergeFixOptions: an option or identity Merge cannot take; fix the options.
 	decideMergeFixOptions mergeDecision = "fix the options"
 	// decideMergeOperator: a budget or a limit of the format; raise the budget, or an operator decides.
@@ -27,7 +30,7 @@ const (
 	decideMergeConflict mergeDecision = "conflict"
 	// decideMergeInput: an input Merge refuses; the cause beside the sentinel says why.
 	decideMergeInput mergeDecision = "input unusable"
-	// decideMergeTransient: a read of an input, or the destination, failed; it may be transient.
+	// decideMergeTransient: a block read of an input cut short, or the destination, failed; it may be transient.
 	decideMergeTransient mergeDecision = "transient"
 )
 
@@ -36,6 +39,8 @@ func decideMerge(err error) mergeDecision {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return decideMergeCtx
+	case errors.Is(err, ErrSourceRead):
+		return decideMergeSource
 	case errors.Is(err, ErrInvalidArgument):
 		return decideMergeFixOptions
 	case errors.Is(err, ErrMergeLimit), errors.Is(err, ErrReadLimit):
@@ -125,20 +130,34 @@ func TestMergeDecision(t *testing.T) {
 		{
 			// A ReaderAt reporting io.EOF reports the object's end: the object is shorter than its Size, and Merge refuses it.
 			name: "an input shorter than its size, its ReaderAt reporting io.EOF", want: decideMergeInput,
+			also: []error{io.ErrUnexpectedEOF}, never: []error{ErrSourceRead},
 			err: func(t *testing.T) error {
 				_, err := Merge(t.Context(), io.Discard, []MergeInput{{ReaderAt: bytes.NewReader(file), Size: int64(len(file)) + 10}}, mergeOpts())
 				return err
 			},
 		},
 		{
-			name: "a ReadAt error while opening an input", want: decideMergeTransient, also: []error{errInjected},
+			name: "a ReadAt error while opening an input", want: decideMergeSource, also: []error{errInjected},
 			never: []error{ErrMergeInput, ErrCorrupt, ErrNotFinalized, ErrNotTracepack},
 			err:   failing(func(int64, int) bool { return true }),
 		},
 		{
-			name: "a ReadAt error reading an input's block", want: decideMergeTransient, also: []error{errInjected},
+			name: "a ReadAt error reading an input's block", want: decideMergeSource, also: []error{errInjected},
 			never: []error{ErrMergeInput, ErrCorrupt},
 			err:   failing(func(off int64, _ int) bool { return off == int64(block.Offset) }),
+		},
+		{
+			// The source's own error keeps its chain, a module sentinel in it included; the source row decides first.
+			name: "a ReadAt error that wraps ErrCorrupt itself", want: decideMergeSource, also: []error{ErrCorrupt},
+			never: []error{ErrMergeInput},
+			err: func(t *testing.T) error {
+				g := newGatedReader(file)
+				g.fail = func(off int64, _ int) bool { return off == int64(block.Offset) }
+				g.failErr = fmt.Errorf("the source's own check: %w", ErrCorrupt)
+				_, err := Merge(t.Context(), io.Discard, []MergeInput{{ReaderAt: g, Size: int64(len(file))}}, uncachedMergeOpts())
+
+				return err
+			},
 		},
 	}
 	for _, tt := range tests {
