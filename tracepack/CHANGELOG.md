@@ -5,6 +5,8 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-01
+
 This release gives the module a public error taxonomy (G5-295, G5-296, G5-297): spec v2.40, format 1.2.
 A caller decides to retry, stop, skip a damaged pack or fix its call from documented sentinels alone,
 by one decision table per family of calls, which the README's new Errors section gives.
