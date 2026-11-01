@@ -143,6 +143,10 @@ func TestReadDecision(t *testing.T) {
 
 			return res.Incomplete[0].Err
 		}},
+		{name: "(*Reader).Verify: a block over its budget", want: decideReadBudget, err: func(t *testing.T) error {
+			_, err := mustOpen(t, file, ReaderOptions{MaxBlockLen: int64(block.UncompressedLen) - 1}).Verify(t.Context())
+			return err
+		}},
 		{name: "FooterErr: no trailer", want: decideReadNotFinalized, err: footerErr(file[:l.tr.FooterOffset])},
 		{
 			name: "FooterErr: a trailer CRC mismatch", want: decideReadNotFinalized, also: []error{ErrChecksum},
@@ -171,6 +175,15 @@ func TestReadDecision(t *testing.T) {
 			g := newGatedReader(file)
 			g.fail = func(int64, int) bool { return true }
 			_, err := Open(t.Context(), g, int64(len(file)), ReaderOptions{})
+
+			return err
+		}},
+		{name: "(*Reader).Verify: a caller's ReadAt error on a block", want: decideReadTransient, also: []error{errInjected}, err: func(t *testing.T) error {
+			g := newGatedReader(file)
+			g.fail = func(off int64, _ int) bool { return off == int64(block.Offset) }
+			r, err := Open(t.Context(), g, int64(len(file)), uncachedWindows())
+			require.NoError(t, err)
+			_, err = r.Verify(t.Context())
 
 			return err
 		}},
