@@ -159,6 +159,30 @@ func (r *Record) HSMSHeader() HSMSHeader {
 	return h
 }
 
+// CaptureBoundary reports whether r is a capture boundary, a transport-event record whose payload decodes to a capture-boundary event,
+// and its boundary kind (the tracepack semantics specification §5).
+// An event without a boundary_kind reads as BoundaryKindUnknown, as the footer's boundary summary counts it.
+// It decodes the payload on every call.
+//
+// Returns:
+//   - BoundaryKind: the boundary's kind; BoundaryKindUnknown when r is not a capture boundary.
+//   - bool: true for a capture boundary;
+//     false for a record of another kind, another event, or a payload that does not decode.
+func (r *Record) CaptureBoundary() (BoundaryKind, bool) {
+	if r.Kind != KindTransportEvent {
+		return BoundaryKindUnknown, false
+	}
+	ev, err := parseTransportEvent(r.Payload)
+	if err != nil || ev.Event != EventCaptureBoundary {
+		return BoundaryKindUnknown, false
+	}
+	if ev.BoundaryKind == nil {
+		return BoundaryKindUnknown, true
+	}
+
+	return *ev.BoundaryKind, true
+}
+
 // Clone returns a copy of r whose Payload is its own; a nil Payload stays nil.
 func (r *Record) Clone() Record {
 	c := *r
