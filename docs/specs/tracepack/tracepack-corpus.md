@@ -1,6 +1,6 @@
 # tracepack — conformance corpus
 
-Status: current (2026-11-01) — v2.41, tracepack format 1.2, schema `tracepack-corpus/5` (fixed, G5-280).
+Status: current (2026-11-03) — v2.42, tracepack format 1.2, schema `tracepack-corpus/5` (fixed, G5-280).
 Normative.
 [FMT §16] states what the corpus holds; this document defines its files, their schemas and the vector catalogue.
 The format is documented for any reader;

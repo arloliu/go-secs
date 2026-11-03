@@ -194,9 +194,10 @@ type PackFacts struct {
 	// ScopeHasGeneration reports that the pack's scope already has a published generation,
 	// which, for a patch, requires the patch_base tag (the tracepack format specification §5).
 	ScopeHasGeneration bool
-	// DurableRecorder reports that the writer is a consumer of a durable bus,
-	// which requires the flush_interval_ns tag (the tracepack storage specification §4).
-	// A standalone recorder and a converter never set it.
+	// DurableRecorder reports that the writer flushes segments of an unbounded input at an interval,
+	// as a consumer of a durable bus or a live log converter does,
+	// which requires the flush_interval_ns tag (the tracepack storage specification §4 and §7).
+	// A standalone recorder and a converter of finite input never set it.
 	DurableRecorder bool
 }
 
@@ -474,9 +475,9 @@ type PackMeta struct {
 	// ReplacementSetIndex is this pack's index in the replacement set, always 0 (replacement_set_index);
 	// required with ReplacementSetID, and any other value rejects the file.
 	ReplacementSetIndex *uint64
-	// FlushIntervalNs is a durable-bus consumer's maximum normal segment-flush interval
-	// (flush_interval_ns, the tracepack storage specification §4).
-	// It is required for a consumer of a durable bus, and never written by a standalone recorder or a converter.
+	// FlushIntervalNs is a durable-bus consumer's or live log converter's maximum normal segment-flush interval
+	// (flush_interval_ns, the tracepack storage specification §4 and §7).
+	// It is required for either, and never written by a standalone recorder or a converter of finite input.
 	FlushIntervalNs *uint64
 	// ScopeGeneration is 0 for segments and patches, and 1 or more for generations produced by merges
 	// (scope_generation, the tracepack storage specification §2); required for every pack but an extract.

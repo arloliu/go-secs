@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-11-01) — v2.41, tracepack format 1.2.
+Status: current (2026-11-03) — v2.42, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -256,7 +256,7 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | 0x0026 | `hsms_timers` | tlv | optional | configured timers; nested tag *n* (1–8) = T*n* in milliseconds, `u64` |
 | 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq (for a `repair` patch without records, no longer written (G5-202), the damaged pack's `seq_start`; for an archive without records, the largest `seq_start` of the merge's inputs, [STO §4]) |
 | 0x0028 | `clock_step_tolerance_ns` | u64 | `time_source = capture-clock` | wall-clock drift the writer tolerates against its clock anchor before marking a step ([SEM §4]) |
-| 0x002C | `flush_interval_ns` | u64 | a consumer of a durable bus | a durable-bus consumer's maximum normal segment-flush interval ([STO §4]); never written by a standalone recorder (G5-150) or by a converter ([STO §7]); spool recorders of earlier spec versions, never implemented, would have written it (G5-227) |
+| 0x002C | `flush_interval_ns` | u64 | a consumer of a durable bus, or a live converter | a durable-bus consumer's or live converter's maximum normal segment-flush interval ([STO §4], [STO §7]); never written by a standalone recorder (G5-150) or by a converter of finite input ([STO §7]); spool recorders of earlier spec versions, never implemented, would have written it (G5-227) |
 | 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for archives, produced by merges or written by a converter directly; an archive's value is supplied by its publisher, and tracepack ranks nothing by it ([STO §2], [STO §7]) |
 | 0x002E | `publisher_epoch` | u64 | `scope_generation` ≥ 1 | the publisher's value, with no fencing meaning in tracepack ([STO §2]) |
 | 0x002F | `patch_base` | uuid | a patch, when its scope has a generation | written only by repair, no longer written (G5-202): the `replacement_set_id` of the archive the patch was registered against; read and exported like any tag |

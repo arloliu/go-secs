@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-11-01)
-Implements tracepack v2.41 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.42 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -40,6 +40,7 @@ How each Go-side producer fills the spec's capture model ([SEM §2]):
 | an equipment gateway, frames re-emitted via `ToBytes()`: today its HSMS device → message-encoding adapter → EAP bus adapter → JetStream path; a recorder device on the go-secs v2.6.0 observers is planned, not built; the gateway is the capture's producer over the durable bus (G5-200), publishing either wire frames through the observers (`raw-stream`) or its devices' decoded messages re-encoded (`decoded-message`, G5-249), and thinning the FDC service's polls (G5-225) | `decoded-message` | `intermediary` | `re-encoded` | `<gateway>/<ver> <bus-adapter>` |
 | the gateway recording its own HSMS connection to the tool through the go-secs v2.6.0 observers, with the log service's producer SDK (G5-274) | `raw-stream` | `host`: the gateway is that connection's host endpoint, and its frames are observed at its own socket | `wire-exact` | `tracekeep-producer/<ver> go-secs/<ver>` |
 | `eapconv` converting EAP SML logs | `log` | where the EAP ran (normally `host`) | `reconstructed` | `eapconv/<ver>` |
+| tracekeep's log ingest, a live converter ([STO §7], G5-302) of a host's SML traffic log, its entries parsed upstream and fed through NATS JetStream, writing segments with `SegmentWriter.Append` under `PackFacts.DurableRecorder` | `log` | `host` | `reconstructed` | `tracekeep/<ver>` |
 | VE or test fixtures producing expected traffic | `generator` | `none` | `synthesized` | `veq/<ver>` |
 
 The `intermediary` vantage of the gateway row describes its decoded-message path through the bus adapter;

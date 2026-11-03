@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-11-01) — v2.41, tracepack format 1.2.
+Status: current (2026-11-03) — v2.42, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for mergers, recorders, log converters and the service that deletes packs.
 
@@ -93,6 +93,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
   - *Scope of the bus* (G5-249). Layout 1 of the bus message (below) serves captures whose `capture_method` is `raw-stream` or `decoded-message` and whose `time_source` is `capture-clock`:
     the frames of both establish every header field they hold, so a consumer derives `field_validity` from the payload.
     A log conversion writes packs by the converter contract of §7 and never publishes over the bus.
+    A live converter that consumes a non-tracepack feed and writes packs by §7 is a log conversion that never publishes over the bus (G5-302).
     Every capture a consumer closes therefore has `clock_step_tolerance_ns`.
   - *Producer duties.* The producer keeps a stable `recorder_instance_id` for its deployment across restarts,
     and with it the deployment's `recorder_instance_name` when it writes one, a rule tracepack does not check (G5-270),
@@ -488,6 +489,13 @@ A source dialect lacking some of these is still convertible, with the effects st
    A converter MAY instead write `archive` packs directly, one per (capture, UTC hour), with hour-aligned blocks ([FMT I-13]), `compaction_level = 0` and no `compacted_from`,
    since they represent no generation-0 pack ([FMT §5]); a merge whose inputs are only such archives writes none either (§4, G5-111).
    A direct archive carries the `scope_generation`, `publisher_epoch` and `replacement_set_id` of §2, its `scope_generation` and `publisher_epoch` supplied by the service.
+
+**Live converter** (G5-302).
+A live converter MAY consume an unbounded stream of entries and write generation-0 `segment` packs as they arrive, flushed at an interval with `flush_interval_ns`,
+writing each capture's start and stop boundaries itself.
+Its captures claim no byte-exact coverage, and their `notes` say so:
+item 7's coverage, item 8's source file set, content digest and `capture_id` derivation, and item 9's finite input do not apply to it;
+each pack's `source_ref` names the capture's one source file by its source and base name, and a capture keeps the `capture_id` it was created with.
 
 **Reproducible output.**
 A converter MAY reuse a `pack_id` only for byte-identical finalized output.
