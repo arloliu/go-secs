@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-11-01) — spec v2.41.
+Status: current (2026-11-03) — spec v2.42.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1886,3 +1886,16 @@ Review rounds:
 | plan review 1 | the `ReaderAt` sentinel missed `Merge`'s open-worker Goexit, would add a second classification to a short read that `Merge` reports as `ErrMergeInput`, and could not exclude sentinels a caller's own error carries; the header peek's contract and its test disagreed on normalization; test and document inventories were incomplete | the sentinel deferred; the peek returns the header as stored and its test normalizes a copy before comparing; inventories completed |
 | plan review 2 | the gates named the wrong working directory for the `make` targets | Go commands from `tracepack/`, `make` targets from the repository root; ready |
 | plan review 3 | the narrowed `ErrSourceRead` resolves the round-1 findings; the documentation still promised no other match, and the test inventory lacked negative guards and boundary cases | the contract says the module adds no class while the caller's chain stays; unmarked cases and explicit `io.ErrUnexpectedEOF` tested; ready |
+
+## Changes v2.41 → v2.42: live log converter (owner decision G5-302, 2026-11-03)
+
+Source: tracekeep's proposal P3, the host log feed, approved by the owner.
+Format 1.2, the canonical export bytes, the corpus goldens and the module's behavior are unchanged.
+
+Summary:
+- [STO §7]: a live converter consumes an unbounded stream of entries and writes generation-0 segments with `flush_interval_ns`,
+  its captures claiming no byte-exact coverage and each pack naming its capture's one source file (G5-302).
+- [STO §4] *Scope of the bus*: a live converter of a non-tracepack feed is a log conversion and never publishes over the bus (G5-302).
+- [FMT §5]: `flush_interval_ns` is also written by a live converter, never by a converter of finite input.
+- [GO] §2: the producer table gains tracekeep's log ingest; the godoc of `PackFacts.DurableRecorder` and `PackMeta.FlushIntervalNs` names the live converter.
+- The overview's list of decisions reaches G5-302.

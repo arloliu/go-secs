@@ -2219,3 +2219,24 @@ A positive sentinel for `ReaderAt` failures is deferred: tracekeep needs it for 
   Rationale *(editorial)*: a consumer told a failed read of its store from a damaged pack by elimination, and the narrowed marking leaves every existing classification as it was.
   Rejected *(editorial)*: marking a short read, which would add a second class to what `Merge` refuses as `ErrMergeInput`; a sentinel per read site.
   Spec: `tracepack-go.md` §3, v2.41.
+
+## 2026-11-03 live log converter (owner's choice, tracekeep's proposal P3)
+
+Source: tracekeep's proposal P3, the host log feed:
+a host logs its SML traffic as text, the log pipeline parses each entry and feeds it to tracekeep, which converts it as it arrives.
+The owner approved the design and answered its open questions; tracekeep sent the changes tracepack needs.
+
+- G5-302 A live log converter (2026-11-03, the scope of G5-249 and of [STO §7]):
+  a live converter MAY consume an unbounded stream of entries and write generation-0 `segment` packs as they arrive, flushed at an interval with `flush_interval_ns`,
+  writing each capture's start and stop boundaries itself.
+  Its captures claim no byte-exact coverage, and their `notes` say so:
+  [STO §7] item 7's coverage, item 8's source file set, content digest and `capture_id` derivation, and item 9's finite input do not apply to it;
+  each pack's `source_ref` names the capture's one source file by its source and base name, and a capture keeps the `capture_id` it was created with.
+  A live converter that consumes a non-tracepack feed is a log conversion that never publishes over the bus (G5-249).
+  In Go, its writer sets `PackFacts.DurableRecorder`, under which `PackMeta.Validate` requires `flush_interval_ns`,
+  and writes with `SegmentWriter.Append`, since `AppendFrame` refuses `capture_method = log`.
+  Rationale *(editorial)*: a host log fed entry by entry has no end, so a converter of it flushes as a recorder does;
+  its source is a text log, reconstructed and never wire-exact, and a capture spanning one file of an unbounded feed cannot list or digest its whole input.
+  Rejected *(editorial)*: batching the feed into finite inputs, an hour at a time, which holds a whole hour of 2000 sources in the bus;
+  publishing the reconstructed records over the bus, which G5-249 bars.
+  Spec: [STO §4], [STO §7], [FMT §5], `tracepack-go.md` §2, v2.42.

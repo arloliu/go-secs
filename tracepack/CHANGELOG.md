@@ -5,6 +5,12 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+### Changed
+
+- The godoc of `PackFacts.DurableRecorder` and `PackMeta.FlushIntervalNs` names the live log converter,
+  which writes segments of an unbounded input with `flush_interval_ns` and sets `DurableRecorder` (G5-302, spec v2.42).
+  No behavior changed.
+
 ## [0.14.0] - 2026-11-01
 
 This release adds the helpers tracekeep asked for (G5-298, G5-299, G5-300, G5-301): spec v2.41, format 1.2.
