@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-11-01)
-Implements tracepack v2.42 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.43 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -38,13 +38,13 @@ How each Go-side producer fills the spec's capture model ([SEM §2]):
 |---|---|---|---|---|
 | a go-secs application recording the frames `hsms.WithWireObserver` reports (go-secs v2.6.0 or later), before HSMS decoding | `raw-stream` | `host` or `equipment`, by the application's role | `wire-exact` | `<app>/<ver> go-secs/2.6.0` |
 | an equipment gateway, frames re-emitted via `ToBytes()`: today its HSMS device → message-encoding adapter → EAP bus adapter → JetStream path; a recorder device on the go-secs v2.6.0 observers is planned, not built; the gateway is the capture's producer over the durable bus (G5-200), publishing either wire frames through the observers (`raw-stream`) or its devices' decoded messages re-encoded (`decoded-message`, G5-249), and thinning the FDC service's polls (G5-225) | `decoded-message` | `intermediary` | `re-encoded` | `<gateway>/<ver> <bus-adapter>` |
-| the gateway recording its own HSMS connection to the tool through the go-secs v2.6.0 observers, with the log service's producer SDK (G5-274) | `raw-stream` | `host`: the gateway is that connection's host endpoint, and its frames are observed at its own socket | `wire-exact` | `tracekeep-producer/<ver> go-secs/<ver>` |
+| the gateway recording its own HSMS connection to the equipment through the go-secs v2.6.0 observers, with the log service's producer SDK (G5-274) | `raw-stream` | `host`: the gateway is that connection's host endpoint, and its frames are observed at its own socket | `wire-exact` | `tracekeep-producer/<ver> go-secs/<ver>` |
 | `eapconv` converting EAP SML logs | `log` | where the EAP ran (normally `host`) | `reconstructed` | `eapconv/<ver>` |
 | tracekeep's log ingest, a live converter ([STO §7], G5-302) of a host's SML traffic log, its entries parsed upstream and fed through NATS JetStream, writing segments with `SegmentWriter.Append` under `PackFacts.DurableRecorder` | `log` | `host` | `reconstructed` | `tracekeep/<ver>` |
 | VE or test fixtures producing expected traffic | `generator` | `none` | `synthesized` | `veq/<ver>` |
 
 The `intermediary` vantage of the gateway row describes its decoded-message path through the bus adapter;
-a gateway recording the frames of its own connection to the tool is that connection's endpoint, so its vantage is `host` (G5-274).
+a gateway recording the frames of its own connection to the equipment is that connection's endpoint, so its vantage is `host` (G5-274).
 A recorder on the go-secs observers writes `quality_evaluated = true` and evaluates every stored condition (G5-274):
 `correlation-incomplete` exactly when it writes `epoch = 0`;
 never `direction-inferred`, since the wire observer reports each frame's direction;
@@ -101,8 +101,8 @@ The query service, its catalog database and the live-tail interface are designed
   `Flush`; `Close() (Continuation, error)` writes footer + trailer ([FMT §12]) and returns where the capture continues:
   `Continuation.Next() (seq uint64, ok bool)` gives the following segment's start seq, `ok` false after the capture's last seq (below).
 - `CaptureDescriptor` (G5-153): the pack metadata [STO §4] gives the producer of a capture, written unchanged into every pack of it:
-  `ToolID`, `Transport`, `CaptureMethod`, `Vantage`, `Recorder`, `RecorderInstanceID` (required, never generated: it links the deployment's captures across restarts, [FMT I-7]),
-  `RecorderInstanceName` (`*string`, from format 1.2: a segment carrying it is written as minor 2, G5-270), `PreviousCaptureID`, `TimeSource`, `CaptureOrigin` (`time.Time`; zero takes the time `NewSegmentWriter` runs),
+  `EquipmentID`, `Transport`, `CaptureMethod`, `Vantage`, `Recorder`, `RecorderInstanceID` (required, never generated: it links the captures of one recording series across restarts, [FMT I-7], G5-305),
+  `RecorderInstanceName` (`*string`, from format 1.2: a segment carrying it is written as minor 2, G5-270), `Device` (`*string`, from format 1.2, likewise, G5-304), `PreviousCaptureID`, `TimeSource`, `CaptureOrigin` (`time.Time`; zero takes the time `NewSegmentWriter` runs),
   `ClockStepTolerance` (`time.Duration`; zero takes a documented default), `LifecycleCoverage`, `QualityEvaluated`,
   the log source fields and the optional site and equipment fields.
   `capture_origin_utc_ns` is `CaptureOrigin`'s wall clock and `capture_origin_mono_ns` is 0 ([SEM §4], G5-151).
@@ -122,7 +122,7 @@ The query service, its catalog database and the live-tail interface are designed
   The layout number, the header names, the 4096-byte bound of a header block and the smallest `max_payload` are constants:
   `bus.Layout1`, `bus.HeaderLayout`, `bus.HeaderMsgID`, `bus.HeaderDescriptor`, `bus.HeaderPayloadRef`, `bus.HeaderPayloadDigest`, `bus.HeaderBlockLimit` and `bus.MinMaxPayload`.
   `bus.Layout1` is the untyped string `"1"`, the `Tpk-Layout` value itself, so `bus.Envelope.Layout` is compared with it directly (G5-283).
-  `bus.ToolToken`, `bus.ParseToolToken` and `bus.Subject` spell the subject, `bus.MsgID` and `bus.ParseMsgID` the `Nats-Msg-Id`,
+  `bus.EquipmentToken`, `bus.ParseEquipmentToken` and `bus.Subject` spell the subject, `bus.MsgID` and `bus.ParseMsgID` the `Nats-Msg-Id`,
   and `bus.PayloadDigest` the claim-check digest, which `bus.ParsePayloadDigest` decodes, its error wrapping `bus.ErrMalformed` (G5-300).
   `bus.RecordHeaderLen` is the untyped constant 44, the record header a layout-1 body starts with;
   `bus.PeekHeader(body) (tracepack.Record, bool)` returns that header's fields as stored, `Payload` nil, false only for a body shorter than it,
@@ -360,9 +360,9 @@ The query service, its catalog database and the live-tail interface are designed
   `SegmentFile` is an `io.Writer` with `Sync()` (called after every block and after the trailer), `Commit(ctx)` (after a successful `Close`) and `Abort()` (after any failure).
   `Write`, `Sync` and `Abort` take no context: the sink bounds each by its own deadline.
   A `Commit` that fails after the segment became visible returns an error wrapping `ErrPublishUncertain`.
-  `SegmentInfo` holds the `tool_id`, `capture_id`, `pack_id`, `seq_first` of the segment key ([STO §3], known at open), the hour and the period,
-  so a sink derives the key from the segment it writes and never from a tool of its own.
-  `NewDirSink(root, prefix string, opts DirSinkOptions) (*DirSink, error)` writes `<root>/<SegmentKey(prefix, info.ToolID, …)>`;
+  `SegmentInfo` holds the `equipment_id`, `capture_id`, `pack_id`, `seq_first` of the segment key ([STO §3], known at open), the hour and the period,
+  so a sink derives the key from the segment it writes and never from an equipment of its own.
+  `NewDirSink(root, prefix string, opts DirSinkOptions) (*DirSink, error)` writes `<root>/<SegmentKey(prefix, info.EquipmentID, …)>`;
   it refuses with an error wrapping `ErrInvalidArgument` (G5-296), before creating any file, a prefix that is not empty or a relative `/`-separated path whose components are none empty, `.` or `..`,
   and one holding `\` or a `:`, so no platform reads it as another separator or a volume,
   and one whose first component is `.partial`, the directory of its temporary files, so no committed segment lies among them (G5-157),
@@ -524,12 +524,12 @@ The query service, its catalog database and the live-tail interface are designed
   A callback, like `MergeIterate`'s, because the call returns that summary and an error after the last pairing.
 - `NewReaderSource(readers []*Reader) (PackSource, error)` (G5-154): the readers of a lookup, opened by the caller, grouped by the UTC hour of their period, whatever their capture.
   It accepts a pack of any role but `extract`, `repair`, the retired 5 and unknown values included ([STO §2]).
-  It rejects a nil reader, a reader given twice, a repeated `pack_id`, readers of more than one `tool_id`, an `extract`, and a pack whose period is empty or not inside one UTC hour,
+  It rejects a nil reader, a reader given twice, a repeated `pack_id`, readers of more than one `equipment_id`, an `extract`, and a pack whose period is empty or not inside one UTC hour,
   each failure wrapping `ErrInvalidQuery`.
   It has no `Close` and opens or closes no reader: the caller owns the readers.
   `HourOf(time.Time) int64` returns the UTC hour of a time as `TxKey.Hour` and the key builders number it,
   and `TxKeyOf(captureID UUID, seq uint64, ts time.Time) TxKey` builds the key of a primary from its record.
-- `EscapeToolID`, `SegmentKey` and `ArchiveKey` build the keys of [STO §3];
+- `EscapeEquipmentID`, `SegmentKey` and `ArchiveKey` build the keys of [STO §3];
   a key that cannot be built is an error wrapping `ErrInvalidKey` (G5-148), and retrying does not cure it.
 - `Merge(ctx, dst io.Writer, inputs []MergeInput, opts MergeOptions) (MergeReport, error)`:
   writes one archive of one scope from the `inputs` the caller gives, normally every segment and archive of the scope it knows ([STO §4] Merge),
@@ -739,8 +739,8 @@ and a reply recorded before its primary is reported by transaction matching as a
   `Build` rejects W on an even function, which the converter records as `build-rejected`.
 - `source_dialect` records the EAP dialect and the parser mode, `sml.Parse` or `sml.ParseStrict`.
 - Input assumptions and the dialect are confirmed against the pilot's EAP sample (G3-20, R3-6).
-- An EAP log holds the traffic of several tools: the converter writes one capture per tool,
-  and one more for the lines of no tool, such as the EAP's own, whose `tool_id` is the EAP's identity as configured in the converter ([STO §7] items 7 and 8).
+- An EAP log holds the traffic of several equipment: the converter writes one capture per equipment,
+  and one more for the lines of no equipment, such as the EAP's own, whose `equipment_id` is the EAP's identity as configured in the converter ([STO §7] items 7 and 8).
 
 ## 7. Reference CLI (`tracepack/cmd/tracepack`)
 
@@ -774,7 +774,7 @@ It exits by outcome, 0 only for `finalized-consistent`, with the largest code ov
 `--hour` is the primary's UTC hour since 1970-01-01T00:00Z and `--at` its RFC 3339 timestamp;
 a path is a pack or a directory searched for regular `*.tpk` files without following symbolic links, skipping the hidden directories below it,
 such as a directory sink's `.partial/`,
-and every pack is held open for the lookup, of one tool and each inside one UTC hour (`NewReaderSource`).
+and every pack is held open for the lookup, of one equipment and each inside one UTC hour (`NewReaderSource`).
 No flag sets a reader budget or a lookup limit (G5-266).
 Deferred with `dump --sml`, and not part of the CLI of G5-206:
 `dump --sml` renders data records through `sml.Encoder` and falls back to hex for control, event, annotation and malformed records;

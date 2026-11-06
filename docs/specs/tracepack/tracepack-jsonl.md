@@ -1,6 +1,6 @@
 # tracepack — canonical JSONL export
 
-Status: current (2026-11-03) — v2.42, tracepack format 1.2, schemas `tracepack-jsonl/1`, `tracepack-jsonl/2` and `tracepack-jsonl/3` (fixed, G5-280).
+Status: current (2026-11-06) — v2.43, tracepack format 1.2, schemas `tracepack-jsonl/1`, `tracepack-jsonl/2` and `tracepack-jsonl/3` (fixed, G5-280).
 Normative, language-agnostic. [FMT §15] states what the export is for; this document defines its bytes.
 
 Depends on: [FMT §1] conventions, [FMT §2] portable encoding, [FMT §4] file header, [FMT §5] TLV encoding and registries,
@@ -51,10 +51,11 @@ every other code point is written as its UTF-8 bytes, `/`, `<`, `>`, `&`, U+007F
 
 Schema `tracepack-jsonl/1` names exactly the enum values, bits, tags and nested tags that format 1.0 defines as of spec v2.26,
 schema `tracepack-jsonl/2` exactly those that format 1.1 defines as of spec v2.33 (G5-233),
-and schema `tracepack-jsonl/3` exactly those that format 1.2 defines as of spec v2.37 (G5-270):
+and schema `tracepack-jsonl/3` exactly those that format 1.2 defines as of spec v2.43 (G5-270, G5-304),
+each schema naming tag 0x0002 `equipment_id` (G5-303):
 `/2` adds the tag `thinning` and its nested tags, the nested tags `encryption_algorithm` and `encryption_key_id` of `redaction_policy` and `siv` of `redaction`,
 the enum `encryption_algorithm`, and the `quality` bit 7 `unobserved` (§3.2);
-`/3` adds the tag `recorder_instance_name` to the names of `/2`.
+`/3` adds the tags `recorder_instance_name` and `device` to the names of `/2`.
 Under every schema:
 - enum values: the names of [FMT §9]; `timer` values are named `none` and `T1` … `T8`;
   the retired `pack_role` 5 has no name, so it is written `unknown(5)`;
@@ -177,6 +178,9 @@ The `schema` value names the byte form.
 - `tracepack-jsonl/3` (spec v2.37): names the format 1.2 addition, `recorder_instance_name` (§3.1), and otherwise writes the bytes of `/2`.
   An exporter writes `/1` for a pack whose `format_minor` is 0, `/2` for 1, and `/3` for every other value (§5),
   so the exports of format 1.0 and 1.1 packs are unchanged (G5-270).
+- Spec v2.43 rewrote all three in place, keeping their values, in the one-time pre-v1 reset of G5-303:
+  each names tag 0x0002 `equipment_id`, where it named `tool_id`, and `/3` also names `device` (G5-304).
+  The rule above binds again from v2.43 on.
 Every later change to the output of a pack, naming a value the format adds (§3.1) included, takes a new schema value.
 
 ## 10. Example (informative)

@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-11-03) — spec v2.42.
+Status: current (2026-11-06) — spec v2.43.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1899,3 +1899,28 @@ Summary:
 - [FMT §5]: `flush_interval_ns` is also written by a live converter, never by a converter of finite input.
 - [GO] §2: the producer table gains tracekeep's log ingest; the godoc of `PackFacts.DurableRecorder` and `PackMeta.FlushIntervalNs` names the live converter.
 - The overview's list of decisions reaches G5-302.
+
+## Changes v2.42 → v2.43: equipment identity (owner decisions G5-303..G5-305, 2026-11-06)
+
+Source: tracekeep's rework of capture identity, with the owner's decisions; the owner approved the plan.
+A one-time pre-v1 reset (G5-303): format 1.2, `tracepack-jsonl/1`–`/3` and `tracepack-corpus/5` are redefined in place, keeping their values.
+Implemented by tracepack v0.15.0.
+
+Summary:
+- [FMT §5]: tag 0x0002 is named `equipment_id`; tag 0x0035 `device`, utf8, optional, format 1.2 (G5-304);
+  `recorder_instance_id` and `recorder_instance_name` describe a recording series and its source (G5-305).
+- [FMT §14]: format 1.2 also adds `device`, a format 1.2 feature; packs of format 1.2 are merged only by tracepack v0.15.0 or later.
+- [JSONL §3.1], [JSONL §9]: every schema names tag 0x0002 `equipment_id`, and `/3` names `device`; the schemas were rewritten in place.
+- [CORPUS §9]: every export names `equipment_id`; `basic-future-minor` moves to tag 0x0036; `basic-new-tags-segment-1-1-device` and `basic-device` are added.
+- [STO §3]: keys write `<equipment_id>`. [STO §4]: the equipment token; the recording series; `device` in the descriptor and among the capture-level tags. [STO §7]: equipment wording.
+- [SEM §7], overview, spec `README.md`: equipment wording.
+- [GO] §2, §3: `EquipmentID`, `Device`, `EscapeEquipmentID`, `bus.EquipmentToken`, `bus.ParseEquipmentToken`.
+- The overview's list of decisions reaches G5-305.
+
+Review rounds:
+
+| Round | Finding | Resolution |
+|---|---|---|
+| plan review 1 | the shared TLV registry was missing from the inventory; tag 0x0035 was already the corpus's unknown-tag sentinel; the in-place addition of `device` needed its own exception and an older merger drops it; regenerating goldens could bless unrelated changes; two exported names and compound identifiers escaped the rename search; rejection and ownership tests were missing | the registry row added; the sentinel moved to 0x0036; G5-303 bounds the reset and raises the merger version; an independent baseline comparison; `EscapeEquipmentID`, `bus.ParseEquipmentToken` and a substring search; the tests listed |
+| plan review 2 | the manifest's title renames and new entries conflicted with the strict comparison; the zero-match search conflicted with the retained CHANGELOG history | both allowed explicitly, reviewed by hand |
+| plan review 3 | none | ready |

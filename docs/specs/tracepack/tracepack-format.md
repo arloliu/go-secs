@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-11-03) — v2.42, tracepack format 1.2.
+Status: current (2026-11-06) — v2.43, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -95,7 +95,7 @@ These rules let any mainstream language implement the format from this text alon
 - **I-6 Immutable once finalized.** No byte of a finalized file is ever modified;
   a merge writes its archive as a new file ([STO §4]).
 - **I-7 Capture id across rolls; epoch bound at the transport boundary.**
-  `capture_id` is a UUID assigned per tool when the recorder starts
+  `capture_id` is a UUID assigned per equipment when the recorder starts
   — or, over a durable bus, each time the producer that feeds it starts producing: at its start and at each leadership change,
   overlapping producers each with their own capture ([STO §4], G5-242); and for a converter, when it establishes a logical conversion ([STO §7] item 8) —
   and written into every pack it rolls.
@@ -217,7 +217,7 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | Tag | Name | Type | Required when | Meaning |
 |---|---|---|---|---|
 | 0x0001 | — | — | — | retired; the format version alone identifies the layout (§14) |
-| 0x0002 | `tool_id` | utf8 | always | the tool this capture belongs to |
+| 0x0002 | `equipment_id` | utf8 | always | the equipment this capture belongs to (named `tool_id` before spec v2.43, G5-303) |
 | 0x0003 | `transport` | u8 enum | always | §9 |
 | 0x0004 | `capture_method` | u8 enum | always | [SEM §2] |
 | 0x0005 | `vantage` | u8 enum | always | [SEM §2] |
@@ -242,7 +242,7 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | 0x0018 | `pack_role` | u8 enum | always | segment / archive / extract / repair (§9, [STO §2]) |
 | 0x0019 | `compaction_level` | u8 | always | 0 = written by a recorder or converter; n ≥ 1 = produced by merging packs of level < n |
 | 0x001A | `compacted_from` | uuid, repeatable | its lineage list is non-empty | lineage list, cumulative, never a deletion criterion ([STO §4] Deletion): for an archive written by a merge, the lists of its inputs plus every input segment ([STO §4] Merge); for a `repair` patch, no longer written (G5-202), the list of the pack it repaired; absent when that list is empty, whatever `compaction_level` is (a converter's archive, [STO §7], and a merge whose inputs are only such archives); never in a segment or a patch of one |
-| 0x001B | `recorder_instance_id` | uuid | always | stable identity of the recorder or converter deployment across restarts |
+| 0x001B | `recorder_instance_id` | uuid | always | stable identity of one recording series across restarts and leader changes: one source's recording of one device of one equipment ([STO §4], G5-305) |
 | 0x001C | `previous_capture_id` | uuid | optional | the capture this recorder deployment ran immediately before this one (I-7) |
 | 0x001D | `extract_filter` | utf8 | `pack_role = extract` | description of the filter that selected the records; an extract is never a complete period |
 | 0x001E | `site_id` | utf8 | optional | site or fab identifier |
@@ -267,7 +267,8 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | 0x0032 | `redaction` | tlv, repeatable | a record was masked | one mask per entry ([SEM §8]); nested tags below; ordered by `seq`, then first masked offset |
 | 0x0030 | — | — | — | retired (block validation commits nothing to the pack metadata, §12) |
 | 0x0033 | `thinning` | tlv, repeatable | a record carries `quality.unobserved` | from format 1.1: one thinned stream and function per entry, declared by the producer in the capture descriptor ([SEM §2], [STO §4]); a capture-level tag ([STO §4] Merge); nested tags below |
-| 0x0034 | `recorder_instance_name` | utf8 | optional | from format 1.2: the human-readable name of the deployment whose stable identity is `recorder_instance_id`, declared by the producer in the capture descriptor ([STO §4]); any valid UTF-8 value, the empty string included; tracepack never interprets it, checks no relation to `recorder_instance_id` and requires no uniqueness; the producer keeps it with its `recorder_instance_id`; a capture-level tag ([STO §4] Merge) (G5-270) |
+| 0x0034 | `recorder_instance_name` | utf8 | optional | from format 1.2: the human-readable name of the deployment (the source) that records the series `recorder_instance_id` identifies, declared by the producer in the capture descriptor ([STO §4], G5-305); any valid UTF-8 value, the empty string included; tracepack never interprets it, checks no relation to `recorder_instance_id` and requires no uniqueness; the producer keeps it with its `recorder_instance_id`; a capture-level tag ([STO §4] Merge) (G5-270) |
+| 0x0035 | `device` | utf8 | optional | from format 1.2: the device of the equipment the capture records, such as its main machine, a sensor or a load port, declared by the producer in the capture descriptor ([STO §4]); a name, unrelated to `device_id`; any valid UTF-8 value, the empty string included; tracepack never interprets it and uses it in no key; a capture-level tag ([STO §4] Merge) (G5-304) |
 
 Nested tags of `coverage`: 0x0001 `capture_id` uuid, 0x0002 `seq_first` u64, 0x0003 `seq_last` u64,
 0x0004 `time_start` i64, 0x0005 `time_end` i64.
@@ -884,8 +885,9 @@ The object size is known before reading (file system stat, object listing, the s
   and it lets a pack whose role is not `extract` hold masked records ([SEM §8], [STO §4]).
   Each addition is known only in a pack of format 1.1 or later (§5); a reader reads a pack of a newer minor with the newest registry it knows.
 - Spec v2.37 defines **format 1.2**: it changes no byte of formats 1.0 and 1.1 and no export of their packs (§15).
-  It adds the pack metadata tag `recorder_instance_name` (§5, G5-270), known only in a pack of format 1.2 or later.
-- A writer writes `format_minor` 2 exactly when the pack holds a **format 1.2 feature**, a `recorder_instance_name` entry (G5-270);
+  It adds the pack metadata tags `recorder_instance_name` (§5, G5-270) and `device` (§5, G5-304), known only in a pack of format 1.2 or later.
+  Spec v2.43 added `device` to format 1.2 in place, in the one-time pre-v1 reset of G5-303; the minor rules of this section bind again from v2.43 on.
+- A writer writes `format_minor` 2 exactly when the pack holds a **format 1.2 feature**, a `recorder_instance_name` or `device` entry (G5-270, G5-304);
   otherwise it writes 1 exactly when the pack holds a **format 1.1 feature**, and 0 otherwise.
   The format 1.1 features are: a record carrying `quality.redacted`, or a `redaction` entry, in a pack whose `pack_role` is not `extract`;
   a `redaction_policy` with the encryption tags, or a `redaction` entry with `siv`;
@@ -904,7 +906,8 @@ The object size is known before reading (file system stat, object listing, the s
   but merges a policy-bearing input that holds none — a segment whose policy matched nothing, or the close segment of a masked capture — and drops its `redaction_policy`.
   So packs of format 1.1 are merged only by a merger of format 1.1, tracepack v0.5.0 or later.
   A merger of format 1.1, tracepack v0.5.0 to v0.7.x, refuses an input of format 1.2 by the rule above, so nothing of format 1.2 is dropped by a merge;
-  packs of format 1.2 are merged only by tracepack v0.8.0 or later.
+  packs of format 1.2 are merged only by tracepack v0.15.0 or later:
+  a merger of tracepack v0.8.0 to v0.14.x accepts minor 2 but rebuilds the archive's metadata field by field, so it drops `device` (G5-303).
 - *Informative*: what a reader of format 1.0, tracepack v0.4.0, does with a pack of format 1.1, which it accepts:
 
   | Format 1.1 feature | A reader of format 1.0 |

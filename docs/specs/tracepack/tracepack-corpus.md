@@ -1,6 +1,6 @@
 # tracepack — conformance corpus
 
-Status: current (2026-11-03) — v2.42, tracepack format 1.2, schema `tracepack-corpus/5` (fixed, G5-280).
+Status: current (2026-11-06) — v2.43, tracepack format 1.2, schema `tracepack-corpus/5` (fixed, G5-280).
 Normative.
 [FMT §16] states what the corpus holds; this document defines its files, their schemas and the vector catalogue.
 The format is documented for any reader;
@@ -423,8 +423,8 @@ A vector may serve several clauses.
 | an extract requested from an extract or a pack holding `redacted`; one from an unscreened extract; an extract without a policy | deferred with extracts (G5-244) |
 | records unobserved by design, an empty-text reply and an abnormal reply kept in full | `thin-fdc-polls` |
 | a consumer's close of a plain capture, of a masked and thinned one, of one with no staged record, and merged with its records | `close-plain`, `close-masked-thinned`, `close-no-start-bound`, `close-merged-archive` |
-| the version-aware cases: a format 1.0 pack holding the numbers format 1.1 assigns, format 1.0 extracts under a policy, a format 1.1 pack holding the number format 1.2 assigns, and a pack of minor 3 | `basic-new-tags-segment-1-0`, `basic-new-tags-extract-1-0`, `basic-extract-policy-no-classifier-1-0`, `basic-extract-policy-multi-classifier-1-0`, `basic-new-tags-segment-1-1`, `basic-future-minor` |
-| a segment of format 1.2 carrying `recorder_instance_name` | `basic-recorder-instance-name` |
+| the version-aware cases: a format 1.0 pack holding the numbers format 1.1 assigns, format 1.0 extracts under a policy, format 1.1 packs holding the numbers format 1.2 assigns, and a pack of minor 3 | `basic-new-tags-segment-1-0`, `basic-new-tags-extract-1-0`, `basic-extract-policy-no-classifier-1-0`, `basic-extract-policy-multi-classifier-1-0`, `basic-new-tags-segment-1-1`, `basic-new-tags-segment-1-1-device`, `basic-future-minor` |
+| segments of format 1.2 carrying `recorder_instance_name`, and `device` alone | `basic-recorder-instance-name`, `basic-device` |
 | a sample of the definition before v2.13 | `sample-v010-rows` |
 
 ### 9.2 [SEM §9] clauses
@@ -473,8 +473,10 @@ Files beyond those of the class (§2) are named where a vector has them.
 | `basic-extract-policy-no-classifier-1-0` | read | a format 1.0 extract under a policy that matched nothing, holding only unclassified records and no `classifier` ([FMT §5]) |
 | `basic-extract-policy-multi-classifier-1-0` | read | a format 1.0 extract under a policy with two `classifier` and two `max_frame_len` values inherited from its sources ([FMT §5]) |
 | `basic-new-tags-segment-1-1` | read | a format 1.1 segment holding tag 0x0034 as `utf8`: an unknown tag there, exported under `/2` with `unknown` ([FMT §5]) |
+| `basic-new-tags-segment-1-1-device` | read | a format 1.1 segment holding tag 0x0035 as `utf8`: an unknown tag there, exported under `/2` with `unknown` ([FMT §5]) |
 | `basic-recorder-instance-name` | read | a format 1.2 segment carrying `recorder_instance_name`, exported under `/3` with the tag named ([FMT §5], [FMT §14]) |
-| `basic-future-minor` | read | a readable pack of minor 3 holding an unknown tag 0x0035: read with the newest registry and exported under `/3` ([FMT §14]) |
+| `basic-device` | read | a format 1.2 segment carrying `device` and no `recorder_instance_name`, which alone makes it format 1.2, exported under `/3` with the tag named ([FMT §5], [FMT §14]) |
+| `basic-future-minor` | read | a readable pack of minor 3 holding an unknown tag 0x0036: read with the newest registry and exported under `/3` ([FMT §14]) |
 | `framing-header-extension` | read | blocks of `record_header_len` 44 and 45 to 55, each with its own extension bytes |
 | `framing-two-framings` | read | two blocks whose decoded bodies are equal: one record with a long header, several records with 44-byte headers |
 | `framing-gathered-headers` | read | a block of several records with extension bytes, seqs and lengths read from the gathered headers |
@@ -579,3 +581,8 @@ Adding a vector or a case keeps the value; changing what an existing file states
   `basic-future-minor` moves to minor 3 and tag 0x0035, which format 1.2 leaves unassigned, so its `pack.tpk` and `export.jsonl` change;
   and `basic-new-tags-segment-1-1` and `basic-recorder-instance-name` are added (§9).
   Every other vector keeps its files byte for byte.
+  Spec v2.43 rewrote it in place, keeping the value, in the one-time pre-v1 reset of G5-303:
+  every `export.jsonl` names `equipment_id` where it named `tool_id`, and two manifest titles follow;
+  `basic-future-minor` moves to tag 0x0036, since format 1.2 now assigns 0x0035 to `device` (G5-304), so its `pack.tpk` and `export.jsonl` change;
+  and `basic-new-tags-segment-1-1-device` and `basic-device` are added (§9).
+  Every other `pack.tpk` keeps its bytes.

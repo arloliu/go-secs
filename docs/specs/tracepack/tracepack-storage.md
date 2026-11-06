@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-11-03) — v2.42, tracepack format 1.2.
+Status: current (2026-11-06) — v2.43, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for mergers, recorders, log converters and the service that deletes packs.
 
@@ -53,10 +53,10 @@ is never deleted by §4 Deletion, and is removed only with its hour by the servi
 
 ## 3. Keys
 
-- Segment: `<prefix>/staging/<tool_id>/<capture_id>/<seq_first>-<pack_id>.tpk`.
-- Other packs: `<prefix>/archive/<tool_id>/<YYYY>/<MM>/<DD>/<HH>/<capture_id>-<pack_id>.tpk`, hour in UTC.
-- `tool_id` is percent-encoded: every byte of it outside the RFC 3986 unreserved set (`A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_`, `~`) is written `%XX` with two uppercase hex digits, and no other byte is (G5-141),
-  so each `tool_id` has one spelling and never yields `/`; a `tool_id` that is empty, `.` or `..` cannot be stored.
+- Segment: `<prefix>/staging/<equipment_id>/<capture_id>/<seq_first>-<pack_id>.tpk`.
+- Other packs: `<prefix>/archive/<equipment_id>/<YYYY>/<MM>/<DD>/<HH>/<capture_id>-<pack_id>.tpk`, hour in UTC.
+- `equipment_id` is percent-encoded: every byte of it outside the RFC 3986 unreserved set (`A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_`, `~`) is written `%XX` with two uppercase hex digits, and no other byte is (G5-141),
+  so each `equipment_id` has one spelling and never yields `/`; an `equipment_id` that is empty, `.` or `..` cannot be stored.
   `capture_id` and `pack_id` are written in the canonical lowercase 8-4-4-4-12 form of RFC 9562, the only form a reader accepts (G5-143).
   `seq_first` is the pack's first seq (its `seq_start` when empty) in 20-digit zero-padded decimal, so segments list in seq order;
   the close segment of §4 has `seq_first` 2^63 − 1, `09223372036854775807`.
@@ -95,9 +95,12 @@ Which packs to give is the caller's choice; tracepack defines no view.
     A log conversion writes packs by the converter contract of §7 and never publishes over the bus.
     A live converter that consumes a non-tracepack feed and writes packs by §7 is a log conversion that never publishes over the bus (G5-302).
     Every capture a consumer closes therefore has `clock_step_tolerance_ns`.
-  - *Producer duties.* The producer keeps a stable `recorder_instance_id` for its deployment across restarts,
-    and with it the deployment's `recorder_instance_name` when it writes one, a rule tracepack does not check (G5-270),
-    assigns a new `capture_id` each time it starts producing — at process start, and at each leadership change for a producer chosen by leader election (G5-200) —
+  - *Producer duties.* The producer keeps a stable `recorder_instance_id` for each **recording series** across restarts and leader changes:
+    one source's recording of one device of one equipment, the source being the recording program's deployment (G5-305).
+    Two sources recording the same device are two series, and the rules below on chaining, one producer per id and handover overlap apply within one series.
+    It keeps with the id the source's name in `recorder_instance_name` when it writes one, a rule tracepack does not check (G5-270);
+    how it derives the id is its own.
+    The producer assigns a new `capture_id` each time it starts producing — at process start, and at each leadership change for a producer chosen by leader election (G5-200) —
     and names the immediately preceding capture in `previous_capture_id` ([FMT I-7]),
     assigns the capture-scoped `seq` ([FMT I-12]), and stamps `epoch`, `ts_utc_ns` and `mono_ns` at the observation point.
     It assigns `seq` to a record when it observes it, before placing it in any buffer from which it may drop records, so that every record it drops is a seq gap (G5-218).
@@ -116,10 +119,10 @@ Which packs to give is the caller's choice; tracepack defines no view.
     A consumer stores all of these as received and never reassigns, synthesizes or moves any of them,
     except that it masks under the capture's policy (*Masking*, below) and closes a capture its producer left open (*Closing a capture left open*, below).
   - *Bus message* (G5-216, G5-219, G5-241).
-    The subject is `<prefix>.<tool token>.<capture_id>`.
-    The **tool token** is `tool_id` escaped as §3 escapes it, with `.` also written `%2E`:
+    The subject is `<prefix>.<equipment token>.<capture_id>`.
+    The **equipment token** is `equipment_id` escaped as §3 escapes it, with `.` also written `%2E`:
     every byte outside `A`–`Z`, `a`–`z`, `0`–`9`, `-`, `_` and `~` is `%XX` with two uppercase hex digits,
-    so the token holds no `.`, `*`, `>`, whitespace or unescaped `%`, and percent-decoding restores `tool_id`.
+    so the token holds no `.`, `*`, `>`, whitespace or unescaped `%`, and percent-decoding restores `equipment_id`.
     `capture_id` is in the canonical lowercase form (§3).
     One subject names one capture; this concerns the published subject:
     a stream may store a message under a transformed subject (e.g. with a partition token), and a consumer does not assume the stored subject equals the published one.
@@ -253,10 +256,10 @@ Which packs to give is the caller's choice; tracepack defines no view.
     A record may be written twice, into segments of different consumers; [FMT I-12] deduplicates it, byte-identical.
     The merge below normalizes the interleaved segments of a scope, decoding the overlapping blocks as it does for any overlap.
   - *Capture descriptor and pack metadata.* The descriptor carries every pack-metadata value the producer owns:
-    the always-required `tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated` and `recorder_instance_id`,
+    the always-required `equipment_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated` and `recorder_instance_id`,
     `capture_method` being `raw-stream` or `decoded-message` (*Scope of the bus*);
     `capture_origin_utc_ns`, `capture_origin_mono_ns` and `clock_step_tolerance_ns`, required, since the bus serves capture-clock captures ([FMT §5]);
-    `previous_capture_id`, `recorder_instance_name` and the optional site and equipment tags when it has them (G5-270);
+    `previous_capture_id`, `recorder_instance_name`, `device` and the optional site and equipment tags when it has them (G5-270, G5-304);
     and the `thinning` entries when it thins records ([FMT §5], *Unobserved records*).
     The descriptor counts toward the 4096 bytes of a `start`'s header block (*Bus message*), so a long text value can make a `start` unpublishable; tracepack sets no other limit on it.
     The consumer copies these values as decoded, applying no default: a `capture_origin_mono_ns` other than 0 and a `clock_step_tolerance_ns` of 0 are kept.
@@ -300,7 +303,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
   - *Closing a capture left open* (G5-223, G5-231, G5-240).
     A producer publishes a `stop` boundary on every orderly shutdown, so the case is limited to crashes;
     the successor's `start` and `previous_capture_id` remain the evidence of the restart.
-    The log service may close a capture whose producer stopped without a `stop` boundary, when it decides to (e.g. when a later capture of the same tool starts, or after inactivity).
+    The log service may close a capture whose producer stopped without a `stop` boundary, when it decides to (e.g. when a later capture of the same series starts, or after inactivity).
     The close is one `stop-unclean` capture-boundary record with seq 2^63 − 1, the largest seq format major 1 permits ([FMT §2]), which no producer assigns,
     written alone in a segment of the capture's scope for its `ts_utc_ns`;
     it is the one record a consumer writes that its producer did not publish, and the capture's last seq: no seq follows it, and no pack's `seq_start` is 2^63.
@@ -344,7 +347,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
   or when an input's preserved bytes would gain, under the output's `format_minor`, a meaning they lack under the input's own:
   a `quality` bit 7 in a minor-0 input merged into a minor-1 archive ([FMT §14]).
   Every input carries the same value of each **capture-level tag**:
-  `tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated`, `recorder_instance_id`, `recorder_instance_name`,
+  `equipment_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated`, `recorder_instance_id`, `recorder_instance_name`, `device`,
   `capture_origin_utc_ns`, `capture_origin_mono_ns`, `clock_step_tolerance_ns`, `previous_capture_id`,
   `site_id`, `equipment_model`, `equipment_sw_rev`, `host_software`, `host_endpoint`, `equipment_endpoint`, `equipment_connect_mode`, `device_id`, `hsms_timers`,
   `source_tz`, `source_dialect`, `source_ref` and `thinning`:
@@ -464,20 +467,20 @@ A source dialect lacking some of these is still convertible, with the effects st
 5. **Time**: parse in `source_tz`, DST rule per [SEM §4]; unparseable → previous entry's time + `ordering-uncertain`.
 6. **Transport lines**: [SEM §5]; anything else → `unrecognised-line` annotation with the raw line.
 7. **Nothing dropped**: every input byte range is covered by exactly one record or annotation of exactly one capture the run writes.
-   An input that holds the traffic of several tools yields one capture per tool, each holding only its own tool's entries and lines,
+   An input that holds the traffic of several equipment yields one capture per equipment, each holding only its own equipment's entries and lines,
    and no capture repeats another's bytes as annotations.
-   Entries and lines that belong to no tool, such as the logging program's own lines, form one more capture when there are any,
-   whose `tool_id` is the logging program's own identity as configured in the converter, distinct from every tool's `tool_id`.
+   Entries and lines that belong to no equipment, such as the logging program's own lines, form one more capture when there are any,
+   whose `equipment_id` is the logging program's own identity as configured in the converter, distinct from every equipment's `equipment_id`.
    The converter reports counts per `decode_status` for each capture.
 8. **Epoch**: increments on each explicit connect / accept line;
    a dialect without them yields `epoch = 0` + `correlation-incomplete` ([FMT I-7]).
-   `capture_id` is one per `tool_id` per source file set per logical conversion ([FMT I-7]); `seq` is capture-scoped ([FMT I-12]), counting across all the capture's hours,
+   `capture_id` is one per `equipment_id` per source file set per logical conversion ([FMT I-7]); `seq` is capture-scoped ([FMT I-12]), counting across all the capture's hours,
    and the capture-boundary records that start and stop a capture appear once per capture, never once per pack or hour.
-   A converter MAY reuse a `capture_id` for a reproducible re-run only when the source contents, their order, the interpretation inputs ([FMT §5] `tool_id` and its attribution, dialect, time zone and every other setting),
+   A converter MAY reuse a `capture_id` for a reproducible re-run only when the source contents, their order, the interpretation inputs ([FMT §5] `equipment_id` and its attribution, dialect, time zone and every other setting),
    the converter's, parser's and classifier's versions, the capture-level metadata, the seq assignment and the record bytes are all unchanged (Reproducible output, below);
    a change to any of them needs a new `capture_id`.
    A converter that reuses its `capture_id`s derives each deterministically from at least a digest of each source file's contents, in the source order,
-   the `tool_id` and its attribution, the dialect, the time zone, every other interpretation setting, and the converter's, parser's and classifier's versions;
+   the `equipment_id` and its attribution, the dialect, the time zone, every other interpretation setting, and the converter's, parser's and classifier's versions;
    a source file's name alone never stands for its contents.
    The source file requirements below apply to every run.
    Every pack of every capture a run writes lists the run's source files as the same `source_ref` entries in the same order ([FMT §5]),
@@ -509,7 +512,7 @@ A conversion whose inputs change writes a new capture and is a new import; nothi
 
 The following cases are tests of the Go module, not vectors of the corpus of [FMT §16] (G5-199):
 - converter failures (§7);
-- a log holding the traffic of two tools and lines of neither, converted into three captures whose packs list the same `source_ref` entries and whose records and annotations together cover every input byte exactly once (§7);
+- a log holding the traffic of two equipment and lines of neither, converted into three captures whose packs list the same `source_ref` entries and whose records and annotations together cover every input byte exactly once (§7);
 - a merge of several segments into an archive, including overlapping inputs, an hour change forcing two segments, and a late segment merged again with the archive (§4);
 - two records with the same (`capture_id`, `seq`) but different bytes: readers report a `conflict`, and a merge fails and publishes nothing ([FMT I-12], §4);
 - overlapping blocks with the same seq range but different codec or compressed bytes, and a forced `body_crc` collision (§4);
@@ -551,7 +554,7 @@ The following cases are tests of the Go module, not vectors of the corpus of [FM
   the second merge makes neither the first archive nor the converter archive deletable.
 - the bus message (§4): round trips of a `start`, socket events, a `clock-step`, an orderly `stop`, ordinary frames and unobserved frames,
   each stored with the `fidelity`, `field_validity`, `decode_status` and `trailing_bytes` its kind gives; a `decoded-message` capture holding a frame kept as `wire-exact`;
-  a tool token that needs escaping, `.` included, round-tripping; a descriptor round-tripping a nonzero `capture_origin_mono_ns` and a zero `clock_step_tolerance_ns`;
+  an equipment token that needs escaping, `.` included, round-tripping; a descriptor round-tripping a nonzero `capture_origin_mono_ns` and a zero `clock_step_tolerance_ns`;
   a `start` whose header block exceeds 4096 bytes, and a `max_payload` below 4140: no capture started;
   each malformed message — a body of the wrong length, a `Nats-Msg-Id` of another form, naming seq 2^63 − 1 or disagreeing with the header,
   missing or malformed claim-check headers, a layout-1 record of kind 0 or of a kind layout 1 does not carry, a transport-event or annotation payload that is not a valid TLV body, inline or by claim-check — never written;
