@@ -1,8 +1,8 @@
 # tracepack — overview
 
-Status: current (2026-11-03) — v2.42, tracepack format 1.2.
+Status: current (2026-11-06) — v2.43, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
-Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-302.
+Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-305.
 Change history: `tracepack-spec-changelog.md`.
 This document is **informative**; the rules live in the normative documents below.
 
@@ -11,7 +11,7 @@ Each rule is defined in exactly one document; the others only reference it.
 
 ## 1. Purpose and scope
 
-A tracepack file (`.tpk`) is an immutable, compressed, self-indexed container for recorded SECS-II traffic between one tool and its host,
+A tracepack file (`.tpk`) is an immutable, compressed, self-indexed container for recorded SECS-II traffic between one equipment and its host,
 including HSMS control messages and transport lifecycle events.
 It is intended as a long-term archival format for SECS/HSMS traffic,
 written by recorders and log converters and read for many years.
@@ -19,17 +19,17 @@ The format is documented for any reader;
 the Go module (`tracepack-go.md`) is the only implementation, and the conformance corpus binds format-level reading only (G5-199).
 It targets local file systems, S3-compatible object storage and HTTP range reads.
 
-- Scope: one tool, one capture, one transport (HSMS-SS; SECS-I as a *normalised* representation, [FMT §8]) per file;
+- Scope: one equipment, one capture, one transport (HSMS-SS; SECS-I as a *normalised* representation, [FMT §8]) per file;
   record kinds data / control / transport-event / annotation.
 - Non-goals: not a query engine (the footer prunes the queries of [SEM §7.4] by time, epoch, seq and summary counts; everything else is a scan);
   not a learned model or metrics store;
   its redaction is masking under a policy ([SEM §8]): of extracts in format 1.0, and from format 1.1 of a capture when the log service writes it, with the originals encrypted in place;
   the policy's rules and the keys are the service's.
-- Non-goals for v1.0 (G5-198), every feature being judged by whether it serves tool and time retrieval, faithful and replayable long-term storage, Virtual Equipment training, or training data for EAP automation:
+- Non-goals for v1.0 (G5-198), every feature being judged by whether it serves equipment and time retrieval, faithful and replayable long-term storage, Virtual Equipment training, or training data for EAP automation:
   - readers in languages other than Go;
   - more than one assigner of (`capture_id`, `seq`) for one capture;
   - a catalog, listing views, coherent observation and retention in tracepack: they are the service's (G5-201);
-  - a publication protocol computable from the bucket alone, with generation ranking, fence objects, tool leases and commit objects (G5-201);
+  - a publication protocol computable from the bucket alone, with generation ranking, fence objects, equipment leases and commit objects (G5-201);
   - repair in place (G5-202);
   - proof of `unmatched`, and precise diagnostics on an index defect beyond `incomplete` and the defect (G5-203, G5-204);
   - the gateway-side capture, designed by the gateway's own project (G5-200);
@@ -61,7 +61,7 @@ Four structures carry header-like data, each with one fixed name.
 | Name | Count | Size | Compressed? | Describes |
 |---|---|---|---|---|
 | **file header** | 1 per file | 80 bytes | no | the file itself: magic, format version, identity, pack metadata length |
-| **pack metadata** | 1 per file | variable (TLV) | no | the whole pack: tool, transport, capture method, time origin, lineage |
+| **pack metadata** | 1 per file | variable (TLV) | no | the whole pack: equipment, transport, capture method, time origin, lineage |
 | **block envelope** | 1 per block | 40 bytes | no | one block: codec, record header length, lengths, record count, first seq, CRCs |
 | **record header** | 1 per record | `record_header_len` bytes (44 known in 1.0, [FMT §7.1]) | in the header section of the decoded block body, stored column by column | one record: seq, time, epoch, lengths, kind, direction, classification, flags |
 
@@ -92,7 +92,7 @@ Figure 1 — file layout.
  │ file header            80 B, 1 per file    │  magic, version, pack_id, capture_id,
  │                                            │  pack_metadata_len + crc, header_crc
  ├────────────────────────────────────────────┤ ◄─ offset 80
- │ pack metadata          TLV, 1 per file     │  tool_id, transport, capture_method,
+ │ pack metadata          TLV, 1 per file     │  equipment_id, transport, capture_method,
  │                        (uncompressed)      │  vantage, time origin, supersedes, coverage, …
  ├────────────────────────────────────────────┤ ◄─ 80 + pack_metadata_len: first block
  │ block 0   ┌ block envelope (40 B)          │  magic, codec, record_header_len, body_len,
@@ -159,7 +159,7 @@ Questions 2 and 3, on retention by data hour and on capture boundaries lost to r
 
 | Item | Why deferred |
 |---|---|
-| Indexes of HSMS header fields or message content in the footer (F-3 structures, an F-4 secondary index) | no longer planned (spec v2.13): records are read on demand for one tool or a few tools of one type, and the Virtual Equipment reads whole windows, so no consumer needs to filter without decoding payloads. The F-3 range 0x0010–0x001F and the F-4 slot stay reserved ([FMT §10]), so an index can still be added as a minor change; the footer is derivable ([FMT I-3]), so re-merged packs could gain it |
+| Indexes of HSMS header fields or message content in the footer (F-3 structures, an F-4 secondary index) | no longer planned (spec v2.13): records are read on demand for one equipment or a few of one type, and the Virtual Equipment reads whole windows, so no consumer needs to filter without decoding payloads. The F-3 range 0x0010–0x001F and the F-4 slot stay reserved ([FMT §10]), so an index can still be added as a minor change; the footer is derivable ([FMT I-3]), so re-merged packs could gain it |
 | Source reference for data/control records | needs the pilot's converter inputs |
 | Locating blocks after an envelope the forward walk cannot account for, in a pack without a valid footer ([FMT §13]) | needs a resynchronisation design |
 | Live-tail interface and query-service API | service design, outside the format |

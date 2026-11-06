@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-11-03) — v2.42, tracepack format 1.2.
+Status: current (2026-11-06) — v2.43, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, documented for any reader;
 the Go module is the only implementation (G5-199).
@@ -412,12 +412,12 @@ A later index would use the F-4 slot, per block and self-contained ([FMT I-14]).
 
 | Query | Mechanism |
 |---|---|
-| (a) tool + time | the packs the caller gives for the scopes whose hour overlaps (the service's catalog, or a listing of the key prefixes, [STO §4]) → overlap clusters across those packs, excluded whole by F-2 / F-3 (Evaluation) → range reads of the blocks of the other clusters → scan |
+| (a) equipment + time | the packs the caller gives for the scopes whose hour overlaps (the service's catalog, or a listing of the key prefixes, [STO §4]) → overlap clusters across those packs, excluded whole by F-2 / F-3 (Evaluation) → range reads of the blocks of the other clusters → scan |
 | (b) + S/F | scan; the S/F of each data record is read from its payload ([FMT §7.2]) |
 | (c) CEID / ALID / … | decode-and-scan |
 | (d) System Bytes → pair | scan payloads for the System Bytes to find a primary; then §7.2's lookup from it over the packs given for its hour and the following hours |
 | (e) transport events | kind counts exclude clusters (Evaluation); scan; control frames are records, so Linktest / Select queries read kind=control |
-| (f) SML full text, (g) cross-tool | scan |
+| (f) SML full text, (g) cross-equipment | scan |
 
 **Evaluation.**
 Every block a query reads is read in full ([FMT §6]); only F-2 and the F-3 summaries (§7.1) exclude a block without reading it.

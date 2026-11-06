@@ -2240,3 +2240,49 @@ The owner approved the design and answered its open questions; tracekeep sent th
   Rejected *(editorial)*: batching the feed into finite inputs, an hour at a time, which holds a whole hour of 2000 sources in the bus;
   publishing the reconstructed records over the bus, which G5-249 bars.
   Spec: [STO §4], [STO §7], [FMT §5], `tracepack-go.md` §2, v2.42.
+
+## 2026-11-06 equipment identity (owner's choice, tracekeep's capture identity)
+
+Source: tracekeep's rework of capture identity before its host log feed, sent with the owner's decisions of 2026-11-06;
+the owner confirmed them in this session, chose a full reset of formats 1.0–1.2 and an optional `device`,
+and approved the plan after three external reviews.
+The owner's model has three layers: the **equipment**, the primary key;
+the **source**, the recording program's deployment, stable across restarts;
+and the **device**, a unit attached to the equipment, such as its main machine, a sensor or a load port.
+No data and no deployed producer exist, so no compatibility path is kept.
+
+- G5-303 Equipment, not tool; a one-time reset of formats 1.0–1.2 (2026-11-06, the scope of G5-280):
+  tag 0x0002 keeps its number and is named `equipment_id`, "the equipment this capture belongs to", and the prose says equipment where it said tool.
+  The storage keys write `<equipment_id>` ([STO §3], escaping unchanged, G5-141), and the bus subject's token is the **equipment token** ([STO §4]).
+  This is a bounded reset, one time and before v1:
+  spec v2.43 redefines format 1.2 by adding `device` (G5-304),
+  and rewrites `tracepack-jsonl/1`, `/2` and `/3` and `tracepack-corpus/5` in place, keeping their values,
+  so every export names `equipment_id` and the corpus goldens are regenerated.
+  The G5-280 freeze, [FMT §14]'s minor rules and [JSONL §3.1]'s "a later addition takes a new schema" bind again from v2.43 on.
+  A merger older than tracepack v0.15.0 accepts minor 2 but drops `device`, so packs of format 1.2 are merged only by tracepack v0.15.0 or later, amending G5-270's v0.8.0.
+  In Go: `EquipmentID` for `ToolID`, `EscapeEquipmentID`, `bus.EquipmentToken` and `bus.ParseEquipmentToken`, and the key builders take `equipment`.
+  Past entries of this log and of the changelog keep their text.
+  Rationale *(editorial)*: "tool" is not this open-source project's term, and with nothing deployed a reset costs less than a parallel set of schema values.
+  Rejected *(editorial)*: new schema values for the rename, keeping the old key under `/1`–`/3`, which leaves the old name in every export of an older minor;
+  a format 1.3 for `device` alone, a reader branch and a schema for one tag.
+  Spec: [FMT §5], [FMT §14], [JSONL §3.1], [JSONL §9], [CORPUS §9], [STO §3], [STO §4], [STO §7], overview, `tracepack-go.md`, v2.43.
+- G5-304 `device` (2026-11-06, format 1.2 by G5-303):
+  pack metadata tag 0x0035 `device`, utf8, optional, known in format 1.2:
+  the device of the equipment the capture records, declared by the producer in the capture descriptor.
+  It is a name, unrelated to `device_id`; any valid UTF-8 value, the empty string included, is valid; tracepack never interprets it and uses it in no key.
+  It is a capture-level tag: Merge requires equal values, an absent one equal only to an absent one, as `recorder_instance_name`.
+  A writer writes `format_minor` 2 when the pack carries it, as for `recorder_instance_name`.
+  The corpus's unassigned unknown tag of `basic-future-minor` moves from 0x0035 to 0x0036.
+  Rationale *(editorial)*: a recording series is one source's recording of one device (G5-305), and the device belongs in the data, not only in the derivation of an id.
+  Rejected *(editorial)*: a required `device`, which every producer, a log converter or a generator included, would have to invent.
+  Spec: [FMT §5], [FMT §14], [JSONL §3.1], [STO §4], [CORPUS §9], `tracepack-go.md` §3, v2.43.
+- G5-305 What a recorder instance is (2026-11-06, refines G5-86 and G5-270):
+  `recorder_instance_id` identifies one **recording series**: one source's recording of one device of one equipment, stable across restarts and leader changes.
+  `recorder_instance_name` is the name of the deployment (the source) that records the series.
+  Two sources recording the same device are two series.
+  Chaining by `previous_capture_id`, `stop-unclean` on crash recovery, at most one producer per id, and overlap during a handover apply within one series.
+  How a producer derives the id is its own; tracepack checks none of it.
+  This is wording only.
+  Rationale *(editorial)*: G5-270's "the deployment" left open whether one deployment recording several devices is one series or several;
+  chaining and handover only make sense per device.
+  Spec: [FMT §5], [STO §4], `tracepack-go.md` §3, v2.43.
