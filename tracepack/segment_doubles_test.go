@@ -113,7 +113,7 @@ func (s *memSink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, er
 	if err := s.inject(sinkCreate); err != nil {
 		return nil, err
 	}
-	key, err := SegmentKey("", info.ToolID, info.CaptureID, info.SeqFirst, info.PackID)
+	key, err := SegmentKey("", info.EquipmentID, info.CaptureID, info.SeqFirst, info.PackID)
 	if err != nil {
 		return nil, err
 	}

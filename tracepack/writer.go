@@ -317,7 +317,7 @@ type Writer struct {
 // With opts.AssignSeq the pack metadata's seq_start is opts.NextSeq.
 // A pack that is not an extract needs a period inside one UTC hour, its scope.
 //
-// The file header's format_minor is 2 when the pack holds a format 1.2 feature, recorder_instance_name;
+// The file header's format_minor is 2 when the pack holds a format 1.2 feature, recorder_instance_name or device;
 // else 1 when it holds a format 1.1 feature, and 0 otherwise
 // (the tracepack format specification §14).
 // The format 1.1 features are
@@ -511,12 +511,12 @@ func hasSIV(e RedactionEntry) bool {
 }
 
 // formatMinorOf returns the format_minor the pack metadata m needs (the tracepack format specification §14):
-// 2 when it holds a format 1.2 feature (recorder_instance_name), else 1 when it holds a format 1.1 feature, else 0.
+// 2 when it holds a format 1.2 feature (recorder_instance_name or device), else 1 when it holds a format 1.1 feature, else 0.
 // The record features need a metadata feature the Writer checks for (see NewWriter), so m alone decides.
 func formatMinorOf(m *PackMeta) uint16 {
 	p := m.RedactionPolicy
 	switch {
-	case m.RecorderInstanceName != nil:
+	case m.RecorderInstanceName != nil, m.Device != nil:
 		return 2
 	case m.PackRole != PackRoleExtract && len(m.Redaction) > 0,
 		p != nil && (p.EncryptionAlgorithm != nil || p.EncryptionKeyID != nil),

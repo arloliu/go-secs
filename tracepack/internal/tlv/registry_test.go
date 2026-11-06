@@ -43,7 +43,7 @@ func TestPackMetadataRegistry(t *testing.T) {
 	t.Parallel()
 
 	rows := []specRow{
-		{0x0002, "tool_id", TypeUTF8, false, true},
+		{0x0002, "equipment_id", TypeUTF8, false, true},
 		{0x0003, "transport", TypeU8, false, true},
 		{0x0004, "capture_method", TypeU8, false, true},
 		{0x0005, "vantage", TypeU8, false, true},
@@ -92,6 +92,7 @@ func TestPackMetadataRegistry(t *testing.T) {
 		{0x0032, "redaction", TypeTLV, true, false},
 		{0x0033, "thinning", TypeTLV, true, false},
 		{0x0034, "recorder_instance_name", TypeUTF8, false, false},
+		{0x0035, "device", TypeUTF8, false, false},
 	}
 	assertRegistry(t, PackMetadata, rows)
 
@@ -160,7 +161,7 @@ func TestFormatMinorSince(t *testing.T) {
 	t.Parallel()
 
 	added := map[string]map[uint16]uint16{
-		"pack metadata":    {0x0033: 1, 0x0034: 2},
+		"pack metadata":    {0x0033: 1, 0x0034: 2, 0x0035: 2},
 		"redaction policy": {0x0005: 1, 0x0006: 1},
 		"redaction":        {0x0006: 1},
 		"thinning":         {0x0001: 1, 0x0002: 1, 0x0003: 1},
@@ -180,7 +181,8 @@ func TestRegistryAtMinor(t *testing.T) {
 	v0 := PackMetadata.AtMinor(0)
 	assert.NotContains(t, v0, uint16(0x0033))
 	assert.NotContains(t, v0, uint16(0x0034))
-	assert.Len(t, v0, len(PackMetadata)-2)
+	assert.NotContains(t, v0, uint16(0x0035))
+	assert.Len(t, v0, len(PackMetadata)-3)
 	assert.Equal(t, []uint16{1, 2, 3, 4}, slices.Sorted(maps.Keys(*v0[0x0031].Nested)))
 	assert.Equal(t, []uint16{1, 2, 3, 4, 5}, slices.Sorted(maps.Keys(*v0[0x0032].Nested)))
 	assert.Same(t, PackMetadata[0x0016].Nested, v0[0x0016].Nested, "coverage has no newer tag")
@@ -193,7 +195,8 @@ func TestRegistryAtMinor(t *testing.T) {
 	v1 := PackMetadata.AtMinor(1)
 	assert.Contains(t, v1, uint16(0x0033))
 	assert.NotContains(t, v1, uint16(0x0034))
-	assert.Len(t, v1, len(PackMetadata)-1)
+	assert.NotContains(t, v1, uint16(0x0035))
+	assert.Len(t, v1, len(PackMetadata)-2)
 	assert.Same(t, PackMetadata[0x0031].Nested, v1[0x0031].Nested, "redaction_policy has no tag newer than 1.1")
 
 	for _, minor := range []uint16{2, 3} {

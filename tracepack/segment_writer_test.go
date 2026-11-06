@@ -151,7 +151,7 @@ func checkCapture(t testing.TB, w *SegmentWriter, sink *memSink) [][]Record {
 		assert.Equal(t, recs[i][0].Seq, m.SeqStart, "segment %d seq_start", i)
 		info := sink.infos[i]
 		assert.Equal(t, SegmentInfo{
-			ToolID: m.ToolID, CaptureID: h.CaptureID, PackID: h.PackID, SeqFirst: m.SeqStart, Hour: hourOf(m.PeriodStart),
+			EquipmentID: m.EquipmentID, CaptureID: h.CaptureID, PackID: h.PackID, SeqFirst: m.SeqStart, Hour: hourOf(m.PeriodStart),
 			PeriodStart: time.Unix(0, m.PeriodStart).UTC(), PeriodEnd: time.Unix(0, m.PeriodEnd).UTC(),
 		}, info, "segment %d info", i)
 		for _, rec := range recs[i] {

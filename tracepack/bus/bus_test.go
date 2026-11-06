@@ -297,6 +297,35 @@ func TestStartRefusedDescriptor(t *testing.T) {
 	assert.Greater(t, refused, len(b)+len(entries))
 }
 
+// TestStartRefusedDevice checks that a start whose descriptor carries a malformed device,
+// of a wrong type, invalid UTF-8 or repeated, is refused by DecodeDescriptor and so not accepted, never malformed.
+func TestStartRefusedDevice(t *testing.T) {
+	t.Parallel()
+
+	const deviceTag = 0x0035
+	valid := tlv.UTF8Entry(deviceTag, "main")
+	for name, extra := range map[string][]tlv.Entry{
+		"bytes":        {tlv.BytesEntry(deviceTag, []byte("main"))},
+		"invalid utf8": {{Tag: deviceTag, Type: tlv.TypeUTF8, Value: []byte{0xFF}}},
+		"repeated":     {valid, tlv.UTF8Entry(deviceTag, "sensor")},
+	} {
+		desc := encodeTLV(append(append([]tlv.Entry{}, descriptorEntries(t)...), extra...))
+		_, err := tracepack.DecodeDescriptor(desc)
+		require.ErrorIs(t, err, tracepack.ErrCorrupt, name)
+
+		br, err := CheckMessage(startEnvelope(t, base64.StdEncoding.EncodeToString(desc)), startBody(t))
+		require.ErrorIs(t, err, ErrNotAccepted, name)
+		assert.ErrorIs(t, err, tracepack.ErrCorrupt, name)
+		assert.NotErrorIs(t, err, ErrMalformed, name)
+		assert.Equal(t, Record{}, br, name)
+	}
+
+	desc := encodeTLV(append(append([]tlv.Entry{}, descriptorEntries(t)...), valid))
+	m, err := tracepack.DecodeDescriptor(desc)
+	require.NoError(t, err)
+	assert.Equal(t, "main", *m.Device)
+}
+
 func TestClaimCheckStartRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -982,12 +1011,12 @@ func TestSizing(t *testing.T) {
 	})
 }
 
-func TestToolToken(t *testing.T) {
+func TestEquipmentToken(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		tool  string
-		token string
+		equipment string
+		token     string
 	}{
 		{"tool-A_1~", "tool-A_1~"},
 		{"a.b", "a%2Eb"},
@@ -999,21 +1028,21 @@ func TestToolToken(t *testing.T) {
 		{"...", "%2E%2E%2E"},
 	}
 	for _, tt := range tests {
-		got, err := ToolToken(tt.tool)
-		require.NoError(t, err, tt.tool)
+		got, err := EquipmentToken(tt.equipment)
+		require.NoError(t, err, tt.equipment)
 		assert.Equal(t, tt.token, got)
-		assert.NotContainsf(t, got, ".", "%q", tt.tool)
-		back, err := ParseToolToken(got)
+		assert.NotContainsf(t, got, ".", "%q", tt.equipment)
+		back, err := ParseEquipmentToken(got)
 		require.NoError(t, err, tt.token)
-		assert.Equal(t, tt.tool, back)
+		assert.Equal(t, tt.equipment, back)
 	}
 
-	for _, tool := range []string{"", ".", ".."} {
-		_, err := ToolToken(tool)
-		require.ErrorIs(t, err, ErrMalformed, "%q", tool)
+	for _, equipment := range []string{"", ".", ".."} {
+		_, err := EquipmentToken(equipment)
+		require.ErrorIs(t, err, ErrMalformed, "%q", equipment)
 	}
 	for _, token := range []string{"", "%2E", "%2E%2E", "a.b", "a*b", "a>b", "a b", "%2e", "%41", "%2", "%G0", "a%", "café"} {
-		_, err := ParseToolToken(token)
+		_, err := ParseEquipmentToken(token)
 		require.ErrorIs(t, err, ErrMalformed, "%q", token)
 	}
 

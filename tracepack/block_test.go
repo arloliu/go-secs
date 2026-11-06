@@ -333,7 +333,7 @@ func TestBoundaryBitMakesNoBoundaryRecord(t *testing.T) {
 	assert.False(t, sum.epochs[1].hasCloseSeq, "an undecodable payload ends no epoch")
 
 	meta := &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
+		EquipmentID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
@@ -360,7 +360,7 @@ func TestWriterRecordsBlockSummaries(t *testing.T) {
 	t.Parallel()
 
 	meta := &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
+		EquipmentID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
@@ -651,7 +651,7 @@ func TestWriterKeepsNoEpochIndex(t *testing.T) {
 	t.Parallel()
 
 	meta := &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
+		EquipmentID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
@@ -752,7 +752,7 @@ func TestEncodeRawBlockKeepsRecordBytes(t *testing.T) {
 				assert.Len(t, body, off)
 
 				meta := &PackMeta{
-					ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
+					EquipmentID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 					PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)), SeqStart: sum.firstSeq,
 					PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 				}

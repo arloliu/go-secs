@@ -83,7 +83,7 @@ var (
 		},
 	}
 
-	// jsonlPackMetadataRegistryV3 adds recorder_instance_name, a utf8 tag, to the registry of /2;
+	// jsonlPackMetadataRegistryV3 adds recorder_instance_name and device, utf8 tags, to the registry of /2;
 	// format 1.2 extends no nested registry, so the nested ones of /2 serve /3.
 	jsonlPackMetadataRegistryV3 = &jsonlRegistry{
 		reg:    jsonlPackMetadata12,

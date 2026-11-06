@@ -191,7 +191,7 @@ func TestCompilePackPolicy(t *testing.T) {
 // an extract for a policy without encryption, and a segment masked at write, with its one classifier, for one with encryption.
 func policyMeta(pol *tracepack.RedactionPolicy) *tracepack.PackMeta {
 	m := &tracepack.PackMeta{
-		ToolID: "tool-01", Transport: tracepack.TransportHSMSSS, CaptureMethod: tracepack.CaptureMethodGenerator,
+		EquipmentID: "tool-01", Transport: tracepack.TransportHSMSSS, CaptureMethod: tracepack.CaptureMethodGenerator,
 		Vantage: tracepack.VantageNone, Recorder: "redact-test", Writer: "redact-test", TimeSource: tracepack.TimeSourceGenerator,
 		PeriodStart: 3600e9, PeriodEnd: 3660e9, LifecycleCoverage: tracepack.LifecycleCoverageNone,
 		RecorderInstanceID: tracepack.UUID{0x01, 15: 0x01}, RedactionPolicy: pol,

@@ -92,7 +92,7 @@ func coveragePack(t *testing.T) []byte {
 	first, last := uint64(10), uint64(12)
 	start, end := hourNs+int64(time.Minute), hourNs+int64(2*time.Minute)
 	meta := &tracepack.PackMeta{
-		ToolID: "EQP-01", Recorder: "test-recorder/1.0", Writer: "test-writer/1.0",
+		EquipmentID: "EQP-01", Recorder: "test-recorder/1.0", Writer: "test-writer/1.0",
 		PackRole: tracepack.PackRoleSegment, ScopeGeneration: new(uint64(0)),
 		PeriodStart: hourNs, PeriodEnd: hourNs + int64(time.Hour),
 		LifecycleCoverage: tracepack.LifecycleCoverageSubscribed,

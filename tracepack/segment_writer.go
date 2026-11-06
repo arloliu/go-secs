@@ -954,7 +954,7 @@ func (w *SegmentWriter) open(ctx context.Context, ts int64) error {
 	}
 
 	info := SegmentInfo{
-		ToolID: w.desc.ToolID, CaptureID: w.captureID, PackID: packID, SeqFirst: w.nextSeq,
+		EquipmentID: w.desc.EquipmentID, CaptureID: w.captureID, PackID: packID, SeqFirst: w.nextSeq,
 		Hour: hourOf(start), PeriodStart: time.Unix(0, start).UTC(), PeriodEnd: time.Unix(0, end).UTC(),
 	}
 	file, err := w.createSegment(ctx, info)

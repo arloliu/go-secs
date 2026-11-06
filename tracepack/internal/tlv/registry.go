@@ -10,7 +10,7 @@ var (
 	// PackMetadata is the pack metadata tag registry (the tracepack format specification §5).
 	// The retired tags 0x0001, 0x0014 and 0x0030 are absent, so a reader skips them like any unknown tag.
 	PackMetadata = Registry{
-		0x0002: {Name: "tool_id", Type: TypeUTF8, Required: true},
+		0x0002: {Name: "equipment_id", Type: TypeUTF8, Required: true},
 		0x0003: {Name: "transport", Type: TypeU8, Required: true},
 		0x0004: {Name: "capture_method", Type: TypeU8, Required: true},
 		0x0005: {Name: "vantage", Type: TypeU8, Required: true},
@@ -59,6 +59,7 @@ var (
 		0x0032: {Name: "redaction", Type: TypeTLV, Repeatable: true, Nested: &Redaction},
 		0x0033: {Name: "thinning", Type: TypeTLV, Repeatable: true, Nested: &Thinning, Since: 1},
 		0x0034: {Name: "recorder_instance_name", Type: TypeUTF8, Since: 2},
+		0x0035: {Name: "device", Type: TypeUTF8, Since: 2},
 	}
 
 	// Coverage is the registry of the entries nested in a pack metadata `coverage` entry.

@@ -470,7 +470,7 @@ func manyEpochPack(t testing.TB, n int) []byte {
 	t.Helper()
 
 	meta := &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
+		EquipmentID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
@@ -892,7 +892,7 @@ func TestNewWriterKeepsANilCaptureID(t *testing.T) {
 	t.Parallel()
 
 	meta := &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr",
+		EquipmentID: "tool", Recorder: "rec", Writer: "wr",
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}

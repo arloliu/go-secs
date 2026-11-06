@@ -51,7 +51,7 @@ func ExampleSegmentWriter() {
 	origin := time.Date(2026, 10, 6, 8, 0, 0, 0, time.UTC)
 	w, err := tracepack.NewSegmentWriter(ctx, tracepack.SegmentWriterOptions{
 		Capture: tracepack.CaptureDescriptor{
-			ToolID:             "EQP-01",
+			EquipmentID:        "EQP-01",
 			Transport:          tracepack.TransportHSMSSS,
 			CaptureMethod:      tracepack.CaptureMethodRawStream,
 			Vantage:            tracepack.VantageHost,
@@ -155,7 +155,7 @@ func ExampleOpen() {
 		return
 	}
 	h := r.Header()
-	fmt.Println(h.Meta.ToolID, h.Meta.PackRole, "finalized:", h.Finalized)
+	fmt.Println(h.Meta.EquipmentID, h.Meta.PackRole, "finalized:", h.Finalized)
 
 	res, err := r.Iterate(ctx, tracepack.Query{Payloads: true}, func(it *tracepack.Item) error {
 		rec := &it.Record
@@ -401,7 +401,7 @@ func ExampleExportJSONL() {
 	var pack bytes.Buffer
 	w, err := tracepack.NewWriter(&pack, tracepack.WriterOptions{
 		Meta: &tracepack.PackMeta{
-			ToolID:               "EQP-01",
+			EquipmentID:          "EQP-01",
 			Transport:            tracepack.TransportHSMSSS,
 			CaptureMethod:        tracepack.CaptureMethodRawStream,
 			Vantage:              tracepack.VantageHost,
@@ -478,7 +478,7 @@ func s1Frame(function byte, wbit bool, system uint32, body []byte) []byte {
 	return append(f, body...)
 }
 
-// recordExampleCapture records one capture of tool EQP-01 into a directory sink at root:
+// recordExampleCapture records one capture of equipment EQP-01 into a directory sink at root:
 // it starts at 08:59:00 UTC, holds an S1F1 W primary at 08:59:50 and its S1F2 reply at 09:00:05, both on epoch 1,
 // and stops at 09:00:10, so it spans two segments, one in each hour.
 // It returns the capture's id.
@@ -491,7 +491,7 @@ func recordExampleCapture(ctx context.Context, root string) (tracepack.UUID, err
 	origin := time.Date(2026, 10, 6, 8, 59, 0, 0, time.UTC)
 	w, err := tracepack.NewSegmentWriter(ctx, tracepack.SegmentWriterOptions{
 		Capture: tracepack.CaptureDescriptor{
-			ToolID:             "EQP-01",
+			EquipmentID:        "EQP-01",
 			Transport:          tracepack.TransportHSMSSS,
 			CaptureMethod:      tracepack.CaptureMethodRawStream,
 			Vantage:            tracepack.VantageHost,

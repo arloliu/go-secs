@@ -23,8 +23,8 @@ const (
 	// corpusClassifier is the classifier tag of a pack holding classified records.
 	// It is fixed, never the classifier package's own name, which depends on build information.
 	corpusClassifier = "tracepack-sem3"
-	// corpusToolID is the tool_id of every generated pack.
-	corpusToolID = "corpus-tool"
+	// corpusEquipmentID is the equipment_id of every generated pack.
+	corpusEquipmentID = "corpus-tool"
 	// corpusRecorder is the recorder tag of every generated pack.
 	corpusRecorder = "tracepack-corpus"
 
@@ -83,10 +83,10 @@ func msAt(ms int64) int64 {
 
 // segmentMeta returns the pack metadata of a generator segment of seed:
 // its period the first minute of TimeBase's hour, seq_start 0, scope generation 0,
-// the fixed tool, recorder and writer, and the recorder instance of seed.
+// the fixed equipment, recorder and writer, and the recorder instance of seed.
 func segmentMeta(seed string) *tracepack.PackMeta {
 	return &tracepack.PackMeta{
-		ToolID:             corpusToolID,
+		EquipmentID:        corpusEquipmentID,
 		Transport:          tracepack.TransportHSMSSS,
 		CaptureMethod:      tracepack.CaptureMethodGenerator,
 		Vantage:            tracepack.VantageNone,

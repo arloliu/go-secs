@@ -34,10 +34,10 @@ const DefaultClockStepTolerance = time.Second
 // A pointer or slice field is written only when it is non-nil or non-empty.
 // Validate checks the descriptor before a SegmentWriter takes it.
 type CaptureDescriptor struct {
-	// ToolID is the tool this capture belongs to (tool_id); required.
+	// EquipmentID is the equipment this capture belongs to (equipment_id); required.
 	// It names the key areas the capture's packs are stored under,
-	// so it must be a tool a key can hold: not empty, "." or "..".
-	ToolID string
+	// so it must be an equipment a key can hold: not empty, "." or "..".
+	EquipmentID string
 	// Transport is the transport protocol the capture recorded (transport).
 	Transport Transport
 	// CaptureMethod is the representation the capture's bytes were taken from (capture_method,
@@ -60,6 +60,12 @@ type CaptureDescriptor struct {
 	// The deployment keeps it with its RecorderInstanceID.
 	// A segment that carries it is written as format 1.2.
 	RecorderInstanceName *string
+	// Device is the device of the equipment the capture records, such as its main machine, a sensor or a load port
+	// (device, from format 1.2); nil for none.
+	// It is a name, unrelated to DeviceID, the SECS-II device ID of the session.
+	// tracepack never interprets it; any valid UTF-8 value, the empty string included, is valid.
+	// A segment that carries it is written as format 1.2.
+	Device *string
 	// PreviousCaptureID is the capture this deployment ran immediately before this one (previous_capture_id); nil for none.
 	// A recorder persists each SegmentWriter's CaptureID to give it here to the next capture.
 	PreviousCaptureID *UUID
@@ -134,7 +140,7 @@ type CaptureDescriptor struct {
 //
 // Returns:
 //   - error: nil, or a *FieldError for the first rule violated, in the order of the registry's tags:
-//     tool_id that no key can hold (wrapping ErrInvalidKey, as SegmentKey and ArchiveKey refuse such a tool);
+//     equipment_id that no key can hold (wrapping ErrInvalidKey, as SegmentKey and ArchiveKey refuse such an equipment);
 //     transport, capture_method or vantage outside the registry (ErrFieldValue);
 //     an empty recorder (ErrRequiredTag);
 //     time_source outside the registry (ErrFieldValue);
@@ -149,9 +155,9 @@ type CaptureDescriptor struct {
 //     a *FieldError naming the field, dotted for a nested value such as "hsms_timers.T8",
 //     whose Err wraps ErrFieldValue and the encoding's reason, as MarshalBinary reports it.
 func (d *CaptureDescriptor) Validate() error {
-	if err := keyesc.CheckTool(d.ToolID); err != nil {
-		// A ToolID no key can hold is the caller's argument, so the writing calls that check it mark it (refuse).
-		return &FieldError{Field: "tool_id", Err: argument(keyArgError(err))}
+	if err := keyesc.CheckEquipment(d.EquipmentID); err != nil {
+		// An EquipmentID no key can hold is the caller's argument, so the writing calls that check it mark it (refuse).
+		return &FieldError{Field: "equipment_id", Err: argument(keyArgError(err))}
 	}
 
 	checks := []struct {
@@ -203,6 +209,7 @@ func (d *CaptureDescriptor) checkEncoding() error {
 func (d *CaptureDescriptor) clone() CaptureDescriptor {
 	c := *d
 	c.RecorderInstanceName = clonePtr(d.RecorderInstanceName)
+	c.Device = clonePtr(d.Device)
 	c.PreviousCaptureID = clonePtr(d.PreviousCaptureID)
 	c.SourceTZ = clonePtr(d.SourceTZ)
 	c.SourceDialect = clonePtr(d.SourceDialect)
@@ -274,7 +281,7 @@ func (p segmentMetaParams) facts() PackFacts {
 // and the SegmentWriter owns it, so the result may share d's slices and pointers.
 func (d *CaptureDescriptor) packMeta(p segmentMetaParams) *PackMeta {
 	m := &PackMeta{
-		ToolID:               d.ToolID,
+		EquipmentID:          d.EquipmentID,
 		Transport:            d.Transport,
 		CaptureMethod:        d.CaptureMethod,
 		Vantage:              d.Vantage,
@@ -292,6 +299,7 @@ func (d *CaptureDescriptor) packMeta(p segmentMetaParams) *PackMeta {
 		CompactionLevel:      0,
 		RecorderInstanceID:   d.RecorderInstanceID,
 		RecorderInstanceName: d.RecorderInstanceName,
+		Device:               d.Device,
 		PreviousCaptureID:    d.PreviousCaptureID,
 		SiteID:               d.SiteID,
 		EquipmentModel:       d.EquipmentModel,

@@ -50,7 +50,7 @@ type CloseOptions struct {
 // and its gap_end Trigger plus clock_step_tolerance_ns,
 // each computed in checked int64 arithmetic and absent when the computation leaves the int64 range.
 // The segment's format_minor follows the tracepack format specification §14:
-// 2 for metadata naming its recorder instance (RecorderInstanceName), else 1 for a capture masked at write or thinned, else 0.
+// 2 for metadata naming its recorder instance or its device (RecorderInstanceName, Device), else 1 for a capture masked at write or thinned, else 0.
 //
 // The block and the footer are written with CodecNone, so the bytes depend on no compressor:
 // equal options with a fixed PackID and Now write equal bytes, also when the retry runs a newer tracepack,

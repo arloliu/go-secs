@@ -138,7 +138,7 @@ func TestTaxonomyInvalidArgument(t *testing.T) {
 			_, err := ParseUUID("not a uuid")
 			return err
 		}},
-		{name: "SegmentKey: a tool_id that is no key segment", want: []error{ErrInvalidKey}, err: func(*testing.T) error {
+		{name: "SegmentKey: a equipment_id that is no key segment", want: []error{ErrInvalidKey}, err: func(*testing.T) error {
 			_, err := SegmentKey("bucket", "..", UUID{1}, 0, UUID{2})
 			return err
 		}},

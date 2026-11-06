@@ -30,7 +30,7 @@ var (
 // testMeta returns the pack metadata of a generator segment of the hour testHour.
 func testMeta() *tracepack.PackMeta {
 	return &tracepack.PackMeta{
-		ToolID:             "tool-01",
+		EquipmentID:        "tool-01",
 		Transport:          tracepack.TransportHSMSSS,
 		CaptureMethod:      tracepack.CaptureMethodGenerator,
 		Vantage:            tracepack.VantageNone,

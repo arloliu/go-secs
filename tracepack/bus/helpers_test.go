@@ -46,7 +46,7 @@ func descriptorMeta() *tracepack.PackMeta {
 	role := tracepack.SocketRolePassive
 
 	return &tracepack.PackMeta{
-		ToolID:               "tool/A.1",
+		EquipmentID:          "tool/A.1",
 		Transport:            tracepack.TransportHSMSSS,
 		CaptureMethod:        tracepack.CaptureMethodRawStream,
 		Vantage:              tracepack.VantageHost,

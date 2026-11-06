@@ -50,7 +50,7 @@ func basePackMeta() *tracepack.PackMeta {
 	scopeGen := uint64(0)
 
 	return &tracepack.PackMeta{
-		ToolID:             "tool",
+		EquipmentID:        "tool",
 		Transport:          tracepack.TransportHSMSSS,
 		CaptureMethod:      tracepack.CaptureMethodRawStream,
 		Vantage:            tracepack.VantageHost,
@@ -114,7 +114,7 @@ func TestPackMetaMarshalRejectsValuesItsDecoderRejects(t *testing.T) {
 		edit func(m *tracepack.PackMeta)
 		want error
 	}{
-		{"tool_id not valid UTF-8", func(m *tracepack.PackMeta) { m.ToolID = "\xff" }, tlv.ErrUTF8},
+		{"equipment_id not valid UTF-8", func(m *tracepack.PackMeta) { m.EquipmentID = "\xff" }, tlv.ErrUTF8},
 		{"device_id above 2^63-1", func(m *tracepack.PackMeta) { m.DeviceID = new(uint64(1) << 63) }, tlv.ErrLimit},
 		{"seq_start above 2^63-1", func(m *tracepack.PackMeta) { m.SeqStart = uint64(1) << 63 }, tlv.ErrLimit},
 		{"nested policy_id not valid UTF-8", func(m *tracepack.PackMeta) {
@@ -139,7 +139,7 @@ func TestPackMetaMarshalLimitValuesRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	m := basePackMeta()
-	m.ToolID = "\u5de5\u5177"
+	m.EquipmentID = "\u5de5\u5177"
 	m.DeviceID = new(uint64(1)<<63 - 1)
 	b, err := m.MarshalBinary()
 	require.NoError(t, err)
@@ -198,7 +198,7 @@ func TestUnmarshalPackMetaMinimalRoundTrip(t *testing.T) {
 
 	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, pmMinimal16Hex))
 	require.NoError(t, err)
-	assert.Equal(t, "tool", m.ToolID)
+	assert.Equal(t, "tool", m.EquipmentID)
 	assert.Equal(t, tracepack.TransportHSMSSS, m.Transport)
 	require.NotNil(t, m.ScopeGeneration)
 	assert.Equal(t, uint64(0), *m.ScopeGeneration)

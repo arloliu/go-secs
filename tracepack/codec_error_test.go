@@ -38,15 +38,15 @@ func TestFieldErrorOf(t *testing.T) {
 		field string
 		want  error
 	}{
-		{"missing top-level tag", &tlv.EntryError{Tag: tagToolID, Offset: -1, Err: tlv.ErrMissing}, "tool_id", ErrRequiredTag},
+		{"missing top-level tag", &tlv.EntryError{Tag: tagEquipmentID, Offset: -1, Err: tlv.ErrMissing}, "equipment_id", ErrRequiredTag},
 		{"missing nested tag", nested(tagRedaction, &tlv.EntryError{Tag: tagRedactionEntrySeq, Offset: -1, Err: tlv.ErrMissing}), "redaction.seq", ErrRequiredTag},
 		{"length", &tlv.EntryError{Tag: tagRecorderInstanceID, Err: tlv.ErrLength}, "recorder_instance_id", ErrFieldLength},
 		{"nested length", nested(tagCoverage, &tlv.EntryError{Tag: tagCoverageCaptureID, Err: tlv.ErrLength}), "coverage.capture_id", ErrFieldLength},
-		{"UTF-8", &tlv.EntryError{Tag: tagToolID, Err: tlv.ErrUTF8}, "tool_id", ErrFieldValue},
+		{"UTF-8", &tlv.EntryError{Tag: tagEquipmentID, Err: tlv.ErrUTF8}, "equipment_id", ErrFieldValue},
 		{"limit", &tlv.EntryError{Tag: tagDeviceID, Err: tlv.ErrLimit}, "device_id", ErrFieldValue},
 		{"bool", &tlv.EntryError{Tag: tagQualityEvaluated, Err: tlv.ErrBool}, "quality_evaluated", ErrFieldValue},
 		{"type", &tlv.EntryError{Tag: tagTransport, Err: tlv.ErrType}, "transport", ErrFieldValue},
-		{"duplicate", &tlv.EntryError{Tag: tagToolID, Err: tlv.ErrDuplicate}, "tool_id", ErrFieldValue},
+		{"duplicate", &tlv.EntryError{Tag: tagEquipmentID, Err: tlv.ErrDuplicate}, "equipment_id", ErrFieldValue},
 		{"zero tag", &tlv.EntryError{Tag: 0, Err: tlv.ErrZeroTag}, "0x0000", ErrFieldValue},
 		{"depth", &tlv.EntryError{Tag: tagRedactionPolicy, Err: tlv.ErrDepth}, "redaction_policy", ErrFieldValue},
 		{"unknown tag", &tlv.EntryError{Tag: 0x7F00, Err: tlv.ErrLength}, "0x7F00", ErrFieldLength},
@@ -69,7 +69,7 @@ func TestFieldErrorOf(t *testing.T) {
 	t.Run("unchanged", func(t *testing.T) {
 		t.Parallel()
 
-		truncated := &tlv.EntryError{Tag: tagToolID, Offset: 12, Err: tlv.ErrTruncated}
+		truncated := &tlv.EntryError{Tag: tagEquipmentID, Offset: 12, Err: tlv.ErrTruncated}
 		assert.Same(t, error(truncated), fieldErrorOf(truncated, tlv.PackMetadata), "a list that ends inside an entry has no field")
 		fe := &FieldError{Field: "pack_role", Err: ErrFieldValue}
 		assert.Same(t, error(fe), fieldErrorOf(fe, tlv.PackMetadata))
@@ -91,9 +91,9 @@ func TestCodecErrorsWritingCalls(t *testing.T) {
 		want    error
 		cause   error
 	}{
-		{"NewWriter tool_id not valid UTF-8", func(*testing.T) error {
-			return newWriterErr(func(m *PackMeta) { m.ToolID = bad }, nil)
-		}, "tool_id", ErrFieldValue, tlv.ErrUTF8},
+		{"NewWriter equipment_id not valid UTF-8", func(*testing.T) error {
+			return newWriterErr(func(m *PackMeta) { m.EquipmentID = bad }, nil)
+		}, "equipment_id", ErrFieldValue, tlv.ErrUTF8},
 		{"NewWriter device_id above 2^63-1", func(*testing.T) error {
 			return newWriterErr(func(m *PackMeta) { m.DeviceID = new(uint64(1 << 63)) }, nil)
 		}, "device_id", ErrFieldValue, tlv.ErrLimit},
@@ -232,13 +232,13 @@ func TestCodecErrorsStandalone(t *testing.T) {
 
 			return err
 		}, "site_id", ErrFieldValue, tlv.ErrUTF8},
-		{"PackMeta.MarshalBinary tool_id not valid UTF-8", func() error {
+		{"PackMeta.MarshalBinary equipment_id not valid UTF-8", func() error {
 			m := repairTestMeta()
-			m.ToolID = "\xff"
+			m.EquipmentID = "\xff"
 			_, err := m.MarshalBinary()
 
 			return err
-		}, "tool_id", ErrFieldValue, tlv.ErrUTF8},
+		}, "equipment_id", ErrFieldValue, tlv.ErrUTF8},
 		{"TransportEvent.MarshalBinary primary_function above 2^63-1", func() error {
 			_, err := (&TransportEvent{Event: EventStateTransition, PrimaryFunction: new(uint64(1 << 63))}).MarshalBinary()
 			return err
@@ -275,7 +275,7 @@ func TestCodecErrorsStandalone(t *testing.T) {
 		{"UnmarshalPackMeta nil", func(*testing.T) error {
 			_, err := UnmarshalPackMeta(nil)
 			return err
-		}, "tool_id", ErrRequiredTag, tlv.ErrMissing},
+		}, "equipment_id", ErrRequiredTag, tlv.ErrMissing},
 		{"UnmarshalPackMeta redaction without seq", func(t *testing.T) error {
 			b, err := repairTestMeta().MarshalBinary()
 			require.NoError(t, err)
@@ -310,10 +310,10 @@ func TestCodecErrorsStandalone(t *testing.T) {
 			_, err := DecodeDescriptor(encodeTLV(append(descriptorEntries(t), thinning)))
 			return err
 		}, "thinning.0x0004", ErrFieldValue, nil},
-		{"DecodeDescriptor missing tool_id", func(*testing.T) error {
+		{"DecodeDescriptor missing equipment_id", func(*testing.T) error {
 			_, err := DecodeDescriptor(nil)
 			return err
-		}, "tool_id", ErrRequiredTag, tlv.ErrMissing},
+		}, "equipment_id", ErrRequiredTag, tlv.ErrMissing},
 	}
 	for _, tt := range decodes {
 		t.Run(tt.name, func(t *testing.T) {
