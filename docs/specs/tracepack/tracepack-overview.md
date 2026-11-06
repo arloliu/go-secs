@@ -11,7 +11,7 @@ Each rule is defined in exactly one document; the others only reference it.
 
 ## 1. Purpose and scope
 
-A tracepack file (`.tpk`) is an immutable, compressed, self-indexed container for recorded SECS-II traffic between one equipment and its host,
+A tracepack file (`.tpk`) is an immutable, compressed, self-indexed container for recorded SECS-II traffic between one piece of equipment and its host,
 including HSMS control messages and transport lifecycle events.
 It is intended as a long-term archival format for SECS/HSMS traffic,
 written by recorders and log converters and read for many years.
@@ -19,7 +19,7 @@ The format is documented for any reader;
 the Go module (`tracepack-go.md`) is the only implementation, and the conformance corpus binds format-level reading only (G5-199).
 It targets local file systems, S3-compatible object storage and HTTP range reads.
 
-- Scope: one equipment, one capture, one transport (HSMS-SS; SECS-I as a *normalised* representation, [FMT §8]) per file;
+- Scope: one piece of equipment, one capture, one transport (HSMS-SS; SECS-I as a *normalised* representation, [FMT §8]) per file;
   record kinds data / control / transport-event / annotation.
 - Non-goals: not a query engine (the footer prunes the queries of [SEM §7.4] by time, epoch, seq and summary counts; everything else is a scan);
   not a learned model or metrics store;
@@ -159,7 +159,7 @@ Questions 2 and 3, on retention by data hour and on capture boundaries lost to r
 
 | Item | Why deferred |
 |---|---|
-| Indexes of HSMS header fields or message content in the footer (F-3 structures, an F-4 secondary index) | no longer planned (spec v2.13): records are read on demand for one equipment or a few of one type, and the Virtual Equipment reads whole windows, so no consumer needs to filter without decoding payloads. The F-3 range 0x0010–0x001F and the F-4 slot stay reserved ([FMT §10]), so an index can still be added as a minor change; the footer is derivable ([FMT I-3]), so re-merged packs could gain it |
+| Indexes of HSMS header fields or message content in the footer (F-3 structures, an F-4 secondary index) | no longer planned (spec v2.13): records are read on demand for one piece of equipment or a few of one type, and the Virtual Equipment reads whole windows, so no consumer needs to filter without decoding payloads. The F-3 range 0x0010–0x001F and the F-4 slot stay reserved ([FMT §10]), so an index can still be added as a minor change; the footer is derivable ([FMT I-3]), so re-merged packs could gain it |
 | Source reference for data/control records | needs the pilot's converter inputs |
 | Locating blocks after an envelope the forward walk cannot account for, in a pack without a valid footer ([FMT §13]) | needs a resynchronisation design |
 | Live-tail interface and query-service API | service design, outside the format |

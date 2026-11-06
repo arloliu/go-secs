@@ -139,7 +139,7 @@ func TestCaptureDescriptorValidateAccepts(t *testing.T) {
 			d.CaptureMethod, d.TimeSource = CaptureMethodLog, TimeSourceSourceLog
 			d.SourceTZ, d.SourceDialect, d.SourceRefs = new("UTC"), new("eap-log"), []string{"a.log"}
 		}},
-		{"an equipment needing escapes", func(d *CaptureDescriptor) { d.EquipmentID = "fab 12/EQP.01" }},
+		{"an equipment ID needing escapes", func(d *CaptureDescriptor) { d.EquipmentID = "fab 12/EQP.01" }},
 	}
 
 	for _, tt := range tests {
@@ -335,6 +335,7 @@ func TestCaptureDescriptorPackMetaEveryOptionalField(t *testing.T) {
 	checkSegmentMeta(t, &r, p, m)
 
 	assert.Equal(t, d.PreviousCaptureID, m.PreviousCaptureID)
+	assert.Equal(t, new("main"), m.Device, "the descriptor's device reaches the segment's pack metadata")
 	assert.Equal(t, d.SourceTZ, m.SourceTZ)
 	assert.Equal(t, d.SourceDialect, m.SourceDialect)
 	assert.Equal(t, d.SourceRefs, m.SourceRefs)

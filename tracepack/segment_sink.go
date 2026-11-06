@@ -44,7 +44,7 @@ type SegmentFile interface {
 
 // SegmentInfo describes a segment when a SegmentWriter opens it:
 // what its key holds (the tracepack storage specification §3), its hour and its period,
-// so a sink derives the key from the segment it writes and never from an equipment of its own.
+// so a sink derives the key from the segment it writes and never from an equipment ID of its own.
 type SegmentInfo struct {
 	// EquipmentID is the capture's equipment_id.
 	EquipmentID string

@@ -261,7 +261,7 @@ func TestFindFails(t *testing.T) {
 		opened int // the files opened, -1 for a usage error that opens none
 	}{
 		{name: "not a primary", args: append([]string{"find", "--capture", id.String(), "--seq", "2", "--hour", hour}, root), stderr: tracepack.ErrNotPrimary.Error(), opened: 2},
-		{name: "two equipment", args: findArgs(id, root, other), stderr: "tracepack find: ", opened: 4},
+		{name: "two equipment IDs", args: findArgs(id, root, other), stderr: "tracepack find: ", opened: 4},
 		{name: "a pack twice", args: findArgs(id, paths[0], paths[0]), stderr: "tracepack find: ", opened: 2},
 		{name: "an extract", args: findArgs(id, corpusPack("basic-extract-policy-no-classifier-1-0")), stderr: "tracepack find: ", opened: 1},
 		{name: "a rejected pack", args: findArgs(id, paths[0], corpusPack("bootstrap-bad-magic")), stderr: corpusPack("bootstrap-bad-magic"), opened: 2},

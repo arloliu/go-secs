@@ -371,7 +371,7 @@ func TestParseKeysRejectEquipment(t *testing.T) {
 }
 
 // FuzzKeys checks that every key a parser accepts is the one spelling its builder produces,
-// and that every equipment a key can hold survives a build and a parse.
+// and that every equipment ID a key can hold survives a build and a parse.
 func FuzzKeys(f *testing.F) {
 	capture, pack := keyUUID(f, keyCaptureText), keyUUID(f, keyPackText)
 	for _, prefix := range []string{"", "p", "a/", "/a"} {

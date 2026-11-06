@@ -1,7 +1,7 @@
 # tracepack
 
 `github.com/arloliu/go-secs/tracepack` is the Go reference implementation of tracepack (`.tpk`):
-an immutable, compressed, self-indexed container for recorded SECS-II traffic between one equipment and its host,
+an immutable, compressed, self-indexed container for recorded SECS-II traffic between one piece of equipment and its host,
 HSMS control messages and transport lifecycle events included.
 
 ```sh
@@ -18,7 +18,7 @@ and [Compatibility](#compatibility) says what the v1 promise covers.
 ## Concepts
 
 - A **record** is one observation: a captured HSMS frame (a data or control record), a transport event, or an annotation.
-- A **capture** is one run of one recorder over one device of one equipment, named by its `capture_id`.
+- A **capture** is one run of one recorder over one device of one piece of equipment, named by its `capture_id`.
   Its records are numbered by `seq`, which only grows within the capture.
 - A **pack** is one `.tpk` file: a header, pack metadata, compressed blocks of records, and a footer that indexes them.
   A pack is never modified once written.
@@ -222,7 +222,8 @@ The module imports no NATS client; it encodes and checks what a message carries.
 
 - The producer assigns `capture_id`, `recorder_instance_id` and every `seq`; seq 2^63 − 1 is reserved for the consumer's close.
 - `EncodeDescriptor(meta)` encodes the producer-owned entries of the capture's pack metadata, its `thinning` entries, `recorder_instance_name` and `device` included, with no default applied.
-  A consumer before v0.8.0 refuses a descriptor carrying `recorder_instance_name`, so upgrade consumers and mergers before producers.
+  A consumer before v0.8.0 refuses a descriptor carrying `recorder_instance_name`, and one before v0.15.0 a descriptor carrying `device`,
+  so upgrade consumers and mergers before producers.
   Publish it in the `Tpk-Capture-Descriptor` header of the capture's `start`, in standard base64 with padding (`base64.StdEncoding`).
 - `bus.NewRecord(r)` and `bus.EncodeBody(&br)` encode one record as the body of layout 1: the 44-byte record header, then the payload.
   A record whose body is too large to travel inline, as `bus.Inline(bodyLen, maxPayload)` says, travels by claim-check:
@@ -231,7 +232,7 @@ The module imports no NATS client; it encodes and checks what a message carries.
   The body holds `decode_status`, `trailing_bytes` and `field_validity` as zero, since the consumer derives them,
   and the encoder refuses (`bus.ErrMalformed`) a record carrying `redacted` or seq 2^63 − 1,
   and a record whose kind layout 1 does not carry: anything but data, control, transport-event or annotation, kind 0 included.
-- `bus.Subject(prefix, toolID, capture)` and `bus.MsgID(capture, seq)` give the subject and the `Nats-Msg-Id`, and constants such as `bus.HeaderPayloadRef` name the headers.
+- `bus.Subject(prefix, equipmentID, capture)` and `bus.MsgID(capture, seq)` give the subject and the `Nats-Msg-Id`, and constants such as `bus.HeaderPayloadRef` name the headers.
 - `bus.CheckStart(headerBlockLen, bodyLen, maxPayload)` is the preflight:
   the header block, as your client encodes it, holds at most `bus.HeaderBlockLimit` bytes on every message,
   and the message fits the deployment's `max_payload`, itself at least `bus.MinMaxPayload`.
@@ -355,7 +356,8 @@ For readers and troubleshooters working on local files:
 - `ExportJSONL(ctx, r, w)` writes the canonical JSONL export of one pack,
   as the [JSONL specification](../docs/specs/tracepack/tracepack-jsonl.md) defines it:
   a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
-  A pack of format minor 0 exports schema `tracepack-jsonl/1`, byte for byte as earlier versions wrote it,
+  A pack of format minor 0 exports schema `tracepack-jsonl/1`, byte for byte as versions since v0.15.0 write it
+  (v0.15.0 renamed `tool_id` to `equipment_id` under every schema, keeping its value),
   a pack of minor 1 `tracepack-jsonl/2`, which names the additions of format 1.1,
   and any other pack `tracepack-jsonl/3`, which also names `recorder_instance_name` and `device`.
   A damaged pack exports the records of its validated blocks, and the returned `Result` reports what was lost exactly as `Iterate`'s does:
@@ -372,7 +374,7 @@ For readers and troubleshooters working on local files:
 
 ### A lookup over local files
 
-`NewReaderSource(readers)` gives `FindTransaction` a source over packs you opened, all of one equipment.
+`NewReaderSource(readers)` gives `FindTransaction` a source over packs you opened, all of one piece of equipment.
 It groups them by the UTC hour of their period, whatever their capture,
 and a lookup reads, for each hour it searches, every pack of that hour.
 
@@ -381,7 +383,7 @@ and a lookup reads, for each hour it searches, every pack of that hour.
   A segment and an archive holding the same records may both be given; their copies are compared and yielded once.
 - A pack of any role but `extract` is accepted, if its period is not empty and lies inside one UTC hour, the hour it is read for.
 - `NewReaderSource` refuses, with `ErrInvalidQuery`, a nil reader, a `Reader` given twice, two readers of one `pack_id`,
-  readers of more than one equipment, an `extract`, and a pack whose period is empty or spans hours.
+  readers of more than one equipment ID, an `extract`, and a pack whose period is empty or spans hours.
 - The source never opens or closes the readers: keep them open until the lookups are done.
 
 ### Reading many packs
@@ -449,7 +451,8 @@ For the storage service:
   A record that fails a Marking or unobserved check is found only once its block is read, after the archive's header,
   and its `ErrMergeInput` leaves partial output in `dst`, which you discard, as after any error.
   Merge packs of format 1.1 only with tracepack v0.5.0 or later, since an earlier one does not carry what format 1.1 adds;
-  a merger before v0.8.0 refuses a pack of format 1.2.
+  a merger before v0.8.0 refuses a pack of format 1.2, and one of v0.8.0 to v0.14.x drops its `device`,
+  so merge packs of format 1.2 only with tracepack v0.15.0 or later.
 
 ## Command line
 

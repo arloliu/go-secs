@@ -361,7 +361,7 @@ The query service, its catalog database and the live-tail interface are designed
   `Write`, `Sync` and `Abort` take no context: the sink bounds each by its own deadline.
   A `Commit` that fails after the segment became visible returns an error wrapping `ErrPublishUncertain`.
   `SegmentInfo` holds the `equipment_id`, `capture_id`, `pack_id`, `seq_first` of the segment key ([STO §3], known at open), the hour and the period,
-  so a sink derives the key from the segment it writes and never from an equipment of its own.
+  so a sink derives the key from the segment it writes and never from an equipment ID of its own.
   `NewDirSink(root, prefix string, opts DirSinkOptions) (*DirSink, error)` writes `<root>/<SegmentKey(prefix, info.EquipmentID, …)>`;
   it refuses with an error wrapping `ErrInvalidArgument` (G5-296), before creating any file, a prefix that is not empty or a relative `/`-separated path whose components are none empty, `.` or `..`,
   and one holding `\` or a `:`, so no platform reads it as another separator or a volume,
@@ -739,8 +739,8 @@ and a reply recorded before its primary is reported by transaction matching as a
   `Build` rejects W on an even function, which the converter records as `build-rejected`.
 - `source_dialect` records the EAP dialect and the parser mode, `sml.Parse` or `sml.ParseStrict`.
 - Input assumptions and the dialect are confirmed against the pilot's EAP sample (G3-20, R3-6).
-- An EAP log holds the traffic of several equipment: the converter writes one capture per equipment,
-  and one more for the lines of no equipment, such as the EAP's own, whose `equipment_id` is the EAP's identity as configured in the converter ([STO §7] items 7 and 8).
+- An EAP log holds the traffic of several pieces of equipment: the converter writes one capture per `equipment_id`,
+  and one more for the lines of no piece of equipment, such as the EAP's own, whose `equipment_id` is the EAP's identity as configured in the converter ([STO §7] items 7 and 8).
 
 ## 7. Reference CLI (`tracepack/cmd/tracepack`)
 
@@ -774,7 +774,7 @@ It exits by outcome, 0 only for `finalized-consistent`, with the largest code ov
 `--hour` is the primary's UTC hour since 1970-01-01T00:00Z and `--at` its RFC 3339 timestamp;
 a path is a pack or a directory searched for regular `*.tpk` files without following symbolic links, skipping the hidden directories below it,
 such as a directory sink's `.partial/`,
-and every pack is held open for the lookup, of one equipment and each inside one UTC hour (`NewReaderSource`).
+and every pack is held open for the lookup, of one piece of equipment and each inside one UTC hour (`NewReaderSource`).
 No flag sets a reader budget or a lookup limit (G5-266).
 Deferred with `dump --sml`, and not part of the CLI of G5-206:
 `dump --sml` renders data records through `sml.Encoder` and falls back to hex for control, event, annotation and malformed records;

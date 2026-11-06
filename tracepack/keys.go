@@ -76,7 +76,7 @@ type archiveKeyParts struct {
 // EscapeEquipmentID returns equipment as a key spells it (the tracepack storage specification §3):
 // every byte outside the RFC 3986 unreserved set (A-Z, a-z, 0-9, '-', '.', '_', '~') is written %XX with uppercase hex digits,
 // and every other byte is kept.
-// The result never holds '/', and each equipment has exactly one spelling.
+// The result never holds '/', and each equipment ID has exactly one spelling.
 // EscapeEquipmentID accepts every string;
 // the key builders reject the equipment a key cannot hold, "", "." and "..".
 func EscapeEquipmentID(equipment string) string {
@@ -112,7 +112,7 @@ func EscapeEquipmentID(equipment string) string {
 //
 // Returns:
 //   - string: the key; empty on error.
-//   - error: non-nil, wrapping ErrInvalidKey, for an equipment a key cannot hold or a seqFirst above 2^63-1.
+//   - error: non-nil, wrapping ErrInvalidKey, for an equipment ID a key cannot hold or a seqFirst above 2^63-1.
 func SegmentKey(prefix, equipment string, capture UUID, seqFirst uint64, pack UUID) (string, error) {
 	dir, err := stagingKeyDir(prefix, equipment, capture)
 	if err != nil {
@@ -141,7 +141,7 @@ func SegmentKey(prefix, equipment string, capture UUID, seqFirst uint64, pack UU
 //
 // Returns:
 //   - string: the key; empty on error.
-//   - error: non-nil, wrapping ErrInvalidKey, for an equipment a key cannot hold or an hour outside that range.
+//   - error: non-nil, wrapping ErrInvalidKey, for an equipment ID a key cannot hold or an hour outside that range.
 func ArchiveKey(prefix, equipment string, capture UUID, hour int64, pack UUID) (string, error) {
 	dir, err := archiveKeyDir(prefix, equipment, hour)
 	if err != nil {
@@ -162,7 +162,7 @@ func keyArea(prefix, area string) string {
 }
 
 // stagingKeyDir returns the listing prefix of the capture's segments, <prefix>/staging/<equipment>/<capture>/,
-// or an error for an equipment a key cannot hold.
+// or an error for an equipment ID a key cannot hold.
 func stagingKeyDir(prefix, equipment string, capture UUID) (string, error) {
 	if err := keyesc.CheckEquipment(equipment); err != nil {
 		return "", keyArgError(err)
@@ -172,7 +172,7 @@ func stagingKeyDir(prefix, equipment string, capture UUID) (string, error) {
 }
 
 // archiveKeyDir returns the listing prefix of the equipment's archive packs of hour, <prefix>/archive/<equipment>/<YYYY>/<MM>/<DD>/<HH>/,
-// or an error for an equipment a key cannot hold or an hour outside [minKeyHour, maxKeyHour].
+// or an error for an equipment ID a key cannot hold or an hour outside [minKeyHour, maxKeyHour].
 func archiveKeyDir(prefix, equipment string, hour int64) (string, error) {
 	if err := keyesc.CheckEquipment(equipment); err != nil {
 		return "", keyArgError(err)

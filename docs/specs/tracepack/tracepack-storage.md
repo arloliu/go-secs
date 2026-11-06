@@ -96,7 +96,7 @@ Which packs to give is the caller's choice; tracepack defines no view.
     A live converter that consumes a non-tracepack feed and writes packs by §7 is a log conversion that never publishes over the bus (G5-302).
     Every capture a consumer closes therefore has `clock_step_tolerance_ns`.
   - *Producer duties.* The producer keeps a stable `recorder_instance_id` for each **recording series** across restarts and leader changes:
-    one source's recording of one device of one equipment, the source being the recording program's deployment (G5-305).
+    one source's recording of one device of one piece of equipment, the source being the recording program's deployment (G5-305).
     Two sources recording the same device are two series, and the rules below on chaining, one producer per id and handover overlap apply within one series.
     It keeps with the id the source's name in `recorder_instance_name` when it writes one, a rule tracepack does not check (G5-270);
     how it derives the id is its own.
@@ -467,10 +467,10 @@ A source dialect lacking some of these is still convertible, with the effects st
 5. **Time**: parse in `source_tz`, DST rule per [SEM §4]; unparseable → previous entry's time + `ordering-uncertain`.
 6. **Transport lines**: [SEM §5]; anything else → `unrecognised-line` annotation with the raw line.
 7. **Nothing dropped**: every input byte range is covered by exactly one record or annotation of exactly one capture the run writes.
-   An input that holds the traffic of several equipment yields one capture per equipment, each holding only its own equipment's entries and lines,
+   An input that holds the traffic of several pieces of equipment yields one capture per `equipment_id`, each holding only its own entries and lines,
    and no capture repeats another's bytes as annotations.
-   Entries and lines that belong to no equipment, such as the logging program's own lines, form one more capture when there are any,
-   whose `equipment_id` is the logging program's own identity as configured in the converter, distinct from every equipment's `equipment_id`.
+   Entries and lines that belong to no piece of equipment, such as the logging program's own lines, form one more capture when there are any,
+   whose `equipment_id` is the logging program's own identity as configured in the converter, distinct from every other `equipment_id`.
    The converter reports counts per `decode_status` for each capture.
 8. **Epoch**: increments on each explicit connect / accept line;
    a dialect without them yields `epoch = 0` + `correlation-incomplete` ([FMT I-7]).
@@ -512,7 +512,7 @@ A conversion whose inputs change writes a new capture and is a new import; nothi
 
 The following cases are tests of the Go module, not vectors of the corpus of [FMT §16] (G5-199):
 - converter failures (§7);
-- a log holding the traffic of two equipment and lines of neither, converted into three captures whose packs list the same `source_ref` entries and whose records and annotations together cover every input byte exactly once (§7);
+- a log holding the traffic of two pieces of equipment and lines of neither, converted into three captures whose packs list the same `source_ref` entries and whose records and annotations together cover every input byte exactly once (§7);
 - a merge of several segments into an archive, including overlapping inputs, an hour change forcing two segments, and a late segment merged again with the archive (§4);
 - two records with the same (`capture_id`, `seq`) but different bytes: readers report a `conflict`, and a merge fails and publishes nothing ([FMT I-12], §4);
 - overlapping blocks with the same seq range but different codec or compressed bytes, and a forced `body_crc` collision (§4);

@@ -14,7 +14,7 @@ type readerSource struct {
 
 var _ PackSource = (*readerSource)(nil)
 
-// NewReaderSource returns a PackSource over packs the caller opened, all of one equipment,
+// NewReaderSource returns a PackSource over packs the caller opened, all of one piece of equipment,
 // for FindTransaction and FindTransactions (the tracepack semantics specification §7.2).
 //
 // It groups the readers by the UTC hour of their period, the scope of a pack that is not an extract
