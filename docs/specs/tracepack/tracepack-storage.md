@@ -467,8 +467,9 @@ A source dialect lacking some of these is still convertible, with the effects st
 5. **Time**: parse in `source_tz`, DST rule per [SEM §4]; unparseable → previous entry's time + `ordering-uncertain`.
 6. **Transport lines**: [SEM §5]; anything else → `unrecognised-line` annotation with the raw line.
 7. **Nothing dropped**: every input byte range is covered by exactly one record or annotation of exactly one capture the run writes.
-   An input that holds the traffic of several recording series yields one capture per series (G5-305),
-   that is, per `equipment_id` and, where the converter attributes entries to devices, per `device`,
+   An input that holds the traffic of several recording series yields one capture per series (G5-305):
+   per source, where the input interleaves the recordings of sources the converter tells apart, else the one source that wrote the input;
+   within a source, per `equipment_id`; and within that, per `device` where the converter attributes entries to devices,
    a series whose device the converter cannot name carrying no `device`;
    each capture holds only its own entries and lines, and no capture repeats another's bytes as annotations.
    Entries and lines that belong to no piece of equipment, such as the logging program's own lines, form one more capture when there are any,
@@ -478,11 +479,11 @@ A source dialect lacking some of these is still convertible, with the effects st
    a dialect without them yields `epoch = 0` + `correlation-incomplete` ([FMT I-7]).
    `capture_id` is one per recording series per source file set per logical conversion ([FMT I-7]); `seq` is capture-scoped ([FMT I-12]), counting across all the capture's hours,
    and the capture-boundary records that start and stop a capture appear once per capture, never once per pack or hour.
-   A converter MAY reuse a `capture_id` for a reproducible re-run only when the source contents, their order, the interpretation inputs ([FMT §5] `equipment_id`, `device` and their attribution, dialect, time zone and every other setting),
+   A converter MAY reuse a `capture_id` for a reproducible re-run only when the source contents, their order, the interpretation inputs (the source, [FMT §5] `equipment_id`, `device` and their attribution, dialect, time zone and every other setting),
    the converter's, parser's and classifier's versions, the capture-level metadata, the seq assignment and the record bytes are all unchanged (Reproducible output, below);
    a change to any of them needs a new `capture_id`.
    A converter that reuses its `capture_id`s derives each deterministically from at least a digest of each source file's contents, in the source order,
-   the `equipment_id`, the `device` and their attribution, the dialect, the time zone, every other interpretation setting, and the converter's, parser's and classifier's versions;
+   the source, the `equipment_id`, the `device` and their attribution, the dialect, the time zone, every other interpretation setting, and the converter's, parser's and classifier's versions;
    a source file's name alone never stands for its contents.
    The source file requirements below apply to every run.
    Every pack of every capture a run writes lists the run's source files as the same `source_ref` entries in the same order ([FMT §5]),

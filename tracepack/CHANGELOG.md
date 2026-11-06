@@ -12,8 +12,8 @@ No API or behavior changes; packs and JSONL exports are byte-identical to v0.15.
 
 ### Changed
 
-- The storage specification's log converter writes one capture per recording series,
-  by `equipment_id` and, where it attributes entries to devices, `device` (G5-305).
+- The storage specification's log converter writes one capture per recording series (G5-305):
+  by source where the input interleaves several, by `equipment_id`, and by `device` where it attributes entries to devices.
 - Corpus: the manifest's `spec_version` is `"2.43"`, identifying the goldens rewritten by the v0.15.0 reset.
 - Tests: the mixed-minor `device` merge test now exercises `device` alone;
   merges of an absent beside a present empty `device`, the `FieldError` of a malformed one,

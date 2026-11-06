@@ -1933,8 +1933,9 @@ Format 1.2, the JSONL schemas and every corpus pack and export are unchanged; th
 Implemented by tracepack v0.15.1.
 
 Summary:
-- [STO §7] items 7 and 8: a log converter writes one capture per recording series, by `equipment_id` and, where it attributes entries to devices, `device` (G5-305), where it wrote one per `equipment_id`;
-  a reproducible `capture_id` also derives from `device`. `tracepack-go.md` §6 follows.
+- [STO §7] items 7 and 8: a log converter writes one capture per recording series (G5-305), where it wrote one per `equipment_id`:
+  by source where the input interleaves several, by `equipment_id`, and by `device` where it attributes entries to devices;
+  a reproducible `capture_id` also derives from the source and `device`. `tracepack-go.md` §6 follows.
 - [CORPUS §3]: the manifest's `spec_version` is `"2.43"`, so the goldens rewritten by the reset are told apart from those of v2.37.
 - [FMT §14]: v2.37 added `recorder_instance_name` only; `device` is stated as v2.43's in-place addition, unknown to readers before tracepack v0.15.0.
 - [GO] §3: the export of a format 1.0 pack is unchanged from v2.43 on, not across the reset.
@@ -1943,5 +1944,6 @@ Review rounds:
 
 | Round | Finding | Resolution |
 |---|---|---|
-| deep spec review | converter partitioning by `equipment_id` merged two series of one equipment into one capture; the corpus kept spec version 2.37 after the reset; export stability and the version of `device` were misstated | one capture per series; `spec_version` 2.43; the wording scoped to v2.43 |
+| deep spec review | converter partitioning by `equipment_id` merged two series of one piece of equipment into one capture; the corpus kept spec version 2.37 after the reset; export stability and the version of `device` were misstated | one capture per series; `spec_version` 2.43; the wording scoped to v2.43 |
+| confirmation review | partitioning by `equipment_id` and `device` still merged the series of two sources of one device | the source is part of the partition and of a reproducible `capture_id` |
 | deep code review | no production defect; the mixed-minor `device` merge test passed on an earlier differing tag; missing negative cases | the test isolates `device`; absent-versus-empty merges, the `FieldError` of a malformed `device` and a descriptor with invalid UTF-8 tested |
