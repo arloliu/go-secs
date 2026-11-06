@@ -31,7 +31,7 @@
 // --hour is the UTC hour since 1970-01-01T00:00Z, and --at the primary's timestamp in RFC 3339.
 // Each path is a pack, or a directory searched for regular files named *.tpk without following symbolic links;
 // the hidden directories below it are skipped, such as the .partial directory of a directory sink's unpublished segments.
-// The packs are of one equipment, each inside one UTC hour, and every one stays open during the lookup,
+// The packs are of one piece of equipment, each inside one UTC hour, and every one stays open during the lookup,
 // with a file descriptor and its index in memory each, so a lookup over many packs needs as many.
 // It reads the primary's hour and the next, with the library's default limits.
 //

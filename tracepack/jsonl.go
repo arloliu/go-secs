@@ -23,7 +23,8 @@ import (
 // The output depends on the pack's bytes alone: two exports of one pack are byte-identical.
 //
 // The header line names the schema, which follows from the pack's format minor:
-// tracepack-jsonl/1 for a pack of minor 0, so the export of a format 1.0 pack is the one earlier versions wrote,
+// tracepack-jsonl/1 for a pack of minor 0, so the export of a format 1.0 pack is the one versions since v0.15.0 write
+// (v0.15.0 renamed tool_id to equipment_id under every schema, keeping its value),
 // tracepack-jsonl/2 for minor 1, which names the additions of format 1.1
 // (thinning, the encryption tags of redaction_policy, the siv of a redaction entry, the quality bit unobserved),
 // and tracepack-jsonl/3 for any other minor, which also names recorder_instance_name and device of format 1.2

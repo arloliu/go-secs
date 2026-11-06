@@ -1,5 +1,5 @@
 // Package tracepack is the Go reference implementation of the tracepack container format (.tpk):
-// an immutable, compressed, self-indexed archive of recorded SECS-II traffic between one equipment and its host,
+// an immutable, compressed, self-indexed archive of recorded SECS-II traffic between one piece of equipment and its host,
 // including HSMS control messages and transport lifecycle events.
 //
 // The format is specified in docs/specs/tracepack/ of the go-secs repository.
@@ -9,7 +9,7 @@
 //
 // # Concepts
 //
-// A capture is one run of one recorder over one equipment, named by its capture_id; its records are numbered by seq.
+// A capture is one run of one recorder over one device of one piece of equipment, named by its capture_id; its records are numbered by seq.
 // A pack is one immutable file of records with its pack metadata and a footer that indexes them.
 // A scope is one capture in one UTC hour, and every pack but an extract holds the records of one scope.
 // A recorder stages segments, the packs of one flush interval;
@@ -113,13 +113,14 @@
 // TxResult.Complete, Matches and PrimaryVersions give the lookup's completeness, its valid matches and the primary's versions.
 // FindTransactions pairs every primary of one capture in a time range the same way, reading each hour once,
 // and passes each primary's result, equal to FindTransaction's for it, to a callback in ascending hour, then seq.
-// NewReaderSource returns a PackSource over packs the caller opened, all of one equipment, such as the files of a NewDirSink,
+// NewReaderSource returns a PackSource over packs the caller opened, all of one piece of equipment, such as the files of a NewDirSink,
 // grouped by the UTC hour of their period;
 // the caller owns the readers and keeps them open while the source is used.
 //
 // ExportJSONL writes the canonical JSONL export of one pack (the tracepack JSONL specification):
 // a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
-// A pack of format minor 0 exports schema tracepack-jsonl/1, as earlier versions wrote it,
+// A pack of format minor 0 exports schema tracepack-jsonl/1, as versions since v0.15.0 write it
+// (v0.15.0 renamed tool_id to equipment_id under every schema, keeping its value),
 // a pack of minor 1 tracepack-jsonl/2, which names the additions of format 1.1,
 // and any other pack tracepack-jsonl/3, which also names recorder_instance_name and device.
 // A damaged pack exports the records of its validated blocks, with the Result Iterate returns for it:
@@ -146,7 +147,7 @@
 // a merger before v0.8.0 refuses them, and one of v0.8.0 to v0.14.x drops their device.
 // The caller decides which packs a merge takes and when a pack may be deleted,
 // and publishes the archive only after Merge returns nil (the tracepack storage specification §4).
-// SegmentKey and ArchiveKey build the keys of the tracepack storage specification §3, and EscapeEquipmentID spells an equipment as a key does.
+// SegmentKey and ArchiveKey build the keys of the tracepack storage specification §3, and EscapeEquipmentID spells an equipment ID as a key does.
 //
 // # Errors
 //

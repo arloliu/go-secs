@@ -428,10 +428,10 @@ type PackMeta struct {
 	// for a repair patch of earlier versions, the list of the pack it repaired.
 	// It is required when that list is non-empty, absent when it is empty, and never in a segment or a patch of one.
 	CompactedFrom []UUID
-	// RecorderInstanceID is the stable identity of the recorder or converter deployment across restarts
-	// (recorder_instance_id); always required.
+	// RecorderInstanceID is the stable identity of one recording series, one source's recording of one device
+	// of one piece of equipment, across restarts and leader changes (recorder_instance_id); always required.
 	RecorderInstanceID UUID
-	// RecorderInstanceName is the human-readable name of the deployment RecorderInstanceID identifies
+	// RecorderInstanceName is the human-readable name of the source that records the series RecorderInstanceID identifies
 	// (recorder_instance_name, from format 1.2); optional.
 	// tracepack never interprets it and checks no relation to RecorderInstanceID; any valid UTF-8 value, the empty string included, is valid.
 	// It is a capture-level tag, declared by the producer in the capture descriptor (the tracepack storage specification §4).
@@ -442,7 +442,7 @@ type PackMeta struct {
 	// tracepack never interprets it; any valid UTF-8 value, the empty string included, is valid.
 	// It is a capture-level tag, declared by the producer in the capture descriptor (the tracepack storage specification §4).
 	Device *string
-	// PreviousCaptureID is the capture this recorder deployment ran immediately before this one
+	// PreviousCaptureID is the capture of the same recording series immediately before this one
 	// (previous_capture_id, the tracepack format specification I-7); optional.
 	PreviousCaptureID *UUID
 	// ExtractFilter describes the filter that selected an extract's records (extract_filter);

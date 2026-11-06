@@ -20,7 +20,7 @@ func IsUnreserved(c byte) bool {
 	return 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~'
 }
 
-// CheckEquipment reports an error for an equipment no key can hold: "", and "." and "..",
+// CheckEquipment reports an error for an equipment ID no key can hold: "", and "." and "..",
 // which would be path components of their own since '.' is not escaped.
 // The error states only the reason; its caller wraps it with its own sentinel.
 func CheckEquipment(equipment string) error {

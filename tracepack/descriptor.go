@@ -36,7 +36,7 @@ const DefaultClockStepTolerance = time.Second
 type CaptureDescriptor struct {
 	// EquipmentID is the equipment this capture belongs to (equipment_id); required.
 	// It names the key areas the capture's packs are stored under,
-	// so it must be an equipment a key can hold: not empty, "." or "..".
+	// so it must be an equipment ID a key can hold: not empty, "." or "..".
 	EquipmentID string
 	// Transport is the transport protocol the capture recorded (transport).
 	Transport Transport
@@ -48,16 +48,17 @@ type CaptureDescriptor struct {
 	// Recorder names the recorder or converter product, its version and its mode (recorder); required.
 	// It is for display and tracing; no reader branches on it.
 	Recorder string
-	// RecorderInstanceID is the stable identity of the recorder or converter deployment across restarts (recorder_instance_id);
-	// required.
+	// RecorderInstanceID is the stable identity of one recording series (recorder_instance_id): one source's recording
+	// of one device of one piece of equipment, stable across restarts and leader changes; required.
 	// It is never generated:
-	// the deployment persists it and gives the same value to every capture it runs,
-	// which links its captures across restarts (the tracepack format specification I-7).
+	// the source persists it and gives the same value to every capture of the series,
+	// which links those captures across restarts (the tracepack format specification I-7).
+	// A source recording several devices keeps one series, and one RecorderInstanceID, per device.
 	RecorderInstanceID UUID
-	// RecorderInstanceName is the human-readable name of the deployment RecorderInstanceID identifies
+	// RecorderInstanceName is the human-readable name of the source that records the series RecorderInstanceID identifies
 	// (recorder_instance_name, from format 1.2); nil for none.
 	// tracepack never interprets it; any valid UTF-8 value, the empty string included, is valid.
-	// The deployment keeps it with its RecorderInstanceID.
+	// The source keeps it with its RecorderInstanceID.
 	// A segment that carries it is written as format 1.2.
 	RecorderInstanceName *string
 	// Device is the device of the equipment the capture records, such as its main machine, a sensor or a load port
@@ -66,7 +67,7 @@ type CaptureDescriptor struct {
 	// tracepack never interprets it; any valid UTF-8 value, the empty string included, is valid.
 	// A segment that carries it is written as format 1.2.
 	Device *string
-	// PreviousCaptureID is the capture this deployment ran immediately before this one (previous_capture_id); nil for none.
+	// PreviousCaptureID is the capture of the same recording series immediately before this one (previous_capture_id); nil for none.
 	// A recorder persists each SegmentWriter's CaptureID to give it here to the next capture.
 	PreviousCaptureID *UUID
 	// TimeSource says where the capture's timestamps come from (time_source).
@@ -140,7 +141,7 @@ type CaptureDescriptor struct {
 //
 // Returns:
 //   - error: nil, or a *FieldError for the first rule violated, in the order of the registry's tags:
-//     equipment_id that no key can hold (wrapping ErrInvalidKey, as SegmentKey and ArchiveKey refuse such an equipment);
+//     equipment_id that no key can hold (wrapping ErrInvalidKey, as SegmentKey and ArchiveKey refuse such an equipment ID);
 //     transport, capture_method or vantage outside the registry (ErrFieldValue);
 //     an empty recorder (ErrRequiredTag);
 //     time_source outside the registry (ErrFieldValue);

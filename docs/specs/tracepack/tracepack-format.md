@@ -95,7 +95,7 @@ These rules let any mainstream language implement the format from this text alon
 - **I-6 Immutable once finalized.** No byte of a finalized file is ever modified;
   a merge writes its archive as a new file ([STO §4]).
 - **I-7 Capture id across rolls; epoch bound at the transport boundary.**
-  `capture_id` is a UUID assigned per equipment when the recorder starts
+  `capture_id` is a UUID assigned per recording series when the recorder starts
   — or, over a durable bus, each time the producer that feeds it starts producing: at its start and at each leadership change,
   overlapping producers each with their own capture ([STO §4], G5-242); and for a converter, when it establishes a logical conversion ([STO §7] item 8) —
   and written into every pack it rolls.
@@ -105,7 +105,7 @@ These rules let any mainstream language implement the format from this text alon
   A recorder that cannot observe sockets writes `epoch = 0` (unknown) and sets `correlation-incomplete` on every record.
   Thus (`capture_id`, `epoch`) identifies one transport connection globally.
   A recorder restart always starts a new capture, because neither the monotonic clock nor the seq counter survives a process restart;
-  consecutive captures of one recorder deployment are linked by `recorder_instance_id` and `previous_capture_id` (§5).
+  consecutive captures of one recording series are linked by `recorder_instance_id` and `previous_capture_id` (§5).
 - **I-8 Little-endian for tracepack's own integers; wire bytes untouched, except for masking ([SEM §8]) and the zero-filled message text of a record unobserved by design ([SEM §2]).**
   HSMS payloads keep their big-endian length prefix and header (SEMI E37 §8.2).
 - **I-9 Reserved is zero on write, ignored on read.**
@@ -242,8 +242,8 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | 0x0018 | `pack_role` | u8 enum | always | segment / archive / extract / repair (§9, [STO §2]) |
 | 0x0019 | `compaction_level` | u8 | always | 0 = written by a recorder or converter; n ≥ 1 = produced by merging packs of level < n |
 | 0x001A | `compacted_from` | uuid, repeatable | its lineage list is non-empty | lineage list, cumulative, never a deletion criterion ([STO §4] Deletion): for an archive written by a merge, the lists of its inputs plus every input segment ([STO §4] Merge); for a `repair` patch, no longer written (G5-202), the list of the pack it repaired; absent when that list is empty, whatever `compaction_level` is (a converter's archive, [STO §7], and a merge whose inputs are only such archives); never in a segment or a patch of one |
-| 0x001B | `recorder_instance_id` | uuid | always | stable identity of one recording series across restarts and leader changes: one source's recording of one device of one equipment ([STO §4], G5-305) |
-| 0x001C | `previous_capture_id` | uuid | optional | the capture this recorder deployment ran immediately before this one (I-7) |
+| 0x001B | `recorder_instance_id` | uuid | always | stable identity of one recording series across restarts and leader changes: one source's recording of one device of one piece of equipment ([STO §4], G5-305) |
+| 0x001C | `previous_capture_id` | uuid | optional | the capture of the same recording series immediately before this one (I-7, G5-305) |
 | 0x001D | `extract_filter` | utf8 | `pack_role = extract` | description of the filter that selected the records; an extract is never a complete period |
 | 0x001E | `site_id` | utf8 | optional | site or fab identifier |
 | 0x001F | `equipment_model` | utf8 | optional | equipment model |
