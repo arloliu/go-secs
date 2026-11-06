@@ -739,7 +739,7 @@ and a reply recorded before its primary is reported by transaction matching as a
   `Build` rejects W on an even function, which the converter records as `build-rejected`.
 - `source_dialect` records the EAP dialect and the parser mode, `sml.Parse` or `sml.ParseStrict`.
 - Input assumptions and the dialect are confirmed against the pilot's EAP sample (G3-20, R3-6).
-- An EAP log holds the traffic of several recording series: the converter writes one capture per series, by `equipment_id` and, where it attributes entries to devices, `device`,
+- An EAP log holds the traffic of several recording series: the converter writes one capture per series, by source where the log interleaves several, by `equipment_id`, and by `device` where it attributes entries to devices,
   and one more for the lines of no piece of equipment, such as the EAP's own, whose `equipment_id` is the EAP's identity as configured in the converter ([STO §7] items 7 and 8).
 
 ## 7. Reference CLI (`tracepack/cmd/tracepack`)
