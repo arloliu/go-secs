@@ -14,7 +14,7 @@ import (
 // with every optional field unset.
 func validDescriptor() CaptureDescriptor {
 	return CaptureDescriptor{
-		ToolID:             "EQP-01",
+		EquipmentID:        "EQP-01",
 		Transport:          TransportHSMSSS,
 		CaptureMethod:      CaptureMethodRawStream,
 		Vantage:            VantageHost,
@@ -31,6 +31,7 @@ func fullDescriptor() CaptureDescriptor {
 	d := validDescriptor()
 	d.PreviousCaptureID = new(UUID{9, 8, 7})
 	d.RecorderInstanceName = new("eqp")
+	d.Device = new("main")
 	d.CaptureOrigin = time.Date(2026, 10, 5, 8, 30, 0, 123, time.UTC)
 	d.ClockStepTolerance = 250 * time.Millisecond
 	d.SourceTZ = new("Asia/Taipei")
@@ -59,9 +60,9 @@ func TestCaptureDescriptorValidateRules(t *testing.T) {
 		field  string
 		err    error
 	}{
-		{"empty tool", func(d *CaptureDescriptor) { d.ToolID = "" }, "tool_id", ErrInvalidKey},
-		{"dot tool", func(d *CaptureDescriptor) { d.ToolID = "." }, "tool_id", ErrInvalidKey},
-		{"dot-dot tool", func(d *CaptureDescriptor) { d.ToolID = ".." }, "tool_id", ErrInvalidKey},
+		{"empty equipment", func(d *CaptureDescriptor) { d.EquipmentID = "" }, "equipment_id", ErrInvalidKey},
+		{"dot equipment", func(d *CaptureDescriptor) { d.EquipmentID = "." }, "equipment_id", ErrInvalidKey},
+		{"dot-dot equipment", func(d *CaptureDescriptor) { d.EquipmentID = ".." }, "equipment_id", ErrInvalidKey},
 		{"transport past the registry", func(d *CaptureDescriptor) { d.Transport = TransportSECS1Normalised + 1 }, "transport", ErrFieldValue},
 		{"capture method past the registry", func(d *CaptureDescriptor) { d.CaptureMethod = CaptureMethodGenerator + 1 }, "capture_method", ErrFieldValue},
 		{"vantage past the registry", func(d *CaptureDescriptor) { d.Vantage = VantageNone + 1 }, "vantage", ErrFieldValue},
@@ -95,8 +96,8 @@ func TestCaptureDescriptorValidateRules(t *testing.T) {
 		{"negative clock-step tolerance", func(d *CaptureDescriptor) { d.ClockStepTolerance = -1 }, "clock_step_tolerance_ns", ErrFieldValue},
 		{
 			"the first rule in tag order wins",
-			func(d *CaptureDescriptor) { d.ToolID, d.Recorder, d.ClockStepTolerance = "", "", -1 },
-			"tool_id", ErrInvalidKey,
+			func(d *CaptureDescriptor) { d.EquipmentID, d.Recorder, d.ClockStepTolerance = "", "", -1 },
+			"equipment_id", ErrInvalidKey,
 		},
 		{
 			"recorder before recorder_instance_id",
@@ -138,7 +139,7 @@ func TestCaptureDescriptorValidateAccepts(t *testing.T) {
 			d.CaptureMethod, d.TimeSource = CaptureMethodLog, TimeSourceSourceLog
 			d.SourceTZ, d.SourceDialect, d.SourceRefs = new("UTC"), new("eap-log"), []string{"a.log"}
 		}},
-		{"a tool needing escapes", func(d *CaptureDescriptor) { d.ToolID = "fab 12/EQP.01" }},
+		{"an equipment needing escapes", func(d *CaptureDescriptor) { d.EquipmentID = "fab 12/EQP.01" }},
 	}
 
 	for _, tt := range tests {
@@ -192,7 +193,7 @@ func TestFullDescriptorSetsEveryReference(t *testing.T) {
 			assert.Falsef(t, v.IsZero(), "%s refers to a zero value in fullDescriptor", path)
 		}
 	})
-	assert.Equal(t, 21, n, "pointer and slice fields of CaptureDescriptor and HSMSTimers")
+	assert.Equal(t, 22, n, "pointer and slice fields of CaptureDescriptor and HSMSTimers")
 }
 
 // walkReferences calls fn for every pointer or slice field of the struct v, under path:
@@ -227,7 +228,7 @@ func TestCaptureDescriptorValidateEncoding(t *testing.T) {
 		mutate func(d *CaptureDescriptor)
 		field  string
 	}{
-		{"tool_id", func(d *CaptureDescriptor) { d.ToolID = invalid }, "tool_id"},
+		{"equipment_id", func(d *CaptureDescriptor) { d.EquipmentID = invalid }, "equipment_id"},
 		{"recorder", func(d *CaptureDescriptor) { d.Recorder = invalid }, "recorder"},
 		{"source_tz", func(d *CaptureDescriptor) { d.SourceTZ = new(invalid) }, "source_tz"},
 		{"source_dialect", func(d *CaptureDescriptor) { d.SourceDialect = new(invalid) }, "source_dialect"},
@@ -355,7 +356,7 @@ func TestCaptureDescriptorPackMetaEveryOptionalField(t *testing.T) {
 func checkSegmentMeta(t *testing.T, r *CaptureDescriptor, p segmentMetaParams, m *PackMeta) {
 	t.Helper()
 
-	assert.Equal(t, r.ToolID, m.ToolID)
+	assert.Equal(t, r.EquipmentID, m.EquipmentID)
 	assert.Equal(t, r.Transport, m.Transport)
 	assert.Equal(t, r.CaptureMethod, m.CaptureMethod)
 	assert.Equal(t, r.Vantage, m.Vantage)

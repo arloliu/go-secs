@@ -214,7 +214,7 @@ func TestWritingDecisionSegmentKey(t *testing.T) {
 				t.Cleanup(func() { _ = s.Close() })
 				sink := &presetSink{SegmentSink: s, root: root, same: same}
 				opts := segOptions(sink)
-				opts.Capture.ToolID = dirTestTool
+				opts.Capture.EquipmentID = dirTestEquipment
 				w, err := NewSegmentWriter(t.Context(), opts)
 				require.NoError(t, err)
 				segFrame(t, w, time.Second)
@@ -261,7 +261,7 @@ type presetFile struct {
 
 // Create creates the segment on the sink it wraps.
 func (s *presetSink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, error) {
-	key, err := SegmentKey("", info.ToolID, info.CaptureID, info.SeqFirst, info.PackID)
+	key, err := SegmentKey("", info.EquipmentID, info.CaptureID, info.SeqFirst, info.PackID)
 	if err != nil {
 		return nil, err
 	}

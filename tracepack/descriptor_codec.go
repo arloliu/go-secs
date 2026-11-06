@@ -20,7 +20,7 @@ const (
 // since the bus serves capture-clock captures only.
 var descriptorRegistry = func() tlv.Registry {
 	required := []uint16{
-		tagToolID, tagTransport, tagCaptureMethod, tagVantage, tagRecorder, tagTimeSource,
+		tagEquipmentID, tagTransport, tagCaptureMethod, tagVantage, tagRecorder, tagTimeSource,
 		tagLifecycleCoverage, tagQualityEvaluated, tagRecorderInstanceID,
 		tagCaptureOriginUTCNs, tagCaptureOriginMonoNs, tagClockStepToleranceNs,
 	}
@@ -28,7 +28,7 @@ var descriptorRegistry = func() tlv.Registry {
 		tagPreviousCaptureID,
 		tagSiteID, tagEquipmentModel, tagEquipmentSWRev, tagHostSoftware, tagHostEndpoint, tagEquipmentEndpoint,
 		tagEquipmentConnectMode, tagDeviceID, tagHSMSTimers,
-		tagThinning, tagRecorderInstanceName,
+		tagThinning, tagRecorderInstanceName, tagDevice,
 	}
 
 	reg := make(tlv.Registry, len(required)+len(optional))
@@ -47,12 +47,12 @@ var descriptorRegistry = func() tlv.Registry {
 // EncodeDescriptor encodes the capture descriptor of the capture m describes:
 // the producer-owned entries of its pack metadata, in the TLV encoding of the tracepack format specification §5
 // (the tracepack storage specification §4, "Capture descriptor and pack metadata").
-// They are tool_id, transport, capture_method, vantage, recorder, time_source, lifecycle_coverage, quality_evaluated,
+// They are equipment_id, transport, capture_method, vantage, recorder, time_source, lifecycle_coverage, quality_evaluated,
 // recorder_instance_id, capture_origin_utc_ns, capture_origin_mono_ns and clock_step_tolerance_ns,
 // previous_capture_id and the site and equipment tags when m holds them
 // (site_id, equipment_model, equipment_sw_rev, host_software, host_endpoint, equipment_endpoint,
 // equipment_connect_mode, device_id and hsms_timers),
-// every thinning entry, and recorder_instance_name when m holds it, in tag order and thinning in its own order.
+// every thinning entry, and recorder_instance_name and device when m holds them, in tag order and thinning in its own order.
 // Every other value of m, the consumer-owned ones and m.Unknown included, is not encoded;
 // m's values are written as they are, with no default applied.
 //
@@ -79,7 +79,7 @@ func EncodeDescriptor(m *PackMeta) ([]byte, error) {
 	}
 
 	entries := []tlv.Entry{
-		tlv.UTF8Entry(tagToolID, m.ToolID),
+		tlv.UTF8Entry(tagEquipmentID, m.EquipmentID),
 		tlv.U8Entry(tagTransport, uint8(m.Transport)),
 		tlv.U8Entry(tagCaptureMethod, uint8(m.CaptureMethod)),
 		tlv.U8Entry(tagVantage, uint8(m.Vantage)),
@@ -113,6 +113,9 @@ func EncodeDescriptor(m *PackMeta) ([]byte, error) {
 	}
 	if m.RecorderInstanceName != nil {
 		entries = append(entries, tlv.UTF8Entry(tagRecorderInstanceName, *m.RecorderInstanceName))
+	}
+	if m.Device != nil {
+		entries = append(entries, tlv.UTF8Entry(tagDevice, *m.Device))
 	}
 
 	return encodeEntries(entries, descriptorRegistry, "capture descriptor")

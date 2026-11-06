@@ -108,7 +108,7 @@ func newGatedReader(data []byte, rounds ...int) *gatedReader {
 // readerTestMeta returns the pack metadata of the reader test packs.
 func readerTestMeta() *PackMeta {
 	return &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
+		EquipmentID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 	}
 }
@@ -493,7 +493,7 @@ func TestOpenValidPack(t *testing.T) {
 				assert.Equal(t, UUID(hdr.PackID), h.PackID)
 				assert.Equal(t, UUID(hdr.CaptureID), h.CaptureID)
 				require.NotNil(t, h.Meta)
-				assert.Equal(t, "tool", h.Meta.ToolID)
+				assert.Equal(t, "tool", h.Meta.EquipmentID)
 
 				assert.Equal(t, indexedInfos(p.blocks), r.Blocks())
 				assert.NotNil(t, r.footer)
@@ -1165,13 +1165,13 @@ func TestHeaderReturnsACopy(t *testing.T) {
 	assert.NotSame(t, h.Meta, r.meta, "the Reader never hands out its own metadata")
 	*h.Meta.Coverage[0].TimeStart = 0
 	h.Meta.Coverage = append(h.Meta.Coverage, Coverage{})
-	h.Meta.ToolID = "changed"
+	h.Meta.EquipmentID = "changed"
 	h.Trailer.BlockCount = 99
 	h.Finalized = false
 
 	assert.Equal(t, want, r.Header())
 	assert.True(t, r.finalized)
-	assert.Equal(t, "tool", r.meta.ToolID)
+	assert.Equal(t, "tool", r.meta.EquipmentID)
 	assert.Equal(t, []Coverage{{TimeStart: &start, TimeEnd: &end}}, r.meta.Coverage)
 	assert.Equal(t, uint32(2), r.trailer.BlockCount)
 }

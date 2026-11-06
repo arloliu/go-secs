@@ -5,11 +5,43 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-06
+
+This release renames tool to equipment and adds `device` (G5-303, G5-304, G5-305): spec v2.43, format 1.2.
+It is a one-time pre-v1 reset: format 1.2, the JSONL schemas `tracepack-jsonl/1`–`/3` and the corpus `tracepack-corpus/5`
+are redefined in place, keeping their values.
+Pack bytes are unchanged, since tags are numbers; every JSONL export changes, naming tag 0x0002 `equipment_id`.
+
+### Upgrade notes
+
+- Renames: `CaptureDescriptor.ToolID`, `PackMeta.ToolID` and `SegmentInfo.ToolID` → `EquipmentID`;
+  `EscapeToolID` → `EscapeEquipmentID`; `bus.ToolToken` → `bus.EquipmentToken`; `bus.ParseToolToken` → `bus.ParseEquipmentToken`.
+  The key builders' and `bus.Subject`'s parameter is named `equipment`.
+- Error text says `equipment_id`, `equipment` and `equipment token` where it said `tool_id`, `tool` and `tool token`;
+  a `*FieldError` for tag 0x0002 has `Field` `"equipment_id"`.
+- JSONL: every export writes `"equipment_id"` where it wrote `"tool_id"`, under the same schema values.
+  Compare exports only between writers of the same side of this release.
+- Merge packs of format 1.2 only with v0.15.0 or later: v0.8.0 to v0.14.x accept them but drop `device`.
+  Upgrade mergers and consumers before producers that write `device`.
+
+### Added
+
+- `CaptureDescriptor.Device` and `PackMeta.Device` (`*string`): pack metadata tag 0x0035 `device`, utf8, optional, format 1.2 (G5-304).
+  The device of the equipment the capture records, such as its main machine, a sensor or a load port;
+  a name, unrelated to `DeviceID`; any valid UTF-8 value, the empty string included.
+  It is a capture-level tag: `Merge` refuses inputs that differ in it, a present one beside an absent one included.
+  A `Writer` and `WriteClose` write `format_minor` 2 when the metadata carries it, as for `RecorderInstanceName`;
+  `EncodeDescriptor` and `DecodeDescriptor` carry it, and `DecodeDescriptor` refuses a wrong type, invalid UTF-8 or a repeated entry as `ErrCorrupt`.
+
 ### Changed
 
+- `recorder_instance_id` identifies one recording series: one source's recording of one device of one equipment,
+  stable across restarts and leader changes; `recorder_instance_name` names the source (G5-305). Wording only.
 - The godoc of `PackFacts.DurableRecorder` and `PackMeta.FlushIntervalNs` names the live log converter,
   which writes segments of an unbounded input with `flush_interval_ns` and sets `DurableRecorder` (G5-302, spec v2.42).
   No behavior changed.
+- Corpus: `basic-future-minor`'s unknown tag moves from 0x0035 to 0x0036;
+  `basic-new-tags-segment-1-1-device` and `basic-device` are added.
 
 ## [0.14.0] - 2026-11-01
 

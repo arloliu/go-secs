@@ -170,7 +170,7 @@ var refusalProvocations = map[string]func(t *testing.T) error{
 	},
 	"ErrReservedTag": func(*testing.T) error {
 		return newWriterErr(func(m *PackMeta) {
-			m.Unknown = []RawEntry{{Tag: tagToolID, Type: uint8(tlv.TypeUTF8), Value: []byte("x")}}
+			m.Unknown = []RawEntry{{Tag: tagEquipmentID, Type: uint8(tlv.TypeUTF8), Value: []byte("x")}}
 		}, nil)
 	},
 }
@@ -315,9 +315,9 @@ func TestErrRefusedArguments(t *testing.T) {
 		{"a CaptureOrigin not representable", func(t *testing.T) error {
 			return newSegErr(t, func(o *SegmentWriterOptions) { o.Capture.CaptureOrigin = time.Date(2300, 1, 1, 0, 0, 0, 0, time.UTC) })
 		}, "CaptureOrigin"},
-		{"a ToolID no key can hold", func(t *testing.T) error {
-			return newSegErr(t, func(o *SegmentWriterOptions) { o.Capture.ToolID = ".." })
-		}, "tool_id"},
+		{"a EquipmentID no key can hold", func(t *testing.T) error {
+			return newSegErr(t, func(o *SegmentWriterOptions) { o.Capture.EquipmentID = ".." })
+		}, "equipment_id"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -330,18 +330,18 @@ func TestErrRefusedArguments(t *testing.T) {
 	}
 }
 
-// TestErrRefusedToolID requires NewSegmentWriter's refusal of a ToolID no key can hold to be marked,
-// a *FieldError naming tool_id that matches ErrInvalidKey and, through it, ErrInvalidArgument.
-func TestErrRefusedToolID(t *testing.T) {
+// TestErrRefusedEquipmentID requires NewSegmentWriter's refusal of a EquipmentID no key can hold to be marked,
+// a *FieldError naming equipment_id that matches ErrInvalidKey and, through it, ErrInvalidArgument.
+func TestErrRefusedEquipmentID(t *testing.T) {
 	t.Parallel()
 
-	err := newSegErr(t, func(o *SegmentWriterOptions) { o.Capture.ToolID = ".." })
+	err := newSegErr(t, func(o *SegmentWriterOptions) { o.Capture.EquipmentID = ".." })
 	requireRefused(t, err, ErrInvalidKey)
 	require.ErrorIs(t, err, ErrInvalidArgument)
 	require.NotErrorIs(t, err, ErrInvalidQuery)
 	var fe *FieldError
 	require.ErrorAs(t, err, &fe)
-	require.Equal(t, "tool_id", fe.Field)
+	require.Equal(t, "equipment_id", fe.Field)
 }
 
 // TestErrInvalidArgumentOptions requires every error of checking or encoding the options of NewWriter, WriteClose and NewSegmentWriter,

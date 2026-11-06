@@ -19,7 +19,7 @@ import (
 // and ctx's error once ctx is done.
 // Packs of role repair, of the retired role 5 and of a role this package does not define are read like any pack given.
 // NewReaderSource rejects, wrapping ErrInvalidQuery, a nil reader, a Reader given twice, a repeated pack_id,
-// readers of two tool_ids, a period empty or spanning two hours, and an extract.
+// readers of two equipment_ids, a period empty or spanning two hours, and an extract.
 func TestNewReaderSource(t *testing.T) {
 	t.Parallel()
 
@@ -68,8 +68,8 @@ func TestNewReaderSource(t *testing.T) {
 		{name: "a nil reader", readers: []*Reader{r, nil}, msg: "reader 1 is nil"},
 		{name: "a Reader twice", readers: []*Reader{r, r}, msg: "readers 0 and 1 are the same Reader"},
 		{name: "a repeated pack_id", readers: openAll(t, low, low), msg: "readers 0 and 1 hold the same pack_id"},
-		{name: "two tool_ids", readers: openAll(t, low, txPack(t, seg1, func(m *PackMeta) { m.ToolID = "EQP-2" }, steps)),
-			msg: `reader 0 holds tool_id "tool", reader 1 tool_id "EQP-2"`},
+		{name: "two equipment_ids", readers: openAll(t, low, txPack(t, seg1, func(m *PackMeta) { m.EquipmentID = "EQP-2" }, steps)),
+			msg: `reader 0 holds equipment_id "tool", reader 1 equipment_id "EQP-2"`},
 		{name: "a period spanning two hours", readers: openAll(t, low, txPack(t, seg1, func(m *PackMeta) { m.PeriodEnd += hourNs }, steps)),
 			msg: "reader 1 has the period"},
 		{name: "an extract", readers: openAll(t, txPack(t, seg1, func(m *PackMeta) {
@@ -158,7 +158,7 @@ func TestReaderSourceEndToEnd(t *testing.T) {
 	sink, err := NewDirSink(root, dirTestPrefix, DirSinkOptions{})
 	require.NoError(t, err)
 	opts := segOptions(sink)
-	opts.Capture.ToolID = dirTestTool
+	opts.Capture.EquipmentID = dirTestEquipment
 	opts.Now = nowAt(segAt(time.Hour + time.Minute))
 	w, err := NewSegmentWriter(t.Context(), opts)
 	require.NoError(t, err)

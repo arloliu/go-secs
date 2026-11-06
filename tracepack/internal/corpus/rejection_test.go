@@ -17,7 +17,7 @@ import (
 
 // Pack metadata tags the rejection tests edit (the tracepack format specification §5).
 const (
-	tagToolID              uint16 = 0x0002
+	tagEquipmentID         uint16 = 0x0002
 	tagTransport           uint16 = 0x0003
 	tagCaptureOriginUTCNs  uint16 = 0x000A
 	tagCoverage            uint16 = 0x0016
@@ -45,7 +45,7 @@ func TestRejectionCodeFromConstructedErrors(t *testing.T) {
 		{"metadata CRC", fmt.Errorf("x: %w", tracepack.ErrChecksum), RejectMetadataCRC},
 		{"entry list", fmt.Errorf("x: %w", entryErr), RejectMetadataEntryList},
 		{"nested missing tag", fmt.Errorf("x: %w", nestedMissing), RejectMetadataEntryList},
-		{"top-level missing tag", fmt.Errorf("x: %w", &tlv.EntryError{Tag: tagToolID, Offset: -1, Err: tlv.ErrMissing}), RejectMetadataRequired},
+		{"top-level missing tag", fmt.Errorf("x: %w", &tlv.EntryError{Tag: tagEquipmentID, Offset: -1, Err: tlv.ErrMissing}), RejectMetadataRequired},
 		{
 			"nested missing tag as a field error",
 			fmt.Errorf("x: %w: %w", tracepack.ErrCorrupt, &tracepack.FieldError{
@@ -56,7 +56,7 @@ func TestRejectionCodeFromConstructedErrors(t *testing.T) {
 		{
 			"top-level missing tag as a field error",
 			fmt.Errorf("x: %w: %w", tracepack.ErrCorrupt, &tracepack.FieldError{
-				Field: "tool_id", Err: fmt.Errorf("%w: %w", tracepack.ErrRequiredTag, &tlv.EntryError{Tag: tagToolID, Offset: -1, Err: tlv.ErrMissing}),
+				Field: "equipment_id", Err: fmt.Errorf("%w: %w", tracepack.ErrRequiredTag, &tlv.EntryError{Tag: tagEquipmentID, Offset: -1, Err: tlv.ErrMissing}),
 			}),
 			RejectMetadataRequired,
 		},
@@ -129,12 +129,12 @@ func TestRejectionOf(t *testing.T) {
 		{"entry framing", withMeta(append(slices.Clone(meta), 0x02, 0x00, 0x06)), RejectMetadataEntryList},
 		{"entry type", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.Entry{Tag: tagTransport, Type: tlv.TypeUTF8, Value: []byte("x")})), RejectMetadataEntryList},
 		{"entry value", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.U64Entry(tagDeviceID, 1<<63))), RejectMetadataEntryList},
-		{"entry repetition", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.UTF8Entry(tagToolID, "again"))), RejectMetadataEntryList},
+		{"entry repetition", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.UTF8Entry(tagEquipmentID, "again"))), RejectMetadataEntryList},
 		{"entry nested", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.Entry{Tag: tagCoverage, Type: tlv.TypeTLV, Value: []byte{0x02, 0x00, 0x04}})), RejectMetadataEntryList},
 		{"nested required tag", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.NestedEntry(tagRedactionPolicy, []tlv.Entry{
 			tlv.U64Entry(tagPolicyVersionNested, 1), tlv.UTF8Entry(0x0003, "k"), tlv.U8Entry(0x0004, 1),
 		}))), RejectMetadataEntryList},
-		{"required tag", withMeta(must(DropEntries(meta, tagToolID))(t)), RejectMetadataRequired},
+		{"required tag", withMeta(must(DropEntries(meta, tagEquipmentID))(t)), RejectMetadataRequired},
 		{"conditional tag", withMeta(must(DropEntries(clockRaw, tagCaptureOriginUTCNs))(t)), RejectMetadataRequired},
 		{"replacement set", withMeta(withU64(setRaw, tagReplacementSetSize, 2)), RejectReplacementSet},
 	}

@@ -56,7 +56,7 @@ func richMeta(m *PackMeta) {
 // scrambleMeta changes, in place, every value m reaches through a pointer or a slice,
 // as a caller holding a PackMeta may.
 func scrambleMeta(m *PackMeta) {
-	m.ToolID += "!"
+	m.EquipmentID += "!"
 	scrambleValues(
 		[]*uint64{
 			m.DeviceID, m.ClockStepToleranceNs, m.ReplacementSetSize, m.ReplacementSetIndex,
@@ -187,8 +187,8 @@ func TestUnmarshalPackMetaRejectsInvalidValues(t *testing.T) {
 		{"nested coverage value above 2^63-1", func(t testing.TB, list []tlv.Entry) []tlv.Entry {
 			return withNestedAt(t, list, tagCoverage, 0, tagCoverageSeqFirst, tlv.U64Entry(tagCoverageSeqFirst, tooLarge))
 		}, tlv.ErrLimit},
-		{"tool_id not valid UTF-8", func(t testing.TB, list []tlv.Entry) []tlv.Entry {
-			return replaceEntry(t, list, tagToolID, 0, tlv.Entry{Tag: tagToolID, Type: tlv.TypeUTF8, Value: []byte{0xFF}})
+		{"equipment_id not valid UTF-8", func(t testing.TB, list []tlv.Entry) []tlv.Entry {
+			return replaceEntry(t, list, tagEquipmentID, 0, tlv.Entry{Tag: tagEquipmentID, Type: tlv.TypeUTF8, Value: []byte{0xFF}})
 		}, tlv.ErrUTF8},
 		{"nested policy_id not valid UTF-8", func(t testing.TB, list []tlv.Entry) []tlv.Entry {
 			return withNestedAt(t, list, tagRedactionPolicy, 0, tagRedactionPolicyPolicyID, badPolicyID)
@@ -250,7 +250,7 @@ func TestHeaderUnaffectedByHeaderMutation(t *testing.T) {
 
 	h := r.Header()
 	*h.Meta.PublisherEpoch = 99
-	h.Meta.ToolID = "changed"
+	h.Meta.EquipmentID = "changed"
 	*h.Meta.SiteID = "changed"
 	*h.Meta.HSMSTimers.T3Ms = 1
 	h.Meta.CompactedFrom[0][0]++

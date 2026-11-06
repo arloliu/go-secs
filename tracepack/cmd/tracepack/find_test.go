@@ -38,7 +38,7 @@ func s1Frame(function byte, wbit bool, system uint32, body []byte) []byte {
 
 // capture describes a capture a find test records.
 type capture struct {
-	tool string
+	equipment string
 	// replies is the number of S1F2 replies recorded after the S1F1 primary.
 	replies int
 	// open leaves the capture without its stop: its segment is committed by a rotation instead of the close.
@@ -55,7 +55,7 @@ func recordCapture(t *testing.T, root string, c capture) tracepack.UUID {
 	require.NoError(t, err)
 	w, err := tracepack.NewSegmentWriter(ctx, tracepack.SegmentWriterOptions{
 		Capture: tracepack.CaptureDescriptor{
-			ToolID:             c.tool,
+			EquipmentID:        c.equipment,
 			Transport:          tracepack.TransportHSMSSS,
 			CaptureMethod:      tracepack.CaptureMethodRawStream,
 			Vantage:            tracepack.VantageHost,
@@ -114,24 +114,24 @@ func TestFindOutcomes(t *testing.T) {
 		windowAt string
 	}{
 		{
-			name: "matched", capture: capture{tool: "EQP-01", replies: 1}, outcome: "matched", code: exitClean,
+			name: "matched", capture: capture{equipment: "EQP-01", replies: 1}, outcome: "matched", code: exitClean,
 			records:  []string{"1 primary none", "2 candidate in-window,decidable,eligible,valid", "3 closing bound"},
 			windowAt: "3",
 		},
 		{
-			name: "not found", capture: capture{tool: "EQP-01"}, outcome: "not-found", code: exitClean,
+			name: "not found", capture: capture{equipment: "EQP-01"}, outcome: "not-found", code: exitClean,
 			records:  []string{"1 primary none", "2 closing bound"},
 			windowAt: "2",
 		},
 		{
-			name: "ambiguous", capture: capture{tool: "EQP-01", replies: 2}, outcome: "ambiguous", code: exitClean,
+			name: "ambiguous", capture: capture{equipment: "EQP-01", replies: 2}, outcome: "ambiguous", code: exitClean,
 			records: []string{
 				"1 primary none", "2 candidate in-window,decidable,eligible,valid", "3 candidate in-window,decidable,eligible,valid", "4 closing bound",
 			},
 			windowAt: "4",
 		},
 		{
-			name: "open window", capture: capture{tool: "EQP-01", replies: 1, open: true}, outcome: "matched", code: exitNotClean,
+			name: "open window", capture: capture{equipment: "EQP-01", replies: 1, open: true}, outcome: "matched", code: exitNotClean,
 			records:  []string{"1 primary none", "2 candidate in-window,decidable,eligible,valid"},
 			gaps:     []string{"open-window"},
 			windowAt: "open",
@@ -176,7 +176,7 @@ func TestFindIncompleteReads(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	id := recordCapture(t, root, capture{tool: "EQP-01", replies: 1})
+	id := recordCapture(t, root, capture{equipment: "EQP-01", replies: 1})
 	paths := segments(t, root)
 	require.Len(t, paths, 2, "the records and the stop, each in a segment")
 
@@ -248,9 +248,9 @@ func TestFindFails(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	id := recordCapture(t, root, capture{tool: "EQP-01", replies: 1})
+	id := recordCapture(t, root, capture{equipment: "EQP-01", replies: 1})
 	other := t.TempDir()
-	recordCapture(t, other, capture{tool: "EQP-02", replies: 1})
+	recordCapture(t, other, capture{equipment: "EQP-02", replies: 1})
 	paths := segments(t, root)
 	hour := strconv.FormatInt(findHour, 10)
 
@@ -261,7 +261,7 @@ func TestFindFails(t *testing.T) {
 		opened int // the files opened, -1 for a usage error that opens none
 	}{
 		{name: "not a primary", args: append([]string{"find", "--capture", id.String(), "--seq", "2", "--hour", hour}, root), stderr: tracepack.ErrNotPrimary.Error(), opened: 2},
-		{name: "two tools", args: findArgs(id, root, other), stderr: "tracepack find: ", opened: 4},
+		{name: "two equipment", args: findArgs(id, root, other), stderr: "tracepack find: ", opened: 4},
 		{name: "a pack twice", args: findArgs(id, paths[0], paths[0]), stderr: "tracepack find: ", opened: 2},
 		{name: "an extract", args: findArgs(id, corpusPack("basic-extract-policy-no-classifier-1-0")), stderr: "tracepack find: ", opened: 1},
 		{name: "a rejected pack", args: findArgs(id, paths[0], corpusPack("bootstrap-bad-magic")), stderr: corpusPack("bootstrap-bad-magic"), opened: 2},

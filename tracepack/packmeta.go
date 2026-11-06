@@ -12,7 +12,7 @@ import (
 
 // Pack metadata tag registry (the tracepack format specification §5).
 const (
-	tagToolID               uint16 = 0x0002
+	tagEquipmentID          uint16 = 0x0002
 	tagTransport            uint16 = 0x0003
 	tagCaptureMethod        uint16 = 0x0004
 	tagVantage              uint16 = 0x0005
@@ -61,6 +61,7 @@ const (
 	tagRedaction            uint16 = 0x0032
 	tagThinning             uint16 = 0x0033
 	tagRecorderInstanceName uint16 = 0x0034
+	tagDevice               uint16 = 0x0035
 )
 
 // formatMinorNewest is the newest format minor this package knows (the tracepack format specification §14).
@@ -344,8 +345,8 @@ type HSMSTimers struct {
 // A retired tag (the tracepack format specification §5) that UnmarshalPackMeta finds stays in Unknown like any unknown tag,
 // but MarshalBinary never writes one, so a pack written from decoded metadata drops it.
 type PackMeta struct {
-	// ToolID is the tool this capture belongs to (tool_id); always required.
-	ToolID string
+	// EquipmentID is the equipment this capture belongs to (equipment_id); always required.
+	EquipmentID string
 	// Transport is the transport protocol the capture recorded (transport, the tracepack format specification §9);
 	// always required.
 	Transport Transport
@@ -435,6 +436,12 @@ type PackMeta struct {
 	// tracepack never interprets it and checks no relation to RecorderInstanceID; any valid UTF-8 value, the empty string included, is valid.
 	// It is a capture-level tag, declared by the producer in the capture descriptor (the tracepack storage specification §4).
 	RecorderInstanceName *string
+	// Device is the device of the equipment the capture records, such as its main machine, a sensor or a load port
+	// (device, from format 1.2); optional.
+	// It is a name, unrelated to DeviceID, the SECS-II device ID of the session.
+	// tracepack never interprets it; any valid UTF-8 value, the empty string included, is valid.
+	// It is a capture-level tag, declared by the producer in the capture descriptor (the tracepack storage specification §4).
+	Device *string
 	// PreviousCaptureID is the capture this recorder deployment ran immediately before this one
 	// (previous_capture_id, the tracepack format specification I-7); optional.
 	PreviousCaptureID *UUID
@@ -541,7 +548,7 @@ type FieldError struct {
 	// ErrRequiredTag, ErrFieldValue or ErrFieldLength for a rule of the format or its TLV encoding,
 	// ErrReservedTag for an Unknown entry naming a tag this package encodes,
 	// ErrMetadataCommitment for a record or option contradicting the pack metadata, with ErrRedactionDefect for a redaction entry,
-	// or ErrInvalidKey for a tool_id no key can hold (CaptureDescriptor.Validate).
+	// or ErrInvalidKey for an equipment_id no key can hold (CaptureDescriptor.Validate).
 	// For a fault the TLV encoding finds, Err also wraps the encoding's own error, which names the tag and offset.
 	Err error
 }
@@ -558,7 +565,7 @@ type optionalEntry struct {
 // packMetaSetters decodes one known pack metadata tag into m, keyed by tag.
 // A tag absent from this map is unknown or private, and is preserved in PackMeta.Unknown instead.
 var packMetaSetters = map[uint16]func(m *PackMeta, e tlv.Entry) error{
-	tagToolID:              setField(tlv.Entry.UTF8, func(m *PackMeta, v string) { m.ToolID = v }),
+	tagEquipmentID:         setField(tlv.Entry.UTF8, func(m *PackMeta, v string) { m.EquipmentID = v }),
 	tagTransport:           setField(u8As[Transport], func(m *PackMeta, v Transport) { m.Transport = v }),
 	tagCaptureMethod:       setField(u8As[CaptureMethod], func(m *PackMeta, v CaptureMethod) { m.CaptureMethod = v }),
 	tagVantage:             setField(u8As[Vantage], func(m *PackMeta, v Vantage) { m.Vantage = v }),
@@ -613,6 +620,7 @@ var packMetaSetters = map[uint16]func(m *PackMeta, e tlv.Entry) error{
 	tagRedaction:            redactionSetter(formatMinorNewest),
 	tagThinning:             setNested(decodeNested(thinningSetters), func(m *PackMeta, v Thinning) { m.Thinning = append(m.Thinning, v) }),
 	tagRecorderInstanceName: setField(tlv.Entry.UTF8, func(m *PackMeta, v string) { m.RecorderInstanceName = &v }),
+	tagDevice:               setField(tlv.Entry.UTF8, func(m *PackMeta, v string) { m.Device = &v }),
 }
 
 // packMetaSettersByMinor holds, for each format minor up to the newest,
@@ -1032,7 +1040,7 @@ func (m *PackMeta) validateIntrinsic() error {
 // because their fields are not pointers.
 func (m *PackMeta) appendAlwaysEntries(dst []tlv.Entry) []tlv.Entry {
 	return append(dst,
-		tlv.UTF8Entry(tagToolID, m.ToolID),
+		tlv.UTF8Entry(tagEquipmentID, m.EquipmentID),
 		tlv.U8Entry(tagTransport, uint8(m.Transport)),
 		tlv.U8Entry(tagCaptureMethod, uint8(m.CaptureMethod)),
 		tlv.U8Entry(tagVantage, uint8(m.Vantage)),
@@ -1078,6 +1086,7 @@ func (m *PackMeta) appendOptionalScalarEntries(dst []tlv.Entry) []tlv.Entry {
 		{m.PublisherEpoch != nil, func() tlv.Entry { return tlv.U64Entry(tagPublisherEpoch, *m.PublisherEpoch) }},
 		{m.PatchBase != nil, func() tlv.Entry { return tlv.UUIDEntry(tagPatchBase, [16]byte(*m.PatchBase)) }},
 		{m.RecorderInstanceName != nil, func() tlv.Entry { return tlv.UTF8Entry(tagRecorderInstanceName, *m.RecorderInstanceName) }},
+		{m.Device != nil, func() tlv.Entry { return tlv.UTF8Entry(tagDevice, *m.Device) }},
 	})
 }
 

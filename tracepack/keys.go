@@ -36,7 +36,7 @@ const (
 // ErrInvalidKey reports a key, or a key component, outside the forms of the tracepack storage specification §3:
 // the key builders return an error wrapping it for arguments no key can hold,
 // a DirSink's Create for a segment no key can name,
-// and CaptureDescriptor.Validate for a ToolID no key can hold,
+// and CaptureDescriptor.Validate for an EquipmentID no key can hold,
 // which NewSegmentWriter returns also wrapping ErrInvalidArgument and marked ErrRefused.
 // A retry does not cure it.
 // It also matches ErrInvalidArgument.
@@ -59,31 +59,31 @@ func HourOf(t time.Time) int64 { //nolint:revive // HourOf takes a time.Time, th
 
 // segmentKeyParts is what a segment key names.
 type segmentKeyParts struct {
-	tool     string // decoded tool_id
-	capture  UUID
-	seqFirst uint64 // at most 2^63-1
-	pack     UUID
+	equipment string // decoded equipment_id
+	capture   UUID
+	seqFirst  uint64 // at most 2^63-1
+	pack      UUID
 }
 
 // archiveKeyParts is what an archive key names.
 type archiveKeyParts struct {
-	tool    string // decoded tool_id
-	hour    int64  // in [minKeyHour, maxKeyHour]
-	capture UUID
-	pack    UUID
+	equipment string // decoded equipment_id
+	hour      int64  // in [minKeyHour, maxKeyHour]
+	capture   UUID
+	pack      UUID
 }
 
-// EscapeToolID returns tool as a key spells it (the tracepack storage specification §3):
+// EscapeEquipmentID returns equipment as a key spells it (the tracepack storage specification §3):
 // every byte outside the RFC 3986 unreserved set (A-Z, a-z, 0-9, '-', '.', '_', '~') is written %XX with uppercase hex digits,
 // and every other byte is kept.
-// The result never holds '/', and each tool has exactly one spelling.
-// EscapeToolID accepts every string;
-// the key builders reject the tools a key cannot hold, "", "." and "..".
-func EscapeToolID(tool string) string {
+// The result never holds '/', and each equipment has exactly one spelling.
+// EscapeEquipmentID accepts every string;
+// the key builders reject the equipment a key cannot hold, "", "." and "..".
+func EscapeEquipmentID(equipment string) string {
 	var b strings.Builder
 
-	for i := range len(tool) {
-		c := tool[i]
+	for i := range len(equipment) {
+		c := equipment[i]
 		if keyesc.IsUnreserved(c) {
 			b.WriteByte(c)
 
@@ -98,23 +98,23 @@ func EscapeToolID(tool string) string {
 }
 
 // SegmentKey returns the key of a staging segment (the tracepack storage specification §3):
-// <prefix>/staging/<tool>/<capture>/<seq_first>-<pack>.tpk, seq_first in 20-digit zero-padded decimal.
+// <prefix>/staging/<equipment>/<capture>/<seq_first>-<pack>.tpk, seq_first in 20-digit zero-padded decimal.
 //
 // The prefix is used byte for byte, followed by '/' when it is not empty;
 // SegmentKey does not check that a configured prefix is empty or does not end in '/'.
 //
 // Parameters:
 //   - prefix: the bucket prefix, possibly empty.
-//   - tool: the tool_id as recorded, which the key spells with EscapeToolID; not "", "." or "..".
+//   - equipment: the equipment_id as recorded, which the key spells with EscapeEquipmentID; not "", "." or "..".
 //   - capture: the segment's capture_id.
 //   - seqFirst: the segment's first seq, its seq_start when it is empty; at most 2^63-1.
 //   - pack: the segment's pack_id.
 //
 // Returns:
 //   - string: the key; empty on error.
-//   - error: non-nil, wrapping ErrInvalidKey, for a tool a key cannot hold or a seqFirst above 2^63-1.
-func SegmentKey(prefix, tool string, capture UUID, seqFirst uint64, pack UUID) (string, error) {
-	dir, err := stagingKeyDir(prefix, tool, capture)
+//   - error: non-nil, wrapping ErrInvalidKey, for an equipment a key cannot hold or a seqFirst above 2^63-1.
+func SegmentKey(prefix, equipment string, capture UUID, seqFirst uint64, pack UUID) (string, error) {
+	dir, err := stagingKeyDir(prefix, equipment, capture)
 	if err != nil {
 		return "", err
 	}
@@ -126,14 +126,14 @@ func SegmentKey(prefix, tool string, capture UUID, seqFirst uint64, pack UUID) (
 }
 
 // ArchiveKey returns the key of a pack that is not a staging segment (the tracepack storage specification §3):
-// <prefix>/archive/<tool>/<YYYY>/<MM>/<DD>/<HH>/<capture>-<pack>.tpk, the hour in UTC.
+// <prefix>/archive/<equipment>/<YYYY>/<MM>/<DD>/<HH>/<capture>-<pack>.tpk, the hour in UTC.
 //
 // The prefix is used byte for byte, followed by '/' when it is not empty;
 // ArchiveKey does not check that a configured prefix is empty or does not end in '/'.
 //
 // Parameters:
 //   - prefix: the bucket prefix, possibly empty.
-//   - tool: the tool_id as recorded, which the key spells with EscapeToolID; not "", "." or "..".
+//   - equipment: the equipment_id as recorded, which the key spells with EscapeEquipmentID; not "", "." or "..".
 //   - capture: the pack's capture_id.
 //   - hour: the scope's UTC hour number, counted from the Unix epoch;
 //     an hour holding an int64 nanosecond timestamp, -2562048 to 2562047 (the years 1677 to 2262).
@@ -141,9 +141,9 @@ func SegmentKey(prefix, tool string, capture UUID, seqFirst uint64, pack UUID) (
 //
 // Returns:
 //   - string: the key; empty on error.
-//   - error: non-nil, wrapping ErrInvalidKey, for a tool a key cannot hold or an hour outside that range.
-func ArchiveKey(prefix, tool string, capture UUID, hour int64, pack UUID) (string, error) {
-	dir, err := archiveKeyDir(prefix, tool, hour)
+//   - error: non-nil, wrapping ErrInvalidKey, for an equipment a key cannot hold or an hour outside that range.
+func ArchiveKey(prefix, equipment string, capture UUID, hour int64, pack UUID) (string, error) {
+	dir, err := archiveKeyDir(prefix, equipment, hour)
 	if err != nil {
 		return "", err
 	}
@@ -161,20 +161,20 @@ func keyArea(prefix, area string) string {
 	return prefix + "/" + area + "/"
 }
 
-// stagingKeyDir returns the listing prefix of the capture's segments, <prefix>/staging/<tool>/<capture>/,
-// or an error for a tool a key cannot hold.
-func stagingKeyDir(prefix, tool string, capture UUID) (string, error) {
-	if err := keyesc.CheckTool(tool); err != nil {
+// stagingKeyDir returns the listing prefix of the capture's segments, <prefix>/staging/<equipment>/<capture>/,
+// or an error for an equipment a key cannot hold.
+func stagingKeyDir(prefix, equipment string, capture UUID) (string, error) {
+	if err := keyesc.CheckEquipment(equipment); err != nil {
 		return "", keyArgError(err)
 	}
 
-	return keyArea(prefix, "staging") + EscapeToolID(tool) + "/" + capture.String() + "/", nil
+	return keyArea(prefix, "staging") + EscapeEquipmentID(equipment) + "/" + capture.String() + "/", nil
 }
 
-// archiveKeyDir returns the listing prefix of the tool's archive packs of hour, <prefix>/archive/<tool>/<YYYY>/<MM>/<DD>/<HH>/,
-// or an error for a tool a key cannot hold or an hour outside [minKeyHour, maxKeyHour].
-func archiveKeyDir(prefix, tool string, hour int64) (string, error) {
-	if err := keyesc.CheckTool(tool); err != nil {
+// archiveKeyDir returns the listing prefix of the equipment's archive packs of hour, <prefix>/archive/<equipment>/<YYYY>/<MM>/<DD>/<HH>/,
+// or an error for an equipment a key cannot hold or an hour outside [minKeyHour, maxKeyHour].
+func archiveKeyDir(prefix, equipment string, hour int64) (string, error) {
+	if err := keyesc.CheckEquipment(equipment); err != nil {
 		return "", keyArgError(err)
 	}
 	if err := checkKeyHour(hour); err != nil {
@@ -182,7 +182,7 @@ func archiveKeyDir(prefix, tool string, hour int64) (string, error) {
 	}
 	t := keyHourTime(hour)
 
-	return fmt.Sprintf("%s%s/%04d/%02d/%02d/%02d/", keyArea(prefix, "archive"), EscapeToolID(tool), t.Year(), t.Month(), t.Day(), t.Hour()), nil
+	return fmt.Sprintf("%s%s/%04d/%02d/%02d/%02d/", keyArea(prefix, "archive"), EscapeEquipmentID(equipment), t.Year(), t.Month(), t.Day(), t.Hour()), nil
 }
 
 // checkKeyHour reports an error for an hour outside [minKeyHour, maxKeyHour].
@@ -203,14 +203,14 @@ func keyHourTime(hour int64) time.Time {
 
 // parseSegmentKey parses key as the key of a staging segment under prefix, as SegmentKey builds it.
 // It accepts only the one spelling SegmentKey produces, so SegmentKey rebuilds every key it accepts byte for byte;
-// it requires no particular tool, capture or seq_first.
+// it requires no particular equipment, capture or seq_first.
 func parseSegmentKey(prefix, key string) (segmentKeyParts, error) {
 	comps, err := splitKey(prefix, "staging", key, 3)
 	if err != nil {
 		return segmentKeyParts{}, err
 	}
 	var p segmentKeyParts
-	if p.tool, err = unescapeToolID(comps[0]); err != nil {
+	if p.equipment, err = unescapeEquipmentID(comps[0]); err != nil {
 		return segmentKeyParts{}, keyError(key, err)
 	}
 	if p.capture, err = parseKeyUUID(comps[1]); err != nil {
@@ -235,14 +235,14 @@ func parseSegmentKey(prefix, key string) (segmentKeyParts, error) {
 
 // parseArchiveKey parses key as the key of an archive pack under prefix, as ArchiveKey builds it.
 // It accepts only the one spelling ArchiveKey produces, so ArchiveKey rebuilds every key it accepts byte for byte;
-// it requires no particular tool, hour or capture.
+// it requires no particular equipment, hour or capture.
 func parseArchiveKey(prefix, key string) (archiveKeyParts, error) {
 	comps, err := splitKey(prefix, "archive", key, 6)
 	if err != nil {
 		return archiveKeyParts{}, err
 	}
 	var p archiveKeyParts
-	if p.tool, err = unescapeToolID(comps[0]); err != nil {
+	if p.equipment, err = unescapeEquipmentID(comps[0]); err != nil {
 		return archiveKeyParts{}, keyError(key, err)
 	}
 	if p.hour, err = parseKeyHour(comps[1], comps[2], comps[3], comps[4]); err != nil {
@@ -286,9 +286,9 @@ func keyError(key string, err error) error {
 	return wrapf("%w %q: %w", ErrInvalidKey, key, err)
 }
 
-// unescapeToolID decodes a key's tool component, which EscapeToolID must have produced:
-// every byte unreserved or a %XX escape with uppercase hex digits of a byte that is not, and the tool not "", "." or "..".
-func unescapeToolID(s string) (string, error) {
+// unescapeEquipmentID decodes a key's equipment component, which EscapeEquipmentID must have produced:
+// every byte unreserved or a %XX escape with uppercase hex digits of a byte that is not, and the equipment not "", "." or "..".
+func unescapeEquipmentID(s string) (string, error) {
 	var b strings.Builder
 
 	for i := 0; i < len(s); i++ {
@@ -299,28 +299,28 @@ func unescapeToolID(s string) (string, error) {
 			continue
 		}
 		if c != '%' {
-			return "", fmt.Errorf("tool %q: byte %#02x at %d is neither unreserved nor an escape", s, c, i)
+			return "", fmt.Errorf("equipment %q: byte %#02x at %d is neither unreserved nor an escape", s, c, i)
 		}
 		if i+2 >= len(s) {
-			return "", fmt.Errorf("tool %q: escape at %d is cut short", s, i)
+			return "", fmt.Errorf("equipment %q: escape at %d is cut short", s, i)
 		}
 		hi, lo := strings.IndexByte(keyesc.UpperHex, s[i+1]), strings.IndexByte(keyesc.UpperHex, s[i+2])
 		if hi < 0 || lo < 0 {
-			return "", fmt.Errorf("tool %q: escape at %d is not two uppercase hex digits", s, i)
+			return "", fmt.Errorf("equipment %q: escape at %d is not two uppercase hex digits", s, i)
 		}
 		v := byte(hi<<4 | lo) // two hex digits, below 256
 		if keyesc.IsUnreserved(v) {
-			return "", fmt.Errorf("tool %q: escape at %d encodes the unreserved byte %q", s, i, v)
+			return "", fmt.Errorf("equipment %q: escape at %d encodes the unreserved byte %q", s, i, v)
 		}
 		b.WriteByte(v)
 		i += 2
 	}
-	tool := b.String()
-	if err := keyesc.CheckTool(tool); err != nil {
+	equipment := b.String()
+	if err := keyesc.CheckEquipment(equipment); err != nil {
 		return "", err
 	}
 
-	return tool, nil
+	return equipment, nil
 }
 
 // parseKeyUUID parses a UUID of a key, which only the canonical lowercase form spells.

@@ -157,7 +157,7 @@ func TestWrapfMarkers(t *testing.T) {
 	require.Same(t, marked, refuse(marked), "marked once")
 	require.Equal(t, 1, refusedCount(marked))
 
-	fe := &FieldError{Field: "tool_id", Err: ErrFieldValue}
+	fe := &FieldError{Field: "equipment_id", Err: ErrFieldValue}
 	var got *FieldError
 	require.ErrorAs(t, wrapf("tracepack: new segment writer: %w", fe), &got)
 	require.Same(t, fe, got)

@@ -108,7 +108,7 @@ func repairSteps(t testing.TB) []footerTestStep {
 // repairTestMeta returns the pack metadata of the repair test pack: a segment whose period is blockTestHour.
 func repairTestMeta() *PackMeta {
 	return &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
+		EquipmentID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}

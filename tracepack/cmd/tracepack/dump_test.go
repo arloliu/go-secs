@@ -20,8 +20,8 @@ import (
 // The counts of the committed corpus that TestDumpCorpus covers;
 // a change of the corpus updates them on purpose.
 const (
-	corpusVectors          = 123
-	corpusExports          = 107
+	corpusVectors          = 125
+	corpusExports          = 109
 	corpusRejections       = 16
 	corpusTruncationTables = 3
 	corpusTruncationRows   = 16

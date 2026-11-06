@@ -148,7 +148,7 @@ var _ dirFS = rootFS{}
 
 // NewDirSink returns a DirSink, a SegmentSink that stores each segment as a file under root,
 // at the path its segment key spells:
-// <root>/<SegmentKey(prefix, info.ToolID, info.CaptureID, info.SeqFirst, info.PackID)>,
+// <root>/<SegmentKey(prefix, info.EquipmentID, info.CaptureID, info.SeqFirst, info.PackID)>,
 // so a local recording is laid out as a bucket is (the tracepack storage specification §3).
 //
 // root must be an existing directory, and its own durability is the caller's.
@@ -359,7 +359,7 @@ func (s *DirSink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, er
 	if s.closed {
 		return nil, wrapf("tracepack: DirSink: Create after Close: %w", fs.ErrClosed)
 	}
-	key, err := SegmentKey(s.prefix, info.ToolID, info.CaptureID, info.SeqFirst, info.PackID)
+	key, err := SegmentKey(s.prefix, info.EquipmentID, info.CaptureID, info.SeqFirst, info.PackID)
 	if err != nil {
 		return nil, wrapf("tracepack: DirSink: %w", err)
 	}

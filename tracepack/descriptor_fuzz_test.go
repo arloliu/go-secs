@@ -17,7 +17,7 @@ var fuzzDescriptorTags = map[uint16]bool{
 	0x0002: true, 0x0003: true, 0x0004: true, 0x0005: true, 0x0006: true, 0x0009: true,
 	0x000A: true, 0x000B: true, 0x0012: true, 0x0013: true, 0x001B: true, 0x001C: true,
 	0x001E: true, 0x001F: true, 0x0020: true, 0x0021: true, 0x0022: true, 0x0023: true,
-	0x0024: true, 0x0025: true, 0x0026: true, 0x0028: true, 0x0033: true,
+	0x0024: true, 0x0025: true, 0x0026: true, 0x0028: true, 0x0033: true, 0x0034: true, 0x0035: true,
 }
 
 // fuzzDescriptorRefusable reports whether a well-framed descriptor must be refused, judged on its raw entries:

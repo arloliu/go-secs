@@ -1,5 +1,5 @@
 // Package tracepack is the Go reference implementation of the tracepack container format (.tpk):
-// an immutable, compressed, self-indexed archive of recorded SECS-II traffic between one tool and its host,
+// an immutable, compressed, self-indexed archive of recorded SECS-II traffic between one equipment and its host,
 // including HSMS control messages and transport lifecycle events.
 //
 // The format is specified in docs/specs/tracepack/ of the go-secs repository.
@@ -9,7 +9,7 @@
 //
 // # Concepts
 //
-// A capture is one run of one recorder over one tool, named by its capture_id; its records are numbered by seq.
+// A capture is one run of one recorder over one equipment, named by its capture_id; its records are numbered by seq.
 // A pack is one immutable file of records with its pack metadata and a footer that indexes them.
 // A scope is one capture in one UTC hour, and every pack but an extract holds the records of one scope.
 // A recorder stages segments, the packs of one flush interval;
@@ -20,8 +20,9 @@
 // a Writer writes minor 0 for a pack holding neither, as for every pack before format 1.1.
 // A pack of minor 1 that holds no such feature is still read as minor 1, and a merge of it writes minor 1
 // (the tracepack format specification §14).
-// Format 1.2, minor 2, adds recorder_instance_name, the human-readable name of the deployment recorder_instance_id identifies;
-// a Writer writes minor 2 exactly when the pack metadata carries it.
+// Format 1.2, minor 2, adds recorder_instance_name, the name of the deployment that records the series recorder_instance_id identifies,
+// and device, the device of the equipment the capture records;
+// a Writer writes minor 2 exactly when the pack metadata carries either.
 //
 // Fields that mirror stored values carry the stored units:
 // a time is int64 nanoseconds since the Unix epoch, as ts_utc_ns is, and Filter bounds it in the same unit;
@@ -112,7 +113,7 @@
 // TxResult.Complete, Matches and PrimaryVersions give the lookup's completeness, its valid matches and the primary's versions.
 // FindTransactions pairs every primary of one capture in a time range the same way, reading each hour once,
 // and passes each primary's result, equal to FindTransaction's for it, to a callback in ascending hour, then seq.
-// NewReaderSource returns a PackSource over packs the caller opened, all of one tool, such as the files of a NewDirSink,
+// NewReaderSource returns a PackSource over packs the caller opened, all of one equipment, such as the files of a NewDirSink,
 // grouped by the UTC hour of their period;
 // the caller owns the readers and keeps them open while the source is used.
 //
@@ -120,7 +121,7 @@
 // a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
 // A pack of format minor 0 exports schema tracepack-jsonl/1, as earlier versions wrote it,
 // a pack of minor 1 tracepack-jsonl/2, which names the additions of format 1.1,
-// and any other pack tracepack-jsonl/3, which also names recorder_instance_name.
+// and any other pack tracepack-jsonl/3, which also names recorder_instance_name and device.
 // A damaged pack exports the records of its validated blocks, with the Result Iterate returns for it:
 // a failed block, a block that disagrees with its F-2 entry, a crash gap, a coverage entry or an unfinalized pack makes it incomplete;
 // a footer not used in a finalized pack whose walk accounts for every block adds only an entry to FooterErrs.
@@ -135,16 +136,17 @@
 // Merge writes one archive of a scope from the segments and archives its caller gives,
 // with the scope_generation and publisher_epoch the caller supplies;
 // it writes the archive's lineage, compacted_from and supersedes, from the inputs.
-// It carries the masks and thinning of format 1.1 packs and the recorder_instance_name of format 1.2 packs,
+// It carries the masks and thinning of format 1.1 packs and the recorder_instance_name and device of format 1.2 packs,
 // and writes the largest format_minor of its inputs;
 // it refuses inputs carrying redaction_policy that differ in that policy or in their classifier configuration,
 // or a masked input beside an unmasked one,
 // while inputs without a policy merge with their classifier and max_frame_len values united, as before;
 // differing redaction entries for one seq are conflicts (the tracepack storage specification §4 Merge).
-// Packs of format 1.2 are merged only by tracepack v0.8.0 or later, which an earlier merger enforces by refusing them.
+// Packs of format 1.2 are merged only by tracepack v0.15.0 or later:
+// a merger before v0.8.0 refuses them, and one of v0.8.0 to v0.14.x drops their device.
 // The caller decides which packs a merge takes and when a pack may be deleted,
 // and publishes the archive only after Merge returns nil (the tracepack storage specification §4).
-// SegmentKey and ArchiveKey build the keys of the tracepack storage specification §3, and EscapeToolID spells a tool as a key does.
+// SegmentKey and ArchiveKey build the keys of the tracepack storage specification §3, and EscapeEquipmentID spells an equipment as a key does.
 //
 // # Errors
 //

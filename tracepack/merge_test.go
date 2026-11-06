@@ -872,12 +872,13 @@ func TestMergeSameHourClockStepRead(t *testing.T) {
 
 // captureMeta gives m a value in every capture-level tag (the tracepack storage specification §4 Merge).
 func captureMeta(m *PackMeta) {
-	m.ToolID, m.Transport, m.CaptureMethod, m.Vantage = "tool", TransportHSMSSS, CaptureMethodLog, VantageHost
+	m.EquipmentID, m.Transport, m.CaptureMethod, m.Vantage = "tool", TransportHSMSSS, CaptureMethodLog, VantageHost
 	m.Recorder, m.TimeSource, m.LifecycleCoverage, m.QualityEvaluated = "rec", TimeSourceCaptureClock, LifecycleCoverageSubscribed, true
 	m.RecorderInstanceID = UUID{0x1A}
 	m.CaptureOriginUTCNs, m.CaptureOriginMonoNs, m.ClockStepToleranceNs = new(blockTestHour), new(int64(5)), new(uint64(1000))
 	m.PreviousCaptureID = new(UUID{0xCB})
 	m.RecorderInstanceName = new("eqp")
+	m.Device = new("main")
 	m.SiteID, m.EquipmentModel, m.EquipmentSWRev = new("fab"), new("model"), new("rev")
 	m.HostSoftware, m.HostEndpoint, m.EquipmentEndpoint = new("eap"), new("10.0.0.1:5000"), new("10.0.0.2:5000")
 	m.EquipmentConnectMode, m.DeviceID = new(SocketRolePassive), new(uint64(7))
@@ -894,7 +895,7 @@ func TestMergeCaptureLevelTags(t *testing.T) {
 		name string
 		edit func(m *PackMeta)
 	}{
-		{"tool_id", "", func(m *PackMeta) { m.ToolID = "tool2" }},
+		{"equipment_id", "", func(m *PackMeta) { m.EquipmentID = "tool2" }},
 		{"transport", "", func(m *PackMeta) { m.Transport = TransportSECS1Normalised }},
 		{"capture_method", "", func(m *PackMeta) { m.CaptureMethod = CaptureMethodRawStream }},
 		{"vantage", "", func(m *PackMeta) { m.Vantage = VantageEquipment }},
@@ -910,6 +911,8 @@ func TestMergeCaptureLevelTags(t *testing.T) {
 		{"previous_capture_id", "absent", func(m *PackMeta) { m.PreviousCaptureID = nil }},
 		{"recorder_instance_name", "", func(m *PackMeta) { m.RecorderInstanceName = new("tlp") }},
 		{"recorder_instance_name", "absent", func(m *PackMeta) { m.RecorderInstanceName = nil }},
+		{"device", "", func(m *PackMeta) { m.Device = new("sensor") }},
+		{"device", "absent", func(m *PackMeta) { m.Device = nil }},
 		{"site_id", "", func(m *PackMeta) { m.SiteID = new("fab2") }},
 		{"site_id", "absent", func(m *PackMeta) { m.SiteID = nil }},
 		{"equipment_model", "", func(m *PackMeta) { m.EquipmentModel = new("model2") }},

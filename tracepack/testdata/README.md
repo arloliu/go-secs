@@ -34,7 +34,7 @@ func main() {
 		recorderID[i], packID[i], captureID[i] = byte(i), 0xA0|byte(i), 0xC0|byte(i)
 	}
 	meta := &tracepack.PackMeta{
-		ToolID: "tool", Transport: tracepack.TransportHSMSSS, CaptureMethod: tracepack.CaptureMethodRawStream,
+		EquipmentID: "tool", Transport: tracepack.TransportHSMSSS, CaptureMethod: tracepack.CaptureMethodRawStream,
 		Vantage: tracepack.VantageHost, Recorder: "rec", Writer: "tracepack/v0.1.0", Classifier: &classifier,
 		TimeSource: tracepack.TimeSourceGenerator, PeriodStart: hour, PeriodEnd: hour + 3_600_000_000_000,
 		LifecycleCoverage: tracepack.LifecycleCoverageNone, QualityEvaluated: true, PackRole: tracepack.PackRoleSegment,

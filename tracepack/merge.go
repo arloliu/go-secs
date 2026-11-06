@@ -118,7 +118,7 @@ var captureTags = [...]struct {
 	name  string
 	equal func(a, b *PackMeta) bool
 }{
-	{"tool_id", func(a, b *PackMeta) bool { return a.ToolID == b.ToolID }},
+	{"equipment_id", func(a, b *PackMeta) bool { return a.EquipmentID == b.EquipmentID }},
 	{"transport", func(a, b *PackMeta) bool { return a.Transport == b.Transport }},
 	{"capture_method", func(a, b *PackMeta) bool { return a.CaptureMethod == b.CaptureMethod }},
 	{"vantage", func(a, b *PackMeta) bool { return a.Vantage == b.Vantage }},
@@ -128,6 +128,7 @@ var captureTags = [...]struct {
 	{"quality_evaluated", func(a, b *PackMeta) bool { return a.QualityEvaluated == b.QualityEvaluated }},
 	{"recorder_instance_id", func(a, b *PackMeta) bool { return a.RecorderInstanceID == b.RecorderInstanceID }},
 	{"recorder_instance_name", func(a, b *PackMeta) bool { return equalPtr(a.RecorderInstanceName, b.RecorderInstanceName) }},
+	{"device", func(a, b *PackMeta) bool { return equalPtr(a.Device, b.Device) }},
 	{"capture_origin_utc_ns", func(a, b *PackMeta) bool { return equalPtr(a.CaptureOriginUTCNs, b.CaptureOriginUTCNs) }},
 	{"capture_origin_mono_ns", func(a, b *PackMeta) bool { return equalPtr(a.CaptureOriginMonoNs, b.CaptureOriginMonoNs) }},
 	{"clock_step_tolerance_ns", func(a, b *PackMeta) bool { return equalPtr(a.ClockStepToleranceNs, b.ClockStepToleranceNs) }},
@@ -1146,9 +1147,9 @@ func (p *mergePlan) planMeta(opts *MergeOptions, setID UUID) error {
 	}
 
 	m := &PackMeta{
-		ToolID: c.ToolID, Transport: c.Transport, CaptureMethod: c.CaptureMethod, Vantage: c.Vantage, Recorder: c.Recorder,
+		EquipmentID: c.EquipmentID, Transport: c.Transport, CaptureMethod: c.CaptureMethod, Vantage: c.Vantage, Recorder: c.Recorder,
 		TimeSource: c.TimeSource, LifecycleCoverage: c.LifecycleCoverage, QualityEvaluated: c.QualityEvaluated,
-		RecorderInstanceID: c.RecorderInstanceID, RecorderInstanceName: c.RecorderInstanceName, CaptureOriginUTCNs: c.CaptureOriginUTCNs, CaptureOriginMonoNs: c.CaptureOriginMonoNs,
+		RecorderInstanceID: c.RecorderInstanceID, RecorderInstanceName: c.RecorderInstanceName, Device: c.Device, CaptureOriginUTCNs: c.CaptureOriginUTCNs, CaptureOriginMonoNs: c.CaptureOriginMonoNs,
 		ClockStepToleranceNs: c.ClockStepToleranceNs, PreviousCaptureID: c.PreviousCaptureID,
 		SiteID: c.SiteID, EquipmentModel: c.EquipmentModel, EquipmentSWRev: c.EquipmentSWRev, HostSoftware: c.HostSoftware,
 		HostEndpoint: c.HostEndpoint, EquipmentEndpoint: c.EquipmentEndpoint, EquipmentConnectMode: c.EquipmentConnectMode,

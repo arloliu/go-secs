@@ -500,7 +500,7 @@ func TestDirSinkNoReplaceSegmentWriter(t *testing.T) {
 	require.NoError(t, err)
 	sink := &segmentKeySink{SegmentSink: s}
 	opts := segOptions(sink)
-	opts.Capture.ToolID = dirTestTool
+	opts.Capture.EquipmentID = dirTestEquipment
 	w, err := NewSegmentWriter(t.Context(), opts)
 	require.NoError(t, err)
 	segFrame(t, w, 0)
@@ -654,7 +654,7 @@ func TestDirSinkNoReplaceSegmentWriterRemoveFails(t *testing.T) {
 	s, fsys := newNoReplaceDirSink(t, root)
 	sink := &segmentKeySink{SegmentSink: s, prefix: dirTestPrefix}
 	opts := segOptions(sink)
-	opts.Capture.ToolID = dirTestTool
+	opts.Capture.EquipmentID = dirTestEquipment
 	w, err := NewSegmentWriter(t.Context(), opts)
 	require.NoError(t, err)
 	segFrame(t, w, 0)
@@ -696,7 +696,7 @@ type segmentKeySink struct {
 
 // Create records the segment's key and creates it on the sink it wraps.
 func (s *segmentKeySink) Create(ctx context.Context, info SegmentInfo) (SegmentFile, error) {
-	key, err := SegmentKey(s.prefix, info.ToolID, info.CaptureID, info.SeqFirst, info.PackID)
+	key, err := SegmentKey(s.prefix, info.EquipmentID, info.CaptureID, info.SeqFirst, info.PackID)
 	if err != nil {
 		return nil, err
 	}

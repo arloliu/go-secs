@@ -64,7 +64,7 @@ func jsonlV2Meta() []byte {
 }
 
 // jsonlV2RequiredJSON is the rendering of jsonlV2Required's tags, without the braces of the metadata object.
-const jsonlV2RequiredJSON = `"tool_id":"t","transport":"hsms-ss","capture_method":"unknown","vantage":"host","recorder":"r","writer":"w",` +
+const jsonlV2RequiredJSON = `"equipment_id":"t","transport":"hsms-ss","capture_method":"unknown","vantage":"host","recorder":"r","writer":"w",` +
 	`"time_source":"unknown","period_start":"0","period_end":"1","lifecycle_coverage":"subscribed","quality_evaluated":true,` +
 	`"pack_role":"segment","compaction_level":0,"recorder_instance_id":"01010101-0101-0101-0101-010101010101","seq_start":"0",` +
 	`"scope_generation":"0"`
@@ -132,7 +132,7 @@ func TestExportSchemaByMinor(t *testing.T) {
 
 	// A minor this module does not know: the tags of formats 1.1 and 1.2 are named, and a tag a later minor may define is unknown.
 	first, _ := jsonlV2Thinning()
-	meta := jsonlTLV(append(jsonlV2Required(), tlv.NestedEntry(0x0033, first), tlv.UTF8Entry(0x0034, "eqp"), tlv.UTF8Entry(0x0035, "x"))...)
+	meta := jsonlTLV(append(jsonlV2Required(), tlv.NestedEntry(0x0033, first), tlv.UTF8Entry(0x0034, "eqp"), tlv.UTF8Entry(0x0035, "dev"), tlv.UTF8Entry(0x0036, "x"))...)
 	for _, minor := range []uint16{3, 0xFFFF} {
 		r := jsonlTestReader(t, format.FileHeader{FormatMajor: 1, FormatMinor: minor}, meta)
 		out, _, err := runExportJSONL(t, r)
@@ -141,7 +141,7 @@ func TestExportSchemaByMinor(t *testing.T) {
 			`,"flags":[],"writer_start_utc_ns":"0","pack_id":"00000000-0000-0000-0000-000000000000",` +
 			`"capture_id":"00000000-0000-0000-0000-000000000000","metadata":{` + jsonlV2RequiredJSON + `,` +
 			`"thinning":[{"stream":"1","function":"3","source":"fdc","unknown":[{"tag":9,"value_type":4,"value":"CQAAAAAAAAA="}]}],` +
-			`"recorder_instance_name":"eqp","unknown":[{"tag":53,"value_type":6,"value":"eA=="}]}}` + "\n"
+			`"recorder_instance_name":"eqp","device":"dev","unknown":[{"tag":54,"value_type":6,"value":"eA=="}]}}` + "\n"
 		assert.Equal(t, want, out, "minor %d", minor)
 	}
 }

@@ -14,7 +14,7 @@ type readerSource struct {
 
 var _ PackSource = (*readerSource)(nil)
 
-// NewReaderSource returns a PackSource over packs the caller opened, all of one tool,
+// NewReaderSource returns a PackSource over packs the caller opened, all of one equipment,
 // for FindTransaction and FindTransactions (the tracepack semantics specification §7.2).
 //
 // It groups the readers by the UTC hour of their period, the scope of a pack that is not an extract
@@ -33,13 +33,13 @@ var _ PackSource = (*readerSource)(nil)
 // Returns:
 //   - PackSource: the source; nil on error.
 //   - error: an error wrapping ErrInvalidQuery for a nil reader, a Reader given twice, two readers of one pack_id,
-//     readers of more than one tool_id, an extract, whose records need not lie in one scope,
+//     readers of more than one equipment_id, an extract, whose records need not lie in one scope,
 //     or a reader whose period is empty or not inside one UTC hour, whose scope is then unknown.
 func NewReaderSource(readers []*Reader) (PackSource, error) {
 	given := make(map[*Reader]int, len(readers))
 	ids := make(map[UUID]int, len(readers))
 	s := &readerSource{hours: make(map[int64][]*Reader)}
-	tool := ""
+	equipment := ""
 	for i, r := range readers {
 		if r == nil {
 			return nil, wrapf("%w: new reader source: reader %d is nil", ErrInvalidQuery, i)
@@ -55,9 +55,9 @@ func NewReaderSource(readers []*Reader) (PackSource, error) {
 		ids[id] = i
 		m := r.meta
 		if i == 0 {
-			tool = m.ToolID
-		} else if m.ToolID != tool {
-			return nil, wrapf("%w: new reader source: reader 0 holds tool_id %q, reader %d tool_id %q", ErrInvalidQuery, tool, i, m.ToolID)
+			equipment = m.EquipmentID
+		} else if m.EquipmentID != equipment {
+			return nil, wrapf("%w: new reader source: reader 0 holds equipment_id %q, reader %d equipment_id %q", ErrInvalidQuery, equipment, i, m.EquipmentID)
 		}
 		if m.PackRole == PackRoleExtract {
 			return nil, wrapf("%w: new reader source: reader %d is an extract, which has no scope", ErrInvalidQuery, i)

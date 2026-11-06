@@ -266,7 +266,7 @@ func TestExportJSONL_Bootstrap(t *testing.T) {
 	}{
 		{"replacement_set_size 2", jsonlHeadOnlyPack(hdr, jsonlMeta(t, nil, set, tlv.U64Entry(0x002A, 2), tlv.U64Entry(0x002B, 0))), ErrFieldValue},
 		{"replacement_set_index 1", jsonlHeadOnlyPack(hdr, jsonlMeta(t, nil, set, tlv.U64Entry(0x002A, 1), tlv.U64Entry(0x002B, 1))), ErrFieldValue},
-		{"missing tool_id, required always", jsonlHeadOnlyPack(hdr, jsonlMeta(t, []uint16{0x0002})), nil},
+		{"missing equipment_id, required always", jsonlHeadOnlyPack(hdr, jsonlMeta(t, []uint16{0x0002})), nil},
 		{"missing scope_generation of a segment", jsonlHeadOnlyPack(hdr, jsonlMeta(t, []uint16{0x002D})), ErrRequiredTag},
 		{"capture-clock without capture origins", jsonlHeadOnlyPack(hdr, jsonlMeta(t, []uint16{0x0009}, tlv.U8Entry(0x0009, 1))), ErrRequiredTag},
 		{"bad header CRC", flipByte(jsonlHeadOnlyPack(hdr, jsonlMeta(t, nil)), 20), ErrChecksum},

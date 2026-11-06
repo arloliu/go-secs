@@ -22,8 +22,8 @@ import (
 const (
 	// dirTestPrefix is the bucket prefix of the DirSink tests.
 	dirTestPrefix = "bucket/traces"
-	// dirTestTool is the tool_id of the DirSink tests, which a key spells escaped, EQP%2001.
-	dirTestTool = "EQP 01"
+	// dirTestEquipment is the equipment_id of the DirSink tests, which a key spells escaped, EQP%2001.
+	dirTestEquipment = "EQP 01"
 )
 
 var (
@@ -100,10 +100,10 @@ func newRecordFS(t testing.TB, root string) *recordFS {
 	return &recordFS{root: root, fsys: rootFS{root: r}}
 }
 
-// dirTestInfo returns the SegmentInfo of a segment of dirTestTool's capture dirTestCapture, of seqFirst and pack, in blockTestHour.
+// dirTestInfo returns the SegmentInfo of a segment of dirTestEquipment's capture dirTestCapture, of seqFirst and pack, in blockTestHour.
 func dirTestInfo(seqFirst uint64, pack UUID) SegmentInfo {
 	return SegmentInfo{
-		ToolID: dirTestTool, CaptureID: dirTestCapture, PackID: pack, SeqFirst: seqFirst, Hour: hourOf(blockTestHour),
+		EquipmentID: dirTestEquipment, CaptureID: dirTestCapture, PackID: pack, SeqFirst: seqFirst, Hour: hourOf(blockTestHour),
 		PeriodStart: time.Unix(0, blockTestHour).UTC(), PeriodEnd: time.Unix(0, blockTestHour+int64(DefaultFlushInterval)).UTC(),
 	}
 }
@@ -112,7 +112,7 @@ func dirTestInfo(seqFirst uint64, pack UUID) SegmentInfo {
 func dirTestKey(t testing.TB, seqFirst uint64, pack UUID) string {
 	t.Helper()
 
-	key, err := SegmentKey(dirTestPrefix, dirTestTool, dirTestCapture, seqFirst, pack)
+	key, err := SegmentKey(dirTestPrefix, dirTestEquipment, dirTestCapture, seqFirst, pack)
 	require.NoError(t, err)
 
 	return key
@@ -251,7 +251,7 @@ func TestNewDirSinkAcceptsPrefix(t *testing.T) {
 			// The file's path under root spells the key byte for byte.
 			f := writeSegment(t, s, dirTestInfo(7, dirTestPackA), "segment")
 			require.NoError(t, f.Commit(t.Context()))
-			key, err := SegmentKey(prefix, dirTestTool, dirTestCapture, 7, dirTestPackA)
+			key, err := SegmentKey(prefix, dirTestEquipment, dirTestCapture, 7, dirTestPackA)
 			require.NoError(t, err)
 			keys, partial := dirFiles(t, root)
 			assert.Equal(t, []string{key}, keys)
@@ -452,7 +452,7 @@ func TestDirSinkRefusesLinks(t *testing.T) {
 		require.NoError(t, err, "a link below the prefix's first component")
 		requireCommitRefused(t, s, root)
 	})
-	t.Run("a key's tool directory aliasing another directory", func(t *testing.T) {
+	t.Run("a key's equipment directory aliasing another directory", func(t *testing.T) {
 		t.Parallel()
 
 		root := t.TempDir()
@@ -519,8 +519,8 @@ func TestDirSinkCreate(t *testing.T) {
 	n := len(fsys.calls)
 
 	for _, edit := range []func(*SegmentInfo){
-		func(i *SegmentInfo) { i.ToolID = "" },
-		func(i *SegmentInfo) { i.ToolID = ".." },
+		func(i *SegmentInfo) { i.EquipmentID = "" },
+		func(i *SegmentInfo) { i.EquipmentID = ".." },
 		func(i *SegmentInfo) { i.SeqFirst = math.MaxInt64 + 1 },
 	} {
 		info := dirTestInfo(0, dirTestPackA)
@@ -752,7 +752,7 @@ func TestDirSinkSegmentFileMisuse(t *testing.T) {
 // TestDirSinkSegmentWriter writes a capture through a SegmentWriter into a DirSink:
 // while a segment is open, and with a temporary file abandoned under .partial/,
 // the key areas hold only committed segments;
-// every committed file lies at its key, which parses as a segment key naming the tool of the SegmentInfo,
+// every committed file lies at its key, which parses as a segment key naming the equipment of the SegmentInfo,
 // and opens as the segment it names, with the capture's records;
 // and NewReaderSource over the committed segments gives each hour its own.
 func TestDirSinkSegmentWriter(t *testing.T) {
@@ -774,7 +774,7 @@ func writeCaptureIntoDirSink(t *testing.T, prefix string) {
 	sink, err := NewDirSink(root, prefix, DirSinkOptions{})
 	require.NoError(t, err)
 	opts := segOptions(sink)
-	opts.Capture.ToolID = dirTestTool
+	opts.Capture.EquipmentID = dirTestEquipment
 	opts.Now = nowAt(segAt(time.Hour + time.Minute))
 	w, err := NewSegmentWriter(t.Context(), opts)
 	require.NoError(t, err)
@@ -803,7 +803,7 @@ func writeCaptureIntoDirSink(t *testing.T, prefix string) {
 	for i, key := range keys {
 		p, err := parseSegmentKey(prefix, key)
 		require.NoError(t, err, "key %d", i)
-		assert.Equal(t, dirTestTool, p.tool)
+		assert.Equal(t, dirTestEquipment, p.equipment)
 		assert.Equal(t, w.CaptureID(), p.capture)
 		assert.True(t, strings.HasPrefix(key, keyArea(prefix, "staging")+"EQP%2001/"), "key %q", key)
 

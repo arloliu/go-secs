@@ -128,22 +128,22 @@ type Record struct {
 	descriptorHeader string
 }
 
-// ToolToken returns the tool token of toolID, the subject token that names its tool
+// EquipmentToken returns the equipment token of equipmentID, the subject token that names its equipment
 // (the tracepack storage specification §4, "Bus message"):
-// toolID escaped as a key escapes it, with '.' also written %2E, so every byte outside A-Z, a-z, 0-9, '-', '_' and '~'
+// equipmentID escaped as a key escapes it, with '.' also written %2E, so every byte outside A-Z, a-z, 0-9, '-', '_' and '~'
 // is %XX with uppercase hex digits and the token holds no '.', '*', '>', whitespace or unescaped '%'.
 //
 // Returns:
 //   - string: the token; empty on error.
-//   - error: an error wrapping ErrMalformed for a toolID that is empty, "." or "..", which no key can hold.
-func ToolToken(toolID string) (string, error) {
-	if err := keyesc.CheckTool(toolID); err != nil {
+//   - error: an error wrapping ErrMalformed for an equipmentID that is empty, "." or "..", which no key can hold.
+func EquipmentToken(equipmentID string) (string, error) {
+	if err := keyesc.CheckEquipment(equipmentID); err != nil {
 		return "", wrapf("%w: %w", ErrMalformed, err)
 	}
 
 	var b strings.Builder
-	for i := range len(toolID) {
-		c := toolID[i]
+	for i := range len(equipmentID) {
+		c := equipmentID[i]
 		if isTokenByte(c) {
 			b.WriteByte(c)
 
@@ -157,14 +157,14 @@ func ToolToken(toolID string) (string, error) {
 	return b.String(), nil
 }
 
-// ParseToolToken returns the tool_id a tool token spells, accepting only the one spelling ToolToken writes.
+// ParseEquipmentToken returns the equipment_id an equipment token spells, accepting only the one spelling EquipmentToken writes.
 //
 // Returns:
-//   - string: the tool_id; empty on error.
+//   - string: the equipment_id; empty on error.
 //   - error: an error wrapping ErrMalformed for a byte that is neither kept nor an escape,
 //     an escape that is cut short, not two uppercase hex digits, or encodes a byte the token keeps,
-//     or a tool_id that is empty, "." or "..".
-func ParseToolToken(token string) (string, error) {
+//     or an equipment_id that is empty, "." or "..".
+func ParseEquipmentToken(token string) (string, error) {
 	var b strings.Builder
 	for i := 0; i < len(token); i++ {
 		c := token[i]
@@ -174,50 +174,50 @@ func ParseToolToken(token string) (string, error) {
 			continue
 		}
 		if c != '%' {
-			return "", wrapf("%w: tool token %q: byte %#02x at %d is neither kept nor an escape", ErrMalformed, token, c, i)
+			return "", wrapf("%w: equipment token %q: byte %#02x at %d is neither kept nor an escape", ErrMalformed, token, c, i)
 		}
 		if i+2 >= len(token) {
-			return "", wrapf("%w: tool token %q: escape at %d is cut short", ErrMalformed, token, i)
+			return "", wrapf("%w: equipment token %q: escape at %d is cut short", ErrMalformed, token, i)
 		}
 		hi, lo := strings.IndexByte(keyesc.UpperHex, token[i+1]), strings.IndexByte(keyesc.UpperHex, token[i+2])
 		if hi < 0 || lo < 0 {
-			return "", wrapf("%w: tool token %q: escape at %d is not two uppercase hex digits", ErrMalformed, token, i)
+			return "", wrapf("%w: equipment token %q: escape at %d is not two uppercase hex digits", ErrMalformed, token, i)
 		}
 		v := byte(hi<<4 | lo) // two hex digits, below 256
 		if isTokenByte(v) {
-			return "", wrapf("%w: tool token %q: escape at %d encodes the kept byte %q", ErrMalformed, token, i, v)
+			return "", wrapf("%w: equipment token %q: escape at %d encodes the kept byte %q", ErrMalformed, token, i, v)
 		}
 		b.WriteByte(v)
 		i += 2
 	}
 
-	tool := b.String()
-	if err := keyesc.CheckTool(tool); err != nil {
+	equipment := b.String()
+	if err := keyesc.CheckEquipment(equipment); err != nil {
 		return "", wrapf("%w: %w", ErrMalformed, err)
 	}
 
-	return tool, nil
+	return equipment, nil
 }
 
-// Subject returns the subject a capture's records are published on, "<prefix>.<tool token>.<capture_id>"
+// Subject returns the subject a capture's records are published on, "<prefix>.<equipment token>.<capture_id>"
 // (the tracepack storage specification §4, "Bus message").
 //
 // Parameters:
 //   - prefix: the deployment's subject prefix, one or more '.'-separated tokens,
 //     none empty and none holding a byte at or below 0x20, the byte 0x7F, '*' or '>'.
-//   - toolID: the capture's tool_id, written as ToolToken writes it.
+//   - equipmentID: the capture's equipment_id, written as EquipmentToken writes it.
 //   - capture: the capture_id, in canonical lowercase form.
 //
 // Returns:
 //   - string: the subject; empty on error.
-//   - error: an error wrapping ErrMalformed for a prefix outside the rule above or a toolID ToolToken refuses.
-func Subject(prefix, toolID string, capture tracepack.UUID) (string, error) {
+//   - error: an error wrapping ErrMalformed for a prefix outside the rule above or an equipmentID EquipmentToken refuses.
+func Subject(prefix, equipmentID string, capture tracepack.UUID) (string, error) {
 	for tok := range strings.SplitSeq(prefix, ".") {
 		if tok == "" || strings.ContainsFunc(tok, func(r rune) bool { return r <= ' ' || r == 0x7F || r == '*' || r == '>' }) {
 			return "", wrapf("%w: subject prefix %q", ErrMalformed, prefix)
 		}
 	}
-	token, err := ToolToken(toolID)
+	token, err := EquipmentToken(equipmentID)
 	if err != nil {
 		return "", err
 	}
@@ -722,7 +722,7 @@ func DeriveRecord(r *tracepack.Record, cls tracepack.Classifier) error {
 	return nil
 }
 
-// isTokenByte reports whether a tool token keeps c unescaped: A-Z, a-z, 0-9, '-', '_' and '~'.
+// isTokenByte reports whether an equipment token keeps c unescaped: A-Z, a-z, 0-9, '-', '_' and '~'.
 func isTokenByte(c byte) bool {
 	return c != '.' && keyesc.IsUnreserved(c)
 }

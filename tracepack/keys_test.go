@@ -35,11 +35,11 @@ func keyHourOf(y int, m time.Month, d, h int) int64 {
 	return time.Date(y, m, d, h, 0, 0, 0, time.UTC).Unix() / secondsPerHour
 }
 
-func TestEscapeToolID(t *testing.T) {
+func TestEscapeEquipmentID(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name, tool, want string
+		name, equipment, want string
 	}{
 		{"empty", "", ""},
 		{"unreserved kept", "AZaz09-._~", "AZaz09-._~"},
@@ -54,7 +54,7 @@ func TestEscapeToolID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, EscapeToolID(tt.tool))
+			require.Equal(t, tt.want, EscapeEquipmentID(tt.equipment))
 		})
 	}
 }
@@ -66,41 +66,41 @@ func TestKeyBuilders(t *testing.T) {
 	hour := keyHourOf(2026, time.October, 4, 13)
 
 	tests := []struct {
-		name, prefix, tool string
-		segment, archive   string
+		name, prefix, equipment string
+		segment, archive        string
 	}{
 		{
-			name: "empty prefix", tool: "eqp-01",
+			name: "empty prefix", equipment: "eqp-01",
 			segment: "staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
 		},
 		{
-			name: "one component", prefix: "a", tool: "eqp-01",
+			name: "one component", prefix: "a", equipment: "eqp-01",
 			segment: "a/staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "a/archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
 		},
 		{
-			name: "two components", prefix: "a/b", tool: "eqp-01",
+			name: "two components", prefix: "a/b", equipment: "eqp-01",
 			segment: "a/b/staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "a/b/archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
 		},
 		{
-			name: "trailing slash used as given", prefix: "a/", tool: "eqp-01",
+			name: "trailing slash used as given", prefix: "a/", equipment: "eqp-01",
 			segment: "a//staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "a//archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
 		},
 		{
-			name: "leading slash used as given", prefix: "/a", tool: "eqp-01",
+			name: "leading slash used as given", prefix: "/a", equipment: "eqp-01",
 			segment: "/a/staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "/a/archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
 		},
 		{
-			name: "repeated slash used as given", prefix: "a//b", tool: "eqp-01",
+			name: "repeated slash used as given", prefix: "a//b", equipment: "eqp-01",
 			segment: "a//b/staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "a//b/archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
 		},
 		{
-			name: "escaped tool", prefix: "p", tool: "fab 1/é%",
+			name: "escaped equipment", prefix: "p", equipment: "fab 1/é%",
 			segment: "p/staging/fab%201%2F%C3%A9%25/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "p/archive/fab%201%2F%C3%A9%25/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
 		},
@@ -109,11 +109,11 @@ func TestKeyBuilders(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			seg, err := SegmentKey(tt.prefix, tt.tool, capture, 42, pack)
+			seg, err := SegmentKey(tt.prefix, tt.equipment, capture, 42, pack)
 			require.NoError(t, err)
 			require.Equal(t, tt.segment, seg)
 
-			arc, err := ArchiveKey(tt.prefix, tt.tool, capture, hour, pack)
+			arc, err := ArchiveKey(tt.prefix, tt.equipment, capture, hour, pack)
 			require.NoError(t, err)
 			require.Equal(t, tt.archive, arc)
 		})
@@ -126,17 +126,17 @@ func TestKeyBuildersReject(t *testing.T) {
 	capture, pack := keyUUID(t, keyCaptureText), keyUUID(t, keyPackText)
 	hour := keyHourOf(2026, time.October, 4, 13)
 
-	for _, tool := range []string{"", ".", ".."} {
-		_, err := SegmentKey("p", tool, capture, 0, pack)
-		require.ErrorIs(t, err, ErrInvalidKey, "segment, tool %q", tool)
-		_, err = ArchiveKey("p", tool, capture, hour, pack)
-		require.ErrorIs(t, err, ErrInvalidKey, "archive, tool %q", tool)
+	for _, equipment := range []string{"", ".", ".."} {
+		_, err := SegmentKey("p", equipment, capture, 0, pack)
+		require.ErrorIs(t, err, ErrInvalidKey, "segment, equipment %q", equipment)
+		_, err = ArchiveKey("p", equipment, capture, hour, pack)
+		require.ErrorIs(t, err, ErrInvalidKey, "archive, equipment %q", equipment)
 	}
 
-	// Dots inside a longer tool are ordinary unreserved bytes.
-	for _, tool := range []string{"...", ".a", "a.", "%2E"} {
-		_, err := SegmentKey("p", tool, capture, 0, pack)
-		require.NoError(t, err, "tool %q", tool)
+	// Dots inside a longer equipment are ordinary unreserved bytes.
+	for _, equipment := range []string{"...", ".a", "a.", "%2E"} {
+		_, err := SegmentKey("p", equipment, capture, 0, pack)
+		require.NoError(t, err, "equipment %q", equipment)
 	}
 
 	key, err := SegmentKey("p", "t", capture, math.MaxInt64, pack)
@@ -195,24 +195,24 @@ func TestParseKeysRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	capture, pack := keyUUID(t, keyCaptureText), keyUUID(t, keyPackText)
-	tools := []string{"eqp-01", "~", "...", "a b/c%d", "é\xff\x00", "%2F"}
+	equipments := []string{"eqp-01", "~", "...", "a b/c%d", "é\xff\x00", "%2F"}
 	prefixes := []string{"", "a", "a/b", "a/", "/a", "a//b"}
 	seqs := []uint64{0, 1, 42, math.MaxInt64}
 	hours := []int64{minKeyHour, -1, 0, keyHourOf(2026, time.October, 4, 13), maxKeyHour}
 
 	for _, prefix := range prefixes {
-		for _, tool := range tools {
+		for _, equipment := range equipments {
 			for _, seq := range seqs {
-				want := segmentKeyParts{tool: tool, capture: capture, seqFirst: seq, pack: pack}
-				key, err := SegmentKey(prefix, tool, capture, seq, pack)
+				want := segmentKeyParts{equipment: equipment, capture: capture, seqFirst: seq, pack: pack}
+				key, err := SegmentKey(prefix, equipment, capture, seq, pack)
 				require.NoError(t, err)
 				got, err := parseSegmentKey(prefix, key)
 				require.NoError(t, err, key)
 				require.Equal(t, want, got, key)
 			}
 			for _, hour := range hours {
-				wantA := archiveKeyParts{tool: tool, hour: hour, capture: capture, pack: pack}
-				key, err := ArchiveKey(prefix, tool, capture, hour, pack)
+				wantA := archiveKeyParts{equipment: equipment, hour: hour, capture: capture, pack: pack}
+				key, err := ArchiveKey(prefix, equipment, capture, hour, pack)
 				require.NoError(t, err)
 				gotA, err := parseArchiveKey(prefix, key)
 				require.NoError(t, err, key)
@@ -222,14 +222,14 @@ func TestParseKeysRoundTrip(t *testing.T) {
 	}
 }
 
-// TestParseKeysAnyCapture checks that a parser accepts a canonical key of any capture, tool and hour:
+// TestParseKeysAnyCapture checks that a parser accepts a canonical key of any capture, equipment and hour:
 // classifying it is the caller's.
 func TestParseKeysAnyCapture(t *testing.T) {
 	t.Parallel()
 
 	seg, err := parseSegmentKey("p", "p/staging/other/"+keyOtherText+"/00000000000000000001-"+keyPackText+".tpk")
 	require.NoError(t, err)
-	require.Equal(t, segmentKeyParts{tool: "other", capture: keyUUID(t, keyOtherText), seqFirst: 1, pack: keyUUID(t, keyPackText)}, seg)
+	require.Equal(t, segmentKeyParts{equipment: "other", capture: keyUUID(t, keyOtherText), seqFirst: 1, pack: keyUUID(t, keyPackText)}, seg)
 
 	arc, err := parseArchiveKey("p", "p/archive/t/2026/10/04/13/"+keyOtherText+"-"+keyPackText+".tpk")
 	require.NoError(t, err)
@@ -245,14 +245,14 @@ func TestKeyErrorMessages(t *testing.T) {
 	_, err := ArchiveKey("p", "t", capture, maxKeyHour+1, pack)
 	require.EqualError(t, err, "tracepack: invalid object key: hour 2562048 outside [-2562048, 2562047]")
 	_, err = SegmentKey("p", ".", capture, 0, pack)
-	require.EqualError(t, err, `tracepack: invalid object key: tool "." cannot be stored`)
+	require.EqualError(t, err, `tracepack: invalid object key: equipment "." cannot be stored`)
 
 	key := "p/archive/t/2262/04/12/00/" + keyCaptureText + "-" + keyPackText + ".tpk"
 	_, err = parseArchiveKey("p", key)
 	require.EqualError(t, err, `tracepack: invalid object key "`+key+`": hour 2562048 outside [-2562048, 2562047]`)
 	key = "p/staging/../" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk"
 	_, err = parseSegmentKey("p", key)
-	require.EqualError(t, err, `tracepack: invalid object key "`+key+`": tool ".." cannot be stored`)
+	require.EqualError(t, err, `tracepack: invalid object key "`+key+`": equipment ".." cannot be stored`)
 }
 
 // keyRejectCase is a key a parser must reject, under the prefix "p".
@@ -326,8 +326,8 @@ func TestParseArchiveKeyRejects(t *testing.T) {
 	})
 }
 
-// TestParseKeysRejectTools checks the tool component every parser shares.
-func TestParseKeysRejectTools(t *testing.T) {
+// TestParseKeysRejectEquipment checks the equipment component every parser shares.
+func TestParseKeysRejectEquipment(t *testing.T) {
 	t.Parallel()
 
 	accept := map[string]string{
@@ -340,7 +340,7 @@ func TestParseKeysRejectTools(t *testing.T) {
 		"~._-AZaz09": "~._-AZaz09",
 	}
 	reject := []string{
-		"",         // empty tool
+		"",         // empty equipment
 		".",        // a path component of its own
 		"..",       // a path component of its own
 		"%2f",      // lowercase hex
@@ -357,21 +357,21 @@ func TestParseKeysRejectTools(t *testing.T) {
 		"a+b",      // raw reserved byte
 	}
 
-	for tool, want := range accept {
-		got, err := parseSegmentKey("p", "p/staging/"+tool+"/"+keyCaptureText+"/00000000000000000042-"+keyPackText+".tpk")
-		require.NoError(t, err, "tool %q", tool)
-		require.Equal(t, want, got.tool, "tool %q", tool)
+	for equipment, want := range accept {
+		got, err := parseSegmentKey("p", "p/staging/"+equipment+"/"+keyCaptureText+"/00000000000000000042-"+keyPackText+".tpk")
+		require.NoError(t, err, "equipment %q", equipment)
+		require.Equal(t, want, got.equipment, "equipment %q", equipment)
 	}
-	for _, tool := range reject {
-		_, err := parseSegmentKey("p", "p/staging/"+tool+"/"+keyCaptureText+"/00000000000000000042-"+keyPackText+".tpk")
-		require.ErrorIs(t, err, ErrInvalidKey, "segment, tool %q", tool)
-		_, err = parseArchiveKey("p", "p/archive/"+tool+"/2026/10/04/13/"+keyCaptureText+"-"+keyPackText+".tpk")
-		require.ErrorIs(t, err, ErrInvalidKey, "archive, tool %q", tool)
+	for _, equipment := range reject {
+		_, err := parseSegmentKey("p", "p/staging/"+equipment+"/"+keyCaptureText+"/00000000000000000042-"+keyPackText+".tpk")
+		require.ErrorIs(t, err, ErrInvalidKey, "segment, equipment %q", equipment)
+		_, err = parseArchiveKey("p", "p/archive/"+equipment+"/2026/10/04/13/"+keyCaptureText+"-"+keyPackText+".tpk")
+		require.ErrorIs(t, err, ErrInvalidKey, "archive, equipment %q", equipment)
 	}
 }
 
 // FuzzKeys checks that every key a parser accepts is the one spelling its builder produces,
-// and that every tool a key can hold survives a build and a parse.
+// and that every equipment a key can hold survives a build and a parse.
 func FuzzKeys(f *testing.F) {
 	capture, pack := keyUUID(f, keyCaptureText), keyUUID(f, keyPackText)
 	for _, prefix := range []string{"", "p", "a/", "/a"} {
@@ -389,24 +389,24 @@ func FuzzKeys(f *testing.F) {
 	f.Add("p", "p/staging/%2f/"+keyCaptureText+"/09223372036854775808-"+keyPackText+".tpk", "a b")
 	f.Add("", "archive/%41/2262/04/12/00/"+keyCaptureText+"-"+keyPackText+".tpk", "\xff")
 
-	f.Fuzz(func(t *testing.T, prefix, key, tool string) {
+	f.Fuzz(func(t *testing.T, prefix, key, equipment string) {
 		if p, err := parseSegmentKey(prefix, key); err == nil {
-			got, err := SegmentKey(prefix, p.tool, p.capture, p.seqFirst, p.pack)
+			got, err := SegmentKey(prefix, p.equipment, p.capture, p.seqFirst, p.pack)
 			require.NoError(t, err)
 			require.Equal(t, key, got)
 		} else {
 			require.ErrorIs(t, err, ErrInvalidKey)
 		}
 		if p, err := parseArchiveKey(prefix, key); err == nil {
-			got, err := ArchiveKey(prefix, p.tool, p.capture, p.hour, p.pack)
+			got, err := ArchiveKey(prefix, p.equipment, p.capture, p.hour, p.pack)
 			require.NoError(t, err)
 			require.Equal(t, key, got)
 		} else {
 			require.ErrorIs(t, err, ErrInvalidKey)
 		}
 
-		built, err := SegmentKey(prefix, tool, capture, 0, pack)
-		if keyesc.CheckTool(tool) != nil {
+		built, err := SegmentKey(prefix, equipment, capture, 0, pack)
+		if keyesc.CheckEquipment(equipment) != nil {
 			require.ErrorIs(t, err, ErrInvalidKey)
 
 			return
@@ -414,7 +414,7 @@ func FuzzKeys(f *testing.F) {
 		require.NoError(t, err)
 		p, err := parseSegmentKey(prefix, built)
 		require.NoError(t, err)
-		require.Equal(t, tool, p.tool)
+		require.Equal(t, equipment, p.equipment)
 	})
 }
 

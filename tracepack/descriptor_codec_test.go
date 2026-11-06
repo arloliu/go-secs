@@ -18,7 +18,7 @@ func descriptorMeta() *PackMeta {
 	role := SocketRolePassive
 
 	return &PackMeta{
-		ToolID:               "tool/A.1",
+		EquipmentID:          "tool/A.1",
 		Transport:            TransportHSMSSS,
 		CaptureMethod:        CaptureMethodRawStream,
 		Vantage:              VantageHost,
@@ -135,7 +135,7 @@ func TestDescriptorRoundTripMinimal(t *testing.T) {
 	t.Parallel()
 
 	m := &PackMeta{
-		ToolID:               "t",
+		EquipmentID:          "t",
 		Transport:            TransportHSMSSS,
 		CaptureMethod:        CaptureMethodDecodedMessage,
 		Recorder:             "r",
@@ -271,7 +271,7 @@ func TestDescriptorScope(t *testing.T) {
 		{"thinning stream 128", []tlv.Entry{thinningWith(tlv.U64Entry(tagThinningStream, 128), function, source)}},
 		{"thinning function 256", []tlv.Entry{thinningWith(stream, tlv.U64Entry(tagThinningFunction, 256), source)}},
 		{"thinning without source", []tlv.Entry{thinningWith(stream, function)}},
-		{"duplicate tool_id", []tlv.Entry{tlv.UTF8Entry(tagToolID, "again")}},
+		{"duplicate equipment_id", []tlv.Entry{tlv.UTF8Entry(tagEquipmentID, "again")}},
 	} {
 		extra := c.extra
 		refused = append(refused, struct {
@@ -289,7 +289,7 @@ func TestDescriptorScope(t *testing.T) {
 			return replaceDescriptorEntry(descriptorEntries(t), tagHSMSTimers, timers)
 		}})
 	}
-	for _, tag := range []uint16{tagToolID, tagRecorderInstanceID, tagCaptureOriginUTCNs, tagCaptureOriginMonoNs, tagClockStepToleranceNs, tagQualityEvaluated} {
+	for _, tag := range []uint16{tagEquipmentID, tagRecorderInstanceID, tagCaptureOriginUTCNs, tagCaptureOriginMonoNs, tagClockStepToleranceNs, tagQualityEvaluated} {
 		refused = append(refused, struct {
 			name    string
 			entries func(t *testing.T) []tlv.Entry

@@ -13,7 +13,7 @@ import (
 const (
 	headerFormatMajorOff = 8
 
-	metaToolIDTag             uint16 = 0x0002
+	metaEquipmentIDTag        uint16 = 0x0002
 	metaTransportTag          uint16 = 0x0003
 	metaClassifierTag         uint16 = 0x0008
 	metaCaptureOriginUTCNsTag uint16 = 0x000A
@@ -89,8 +89,8 @@ func bootstrapVectors() []Recipe {
 			})),
 		reject("bootstrap-entry-value", "pack metadata whose device_id is 2^63", RejectMetadataEntryList, nonconforming, []string{"FMT §5", "FMT §2", "CORPUS §8"},
 			appendEntry(tlv.U64Entry(metaDeviceIDTag, overLimitU64))),
-		reject("bootstrap-entry-repetition", "pack metadata holding tool_id twice", RejectMetadataEntryList, nonconforming, []string{"FMT §5"},
-			appendEntry(tlv.UTF8Entry(metaToolIDTag, corpusToolID))),
+		reject("bootstrap-entry-repetition", "pack metadata holding equipment_id twice", RejectMetadataEntryList, nonconforming, []string{"FMT §5"},
+			appendEntry(tlv.UTF8Entry(metaEquipmentIDTag, corpusEquipmentID))),
 		reject("bootstrap-entry-nested", "pack metadata holding a coverage entry whose nested list breaks framing", RejectMetadataEntryList, nonconforming, []string{"FMT §5"},
 			// The nested list is three bytes, shorter than an entry header.
 			appendEntry(tlv.Entry{Tag: metaCoverageTag, Type: tlv.TypeTLV, Value: []byte{0x02, 0x00, 0x04}})),
@@ -113,8 +113,8 @@ func bootstrapVectors() []Recipe {
 					})), nil
 				})
 			}),
-		reject("bootstrap-required-tag", "pack metadata without tool_id", RejectMetadataRequired, nonconforming, []string{"FMT §5"},
-			metaEdit(func(meta []byte) ([]byte, error) { return DropEntries(meta, metaToolIDTag) })),
+		reject("bootstrap-required-tag", "pack metadata without equipment_id", RejectMetadataRequired, nonconforming, []string{"FMT §5"},
+			metaEdit(func(meta []byte) ([]byte, error) { return DropEntries(meta, metaEquipmentIDTag) })),
 		reject("bootstrap-conditional-tag", "a capture-clock pack without capture_origin_utc_ns", RejectMetadataRequired, nonconforming, []string{"FMT §5", "SEM §4"},
 			func(seed string) ([]byte, error) {
 				meta := segmentMeta(seed)

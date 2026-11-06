@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newDirSeg returns a SegmentWriter of dirTestTool over a recorded DirSink in a new root, fsys.root,
+// newDirSeg returns a SegmentWriter of dirTestEquipment over a recorded DirSink in a new root, fsys.root,
 // its files counted by the returned countSink,
 // after appending a frame to its first segment.
 func newDirSeg(t testing.TB) (*SegmentWriter, *countSink, *recordFS) {
@@ -24,7 +24,7 @@ func newDirSeg(t testing.TB) (*SegmentWriter, *countSink, *recordFS) {
 	s, fsys := newRecordedDirSink(t, root)
 	sink := &countSink{SegmentSink: s}
 	opts := segOptions(sink)
-	opts.Capture.ToolID = dirTestTool
+	opts.Capture.EquipmentID = dirTestEquipment
 	w, err := NewSegmentWriter(t.Context(), opts)
 	require.NoError(t, err)
 	segFrame(t, w, time.Second)
@@ -151,7 +151,7 @@ func TestDirSinkClosedSegmentWriter(t *testing.T) {
 	requireDirSegFailed(t, w, fsys, err)
 
 	opts := segOptions(ds)
-	opts.Capture.ToolID = dirTestTool
+	opts.Capture.EquipmentID = dirTestEquipment
 	_, err = NewSegmentWriter(t.Context(), opts)
 	require.ErrorIs(t, err, fs.ErrClosed)
 	requireNotRefused(t, err)

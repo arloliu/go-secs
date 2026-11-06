@@ -19,7 +19,7 @@ import (
 // for FindTransactions a nil PackSource, a nil fn, a zero TxRange.CaptureID, a range not representable as int64 nanoseconds or empty,
 // hours of the range outside [MinTxHour, MaxTxHour], a negative field of TxRangeOptions or of its Lookup,
 // a last hour scheduled past MaxTxHour, or a nil reader, or a Reader or pack_id given twice, that the PackSource gives for one hour;
-// for NewReaderSource a nil reader, a Reader given twice, two readers of one pack_id, readers of several tool_ids,
+// for NewReaderSource a nil reader, a Reader given twice, two readers of one pack_id, readers of several equipment_ids,
 // an extract, or a reader whose period is empty or not inside one UTC hour.
 //
 // It also matches ErrInvalidArgument.

@@ -1,7 +1,7 @@
 # tracepack
 
 `github.com/arloliu/go-secs/tracepack` is the Go reference implementation of tracepack (`.tpk`):
-an immutable, compressed, self-indexed container for recorded SECS-II traffic between one tool and its host,
+an immutable, compressed, self-indexed container for recorded SECS-II traffic between one equipment and its host,
 HSMS control messages and transport lifecycle events included.
 
 ```sh
@@ -18,7 +18,7 @@ and [Compatibility](#compatibility) says what the v1 promise covers.
 ## Concepts
 
 - A **record** is one observation: a captured HSMS frame (a data or control record), a transport event, or an annotation.
-- A **capture** is one run of one recorder over one tool, named by its `capture_id`.
+- A **capture** is one run of one recorder over one device of one equipment, named by its `capture_id`.
   Its records are numbered by `seq`, which only grows within the capture.
 - A **pack** is one `.tpk` file: a header, pack metadata, compressed blocks of records, and a footer that indexes them.
   A pack is never modified once written.
@@ -37,8 +37,9 @@ and [Compatibility](#compatibility) says what the v1 promise covers.
   A `Writer` writes minor 0 for a pack holding neither, as for every pack before format 1.1;
   a pack of minor 1 holding neither is still read as minor 1, and `Merge` keeps its minor.
 - Format 1.2, `format_minor` 2, adds `recorder_instance_name`,
-  the human-readable name of the deployment `recorder_instance_id` identifies, which tracepack never interprets.
-  A `Writer` writes minor 2 exactly when the pack metadata carries it.
+  the name of the source that records the series `recorder_instance_id` identifies,
+  and `device`, the device of the equipment the capture records; tracepack interprets neither.
+  A `Writer` writes minor 2 exactly when the pack metadata carries either.
 
 ## Recording a capture
 
@@ -46,7 +47,7 @@ For a recorder, or a converter of logs:
 `CaptureDescriptor`, `SegmentWriter`, `Classifier`, `SegmentSink` and `NewDirSink`.
 
 A `CaptureDescriptor` holds the pack metadata the producer owns:
-the tool, the transport, how and where the capture was taken, the recorder's identity, with an optional name beside it, and the time source.
+the equipment and optionally its device, the transport, how and where the capture was taken, the recording series' identity, with an optional source name beside it, and the time source.
 `NewSegmentWriter` checks it with `CaptureDescriptor.Validate` and writes the capture's `start` boundary;
 from then on it writes the records you append as segments, through a `SegmentSink`:
 
@@ -205,7 +206,7 @@ For every pack but an extract it refuses a period not inside one UTC hour, and a
 `Append` refuses a transport-event or annotation record whose payload does not decode with `ErrInvalidRecord`;
 a payload holding a tag or an enum value this module does not know still decodes, and is stored as given.
 `Merge` copies such a record of another writer as it is, and `Verify` reports it as a writer defect.
-It writes `format_minor` 2 when the pack metadata carries `recorder_instance_name` (format 1.2),
+It writes `format_minor` 2 when the pack metadata carries `recorder_instance_name` or `device` (format 1.2),
 else 1 when it holds a feature of format 1.1, and 0 otherwise.
 `Close` writes the footer and trailer and returns a `Continuation`:
 `next, ok := cont.Next()` gives the seq the capture's next pack starts at,
@@ -220,7 +221,7 @@ the bus codec, in the subpackage `github.com/arloliu/go-secs/tracepack/bus`, and
 The module imports no NATS client; it encodes and checks what a message carries.
 
 - The producer assigns `capture_id`, `recorder_instance_id` and every `seq`; seq 2^63 − 1 is reserved for the consumer's close.
-- `EncodeDescriptor(meta)` encodes the producer-owned entries of the capture's pack metadata, its `thinning` entries and `recorder_instance_name` included, with no default applied.
+- `EncodeDescriptor(meta)` encodes the producer-owned entries of the capture's pack metadata, its `thinning` entries, `recorder_instance_name` and `device` included, with no default applied.
   A consumer before v0.8.0 refuses a descriptor carrying `recorder_instance_name`, so upgrade consumers and mergers before producers.
   Publish it in the `Tpk-Capture-Descriptor` header of the capture's `start`, in standard base64 with padding (`base64.StdEncoding`).
 - `bus.NewRecord(r)` and `bus.EncodeBody(&br)` encode one record as the body of layout 1: the 44-byte record header, then the payload.
@@ -356,7 +357,7 @@ For readers and troubleshooters working on local files:
   a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
   A pack of format minor 0 exports schema `tracepack-jsonl/1`, byte for byte as earlier versions wrote it,
   a pack of minor 1 `tracepack-jsonl/2`, which names the additions of format 1.1,
-  and any other pack `tracepack-jsonl/3`, which also names `recorder_instance_name`.
+  and any other pack `tracepack-jsonl/3`, which also names `recorder_instance_name` and `device`.
   A damaged pack exports the records of its validated blocks, and the returned `Result` reports what was lost exactly as `Iterate`'s does:
   a failed block, a block that disagrees with its F-2 entry, a crash gap, a coverage entry or an unfinalized pack makes it incomplete;
   a footer not used in a finalized pack whose walk accounts for every block adds only an entry to `FooterErrs`.
@@ -371,7 +372,7 @@ For readers and troubleshooters working on local files:
 
 ### A lookup over local files
 
-`NewReaderSource(readers)` gives `FindTransaction` a source over packs you opened, all of one tool.
+`NewReaderSource(readers)` gives `FindTransaction` a source over packs you opened, all of one equipment.
 It groups them by the UTC hour of their period, whatever their capture,
 and a lookup reads, for each hour it searches, every pack of that hour.
 
@@ -380,7 +381,7 @@ and a lookup reads, for each hour it searches, every pack of that hour.
   A segment and an archive holding the same records may both be given; their copies are compared and yielded once.
 - A pack of any role but `extract` is accepted, if its period is not empty and lies inside one UTC hour, the hour it is read for.
 - `NewReaderSource` refuses, with `ErrInvalidQuery`, a nil reader, a `Reader` given twice, two readers of one `pack_id`,
-  readers of more than one tool, an `extract`, and a pack whose period is empty or spans hours.
+  readers of more than one equipment, an `extract`, and a pack whose period is empty or spans hours.
 - The source never opens or closes the readers: keep them open until the lookups are done.
 
 ### Reading many packs
@@ -422,7 +423,7 @@ For the storage service:
 `Merge` and the key builders.
 
 - `SegmentKey` and `ArchiveKey` build the object keys of the storage specification §3,
-  and `EscapeToolID` spells a tool as a key does.
+  and `EscapeEquipmentID` spells an equipment_id as a key does.
 - `Merge(ctx, dst, inputs, opts)` writes one archive of a scope from the segments and archives you give it, of one capture and one UTC hour,
   with the `ScopeGeneration` and `PublisherEpoch` you set in `MergeOptions`, which it compares with no input's.
   Its `compacted_from` lists the inputs' own lineage and then every segment input, and its `supersedes` every archive input, in the order you give them.
@@ -438,7 +439,7 @@ For the storage service:
   An archive over its budget, or over a limit of the format its blocks reach, such as an F-3 entry list longer than the u32 `summary_len`, fails with `ErrMergeLimit`.
   Which packs a merge takes, and when a merged pack may be deleted, is yours to decide (the storage specification §4);
   publish the archive only after `Merge` returned nil.
-- `Merge` merges packs of format 1.2: it carries the inputs' redaction policy, their redaction entries, their `thinning` and their `recorder_instance_name`,
+- `Merge` merges packs of format 1.2: it carries the inputs' redaction policy, their redaction entries, their `thinning`, their `recorder_instance_name` and their `device`,
   and writes the largest `format_minor` of its inputs.
   Before it writes anything, it refuses with `ErrMergeInput` an input of a newer minor, a policy without both encryption tags,
   inputs carrying `redaction_policy` that differ in policy, `classifier` or `max_frame_len`, a masked input beside an unmasked one,

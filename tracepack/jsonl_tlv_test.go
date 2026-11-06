@@ -176,6 +176,7 @@ func jsonlEveryTagMeta() []byte {
 			tlv.UTF8Entry(0x0004, "x"),
 		}),
 		tlv.UTF8Entry(0x0034, "eqp/1"),
+		tlv.UTF8Entry(0x0035, "load port \"2\""),
 		tlv.Entry{Tag: 0x0040, Type: 9, Value: []byte("zz")},
 	)
 }
@@ -200,7 +201,7 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 		`"writer_start_utc_ns":"1791000000000000000",` +
 		`"pack_id":"00010203-0405-0607-0809-0a0b0c0d0e0f","capture_id":"abababab-abab-abab-abab-abababababab",` +
 		`"metadata":{` +
-		`"tool_id":"EQ-01","transport":"hsms-ss","capture_method":"log","vantage":"unknown(9)","recorder":"rec 1.0","writer":"",` +
+		`"equipment_id":"EQ-01","transport":"hsms-ss","capture_method":"log","vantage":"unknown(9)","recorder":"rec 1.0","writer":"",` +
 		`"classifier":["c/1","c/1"],"time_source":"capture-clock","capture_origin_utc_ns":"-1","capture_origin_mono_ns":"0",` +
 		`"source_tz":"Asia/Taipei","source_dialect":"secsgem/1","source_ref":["a.log","b.log"],"max_frame_len":["65536"],` +
 		`"period_start":"0","period_end":"3600000000000","lifecycle_coverage":"none","quality_evaluated":false,` +
@@ -222,6 +223,7 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 		`"siv":"/////////////////////w==","unknown":[{"tag":7,"value_type":2,"value":"Ag=="}]}],` +
 		`"thinning":[{"stream":"1","function":"3","source":"s","unknown":[{"tag":4,"value_type":6,"value":"eA=="}]}],` +
 		`"recorder_instance_name":"eqp/1",` +
+		`"device":"load port \"2\"",` +
 		`"unknown":[{"tag":20,"value_type":4,"value":"AQAAAAAAAAA="},{"tag":32769,"value_type":7,"value":"AQID"},` +
 		`{"tag":64,"value_type":9,"value":"eno="}]` +
 		"}}\n"
@@ -267,7 +269,7 @@ func TestJSONLHeaderLine_ZeroValuesBesideAbsentTags(t *testing.T) {
 	// Written by hand from the tracepack JSONL specification §3–§5.
 	want := `{"schema":"tracepack-jsonl/1","format_major":1,"format_minor":0,"flags":[],"writer_start_utc_ns":"0",` +
 		`"pack_id":"00000000-0000-0000-0000-000000000000","capture_id":"00000000-0000-0000-0000-000000000000",` +
-		`"metadata":{"tool_id":"","transport":"unknown","capture_method":"unknown","vantage":"unknown","recorder":"","writer":"",` +
+		`"metadata":{"equipment_id":"","transport":"unknown","capture_method":"unknown","vantage":"unknown","recorder":"","writer":"",` +
 		`"time_source":"unknown","period_start":"0","period_end":"0","lifecycle_coverage":"unknown","quality_evaluated":false,` +
 		`"pack_role":"unknown","compaction_level":0,"recorder_instance_id":"00000000-0000-0000-0000-000000000000",` +
 		`"hsms_timers":{},"seq_start":"0","scope_generation":"0"}}` + "\n"
@@ -314,7 +316,7 @@ func TestJSONLRender_UnknownAndZeroEnums(t *testing.T) {
 		{
 			"pack metadata, unknown values", jsonlPackMetadataRegistry,
 			meta(9, policy(2), tlv.U64Entry(1, 1), tlv.U64Entry(4, 4), tlv.U64Entry(5, 5), tlv.U64Entry(6, 6), tlv.U64Entry(7, 7), tlv.U64Entry(8, 8)),
-			`{"tool_id":"t","transport":"unknown(9)","capture_method":"unknown(9)","vantage":"host","recorder":"r","writer":"w",` +
+			`{"equipment_id":"t","transport":"unknown(9)","capture_method":"unknown(9)","vantage":"host","recorder":"r","writer":"w",` +
 				`"time_source":"unknown(9)","period_start":"0","period_end":"1","lifecycle_coverage":"unknown(9)","quality_evaluated":true,` +
 				`"pack_role":"segment","compaction_level":0,"recorder_instance_id":"01010101-0101-0101-0101-010101010101",` +
 				`"equipment_connect_mode":"unknown(9)","hsms_timers":{"T1":"1","T4":"4","T5":"5","T6":"6","T7":"7","T8":"8"},` +
@@ -322,7 +324,7 @@ func TestJSONLRender_UnknownAndZeroEnums(t *testing.T) {
 		},
 		{
 			"pack metadata, zero values", jsonlPackMetadataRegistry, meta(0, policy(0)),
-			`{"tool_id":"t","transport":"unknown","capture_method":"unknown","vantage":"host","recorder":"r","writer":"w",` +
+			`{"equipment_id":"t","transport":"unknown","capture_method":"unknown","vantage":"host","recorder":"r","writer":"w",` +
 				`"time_source":"unknown","period_start":"0","period_end":"1","lifecycle_coverage":"unknown","quality_evaluated":true,` +
 				`"pack_role":"segment","compaction_level":0,"recorder_instance_id":"01010101-0101-0101-0101-010101010101",` +
 				`"equipment_connect_mode":"unknown","hsms_timers":{},` +
@@ -882,7 +884,7 @@ func TestJSONLRegistriesPinned(t *testing.T) {
 	)
 	registries := []jsonlPinRegistry{
 		{"pack metadata", jsonlPackMetadataRegistry, []jsonlPinRow{
-			{0x0002, "tool_id", utf8, false, true, nil, nil},
+			{0x0002, "equipment_id", utf8, false, true, nil, nil},
 			{0x0003, "transport", u8, false, true, pinTransport, nil},
 			{0x0004, "capture_method", u8, false, true, pinCaptureMethod, nil},
 			{0x0005, "vantage", u8, false, true, pinVantage, nil},
