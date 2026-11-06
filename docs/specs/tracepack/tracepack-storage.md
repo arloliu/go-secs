@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-11-06) — v2.43, tracepack format 1.2.
+Status: current (2026-11-06) — v2.44, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for mergers, recorders, log converters and the service that deletes packs.
 
@@ -467,20 +467,22 @@ A source dialect lacking some of these is still convertible, with the effects st
 5. **Time**: parse in `source_tz`, DST rule per [SEM §4]; unparseable → previous entry's time + `ordering-uncertain`.
 6. **Transport lines**: [SEM §5]; anything else → `unrecognised-line` annotation with the raw line.
 7. **Nothing dropped**: every input byte range is covered by exactly one record or annotation of exactly one capture the run writes.
-   An input that holds the traffic of several pieces of equipment yields one capture per `equipment_id`, each holding only its own entries and lines,
-   and no capture repeats another's bytes as annotations.
+   An input that holds the traffic of several recording series yields one capture per series (G5-305),
+   that is, per `equipment_id` and, where the converter attributes entries to devices, per `device`,
+   a series whose device the converter cannot name carrying no `device`;
+   each capture holds only its own entries and lines, and no capture repeats another's bytes as annotations.
    Entries and lines that belong to no piece of equipment, such as the logging program's own lines, form one more capture when there are any,
    whose `equipment_id` is the logging program's own identity as configured in the converter, distinct from every other `equipment_id`.
    The converter reports counts per `decode_status` for each capture.
 8. **Epoch**: increments on each explicit connect / accept line;
    a dialect without them yields `epoch = 0` + `correlation-incomplete` ([FMT I-7]).
-   `capture_id` is one per `equipment_id` per source file set per logical conversion ([FMT I-7]); `seq` is capture-scoped ([FMT I-12]), counting across all the capture's hours,
+   `capture_id` is one per recording series per source file set per logical conversion ([FMT I-7]); `seq` is capture-scoped ([FMT I-12]), counting across all the capture's hours,
    and the capture-boundary records that start and stop a capture appear once per capture, never once per pack or hour.
-   A converter MAY reuse a `capture_id` for a reproducible re-run only when the source contents, their order, the interpretation inputs ([FMT §5] `equipment_id` and its attribution, dialect, time zone and every other setting),
+   A converter MAY reuse a `capture_id` for a reproducible re-run only when the source contents, their order, the interpretation inputs ([FMT §5] `equipment_id`, `device` and their attribution, dialect, time zone and every other setting),
    the converter's, parser's and classifier's versions, the capture-level metadata, the seq assignment and the record bytes are all unchanged (Reproducible output, below);
    a change to any of them needs a new `capture_id`.
    A converter that reuses its `capture_id`s derives each deterministically from at least a digest of each source file's contents, in the source order,
-   the `equipment_id` and its attribution, the dialect, the time zone, every other interpretation setting, and the converter's, parser's and classifier's versions;
+   the `equipment_id`, the `device` and their attribution, the dialect, the time zone, every other interpretation setting, and the converter's, parser's and classifier's versions;
    a source file's name alone never stands for its contents.
    The source file requirements below apply to every run.
    Every pack of every capture a run writes lists the run's source files as the same `source_ref` entries in the same order ([FMT §5]),
@@ -512,7 +514,7 @@ A conversion whose inputs change writes a new capture and is a new import; nothi
 
 The following cases are tests of the Go module, not vectors of the corpus of [FMT §16] (G5-199):
 - converter failures (§7);
-- a log holding the traffic of two pieces of equipment and lines of neither, converted into three captures whose packs list the same `source_ref` entries and whose records and annotations together cover every input byte exactly once (§7);
+- a log holding the traffic of two recording series and lines of neither, converted into three captures whose packs list the same `source_ref` entries and whose records and annotations together cover every input byte exactly once (§7);
 - a merge of several segments into an archive, including overlapping inputs, an hour change forcing two segments, and a late segment merged again with the archive (§4);
 - two records with the same (`capture_id`, `seq`) but different bytes: readers report a `conflict`, and a merge fails and publishes nothing ([FMT I-12], §4);
 - overlapping blocks with the same seq range but different codec or compressed bytes, and a forced `body_crc` collision (§4);

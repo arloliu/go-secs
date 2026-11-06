@@ -1,6 +1,6 @@
 # tracepack — conformance corpus
 
-Status: current (2026-11-06) — v2.43, tracepack format 1.2, schema `tracepack-corpus/5` (fixed, G5-280).
+Status: current (2026-11-06) — v2.44, tracepack format 1.2, schema `tracepack-corpus/5` (fixed, G5-280).
 Normative.
 [FMT §16] states what the corpus holds; this document defines its files, their schemas and the vector catalogue.
 The format is documented for any reader;
@@ -56,7 +56,7 @@ so goldens written under different definitions are told apart ([FMT §14]).
 | Key | Type | Present | Value |
 |---|---|---|---|
 | `corpus` | string | always | `"tracepack-corpus/5"`, the schema of every file of this document (§10) |
-| `spec_version` | string | always | the spec version the goldens follow: `"2.37"` |
+| `spec_version` | string | always | the spec version the goldens follow: `"2.43"` |
 | `format_version` | string | always | `"1.2"`, the format revision the corpus targets ([FMT §4], [FMT §14]); a compatibility or rejection vector may hold a pack of another version, such as `basic-future-minor` (minor 3) or the bootstrap vector of an unsupported version |
 | `zstd_encoder` | string | always | the identity and version of the zstd encoder that produced the encoder-made zstd blocks and footers of the corpus, as its generator records it (§6.1) |
 | `vectors` | array of objects | always | one per vector, ascending by `id` |
@@ -582,6 +582,7 @@ Adding a vector or a case keeps the value; changing what an existing file states
   and `basic-new-tags-segment-1-1` and `basic-recorder-instance-name` are added (§9).
   Every other vector keeps its files byte for byte.
   Spec v2.43 rewrote it in place, keeping the value, in the one-time pre-v1 reset of G5-303:
+  the manifest's `spec_version` becomes `"2.43"`, so the rewritten goldens are told apart from those of v2.37;
   every `export.jsonl` names `equipment_id` where it named `tool_id`, and two manifest titles follow;
   `basic-future-minor` moves to tag 0x0036, since format 1.2 now assigns 0x0035 to `device` (G5-304), so its `pack.tpk` and `export.jsonl` change;
   and `basic-new-tags-segment-1-1-device` and `basic-device` are added (§9).

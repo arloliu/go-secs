@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-11-06) — spec v2.43.
+Status: current (2026-11-06) — spec v2.44.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1924,3 +1924,24 @@ Review rounds:
 | plan review 1 | the shared TLV registry was missing from the inventory; tag 0x0035 was already the corpus's unknown-tag sentinel; the in-place addition of `device` needed its own exception and an older merger drops it; regenerating goldens could bless unrelated changes; two exported names and compound identifiers escaped the rename search; rejection and ownership tests were missing | the registry row added; the sentinel moved to 0x0036; G5-303 bounds the reset and raises the merger version; an independent baseline comparison; `EscapeEquipmentID`, `bus.ParseEquipmentToken` and a substring search; the tests listed |
 | plan review 2 | the manifest's title renames and new entries conflicted with the strict comparison; the zero-match search conflicted with the retained CHANGELOG history | both allowed explicitly, reviewed by hand |
 | plan review 3 | none | ready |
+
+## Changes v2.43 → v2.44: corrections from the deep review of v0.15.0 (2026-11-06)
+
+Source: a deep external review of the released tracepack v0.15.0, at the owner's request.
+No new decision: the changes apply G5-303..G5-305 where v2.43 left text behind.
+Format 1.2, the JSONL schemas and every corpus pack and export are unchanged; the corpus manifest's `spec_version` changes.
+Implemented by tracepack v0.15.1.
+
+Summary:
+- [STO §7] items 7 and 8: a log converter writes one capture per recording series, by `equipment_id` and, where it attributes entries to devices, `device` (G5-305), where it wrote one per `equipment_id`;
+  a reproducible `capture_id` also derives from `device`. `tracepack-go.md` §6 follows.
+- [CORPUS §3]: the manifest's `spec_version` is `"2.43"`, so the goldens rewritten by the reset are told apart from those of v2.37.
+- [FMT §14]: v2.37 added `recorder_instance_name` only; `device` is stated as v2.43's in-place addition, unknown to readers before tracepack v0.15.0.
+- [GO] §3: the export of a format 1.0 pack is unchanged from v2.43 on, not across the reset.
+
+Review rounds:
+
+| Round | Finding | Resolution |
+|---|---|---|
+| deep spec review | converter partitioning by `equipment_id` merged two series of one equipment into one capture; the corpus kept spec version 2.37 after the reset; export stability and the version of `device` were misstated | one capture per series; `spec_version` 2.43; the wording scoped to v2.43 |
+| deep code review | no production defect; the mixed-minor `device` merge test passed on an earlier differing tag; missing negative cases | the test isolates `device`; absent-versus-empty merges, the `FieldError` of a malformed `device` and a descriptor with invalid UTF-8 tested |

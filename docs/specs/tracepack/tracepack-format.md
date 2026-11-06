@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-11-06) — v2.43, tracepack format 1.2.
+Status: current (2026-11-06) — v2.44, tracepack format 1.2.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -885,8 +885,9 @@ The object size is known before reading (file system stat, object listing, the s
   and it lets a pack whose role is not `extract` hold masked records ([SEM §8], [STO §4]).
   Each addition is known only in a pack of format 1.1 or later (§5); a reader reads a pack of a newer minor with the newest registry it knows.
 - Spec v2.37 defines **format 1.2**: it changes no byte of formats 1.0 and 1.1 and no export of their packs (§15).
-  It adds the pack metadata tags `recorder_instance_name` (§5, G5-270) and `device` (§5, G5-304), known only in a pack of format 1.2 or later.
-  Spec v2.43 added `device` to format 1.2 in place, in the one-time pre-v1 reset of G5-303; the minor rules of this section bind again from v2.43 on.
+  It adds the pack metadata tag `recorder_instance_name` (§5, G5-270), known only in a pack of format 1.2 or later.
+- Spec v2.43 adds the pack metadata tag `device` (§5, G5-304) to format 1.2 in place, in the one-time pre-v1 reset of G5-303,
+  so a reader of format 1.2 before tracepack v0.15.0 treats it as an unknown tag; the minor rules of this section bind again from v2.43 on.
 - A writer writes `format_minor` 2 exactly when the pack holds a **format 1.2 feature**, a `recorder_instance_name` or `device` entry (G5-270, G5-304);
   otherwise it writes 1 exactly when the pack holds a **format 1.1 feature**, and 0 otherwise.
   The format 1.1 features are: a record carrying `quality.redacted`, or a `redaction` entry, in a pack whose `pack_role` is not `extract`;

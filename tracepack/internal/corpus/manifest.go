@@ -13,7 +13,7 @@ const (
 	// CorpusSchema names the schemas of every file of the corpus.
 	CorpusSchema = "tracepack-corpus/5"
 	// SpecVersion is the spec version the goldens follow.
-	SpecVersion = "2.37"
+	SpecVersion = "2.43"
 	// FormatVersion is the format revision the corpus targets;
 	// a compatibility or rejection vector may hold a pack of another version.
 	FormatVersion = "1.2"

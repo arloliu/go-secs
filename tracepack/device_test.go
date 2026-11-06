@@ -46,6 +46,9 @@ func TestDeviceByMinor(t *testing.T) {
 			continue
 		}
 		require.ErrorIs(t, err, ErrCorrupt, "%s at minor 2", name)
+		var fe *FieldError
+		require.ErrorAs(t, err, &fe, "%s at minor 2", name)
+		assert.Equal(t, "device", fe.Field, "%s at minor 2", name)
 	}
 
 	// The export names the tag only under the schema of its minor.
@@ -107,14 +110,16 @@ func TestDeviceFormatMinor(t *testing.T) {
 
 // A merge carries device as a capture-level tag:
 // equal devices merge into a format 1.2 archive that carries it, and so do two inputs without one;
-// a different device, a present device beside an absent one, and a minor-1 input whose 0x0035 is an unknown entry
-// are refused whatever the order of the inputs.
+// a different device, a present device beside an absent one, an absent one beside a present empty one,
+// and a minor-1 input whose 0x0035 is an unknown entry are refused whatever the order of the inputs.
+// The inputs carry no recorder_instance_name, so device is the only capture-level tag that can differ.
 func TestMergeDevice(t *testing.T) {
 	t.Parallel()
 
 	with := func(d *string) func(m *PackMeta) {
 		return func(m *PackMeta) {
 			captureMeta(m)
+			m.RecorderInstanceName = nil
 			m.Device = d
 		}
 	}
@@ -146,8 +151,11 @@ func TestMergeDevice(t *testing.T) {
 			requireMergeRefused(t, inputs, mergeOpts(), "capture-level tag device differs", ErrMergeInput)
 		}
 	}
+	for _, inputs := range [][]MergeInput{inputsOf(noneA, empty), inputsOf(empty, noneA)} {
+		requireMergeRefused(t, inputs, mergeOpts(), "capture-level tag device differs", ErrMergeInput)
+	}
 	for _, inputs := range [][]MergeInput{inputsOf(a, minor1), inputsOf(minor1, a)} {
-		requireMergeUnfinalized(t, inputs, mergeOpts(), "differs", ErrMergeInput)
+		requireMergeUnfinalized(t, inputs, mergeOpts(), "capture-level tag device differs", ErrMergeInput)
 	}
 }
 
@@ -180,4 +188,16 @@ func TestDescriptorDevice(t *testing.T) {
 	require.ErrorAs(t, err, &fe)
 	assert.Equal(t, "device", fe.Field)
 	assert.Nil(t, b)
+}
+
+// A descriptor whose device is not valid UTF-8 is refused before a segment is written, naming device.
+func TestCaptureDescriptorInvalidDevice(t *testing.T) {
+	t.Parallel()
+
+	d := fullDescriptor()
+	d.Device = new("\xff")
+	err := d.Validate()
+	var fe *FieldError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, "device", fe.Field)
 }
