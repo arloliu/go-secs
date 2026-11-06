@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-11-01)
-Implements tracepack v2.43 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.44 (format 1.2): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -573,7 +573,7 @@ The query service, its catalog database and the live-tail interface are designed
   `(*Reader).Verify(ctx) (VerifyReport, error)` gives the same report for a Reader already open, with its `ReaderOptions`, and leaves it usable;
   `Verify` is `Open` followed by it (G5-298).
 - `ExportJSONL(ctx, r *Reader, w io.Writer) (Result, error)`: writes the canonical export of the pack `r` reads ([FMT §15], [JSONL]), a function of package `tracepack` (G5-168),
-  schema `tracepack-jsonl/1` for a pack of minor 0, so every format 1.0 export is unchanged, `tracepack-jsonl/2` for minor 1, and `tracepack-jsonl/3` otherwise ([JSONL §5]).
+  schema `tracepack-jsonl/1` for a pack of minor 0, so every format 1.0 export is unchanged from v2.43 (tracepack v0.15.0) on, `tracepack-jsonl/2` for minor 1, and `tracepack-jsonl/3` otherwise ([JSONL §5]).
   It exports the records `r.Iterate(ctx, Query{Payloads: true}, …)` yields, in the same order, and returns the `Result` that call returns:
   open defects, the `coverage` entries that intersect the query, the crash gaps ([SEM §7.4] Crash gaps), and every failed block and every block or footer value found disagreeing with its records ([SEM §7.4]) in `Incomplete`, whose records are exported;
   `FooterErrs` as `Iterate` sets it, a footer error alone not making the result incomplete.
@@ -739,7 +739,7 @@ and a reply recorded before its primary is reported by transaction matching as a
   `Build` rejects W on an even function, which the converter records as `build-rejected`.
 - `source_dialect` records the EAP dialect and the parser mode, `sml.Parse` or `sml.ParseStrict`.
 - Input assumptions and the dialect are confirmed against the pilot's EAP sample (G3-20, R3-6).
-- An EAP log holds the traffic of several pieces of equipment: the converter writes one capture per `equipment_id`,
+- An EAP log holds the traffic of several recording series: the converter writes one capture per series, by `equipment_id` and, where it attributes entries to devices, `device`,
   and one more for the lines of no piece of equipment, such as the EAP's own, whose `equipment_id` is the EAP's identity as configured in the converter ([STO §7] items 7 and 8).
 
 ## 7. Reference CLI (`tracepack/cmd/tracepack`)

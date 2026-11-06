@@ -5,6 +5,20 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-06
+
+Corrections from a deep review of v0.15.0: spec v2.44, format 1.2.
+No API or behavior changes; packs and JSONL exports are byte-identical to v0.15.0's.
+
+### Changed
+
+- The storage specification's log converter writes one capture per recording series,
+  by `equipment_id` and, where it attributes entries to devices, `device` (G5-305).
+- Corpus: the manifest's `spec_version` is `"2.43"`, identifying the goldens rewritten by the v0.15.0 reset.
+- Tests: the mixed-minor `device` merge test now exercises `device` alone;
+  merges of an absent beside a present empty `device`, the `FieldError` of a malformed one,
+  and a descriptor whose `device` is invalid UTF-8 are covered.
+
 ## [0.15.0] - 2026-11-06
 
 This release renames tool to equipment and adds `device` (G5-303, G5-304, G5-305): spec v2.43, format 1.2.
